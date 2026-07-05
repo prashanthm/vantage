@@ -15,6 +15,16 @@ A vantage point is a position that lets you see everything at once — which is 
 the product's edge: wash sales, exposure overlap, and allocation drift are invisible
 inside any single account and only appear when every account is viewed together.
 
+## Information architecture (v2)
+
+No more single scroll: a persistent left sidebar routes between dedicated views
+(hash-routed, deep-linkable — `#/overview`, `#/tax`, `#/charts`, …), following the
+standard fintech dashboard pattern (one job per screen, global account scope pinned
+in the sidebar):
+
+- **Portfolio**: Overview · Holdings · Tax Center · Recommendations
+- **Intelligence**: Market Intel · Options Intel · AI Charts
+
 ## Key aspects (industry standards)
 
 - **Accounts rail** — 4 mock linked accounts (taxable, Roth IRA, 401(k), robo) with an
@@ -31,6 +41,14 @@ inside any single account and only appear when every account is viewed together.
   overlap consolidation, contribute-to-rebalance, cash drag.
 - **Market intelligence** — ticker strip, AI market summary per symbol, AI picks,
   pattern-signal scanner (active/past), sector heatmap with drill-in analysis modal.
+- **Options Intelligence** — IV-rank/expected-move/put-call context tiles, income
+  ideas screened against your actual holdings and cash per account (covered calls,
+  cash-secured puts, eligibility and approval-level caveats), unusual-flow feed,
+  and TLH cross-checks (assignment can wash a planned harvest).
+- **AI Charts** — full-screen seeded candlestick chart (`src/ohlc.js`) with volume,
+  AI buy/sell/note markers, support/resistance levels, your avg-cost overlay,
+  crosshair tooltip, timeframes, and a portfolio-aware AI recommendation panel
+  (e.g. NVDA: "Trim after Aug 15" — the lot's long-term date).
 - **Notifications center** — unified alert types with read state and per-type prefs.
 - **Vantage AI chat** — canned portfolio-aware responses (demo).
 - **Settings** — thresholds, tax rate, default view; persisted to `localStorage`.

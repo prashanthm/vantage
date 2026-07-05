@@ -203,3 +203,47 @@ body {
 .vg-linkbtn { border: 0; background: none; color: var(--color-primary); cursor: pointer; font-family: var(--font-family-base); font-size: 13px; padding: 0; }
 .vg-toggle { display: flex; align-items: center; gap: 10px; font-size: 13.5px; padding: 8px 0; }
 .vg-toggle input { accent-color: var(--color-primary); width: 16px; height: 16px; }
+
+/* ================= v2: sidebar nav + views ================= */
+.vg-main { grid-template-columns: 248px minmax(0, 1fr); }
+.vg-side .vg-card + .vg-card { margin-top: 16px; }
+
+.vg-navitem {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  border: 0; background: none; cursor: pointer; border-radius: 9px;
+  padding: 9px 10px; font-family: var(--font-family-base); font-size: 14px;
+  color: var(--color-grey);
+}
+.vg-navitem .ic { width: 20px; text-align: center; }
+.vg-navitem:hover { background: var(--color-light); color: var(--color-dark); }
+.vg-navitem.sel { background: var(--color-accent); color: var(--color-primary); font-weight: 600; }
+.vg-navdot { width: 7px; height: 7px; border-radius: 99px; background: var(--vg-success-deep); margin-left: auto; }
+
+/* ================= charts view ================= */
+.vg-chartgrid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+@media (max-width: 1100px) { .vg-chartgrid { grid-template-columns: 1fr; } }
+.vg-chartgrid > div:last-child > .vg-card + .vg-card { margin-top: 14px; }
+
+.vg-chartwrap { position: relative; }
+.vg-charttip {
+  position: absolute; top: 6px; transform: translateX(-50%);
+  background: #fff; border: 1px solid var(--color-border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(1, 8, 27, 0.12);
+  padding: 6px 10px; font-size: 12px; white-space: nowrap; pointer-events: none; z-index: 5;
+}
+.vg-charttip .mk { color: var(--color-primary); font-weight: 600; margin-top: 2px; white-space: normal; max-width: 260px; }
+
+.vg-mk-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: -1px; }
+.vg-markerlist { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
+.vg-reccard { border-left: 4px solid var(--color-primary); }
+.vg-recaction { font-size: 16px; font-weight: 700; color: var(--color-primary); }
+
+/* ================= options view ================= */
+.vg-ivgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.vg-ivtile {
+  background: #fff; border: 1px solid var(--color-border); border-radius: 12px;
+  padding: 14px; text-align: left; cursor: pointer; font-family: var(--font-family-base);
+  color: var(--color-dark); font-size: 14px;
+}
+.vg-ivtile:hover { border-color: var(--color-primary); }
