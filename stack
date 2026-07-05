@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+# Vantage stack control — sentinel-style start/stop for the whole stack.
+#
+#   ./stack setup            one-time: venvs for server/ + mcp/ (+ checks mira)
+#   ./stack start [--live]   start api (:8641) + mcp (:8640) + spa (:8642) + mira (:8080)
+#   ./stack stop             stop everything listening on the stack ports
+#   ./stack status           pids + health of all four services
+#   ./stack logs [name]      tail logs (api|mcp|spa|mira; default all)
+#
+# --live uses the delayed Stooq quote feed instead of fixture quotes.
+# MIRA_DIR overrides where Mira lives (default ~/personal/mira); if missing,
+# the stack runs without AI (the SPA degrades to canned chat by design).
+set -euo pipefail
+cd "$(dirname "$0")"
+
+LOG_DIR=logs
+MIRA_DIR="${MIRA_DIR:-$HOME/personal/mira}"
+API_PORT=8641 MCP_PORT=8640 SPA_PORT=8642 MIRA_PORT=8080
+mkdir -p "$LOG_DIR"
+
+port_of() {  # port_of <name>
+  case "$1" in
+    api) echo "$API_PORT" ;; mcp) echo "$MCP_PORT" ;;
+    spa) echo "$SPA_PORT" ;; mira) echo "$MIRA_PORT" ;;
+  esac
+}
+
+pid_on() {  # pid_on <port> -> first pid listening, or empty
+  { lsof -ti "tcp:$1" -sTCP:LISTEN 2>/dev/null || true; } | head -1
+}
+
+start_one() {  # start_one <name> <workdir> <cmd...>
+  local name=$1 dir=$2; shift 2
+  local port; port=$(port_of "$name")
+  if [ -n "$(pid_on "$port")" ]; then
+    echo "  $name: already running (pid $(pid_on "$port") on :$port)"
+    return
+  fi
+  ( cd "$dir" && exec "$@" >> "$OLDPWD/$LOG_DIR/$name.log" 2>&1 ) &
+  sleep 0.3
+  echo "  $name: starting on :$port"
+}
+
+stop_one() {
+  local name=$1 port pids
+  port=$(port_of "$name")
+  pids=$(lsof -ti "tcp:$port" -sTCP:LISTEN 2>/dev/null || true)
+  if [ -n "$pids" ]; then
+    echo "$pids" | xargs kill 2>/dev/null || true
+    echo "  $name: stopped (:$port)"
+  else
+    echo "  $name: not running"
+  fi
+}
+
+probe() { curl -sf --max-time 2 "$1" > /dev/null 2>&1 && echo ok || echo down; }
+
+cmd_setup() {
+  echo "== server (engine + REST)"; make -C server setup
+  echo "== mcp (AI tool surface)";  make -C mcp setup
+  if [ -x "$MIRA_DIR/.venv/bin/python" ]; then
+    echo "== mira: found at $MIRA_DIR"
+  else
+    echo "== mira: NOT set up at $MIRA_DIR (run 'make setup' there, or set MIRA_DIR)"
+  fi
+  echo "Done. ./stack start"
+}
+
+cmd_start() {
+  local quotes="fixture"
+  [ "${1:-}" = "--live" ] && quotes="stooq"
+  echo "starting vantage stack (quotes: $quotes)..."
+  start_one api  server env VANTAGE_QUOTES="$quotes" .venv/bin/python -m uvicorn vantage_server.api:app --host 127.0.0.1 --port "$API_PORT"
+  start_one mcp  mcp    env VANTAGE_QUOTES="$quotes" .venv/bin/python -m vantage_mcp.server
+  start_one spa  .      python3 -m http.server "$SPA_PORT" --bind 127.0.0.1
+  if [ -x "$MIRA_DIR/.venv/bin/python" ]; then
+    start_one mira "$MIRA_DIR" env MCP_BASE_URL="http://127.0.0.1:$MCP_PORT/mcp" "$MIRA_DIR/.venv/bin/python" -m mira --port "$MIRA_PORT"
+  else
+    echo "  mira: skipped (not found at $MIRA_DIR — SPA falls back to canned chat)"
+  fi
+  sleep 3
+  cmd_status
+  echo ""
+  echo "open http://localhost:$SPA_PORT"
+}
+
+cmd_stop() {
+  echo "stopping vantage stack..."
+  for name in mira spa mcp api; do stop_one "$name"; done
+}
+
+cmd_status() {
+  local pid
+  printf "  %-5s %-8s %-6s %s\n" NAME PID HEALTH URL
+  pid=$(pid_on "$API_PORT");  printf "  %-5s %-8s %-6s %s\n" api  "${pid:--}" "$(probe "http://127.0.0.1:$API_PORT/api/health")" "http://127.0.0.1:$API_PORT/api/*"
+  pid=$(pid_on "$MCP_PORT");  printf "  %-5s %-8s %-6s %s\n" mcp  "${pid:--}" "$([ -n "$pid" ] && echo ok || echo down)" "http://127.0.0.1:$MCP_PORT/mcp"
+  pid=$(pid_on "$SPA_PORT");  printf "  %-5s %-8s %-6s %s\n" spa  "${pid:--}" "$(probe "http://127.0.0.1:$SPA_PORT/")" "http://localhost:$SPA_PORT"
+  pid=$(pid_on "$MIRA_PORT"); printf "  %-5s %-8s %-6s %s\n" mira "${pid:--}" "$(probe "http://127.0.0.1:$MIRA_PORT/health")" "http://127.0.0.1:$MIRA_PORT/turn"
+}
+
+cmd_logs() {
+  local which=${1:-}
+  if [ -n "$which" ]; then tail -f "$LOG_DIR/$which.log"; else tail -f "$LOG_DIR"/*.log; fi
+}
+
+case "${1:-}" in
+  setup)  cmd_setup ;;
+  start)  shift; cmd_start "${1:-}" ;;
+  stop)   cmd_stop ;;
+  status) cmd_status ;;
+  logs)   shift; cmd_logs "${1:-}" ;;
+  *) sed -n '2,12p' "$0"; exit 1 ;;
+esac

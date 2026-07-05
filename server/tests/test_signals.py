@@ -3,16 +3,13 @@ bands, unquoted), seed loading (statuses may never be authored), the REST
 contract, and the MCP round-trip."""
 from __future__ import annotations
 
-import asyncio
 import json
 
 import pytest
 from fastapi.testclient import TestClient
 
-from mcp.shared.memory import create_connected_server_and_client_session
 
 from vantage_server.api import create_app
-from vantage_server.mcp_server import create_mcp
 from vantage_server.models import Quote
 from vantage_server.signals import Signal, grade_signal, grade_signals, load_signals
 from vantage_server.store import StoreError
@@ -181,41 +178,3 @@ def test_api_signals_grades_when_quotes_exist(tmp_path, data_dir):
     assert meta["status"] == "open"
     assert meta["progress_grade"] == "F"
     assert by_sym["SMCI"]["status"] == "unquoted"
-
-
-# ---------------------------------------------------------------------- MCP
-
-def run_with_client(mcp, coro_fn):
-    async def runner():
-        async with create_connected_server_and_client_session(
-            mcp._mcp_server
-        ) as client:
-            return await coro_fn(client)
-
-    return asyncio.run(runner())
-
-
-def tool_payload(result) -> dict:
-    assert not result.isError, result.content
-    if result.structuredContent:
-        return result.structuredContent
-    return json.loads(result.content[0].text)
-
-
-def test_mcp_signals_round_trip(data_dir):
-    mcp = create_mcp(data_dir)
-
-    async def all_signals(client):
-        return await client.call_tool("vantage.signals", {})
-
-    payload = tool_payload(run_with_client(mcp, all_signals))
-    assert payload["provenance"] == {"source_type": "vantage",
-                                     "source_id": f"{data_dir}#signals"}
-    assert len(payload["signals"]) == 8
-
-    async def filtered(client):
-        return await client.call_tool("vantage.signals", {"symbol": "pltr"})
-
-    payload = tool_payload(run_with_client(mcp, filtered))
-    assert [s["signal"]["sym"] for s in payload["signals"]] == ["PLTR"]
-    assert payload["signals"][0]["status"] == "unquoted"

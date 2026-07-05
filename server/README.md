@@ -17,7 +17,7 @@ fund-movement code path exists anywhere in the package.
 
 | Port | What | Where |
 |------|------|-------|
-| 8640 | MCP tool server (streamable HTTP, path `/mcp`) | `make run-mcp` |
+| 8640 | MCP tool server (streamable HTTP, path `/mcp`) | `make run  # (in ../mcp)` |
 | 8641 | REST API for the SPA | `make run-api` |
 | 8642 | Vantage SPA (static, repo root) | `python3 -m http.server 8642` |
 | 8080 | Mira (external AI system, MCP client) | not in this repo |
@@ -28,9 +28,9 @@ fund-movement code path exists anywhere in the package.
 make setup        # create server/.venv (Python 3.12, uv if available) + editable install
 make test         # pytest: engine units, parity goldens, API contract, MCP round-trips
 make run-api      # uvicorn on http://127.0.0.1:8641  (GET /api/health to check)
-make run-mcp      # MCP streamable HTTP on http://127.0.0.1:8640/mcp
+make run  # (in ../mcp)      # MCP streamable HTTP on http://127.0.0.1:8640/mcp
 make run-api-live # same API with live Stooq quotes overlaid (VANTAGE_QUOTES=stooq)
-make run-mcp-live # same MCP server with live Stooq quotes
+make run  # (in ../mcp)-live # same MCP server with live Stooq quotes
 ```
 
 ## Data
@@ -89,7 +89,7 @@ Semantics:
 
 ## Live quotes
 
-Set `VANTAGE_QUOTES=stooq` (or use `make run-api-live` / `make run-mcp-live`)
+Set `VANTAGE_QUOTES=stooq` (or use `make run-api-live` / `make run  # (in ../mcp)-live`)
 to overlay free delayed prices from stooq.com (stdlib urllib, no credentials,
 symbols mapped to Stooq's lowercase `.us` form, e.g. `spy.us`).
 
@@ -138,3 +138,8 @@ wins; the differences and resolutions are documented at the top of
   `src/` depends on this server.
 - Mira connects as an MCP client to `http://127.0.0.1:8640/mcp` and gets the
   same numbers the SPA renders, from the same engine.
+
+## MCP tool surface
+
+Moved to its own project: [`../mcp`](../mcp/README.md) (`make -C ../mcp run`).
+Prefer `../stack start` to run the whole stack.

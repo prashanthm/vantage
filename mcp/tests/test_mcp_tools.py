@@ -10,7 +10,7 @@ import pytest
 
 from mcp.shared.memory import create_connected_server_and_client_session
 
-from vantage_server.mcp_server import create_mcp
+from vantage_mcp.server import create_mcp
 
 EXPECTED_TOOLS = {
     "vantage.positions",
@@ -138,3 +138,25 @@ def test_quotes_round_trip(mcp):
     payload = tool_payload(run_with_client(mcp, interact))
     assert payload["quotes"]["VOO"]["price"] == pytest.approx(683.20)
     assert payload["quotes"]["CASH"]["price"] == 1
+
+
+# --- signals tool round-trips (moved with the vantage-mcp split) ---
+
+
+def test_mcp_signals_round_trip(data_dir):
+    mcp = create_mcp(data_dir)
+
+    async def all_signals(client):
+        return await client.call_tool("vantage.signals", {})
+
+    payload = tool_payload(run_with_client(mcp, all_signals))
+    assert payload["provenance"] == {"source_type": "vantage",
+                                     "source_id": f"{data_dir}#signals"}
+    assert len(payload["signals"]) == 8
+
+    async def filtered(client):
+        return await client.call_tool("vantage.signals", {"symbol": "pltr"})
+
+    payload = tool_payload(run_with_client(mcp, filtered))
+    assert [s["signal"]["sym"] for s in payload["signals"]] == ["PLTR"]
+    assert payload["signals"][0]["status"] == "unquoted"

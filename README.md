@@ -86,7 +86,7 @@ pin the two together. See [`server/README.md`](server/README.md).
 make -C server setup    # server/.venv + editable install (Python 3.12)
 make -C server test     # engine units, parity goldens, API + MCP contract tests
 make -C server run-api  # REST on http://127.0.0.1:8641 (/api/*)
-make -C server run-mcp  # MCP streamable HTTP on http://127.0.0.1:8640/mcp
+make -C mcp run  # MCP streamable HTTP on http://127.0.0.1:8640/mcp
 ```
 
 Ports: **8640** MCP · **8641** REST API · **8642** SPA · **8080** Mira (external).
@@ -109,7 +109,7 @@ cd server
 
 If the target account isn't in `accounts.json` yet, append it in the same run
 with `--add-account "id,name,short,type,taxable"`. Live (delayed) quotes come
-from `make -C server run-api-live` instead of `run-api`. Full importer
+from `./stack start --live` instead of `run-api`. Full importer
 semantics (merge vs replace, backups, generic CSV): [`server/README.md`](server/README.md).
 
 ### Frontend integration (Phase V4)

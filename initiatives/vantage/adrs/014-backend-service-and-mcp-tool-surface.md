@@ -59,3 +59,14 @@ Phase V5 extended the backend within the same layering, without touching the rea
 - **Broker lots importer** (`vantage_server/importer.py`, `python -m vantage_server.importer`) — operator-side **file management deliberately outside the read-only API surface**: the REST/MCP surfaces still expose no mutating path (mutating HTTP methods keep returning 405); only the operator's CLI writes the data directory, exactly as hand-editing the JSON would. Tolerant parsers for Fidelity/Schwab/Vanguard positions exports plus a `generic` internal-shape CSV; `--merge` (default, per-account) vs `--replace`; every write is preceded by a timestamped `lots.json.bak-<ISO>` backup (injectable clock for tests); `--dry-run` writes nothing; unknown accounts abort with exit 2 (`--add-account` appends to `accounts.json` in the same run); exports without acquisition dates require `--as-of` for determinism.
 - **Quote cache** (`quotes.py`) — successful Stooq fetches persist to `<data_dir>/quotes_cache.json` with `fetched_at` and are reused for `VANTAGE_QUOTES_TTL` seconds (default 900, `0` bypasses) so repeated reads don't hammer the free feed; clock and `urlopen` are both injectable, keeping every test off the network. Per-symbol `N/D` fallback to fixture prices marks the snapshot `stale`. `make run-api-live` / `run-mcp-live` wrap `VANTAGE_QUOTES=stooq`.
 - **Computed signals** (`signals.py`, `data/signals.json`, `GET /api/signals`, MCP `vantage.signals`) — the seed file carries only authored facts (entry/target/stop, pattern, confidence); **status is computed from the current quote snapshot on every read, never authored** (the loader rejects a stored `status` field). Pure `grade_signals` in engine style: direction implied by target vs entry, `open`/`hit_target`/`stopped`/`unquoted`, P/L % signed by direction, progress grade A–F against the entry→target move and halfway-to-stop line. Both surfaces stay read-only and keep the `{as_of, source}` + provenance envelopes.
+
+
+## Implemented (V6) — project split + stack lifecycle
+
+The MCP tool surface moved out of `server/` into its own project `mcp/`
+(`vantage-mcp` package, own venv/Makefile/tests) depending on the installable
+`vantage-server` engine — different consumers (AI vs SPA), independent release
+cadence, extractable to its own repo without touching the engine. A root
+`./stack` script (setup/start/stop/status/logs, port-based process control)
+runs the four services — API :8641, MCP :8640, SPA :8642, Mira :8080 — with
+one command each way.

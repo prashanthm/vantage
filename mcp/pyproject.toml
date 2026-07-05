@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vantage-mcp"
+version = "1.0.0"
+description = "Vantage MCP tool surface — the AI-facing read-only tools over the vantage-server engine"
+requires-python = ">=3.12"
+dependencies = [
+    "mcp>=1.9",
+    # vantage-server (the deterministic engine) is installed editable from
+    # ../server by `make setup` — a path dependency kept out of metadata so the
+    # package stays relocatable if this project is ever extracted to its own repo.
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+vantage-mcp = "vantage_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["vantage_mcp*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

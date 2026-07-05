@@ -9,7 +9,10 @@ carries a provenance block
 so the AI side can attribute every number it repeats. All tools declare
 readOnlyHint — there is nothing to mutate (ADR-010).
 
-Transport: streamable HTTP on 127.0.0.1:8640, path /mcp (`make run-mcp`).
+Transport: streamable HTTP on 127.0.0.1:8640, path /mcp (`make -C mcp run`).
+
+This is its own project (vantage-mcp): the AI-facing tool surface, depending on
+the vantage-server engine package but with an independent lifecycle.
 """
 from __future__ import annotations
 
@@ -18,11 +21,11 @@ import os
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from . import engine
-from .models import QuoteSnapshot, to_jsonable
-from .quotes import get_provider
-from .signals import grade_signals
-from .store import Store
+from vantage_server import engine
+from vantage_server.models import QuoteSnapshot, to_jsonable
+from vantage_server.quotes import get_provider
+from vantage_server.signals import grade_signals
+from vantage_server.store import Store
 
 MCP_HOST = "127.0.0.1"
 MCP_PORT = 8640
