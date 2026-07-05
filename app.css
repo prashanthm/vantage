@@ -1,0 +1,205 @@
+/* Vantage prototype — layout glue on Lookey DS tokens. No lk-* overrides. */
+
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--color-light);
+  color: var(--color-dark);
+  font-family: var(--font-family-base);
+}
+
+/* Danger is the one status color Lookey doesn't ship; paired with success/warning. */
+:root { --vg-danger: #dc2626; --vg-success-deep: #059669; }
+
+.vg-shell { max-width: 1400px; margin: 0 auto; padding: 0 24px 96px; }
+
+/* ---------- top strips ---------- */
+.vg-compliance {
+  background: #fef8ec;
+  border-bottom: 1px solid #f5e3bb;
+  color: #7c5c10;
+  font-size: 12.5px;
+  text-align: center;
+  padding: 7px 16px;
+  font-family: var(--font-family-base);
+}
+.vg-ticker {
+  display: flex; gap: 8px; overflow-x: auto; padding: 12px 24px;
+  background: #fff; border-bottom: 1px solid var(--color-border);
+}
+.vg-ticker::-webkit-scrollbar { display: none; }
+.vg-tick {
+  display: inline-flex; align-items: baseline; gap: 7px; white-space: nowrap;
+  padding: 5px 12px; border: 1px solid var(--color-border); border-radius: 999px;
+  font-size: 13px; background: var(--color-light);
+}
+.vg-tick b { font-weight: 600; }
+.vg-tick .up { color: var(--vg-success-deep); }
+.vg-tick .down { color: var(--vg-danger); }
+
+/* ---------- layout ---------- */
+.vg-main { display: grid; grid-template-columns: 296px minmax(0, 1fr); gap: 24px; padding-top: 24px; }
+@media (max-width: 980px) { .vg-main { grid-template-columns: 1fr; } }
+
+.vg-card {
+  background: #fff; border: 1px solid var(--color-border); border-radius: 14px;
+  padding: 20px;
+}
+.vg-card + .vg-card, .vg-section + .vg-section { margin-top: 20px; }
+.vg-section h2 { font-size: 19px; margin: 0 0 4px; }
+.vg-section .vg-sub { color: var(--color-grey); font-size: 13.5px; margin: 0 0 14px; }
+.vg-kicker {
+  font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--color-primary); margin-bottom: 6px;
+}
+
+/* ---------- accounts rail ---------- */
+.vg-acct {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 10px;
+  background: #fff; cursor: pointer; font-family: var(--font-family-base); font-size: 14px;
+  margin-top: 8px; color: var(--color-dark);
+}
+.vg-acct:hover { border-color: var(--color-primary); }
+.vg-acct.sel { border-color: var(--color-primary); background: var(--color-accent); }
+.vg-acct .meta { color: var(--color-grey); font-size: 12px; }
+.vg-acct .bal { margin-left: auto; font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+
+/* ---------- stat tiles ---------- */
+.vg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+.vg-stat { background: #fff; border: 1px solid var(--color-border); border-radius: 14px; padding: 16px 18px; }
+.vg-stat .lbl { color: var(--color-grey); font-size: 12.5px; margin-bottom: 6px; }
+.vg-stat .val { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; }
+.vg-stat .delta { font-size: 12.5px; margin-top: 4px; color: var(--color-grey); }
+.vg-stat .delta.up { color: var(--vg-success-deep); }
+.vg-stat .delta.down { color: var(--vg-danger); }
+
+/* ---------- allocation bars ---------- */
+.vg-allocbar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--color-light); }
+.vg-allocbar span { display: block; height: 100%; border-right: 2px solid #fff; }
+.vg-allocbar span:last-child { border-right: 0; }
+.vg-legend { display: flex; flex-wrap: wrap; gap: 14px 22px; margin-top: 12px; font-size: 13px; }
+.vg-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 7px; }
+.vg-legend .num { color: var(--color-grey); }
+
+/* ---------- tables ---------- */
+.vg-tablewrap { overflow-x: auto; }
+.vg-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.vg-table th {
+  text-align: left; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--color-placeholder); font-weight: 600; padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+.vg-table td { padding: 10px; border-bottom: 1px solid #eef1f6; vertical-align: middle; }
+.vg-table tr.click { cursor: pointer; }
+.vg-table tr.click:hover td { background: var(--color-accent); }
+.vg-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.vg-table th.num { text-align: right; }
+.vg-table .up { color: var(--vg-success-deep); }
+.vg-table .down { color: var(--vg-danger); }
+.vg-subrow td { background: #fafbfe; color: var(--color-grey); font-size: 12.5px; }
+
+/* ---------- badges & chips ---------- */
+.vg-badge {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+}
+.vg-badge.good  { background: #e7f6ef; color: #056645; }
+.vg-badge.warn  { background: #fdf1dc; color: #8a5a06; }
+.vg-badge.bad   { background: #fdeaea; color: #a01818; }
+.vg-badge.info  { background: var(--color-accent); color: var(--color-primary); }
+.vg-badge.plain { background: var(--color-light); color: var(--color-grey); }
+.vg-chip {
+  display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11.5px;
+  background: var(--color-light); border: 1px solid var(--color-border); color: var(--color-grey);
+  margin-right: 4px;
+}
+
+/* ---------- pills / tabs ---------- */
+.vg-pills { display: flex; gap: 8px; flex-wrap: wrap; }
+.vg-pill {
+  padding: 6px 14px; border-radius: 999px; border: 1px solid var(--color-border);
+  background: #fff; font-family: var(--font-family-base); font-size: 13px; cursor: pointer;
+  color: var(--color-grey);
+}
+.vg-pill:hover { border-color: var(--color-primary); color: var(--color-primary); }
+.vg-pill.sel { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+
+/* ---------- heatmap ---------- */
+.vg-heat { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+.vg-heat-sector { border: 1px solid var(--color-border); border-radius: 12px; padding: 12px; background: #fff; }
+.vg-heat-sector h4 { margin: 0 0 8px; font-size: 12.5px; display: flex; justify-content: space-between; }
+.vg-heat-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.vg-heat-tile {
+  border-radius: 6px; padding: 7px 4px; text-align: center; cursor: pointer;
+  border: 1px solid rgba(0,0,0,0.05); font-family: var(--font-family-base);
+}
+.vg-heat-tile:hover { outline: 2px solid var(--color-primary); }
+.vg-heat-tile .s { font-size: 11.5px; font-weight: 700; color: var(--color-dark); }
+.vg-heat-tile .p { font-size: 11px; color: var(--color-grey); font-variant-numeric: tabular-nums; }
+
+/* ---------- AI summary ---------- */
+.vg-meter { height: 8px; border-radius: 999px; background: var(--color-light); overflow: hidden; }
+.vg-meter > span { display: block; height: 100%; border-radius: 999px; background: var(--color-primary); }
+.vg-bias { font-size: 15px; font-weight: 700; padding: 4px 14px; border-radius: 999px; }
+.vg-bias.Bullish { background: #e7f6ef; color: #056645; }
+.vg-bias.Neutral { background: var(--color-light); color: var(--color-grey); }
+.vg-bias.Bearish { background: #fdeaea; color: #a01818; }
+
+/* ---------- slide-overs ---------- */
+.vg-scrim { position: fixed; inset: 0; background: rgba(1, 8, 27, 0.35); z-index: 60; }
+.vg-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 92vw); z-index: 61;
+  background: #fff; border-left: 1px solid var(--color-border);
+  box-shadow: -12px 0 40px rgba(1, 8, 27, 0.12);
+  display: flex; flex-direction: column;
+}
+.vg-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--color-border);
+}
+.vg-panel-head h3 { margin: 0; font-size: 16px; }
+.vg-panel-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+.vg-x {
+  border: 0; background: none; font-size: 22px; cursor: pointer; color: var(--color-grey);
+  line-height: 1; padding: 4px;
+}
+
+/* notifications */
+.vg-notif { display: flex; gap: 10px; padding: 12px; border: 1px solid var(--color-border); border-radius: 10px; margin-bottom: 10px; cursor: pointer; background: #fff; }
+.vg-notif.unread { background: var(--color-accent); border-color: #cddcff; }
+.vg-notif .t { font-size: 13.5px; font-weight: 600; }
+.vg-notif .b { font-size: 12.5px; color: var(--color-grey); margin-top: 2px; }
+.vg-notif .when { font-size: 11px; color: var(--color-placeholder); margin-top: 4px; }
+.vg-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--color-primary); flex: none; margin-top: 6px; }
+
+/* chat */
+.vg-msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; margin-bottom: 10px; font-size: 13.5px; line-height: 1.45; }
+.vg-msg.me { margin-left: auto; background: var(--color-primary); color: #fff; border-bottom-right-radius: 4px; }
+.vg-msg.ai { background: var(--color-light); color: var(--color-dark); border-bottom-left-radius: 4px; }
+.vg-chatform { display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--color-border); align-items: flex-end; }
+.vg-chatform .lk-field { flex: 1; }
+
+/* floating buttons */
+.vg-fabs { position: fixed; right: 22px; bottom: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
+.vg-fab {
+  width: 52px; height: 52px; border-radius: 999px; border: 1px solid var(--color-border);
+  background: #fff; font-size: 21px; cursor: pointer; position: relative;
+  box-shadow: 0 8px 24px rgba(1, 8, 27, 0.14);
+}
+.vg-fab:hover { border-color: var(--color-primary); }
+.vg-fab .cnt {
+  position: absolute; top: -4px; right: -4px; background: var(--vg-danger); color: #fff;
+  font-size: 10.5px; font-weight: 700; border-radius: 999px; min-width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center; padding: 0 4px;
+}
+
+/* misc */
+.vg-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vg-spread { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.vg-note { font-size: 12px; color: var(--color-placeholder); }
+.vg-grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.vg-linkbtn { border: 0; background: none; color: var(--color-primary); cursor: pointer; font-family: var(--font-family-base); font-size: 13px; padding: 0; }
+.vg-toggle { display: flex; align-items: center; gap: 10px; font-size: 13.5px; padding: 8px 0; }
+.vg-toggle input { accent-color: var(--color-primary); width: 16px; height: 16px; }
