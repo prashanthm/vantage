@@ -1,5 +1,11 @@
 # Vantage — every account, one view
 
+> **AI-SDLC (kadence) artifacts:** [`initiatives/vantage/`](initiatives/vantage/) — initiative charter,
+> product brief (Epic Index), 7 epics, 18 features, ADR catalog + 13 ADRs, generated
+> [`INDEX.md`](initiatives/vantage/INDEX.md); engineering specs in [`specs/`](specs/)
+> (spec/plan/tasks per feature, Loop AC verified). Status lives on the
+> [GitHub issues](https://github.com/prashanthm/vantage/issues) (ADRs #1–13, epics #14–20, features #21–38).
+
 A functioning prototype of a **cross-account portfolio & market intelligence hub** — a
 one-stop shop for traders and investors: recommendations, analysis, and notifications
 computed across *all* linked brokerage accounts, not one at a time.
