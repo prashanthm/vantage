@@ -91,6 +91,27 @@ make -C server run-mcp  # MCP streamable HTTP on http://127.0.0.1:8640/mcp
 
 Ports: **8640** MCP · **8641** REST API · **8642** SPA · **8080** Mira (external).
 
+### Getting your real portfolio in
+
+Replace the fixture lots with a broker positions export via the importer CLI
+(operator-side file management — the API itself stays read-only). Always
+`--dry-run` first to see what would be parsed before anything is written:
+
+```sh
+cd server
+.venv/bin/python -m vantage_server.importer positions.csv \
+    --broker fidelity --account fid-taxable --as-of 2026-07-05 --dry-run   # then re-run without --dry-run
+.venv/bin/python -m vantage_server.importer positions.csv \
+    --broker schwab --account schwab-roth --as-of 2026-07-05
+.venv/bin/python -m vantage_server.importer ofxdownload.csv \
+    --broker vanguard --account vg-401k --as-of 2026-07-05
+```
+
+If the target account isn't in `accounts.json` yet, append it in the same run
+with `--add-account "id,name,short,type,taxable"`. Live (delayed) quotes come
+from `make -C server run-api-live` instead of `run-api`. Full importer
+semantics (merge vs replace, backups, generic CSV): [`server/README.md`](server/README.md).
+
 ### Frontend integration (Phase V4)
 
 The SPA is wired to both services through `src/live.js` (plain `fetch` +

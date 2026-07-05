@@ -47,6 +47,7 @@ export const tlh = ({ thresholdUsd, thresholdPct } = {}) => {
   return getJson(`${backendBase()}/api/tax/tlh${qs ? `?${qs}` : ""}`);
 };
 export const quotes = () => getJson(`${backendBase()}/api/quotes`);
+export const getSignals = () => getJson(`${backendBase()}/api/signals`);
 
 /* ---------------- payload -> view-shape mappers ---------------- */
 
@@ -130,9 +131,42 @@ export function mapAllocation(payload) {
   return { byClass, total: payload.total };
 }
 
+// /api/signals -> the data.js SIGNALS row shape the signals view consumes.
+// Backend statuses (computed from quotes, never authored) map onto the
+// fixture vocabulary: hit_target -> "hit-target", stopped -> "stopped",
+// open -> "active"; "unquoted" (no quote for the symbol) passes through and
+// gets a neutral badge in the view. pnl_pct / progress_grade ride along as
+// extra fields (null when unquoted).
+const SIGNAL_STATUS = { hit_target: "hit-target", stopped: "stopped", open: "active", unquoted: "unquoted" };
+export function mapSignals(payload) {
+  if (!payload || !Array.isArray(payload.signals)) return null;
+  return payload.signals.map((g) => ({
+    id: g.signal.id,
+    sym: g.signal.sym,
+    pattern: g.signal.pattern,
+    entry: g.signal.entry,
+    target: g.signal.target,
+    stop: g.signal.stop,
+    movePct: g.signal.move_pct,
+    conf: g.signal.conf,
+    time: g.signal.created_at,
+    status: SIGNAL_STATUS[g.status] || g.status,
+    // live-only extras
+    price: g.price,
+    pnlPct: g.pnl_pct,
+    grade: g.progress_grade,
+  }));
+}
+
 /* ---------------- Mira client (:8080) ---------------- */
 
 export const miraHealth = () => getJson(`${miraBase()}/health`);
+
+// GET /explain?correlation_id=... -> {"records": [...]} grounding trace for
+// one streamed turn (the id arrives on the turn's `done` SSE event).
+// 404/503/unreachable all resolve to null via getJson.
+export const getExplanation = (correlationId) =>
+  getJson(`${miraBase()}/explain?correlation_id=${encodeURIComponent(correlationId)}`);
 
 // GET /insights?domain=advisor -> report or null (404 unknown domain,
 // 503 unconfigured, network failure — all null).

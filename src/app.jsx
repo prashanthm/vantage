@@ -12,7 +12,7 @@ import {
 import { ChartsView } from "./charts.jsx";
 import { OptionsView } from "./options.jsx";
 import * as live from "./live.js";
-import { useLive, mapPositions, mapTlh, mapAllocation } from "./live.js";
+import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals } from "./live.js";
 
 const { useState, useMemo, useEffect, useRef } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
@@ -493,6 +493,11 @@ function MarketsView({ symbol, setSymbol, setAnalysisSym, go, settings }) {
   const miraOn = settings.aiBackend === "mira";
   const insights = useLive(() => (miraOn ? live.getInsights() : null), null, [settings]);
   const report = insights.data;
+  // Signals: backend-graded when live (statuses computed from quotes, never
+  // authored), fixture rows otherwise. "Past" = resolved (hit target / stopped);
+  // everything else — active and unquoted — stays on the Active tab.
+  const signals = useLive(() => live.getSignals().then(mapSignals), SIGNALS, [settings]).data;
+  const isPastSignal = (s) => s.status === "hit-target" || s.status === "stopped";
   return (
     <div>
       <h2 style={{ margin: 0, fontSize: 19 }}>Market intelligence</h2>
@@ -585,10 +590,10 @@ function MarketsView({ symbol, setSymbol, setAnalysisSym, go, settings }) {
           <div className="vg-kicker" style={{ marginBottom: 0 }}>AI pattern signals</div>
           <div className="vg-pills">
             <button className={cls("vg-pill", signalsTab === "active" && "sel")} onClick={() => setSignalsTab("active")}>
-              Active ({SIGNALS.filter((s) => s.status === "active").length})
+              Active ({signals.filter((s) => !isPastSignal(s)).length})
             </button>
             <button className={cls("vg-pill", signalsTab === "past" && "sel")} onClick={() => setSignalsTab("past")}>
-              Past ({SIGNALS.filter((s) => s.status !== "active").length})
+              Past ({signals.filter(isPastSignal).length})
             </button>
           </div>
         </div>
@@ -601,19 +606,29 @@ function MarketsView({ symbol, setSymbol, setAnalysisSym, go, settings }) {
               </tr>
             </thead>
             <tbody>
-              {SIGNALS.filter((s) => (signalsTab === "active" ? s.status === "active" : s.status !== "active")).map((s) => (
+              {signals.filter((s) => (signalsTab === "active" ? !isPastSignal(s) : isPastSignal(s))).map((s) => (
                 <tr key={s.id}>
                   <td><b>{s.sym}</b><div className="vg-note">{s.time}</div></td>
                   <td>{s.pattern}</td>
                   <td className="num">{s.entry.toFixed(2)}</td>
                   <td className="num">{s.target.toFixed(2)}</td>
                   <td className="num">{s.stop.toFixed(2)}</td>
-                  <td className={cls("num", dirCls(s.movePct))}>{signPct(s.movePct, 1)}</td>
-                  <td className="num">{s.conf}%</td>
+                  <td className={cls("num", dirCls(s.movePct || 0))}>{s.movePct != null ? signPct(s.movePct, 1) : "—"}</td>
+                  <td className="num">{s.conf != null ? `${s.conf}%` : "—"}</td>
                   <td>
                     {s.status === "active" && <span className="vg-badge good">● Active</span>}
                     {s.status === "hit-target" && <span className="vg-badge info">✓ Hit target</span>}
                     {s.status === "stopped" && <span className="vg-badge bad">✕ Stopped</span>}
+                    {s.status === "unquoted" && (
+                      <span className="vg-badge plain"
+                        title="no quote for this symbol — statuses are computed, never authored">◌ Unquoted</span>
+                    )}
+                    {s.grade && (
+                      <span className="vg-chip" style={{ marginLeft: 6 }}
+                        title={s.pnlPct != null ? `progress grade ${s.grade} · P/L ${signPct(s.pnlPct, 1)}` : `progress grade ${s.grade}`}>
+                        {s.grade}
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -737,7 +752,9 @@ function ChatPanel({ settings, onClose }) {
         patchLast((l) => ({ ...l, text: l.text + (evt.text || "") }));
       } else if (evt.kind === "done") {
         setBusy(false);
-        patchLast((l) => ({ ...l, pending: false }));
+        // The done event carries the turn's correlation_id — it unlocks the
+        // "explain" affordance (GET /explain grounding trace) on this reply.
+        patchLast((l) => ({ ...l, pending: false, corr: evt.correlation_id || null }));
       } else if (evt.kind === "error") {
         // Mira unreachable or errored: fall back to the canned rule for this message.
         setBusy(false);
@@ -746,6 +763,20 @@ function ChatPanel({ settings, onClose }) {
           : { ...l, text: cannedReply(text), plan: [], pending: false, offline: true }));
       }
     });
+  };
+
+  // Toggle the inline grounding trace under one Mira reply; fetch it lazily
+  // the first time (getExplanation returns null on 404/503/unreachable).
+  const toggleExplain = (i) => {
+    const m = msgs[i];
+    const opening = !m.explainOpen;
+    setMsgs((ms) => ms.map((x, j) => (j === i ? { ...x, explainOpen: opening } : x)));
+    if (opening && m.explain === undefined && m.corr) {
+      live.getExplanation(m.corr).then((payload) => {
+        const rec = payload && Array.isArray(payload.records) && payload.records.length ? payload.records[0] : null;
+        setMsgs((ms) => ms.map((x, j) => (j === i ? { ...x, explain: rec } : x)));
+      });
+    }
   };
 
   return (
@@ -768,6 +799,14 @@ function ChatPanel({ settings, onClose }) {
               {m.offline && (
                 <div className="vg-note" style={{ marginTop: 6 }}>offline — canned reply</div>
               )}
+              {m.who === "ai" && m.corr && (
+                <div style={{ marginTop: 6 }}>
+                  <button className="vg-linkbtn" style={{ fontSize: 11.5 }} onClick={() => toggleExplain(i)}>
+                    {m.explainOpen ? "hide explanation" : "explain"}
+                  </button>
+                  {m.explainOpen && <ExplainBlock explain={m.explain} />}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -782,6 +821,32 @@ function ChatPanel({ settings, onClose }) {
             : "Demo assistant with canned responses · educational only."}
         </p>
       </div>
+    </div>
+  );
+}
+
+// Inline grounding trace for one Mira reply: claims with sources, grounded
+// ratio from the uncertainty block, and plan-step count. `explain` is
+// undefined while loading, null when no trace is available.
+function ExplainBlock({ explain }) {
+  if (explain === undefined) return <div className="vg-note" style={{ marginTop: 4 }}>loading trace…</div>;
+  if (!explain) return <div className="vg-note" style={{ marginTop: 4 }}>no trace available</div>;
+  const claims = Array.isArray(explain.claims) ? explain.claims : [];
+  const steps = Array.isArray(explain.plan_steps) ? explain.plan_steps.length : 0;
+  const u = explain.uncertainty || {};
+  const ratio = typeof u.grounded_ratio === "number" ? u.grounded_ratio : null;
+  return (
+    <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)", fontSize: 12, lineHeight: 1.5 }}>
+      <div className="vg-note" style={{ fontSize: 11.5, marginBottom: 4 }}>
+        {ratio != null && <>grounded {Math.round(ratio * 100)}% · </>}
+        {steps} plan step{steps === 1 ? "" : "s"} · {claims.length} claim{claims.length === 1 ? "" : "s"}
+      </div>
+      {claims.map((c, i) => (
+        <div key={i}>
+          · {c.statement}{" "}
+          <span className="vg-note">({c.source_type}:{c.source_id})</span>
+        </div>
+      ))}
     </div>
   );
 }
