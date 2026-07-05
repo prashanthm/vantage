@@ -74,5 +74,22 @@ open http://localhost:8642
 `ds/` and `vendor/` are copied verbatim from the local Lookey DS bundle
 (`~/personal/117/lookey-site/ds-bundle`); regenerate from there if the DS changes.
 
+## Backend (`server/`)
+
+The deterministic portfolio engine as a Python 3.12 service (ADR-013/ADR-014):
+the same positions / allocation / wash-sale / TLH math as `src/util.jsx`, exposed
+read-only via REST for the SPA and as MCP `vantage.*` tools for Mira (the AI side
+does no portfolio math). Fixture data mirrors `src/data.js`; parity golden tests
+pin the two together. See [`server/README.md`](server/README.md).
+
+```sh
+make -C server setup    # server/.venv + editable install (Python 3.12)
+make -C server test     # engine units, parity goldens, API + MCP contract tests
+make -C server run-api  # REST on http://127.0.0.1:8641 (/api/*)
+make -C server run-mcp  # MCP streamable HTTP on http://127.0.0.1:8640/mcp
+```
+
+Ports: **8640** MCP · **8641** REST API · **8642** SPA · **8080** Mira (external).
+
 > Prototype disclaimer: simulated data throughout. Nothing here is financial,
 > investment, or tax advice, and the app never connects to a broker.

@@ -1,0 +1,4 @@
+[
+  { "account": "wf-robo", "symbol": "VOO", "day_of_month": 1, "amount": 500 },
+  { "account": "vg-401k", "symbol": "VTI", "cadence": "biweekly payroll" }
+]

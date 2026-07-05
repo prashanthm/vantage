@@ -1,0 +1,18 @@
+{
+  "as_of": "2026-07-05T09:30:00-04:00",
+  "quotes": {
+    "VOO":  { "name": "Vanguard S&P 500 ETF",       "price": 683.20, "day_pct": -0.12, "asset_class": "usEquity" },
+    "SPY":  { "name": "SPDR S&P 500 ETF",           "price": 744.78, "day_pct": -0.13, "asset_class": "usEquity" },
+    "VTI":  { "name": "Vanguard Total Market ETF",  "price": 330.45, "day_pct": -0.10, "asset_class": "usEquity" },
+    "QQQ":  { "name": "Invesco Nasdaq-100 ETF",     "price": 625.40, "day_pct": 0.21,  "asset_class": "usEquity" },
+    "SCHG": { "name": "Schwab US Large Growth ETF", "price": 32.05,  "day_pct": 0.18,  "asset_class": "usEquity" },
+    "IWM":  { "name": "iShares Russell 2000 ETF",   "price": 297.58, "day_pct": -0.58, "asset_class": "usEquity" },
+    "IJR":  { "name": "iShares S&P SmallCap 600",   "price": 130.22, "day_pct": -0.44, "asset_class": "usEquity" },
+    "NVDA": { "name": "NVIDIA Corp",                "price": 194.83, "day_pct": -1.39, "asset_class": "usEquity" },
+    "AAPL": { "name": "Apple Inc",                  "price": 308.63, "day_pct": 0.84,  "asset_class": "usEquity" },
+    "TSLA": { "name": "Tesla Inc",                  "price": 393.45, "day_pct": -2.49, "asset_class": "usEquity" },
+    "BND":  { "name": "Vanguard Total Bond ETF",    "price": 74.20,  "day_pct": 0.05,  "asset_class": "bonds" },
+    "VXUS": { "name": "Vanguard Total Intl ETF",    "price": 71.50,  "day_pct": 0.32,  "asset_class": "intlEquity" },
+    "CASH": { "name": "Cash & sweep",               "price": 1,      "day_pct": 0,     "asset_class": "cash" }
+  }
+}

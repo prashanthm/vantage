@@ -1,0 +1,6 @@
+[
+  { "id": "fid-taxable", "name": "Fidelity Individual",   "short": "Fidelity", "type": "Taxable",        "taxable": true,  "last_sync": "8:30 AM" },
+  { "id": "schwab-roth", "name": "Schwab Roth IRA",       "short": "Roth IRA", "type": "Roth IRA",       "taxable": false, "last_sync": "8:30 AM" },
+  { "id": "vg-401k",     "name": "Vanguard 401(k)",       "short": "401(k)",   "type": "401(k)",         "taxable": false, "last_sync": "Yesterday" },
+  { "id": "wf-robo",     "name": "Wealthfront Automated", "short": "Robo",     "type": "Taxable · Robo", "taxable": true,  "last_sync": "8:31 AM" }
+]

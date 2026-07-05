@@ -1,0 +1,23 @@
+[
+  { "account": "fid-taxable", "symbol": "VOO",  "date": "2025-11-03", "shares": 40,   "cost_per_share": 640.00 },
+  { "account": "fid-taxable", "symbol": "VOO",  "date": "2026-05-28", "shares": 12,   "cost_per_share": 705.50 },
+  { "account": "fid-taxable", "symbol": "NVDA", "date": "2025-08-15", "shares": 60,   "cost_per_share": 121.40 },
+  { "account": "fid-taxable", "symbol": "IWM",  "date": "2026-02-12", "shares": 45,   "cost_per_share": 331.20 },
+  { "account": "fid-taxable", "symbol": "AAPL", "date": "2025-12-01", "shares": 25,   "cost_per_share": 289.10 },
+  { "account": "fid-taxable", "symbol": "BND",  "date": "2026-03-17", "shares": 120,  "cost_per_share": 75.60 },
+  { "account": "fid-taxable", "symbol": "CASH", "date": "2026-07-01", "shares": 6400, "cost_per_share": 1 },
+
+  { "account": "schwab-roth", "symbol": "QQQ",  "date": "2026-01-20", "shares": 30,   "cost_per_share": 598.20 },
+  { "account": "schwab-roth", "symbol": "SPY",  "date": "2026-02-03", "shares": 18,   "cost_per_share": 731.40 },
+  { "account": "schwab-roth", "symbol": "VXUS", "date": "2025-10-09", "shares": 150,  "cost_per_share": 68.90 },
+  { "account": "schwab-roth", "symbol": "CASH", "date": "2026-07-01", "shares": 1200, "cost_per_share": 1 },
+
+  { "account": "vg-401k",     "symbol": "VTI",  "date": "2025-06-30", "shares": 180,  "cost_per_share": 302.50 },
+  { "account": "vg-401k",     "symbol": "SCHG", "date": "2025-09-12", "shares": 210,  "cost_per_share": 29.40 },
+  { "account": "vg-401k",     "symbol": "BND",  "date": "2026-04-02", "shares": 300,  "cost_per_share": 76.80 },
+
+  { "account": "wf-robo",     "symbol": "VOO",  "date": "2026-04-01", "shares": 8.4,  "cost_per_share": 668.30 },
+  { "account": "wf-robo",     "symbol": "VTI",  "date": "2025-11-20", "shares": 22,   "cost_per_share": 315.90 },
+  { "account": "wf-robo",     "symbol": "TSLA", "date": "2026-04-10", "shares": 6,    "cost_per_share": 441.70 },
+  { "account": "wf-robo",     "symbol": "CASH", "date": "2026-07-01", "shares": 2900, "cost_per_share": 1 }
+]

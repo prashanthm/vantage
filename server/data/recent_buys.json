@@ -1,0 +1,5 @@
+[
+  { "account": "wf-robo",     "symbol": "VOO", "date": "2026-07-01", "note": "monthly auto-invest $500" },
+  { "account": "schwab-roth", "symbol": "QQQ", "date": "2026-06-18", "note": "dividend reinvestment" },
+  { "account": "vg-401k",     "symbol": "VTI", "date": "2026-06-30", "note": "payroll contribution" }
+]

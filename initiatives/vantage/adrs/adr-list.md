@@ -44,4 +44,5 @@ ADRs via adr-maintenance. Deferred rows are decisions the live-data phase must m
 | ID | Title | Status | Summary |
 |----|-------|--------|---------|
 | ADR-012 | Static hosting; no server components before the live-data phase | Proposed | The prototype deploys as static files (local `http.server` or any static host); introducing any server is a live-data-phase decision. |
-| ADR-013 | Live data backend & broker aggregation (Phase 3) | Proposed | (Phase 3 — deferred) Choose the quote feed and read-only broker-aggregation approach (e.g. yfinance-class feed vs aggregator API) and where lots import lives. |
+| ADR-013 | Live data backend & broker aggregation | Accepted | Vantage owns a deterministic backend (`server/`) that fills the `src/data.js` boundary via REST; AI consumes the same engine via the MCP tool surface; Mira (AI-only) performs no portfolio math. |
+| ADR-014 | Backend service architecture & MCP tool surface | Accepted | `server/` layers a pure Python engine (util.jsx-parity math) under two read-only surfaces — REST `/api/*` on :8641 for the SPA, MCP `vantage.*` tools on :8640 for Mira — with fixture-first quotes and no mutating code path (ADR-010). |

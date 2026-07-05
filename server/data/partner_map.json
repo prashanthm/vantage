@@ -1,0 +1,12 @@
+{
+  "VOO": "VTI",
+  "SPY": "VTI",
+  "IVV": "VTI",
+  "QQQM": "SCHG",
+  "QQQ": "SCHG",
+  "IJR": "VB",
+  "IWM": "IJR",
+  "VTI": "VOO",
+  "VB": "IJR",
+  "SCHG": "VUG"
+}
