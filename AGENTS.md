@@ -10,7 +10,7 @@ GitHub, one feature → one branch → one merge.
 - Build with `./build.sh` (esbuild JSX transform); serve with `python3 -m http.server`.
 - UI uses the Lookey design system: `window.LookeyDS.*` components + CSS tokens only.
 - Vantage is decision-support only: no order placement, no fund movement, ever.
-- ADRs live in `docs/adr/`; product docs in `initiatives/vantage/`; specs in `specs/`.
+- ADRs live in `initiatives/vantage/adrs/`; product docs in `initiatives/vantage/`; specs in `specs/`.
 
 ## Routing table
 
