@@ -10,16 +10,23 @@
 
 A chat slide-over ('Vantage AI') answers portfolio questions with account-specific figures via keyword-matched canned rules, always falls back to a capability listing, and discloses demo/educational status.
 
+> **Phase V4 update:** the Mira LLM backend is now wired in (`src/live.js` `streamTurn`:
+> POST `{miraUrl}/turn` parsed as SSE over `fetch` + `ReadableStream`). `settings.aiBackend`
+> ("mira" default | "off") selects the mode; the canned rules above are retained verbatim as the
+> offline fallback, so all original AC keep holding with both services down.
+
 ## Acceptance Criteria
 
-- [ ] Wash/TLH/overlap/allocation rules answer with real dataset figures
-- [ ] Catch-all fallback exists
-- [ ] Demo + educational disclosure in panel
-- [ ] DS FormField + Button compose the input row
+- [x] Wash/TLH/overlap/allocation rules answer with real dataset figures
+- [x] Catch-all fallback exists
+- [x] Demo + educational disclosure in panel
+- [x] DS FormField + Button compose the input row
+- [x] (V4) `aiBackend="mira"`: send streams plan_step events as a thinking sequence and accumulates token text into the reply bubble; stable per-session `thread_id`
+- [x] (V4) Mira error/unreachable → canned rule reply with "offline — canned reply" hint; `aiBackend="off"` → original behavior unchanged
 
 ## Out of Scope
 
-- Real LLM backend (future: Mira framework).
+- ~~Real LLM backend (future: Mira framework).~~ Implemented in Phase V4 (canned fallback retained).
 
 ## ADRs Applied
 

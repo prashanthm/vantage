@@ -137,6 +137,10 @@ export const DEFAULT_SETTINGS = {
   thresholdPct: 3,
   taxRate: 24,
   notifPrefs: { tlh: true, wash: true, price: true, drift: true, system: true },
+  // Phase V4 — live integration (ADR-013/014). Fixtures stay the fallback.
+  backendUrl: "http://127.0.0.1:8641",
+  miraUrl: "http://127.0.0.1:8080",
+  aiBackend: "mira", // "mira" | "off"
 };
 export function loadSettings() {
   try {

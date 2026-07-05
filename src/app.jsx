@@ -11,6 +11,8 @@ import {
 } from "./util.jsx";
 import { ChartsView } from "./charts.jsx";
 import { OptionsView } from "./options.jsx";
+import * as live from "./live.js";
+import { useLive, mapPositions, mapTlh, mapAllocation } from "./live.js";
 
 const { useState, useMemo, useEffect, useRef } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
@@ -58,7 +60,9 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [analysisSym, setAnalysisSym] = useState(null);
 
-  const tlh = useMemo(() => tlhCandidates(settings), [settings]);
+  // TLH: fixture math is the fallback; the backend engine takes over when live.
+  const tlhFixture = useMemo(() => tlhCandidates(settings), [settings]);
+  const tlh = useLive(() => live.tlh(settings).then(mapTlh), tlhFixture, [settings]).data;
   const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
 
   const saveSettings = (next) => {
@@ -133,6 +137,7 @@ function App() {
               <p className="vg-note" style={{ marginTop: 10 }}>
                 Read-only aggregation (demo). Vantage never holds funds or places orders.
               </p>
+              <LiveStatusDots settings={settings} />
             </div>
           </aside>
 
@@ -165,7 +170,7 @@ function App() {
         <NotifPanel notifs={notifs} setNotifs={setNotifs} settings={settings} saveSettings={saveSettings}
           onClose={() => setNotifOpen(false)} />
       )}
-      {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} />}
+      {chatOpen && <ChatPanel settings={settings} onClose={() => setChatOpen(false)} />}
       {settingsOpen && (
         <SettingsModal settings={settings} onSave={(s) => { saveSettings(s); setSettingsOpen(false); }}
           onClose={() => setSettingsOpen(false)} />
@@ -175,10 +180,44 @@ function App() {
   );
 }
 
+/* ---------------- live/demo status dots (Phase V4) ---------------- */
+function LiveStatusDots({ settings }) {
+  const [st, setSt] = useState({ backend: null, mira: null });
+  useEffect(() => {
+    let alive = true;
+    live.health().then((h) => { if (alive) setSt((s) => ({ ...s, backend: h })); });
+    if (settings.aiBackend === "mira") {
+      live.miraHealth().then((h) => { if (alive) setSt((s) => ({ ...s, mira: h })); });
+    }
+    return () => { alive = false; };
+  }, [settings]);
+  const dot = (ok) => ({
+    display: "inline-block", width: 8, height: 8, borderRadius: "50%", marginRight: 5,
+    background: ok ? "var(--vg-success-deep)" : "var(--color-grey)",
+  });
+  const aiOff = settings.aiBackend !== "mira";
+  return (
+    <div className="vg-note" style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 8, padding: "0 8px" }}>
+      <span title={st.backend
+        ? `Backend live at ${settings.backendUrl} — quotes: ${st.backend.source}${st.backend.stale ? " (stale)" : ""}, as of ${st.backend.as_of}`
+        : `Backend unreachable at ${settings.backendUrl} — showing demo fixtures`}>
+        <span style={dot(st.backend)} />data {st.backend ? "live" : "demo"}
+      </span>
+      <span title={aiOff
+        ? "AI backend set to Off in Settings — canned demo replies"
+        : st.mira ? `Mira reachable at ${settings.miraUrl}` : `Mira unreachable at ${settings.miraUrl} — canned demo replies`}>
+        <span style={dot(!aiOff && st.mira)} />AI {aiOff ? "off" : st.mira ? "live" : "demo"}
+      </span>
+    </div>
+  );
+}
+
 /* ================= Overview ================= */
 function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen }) {
-  const pos = useMemo(() => positions(accountId), [accountId]);
-  const alloc = useMemo(() => allocation(accountId), [accountId]);
+  const posFixture = useMemo(() => positions(accountId), [accountId]);
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
+  const allocFixture = useMemo(() => allocation(accountId), [accountId]);
+  const alloc = useLive(() => live.allocation(accountId).then(mapAllocation), allocFixture, [accountId, settings]).data;
   const totalValue = alloc.total;
   const dayPl = pos.reduce((s, p) => s + p.dayPl, 0);
   const unrlPl = pos.reduce((s, p) => s + p.unrl, 0);
@@ -272,9 +311,10 @@ function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen }) {
 }
 
 /* ================= Holdings ================= */
-function HoldingsView({ accountId, setAnalysisSym }) {
+function HoldingsView({ accountId, settings, setAnalysisSym }) {
   const [expanded, setExpanded] = useState({});
-  const pos = useMemo(() => positions(accountId), [accountId]);
+  const posFixture = useMemo(() => positions(accountId), [accountId]);
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
   const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
   return (
     <div>
@@ -297,7 +337,7 @@ function HoldingsView({ accountId, setAnalysisSym }) {
                 <tr className="click" onClick={() => setExpanded((e) => ({ ...e, [p.symbol]: !e[p.symbol] }))}>
                   <td>
                     <b>{p.symbol === "CASH" ? "Cash" : p.symbol}</b>
-                    <div className="vg-note">{MARKET[p.symbol].name}</div>
+                    <div className="vg-note">{(MARKET[p.symbol] || {}).name || ""}</div>
                   </td>
                   <td>
                     {[...p.accounts].map((id) => <span className="vg-chip" key={id}>{acctOf(id).short}</span>)}
@@ -312,7 +352,7 @@ function HoldingsView({ accountId, setAnalysisSym }) {
                         Overlap: {p.overlap.label}
                       </span>
                     )}
-                    {p.symbol !== "CASH" && p.weight > 7 && MARKET[p.symbol].name.indexOf("ETF") === -1 && (
+                    {p.symbol !== "CASH" && p.weight > 7 && ((MARKET[p.symbol] || {}).name || "").indexOf("ETF") === -1 && (
                       <span className="vg-badge warn">Concentrated</span>
                     )}
                   </td>
@@ -447,8 +487,12 @@ function RecsView({ settings, go }) {
 }
 
 /* ================= Market Intel ================= */
-function MarketsView({ symbol, setSymbol, setAnalysisSym, go }) {
+function MarketsView({ symbol, setSymbol, setAnalysisSym, go, settings }) {
   const [signalsTab, setSignalsTab] = useState("active");
+  // Mira advisor report (live) replaces the fixture "AI picks" panel when available.
+  const miraOn = settings.aiBackend === "mira";
+  const insights = useLive(() => (miraOn ? live.getInsights() : null), null, [settings]);
+  const report = insights.data;
   return (
     <div>
       <h2 style={{ margin: 0, fontSize: 19 }}>Market intelligence</h2>
@@ -483,23 +527,58 @@ function MarketsView({ symbol, setSymbol, setAnalysisSym, go }) {
         </div>
       </div>
 
-      <div className="vg-card" style={{ marginTop: 14 }}>
-        <div className="vg-kicker">Today's AI picks</div>
-        <div className="vg-tablewrap">
-          <table className="vg-table">
-            <tbody>
-              {AI_PICKS.map((p) => (
-                <tr key={p.sym} className="click" onClick={() => AI_INSIGHTS[p.sym] && setSymbol(p.sym)}>
-                  <td style={{ width: 70 }}><b>{p.sym}</b></td>
-                  <td><span className={cls("vg-bias", p.stance)} style={{ fontSize: 12 }}>{p.stance}</span></td>
-                  <td className="vg-note">{p.note}</td>
-                  <td className="num" style={{ width: 90 }}>{p.conf}% conf</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {report ? (
+        <div className="vg-card" style={{ marginTop: 14 }}>
+          <div className="vg-spread">
+            <div className="vg-kicker" style={{ marginBottom: 0 }}>Mira advisor insights</div>
+            <span className="vg-row">
+              <span className="vg-badge good">● live</span>
+              {report.confidence != null && <span className="vg-note">confidence {report.confidence}</span>}
+            </span>
+          </div>
+          {report.summary && <p style={{ fontSize: 14, lineHeight: 1.55, margin: "12px 0" }}>{report.summary}</p>}
+          {Array.isArray(report.observations) && report.observations.length > 0 && (
+            <div className="vg-tablewrap">
+              <table className="vg-table">
+                <tbody>
+                  {report.observations.map((o, i) => (
+                    <tr key={i}>
+                      <td style={{ width: 140 }}><b>{o.topic}</b></td>
+                      <td>
+                        {o.detail}
+                        {o.evidence && <div className="vg-note">{o.evidence}</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {report.caveats && (Array.isArray(report.caveats) ? report.caveats.length > 0 : true) && (
+            <p className="vg-note" style={{ marginTop: 8 }}>
+              {Array.isArray(report.caveats) ? report.caveats.join(" · ") : String(report.caveats)}
+            </p>
+          )}
         </div>
-      </div>
+      ) : (
+        <div className="vg-card" style={{ marginTop: 14 }}>
+          <div className="vg-kicker">Today's AI picks</div>
+          <div className="vg-tablewrap">
+            <table className="vg-table">
+              <tbody>
+                {AI_PICKS.map((p) => (
+                  <tr key={p.sym} className="click" onClick={() => AI_INSIGHTS[p.sym] && setSymbol(p.sym)}>
+                    <td style={{ width: 70 }}><b>{p.sym}</b></td>
+                    <td><span className={cls("vg-bias", p.stance)} style={{ fontSize: 12 }}>{p.stance}</span></td>
+                    <td className="vg-note">{p.note}</td>
+                    <td className="num" style={{ width: 90 }}>{p.conf}% conf</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="vg-card" style={{ marginTop: 14 }}>
         <div className="vg-spread">
@@ -619,21 +698,54 @@ function NotifPanel({ notifs, setNotifs, settings, saveSettings, onClose }) {
   );
 }
 
-function ChatPanel({ onClose }) {
+function ChatPanel({ settings, onClose }) {
+  const useMira = settings.aiBackend === "mira";
   const [msgs, setMsgs] = useState([
     { who: "ai", text: "Hi — I'm Vantage AI. I can see across all 4 of your linked accounts. Ask me about harvesting, wash sales, overlap, or your allocation." },
   ]);
   const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
   const bodyRef = useRef(null);
+  const abortRef = useRef(null);
   useEffect(() => { if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight; }, [msgs]);
+  useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
+
+  // Replace the last (streaming) assistant message via an updater.
+  const patchLast = (fn) => setMsgs((m) => m.map((x, i) => (i === m.length - 1 ? fn(x) : x)));
+  const cannedReply = (text) => CHAT_RULES.find((r) => r.match.test(text)).reply;
 
   const send = () => {
     const text = draft.trim();
-    if (!text) return;
+    if (!text || busy) return;
     setDraft("");
-    setMsgs((m) => [...m, { who: "me", text }]);
-    const rule = CHAT_RULES.find((r) => r.match.test(text));
-    setTimeout(() => setMsgs((m) => [...m, { who: "ai", text: rule.reply }]), 450);
+
+    if (!useMira) {
+      // aiBackend === "off": original canned behavior, unchanged.
+      setMsgs((m) => [...m, { who: "me", text }]);
+      setTimeout(() => setMsgs((m) => [...m, { who: "ai", text: cannedReply(text) }]), 450);
+      return;
+    }
+
+    setMsgs((m) => [...m, { who: "me", text }, { who: "ai", text: "", plan: [], pending: true }]);
+    setBusy(true);
+    let gotText = false;
+    abortRef.current = live.streamTurn(text, live.threadId(), (evt) => {
+      if (evt.kind === "plan_step") {
+        patchLast((l) => ({ ...l, plan: [...(l.plan || []), evt.phase ? `${evt.step} (${evt.phase})` : String(evt.step)] }));
+      } else if (evt.kind === "token") {
+        gotText = true;
+        patchLast((l) => ({ ...l, text: l.text + (evt.text || "") }));
+      } else if (evt.kind === "done") {
+        setBusy(false);
+        patchLast((l) => ({ ...l, pending: false }));
+      } else if (evt.kind === "error") {
+        // Mira unreachable or errored: fall back to the canned rule for this message.
+        setBusy(false);
+        patchLast((l) => (gotText
+          ? { ...l, pending: false, offline: true }
+          : { ...l, text: cannedReply(text), plan: [], pending: false, offline: true }));
+      }
+    });
   };
 
   return (
@@ -645,7 +757,19 @@ function ChatPanel({ onClose }) {
           <button className="vg-x" aria-label="Close" onClick={onClose}>×</button>
         </div>
         <div className="vg-panel-body" ref={bodyRef}>
-          {msgs.map((m, i) => <div key={i} className={cls("vg-msg", m.who)}>{m.text}</div>)}
+          {msgs.map((m, i) => (
+            <div key={i} className={cls("vg-msg", m.who)}>
+              {m.plan && m.plan.length > 0 && (
+                <div style={{ fontSize: 11.5, opacity: 0.65, marginBottom: 6 }}>
+                  {m.plan.map((s, j) => <div key={j}>· {s}</div>)}
+                </div>
+              )}
+              {m.text || (m.pending ? "…" : "")}
+              {m.offline && (
+                <div className="vg-note" style={{ marginTop: 6 }}>offline — canned reply</div>
+              )}
+            </div>
+          ))}
         </div>
         <div className="vg-chatform">
           <FormField placeholder="Ask about your portfolio…" value={draft}
@@ -653,7 +777,9 @@ function ChatPanel({ onClose }) {
           <Button variant="primary" onClick={send}>Send</Button>
         </div>
         <p className="vg-note" style={{ padding: "0 16px 12px", margin: 0 }}>
-          Demo assistant with canned responses · educational only.
+          {useMira
+            ? "Mira AI assistant — canned demo replies when offline · educational only."
+            : "Demo assistant with canned responses · educational only."}
         </p>
       </div>
     </div>
@@ -678,6 +804,17 @@ function SettingsModal({ settings, onSave, onClose }) {
       <FormField label="Marginal tax rate (%) — used for benefit estimates" type="number" id="set-tax"
         value={String(draft.taxRate)}
         onChange={(e) => setDraft({ ...draft, taxRate: Number(e.target.value) || 0 })} />
+      <div className="vg-kicker" style={{ marginTop: 16 }}>Mira / AI</div>
+      <FormField as="select" label="AI assistant" id="set-ai" value={draft.aiBackend}
+        onChange={(e) => setDraft({ ...draft, aiBackend: e.target.value })}>
+        <option value="mira">Mira (live when reachable, canned fallback)</option>
+        <option value="off">Off — canned demo replies only</option>
+      </FormField>
+      <FormField label="Mira URL" id="set-mira-url" value={draft.miraUrl}
+        onChange={(e) => setDraft({ ...draft, miraUrl: e.target.value.trim() })} />
+      <div className="vg-kicker" style={{ marginTop: 16 }}>Backend</div>
+      <FormField label="Backend URL (portfolio API)" id="set-backend-url" value={draft.backendUrl}
+        onChange={(e) => setDraft({ ...draft, backendUrl: e.target.value.trim() })} />
       <div className="vg-row" style={{ marginTop: 16, justifyContent: "flex-end" }}>
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={() => onSave(draft)}>Save</Button>

@@ -47,3 +47,7 @@ No options weighed on the surface protocols (REST for the SPA and MCP for AI are
 ## Applies To
 
 - `server/` in its entirety; Mira⇄Vantage integration phases V2/V4; ADR-007, ADR-010, ADR-013.
+
+## Implemented (V4) — SPA wiring
+
+Phase V4 landed the REST-consumer side: `src/live.js` is the SPA's integration adapter (plain `fetch`/`ReadableStream`, no dependencies) with per-endpoint clients, payload→view-shape mappers, a `useLive` progressive-enhancement hook, and the Mira clients (`/insights?domain=advisor`, `/turn` SSE streaming for chat). Overview, Holdings, and the Tax Center now read the `:8641` API when reachable and keep `src/data.js` fixtures as the automatic fallback (timeout ~2.5s, any failure → fixtures, zero console errors); the backend/Mira URLs and the Mira/Off toggle live in Settings under the unchanged `vantage.settings.v1` key (ADR-009), and sidebar status dots surface live/demo provenance from each payload's `{"as_of","source"}` envelope. The "fixture dataset must track `src/data.js`" consequence above is thereby on its planned path to inversion — the SPA prefers the API and only the fallback still depends on the mirrored fixtures.

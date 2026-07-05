@@ -91,5 +91,30 @@ make -C server run-mcp  # MCP streamable HTTP on http://127.0.0.1:8640/mcp
 
 Ports: **8640** MCP · **8641** REST API · **8642** SPA · **8080** Mira (external).
 
+### Frontend integration (Phase V4)
+
+The SPA is wired to both services through `src/live.js` (plain `fetch` +
+`ReadableStream`, no dependencies) as **progressive enhancement — fixtures stay
+the fallback**:
+
+- On load (and whenever settings change) the views that read portfolio/tax data
+  (Overview, Holdings, Tax Center) fetch from the backend; when a call succeeds
+  the live payload replaces the fixture-derived numbers, and any failure —
+  service down, timeout (~2.5s), non-200 — silently keeps the fixtures. The app
+  is fully functional with neither service running.
+- **Mira chat**: with `AI assistant = Mira` (default), the chat panel streams
+  `POST /turn` SSE — plan steps render as a subtle "thinking" line sequence,
+  tokens accumulate into the reply. If Mira is unreachable or errors, the
+  message falls back to the canned rule with an "offline — canned reply" hint.
+  Setting it to Off restores the pure canned demo. Market Intel also renders
+  Mira's `GET /insights?domain=advisor` report in place of the fixture AI-picks
+  panel when available.
+- **Status dots** in the sidebar footer show `data live/demo` (backend health,
+  with quote source/as-of in the tooltip) and `AI live/demo/off` (Mira health).
+- **Settings** gains the two URLs (`Backend URL` → `http://127.0.0.1:8641`,
+  `Mira URL` → `http://127.0.0.1:8080`) and the Mira/Off toggle; all persisted
+  under the same `vantage.settings.v1` localStorage key (ADR-009 — still the
+  only client-side persistence).
+
 > Prototype disclaimer: simulated data throughout. Nothing here is financial,
 > investment, or tax advice, and the app never connects to a broker.
