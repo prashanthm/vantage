@@ -9,7 +9,7 @@ import {
   positions, tlhCandidates, allocation, accountValue,
   loadSettings, SETTINGS_KEY, StatTile, heatTint,
 } from "./util.jsx";
-import { ChartsView } from "./charts.jsx";
+import { ChartsView, ChartsRail } from "./charts.jsx";
 import { OptionsView } from "./options.jsx";
 import * as live from "./live.js";
 import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals } from "./live.js";
@@ -44,7 +44,12 @@ function useHashRoute() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  const go = (r) => { window.location.hash = `/${r}`; window.scrollTo({ top: 0 }); };
+  const go = (r) => {
+    window.location.hash = `/${r}`;
+    // Panels scroll independently now — reset the center canvas, not the window.
+    const center = document.getElementById("vg-center");
+    if (center) center.scrollTo({ top: 0 });
+  };
   return [route, go];
 }
 
@@ -59,6 +64,22 @@ function App() {
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [analysisSym, setAnalysisSym] = useState(null);
+  // NotebookLM-style collapsible side panels (component state; default from viewport).
+  const [leftOpen, setLeftOpen] = useState(() => window.innerWidth >= 860);
+  const [rightOpen, setRightOpen] = useState(() => window.innerWidth >= 1100);
+
+  // Auto-collapse (never auto-expand) when the viewport shrinks past a breakpoint.
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mqRight = window.matchMedia("(max-width: 1099px)");
+    const mqLeft = window.matchMedia("(max-width: 859px)");
+    if (!mqRight.addEventListener) return undefined; // very old MediaQueryList API
+    const onRight = (e) => { if (e.matches) setRightOpen(false); };
+    const onLeft = (e) => { if (e.matches) setLeftOpen(false); };
+    mqRight.addEventListener("change", onRight);
+    mqLeft.addEventListener("change", onLeft);
+    return () => { mqRight.removeEventListener("change", onRight); mqLeft.removeEventListener("change", onLeft); };
+  }, []);
 
   // TLH: fixture math is the fallback; the backend engine takes over when live.
   const tlhFixture = useMemo(() => tlhCandidates(settings), [settings]);
@@ -71,22 +92,23 @@ function App() {
   };
 
   const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh, go, setAnalysisSym, setNotifOpen };
+  const hasChartRail = route === "charts";
 
   return (
-    <div>
+    <div className="vg-app">
       <div className="vg-compliance">
         AI-generated analysis · Demo with simulated data · Educational purposes only — not financial, investment, or tax advice
       </div>
 
       <Navbar
         brand="Vant" brandAccent="age"
-        links={[
-          { label: "Portfolio", href: "#/overview" },
-          { label: "Markets", href: "#/markets" },
-          { label: "Options", href: "#/options" },
-          { label: "Charts", href: "#/charts" },
-        ]}
-        cta={<Button variant="primary" onClick={() => setSettingsOpen(true)}>Settings</Button>}
+        links={[]}
+        cta={
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 18 }}>
+            <LiveStatusDots settings={settings} />
+            <Button variant="primary" onClick={() => setSettingsOpen(true)}>Settings</Button>
+          </span>
+        }
       />
 
       <div className="vg-ticker">
@@ -98,72 +120,107 @@ function App() {
         ))}
       </div>
 
-      <div className="vg-shell">
-        <div className="vg-main">
-          {/* -------- sidebar -------- */}
-          <aside className="vg-side">
-            <nav className="vg-card" style={{ padding: 12 }}>
+      <div className="vg-studio">
+        {/* -------- left pane: nav + account scope -------- */}
+        <aside className={cls("vg-pane", "vg-pane-left", !leftOpen && "clps")}>
+          <div className="vg-pane-top">
+            {leftOpen && <span className="vg-kicker" style={{ marginBottom: 0 }}>Workspace</span>}
+            <button className="vg-collapse" title={leftOpen ? "Collapse panel" : "Expand panel"}
+              aria-label={leftOpen ? "Collapse navigation panel" : "Expand navigation panel"}
+              onClick={() => setLeftOpen(!leftOpen)}>
+              {leftOpen ? "«" : "»"}
+            </button>
+          </div>
+          <div className="vg-pane-body">
+            <nav>
               {NAV.map((g) => (
                 <div key={g.group}>
-                  <div className="vg-kicker" style={{ margin: "10px 8px 4px" }}>{g.group}</div>
+                  {leftOpen && <div className="vg-kicker" style={{ margin: "10px 8px 4px" }}>{g.group}</div>}
                   {g.items.map((it) => (
-                    <button key={it.id} className={cls("vg-navitem", route === it.id && "sel")} onClick={() => go(it.id)}>
-                      <span className="ic">{it.icon}</span> {it.label}
-                      {it.id === "tax" && tlh.some((c) => c.status === "clear") && <span className="vg-navdot" />}
+                    <button key={it.id} title={it.label}
+                      className={cls("vg-navitem", route === it.id && "sel")} onClick={() => go(it.id)}>
+                      <span className="ic">{it.icon}</span>
+                      {leftOpen && <>
+                        {it.label}
+                        {it.id === "tax" && tlh.some((c) => c.status === "clear") && <span className="vg-navdot" />}
+                      </>}
                     </button>
                   ))}
                 </div>
               ))}
             </nav>
 
-            <div className="vg-card" style={{ padding: 14 }}>
-              <div className="vg-kicker">Account scope</div>
-              <button className={cls("vg-acct", accountId === "all" && "sel")} onClick={() => setAccountId("all")}>
-                <div>
-                  <div>All accounts</div>
-                  <div className="meta">{ACCOUNTS.length} linked</div>
-                </div>
-                <span className="bal">{usd(LOTS.reduce((s, l) => s + lotValue(l), 0))}</span>
-              </button>
-              {ACCOUNTS.map((a) => (
-                <button key={a.id} className={cls("vg-acct", accountId === a.id && "sel")} onClick={() => setAccountId(a.id)}>
+            {leftOpen && (
+              <div>
+                <div className="vg-divider" />
+                <div className="vg-kicker" style={{ margin: "0 8px 4px" }}>Account scope</div>
+                <button className={cls("vg-acct", accountId === "all" && "sel")} onClick={() => setAccountId("all")}>
                   <div>
-                    <div>{a.short}</div>
-                    <div className="meta">{a.type}</div>
+                    <div>All accounts</div>
+                    <div className="meta">{ACCOUNTS.length} linked</div>
                   </div>
-                  <span className="bal">{usd(accountValue(a.id))}</span>
+                  <span className="bal">{usd(LOTS.reduce((s, l) => s + lotValue(l), 0))}</span>
                 </button>
-              ))}
-              <p className="vg-note" style={{ marginTop: 10 }}>
-                Read-only aggregation (demo). Vantage never holds funds or places orders.
-              </p>
-              <LiveStatusDots settings={settings} />
-            </div>
-          </aside>
+                {ACCOUNTS.map((a) => (
+                  <button key={a.id} className={cls("vg-acct", accountId === a.id && "sel")} onClick={() => setAccountId(a.id)}>
+                    <div>
+                      <div>{a.short}</div>
+                      <div className="meta">{a.type}</div>
+                    </div>
+                    <span className="bal">{usd(accountValue(a.id))}</span>
+                  </button>
+                ))}
+                <p className="vg-note" style={{ marginTop: 10, padding: "0 4px" }}>
+                  Read-only aggregation (demo). Vantage never holds funds or places orders.
+                </p>
+                <p className="vg-note" style={{ marginTop: 8, padding: "0 4px" }}>
+                  Vantage prototype · built on the Lookey design system · simulated data · AI analysis is educational
+                  only — not financial, investment, or tax advice.
+                </p>
+              </div>
+            )}
+          </div>
+        </aside>
 
-          {/* -------- routed view -------- */}
-          <main>
-            {route === "overview" && <OverviewView {...viewProps} notifs={notifs} />}
-            {route === "holdings" && <HoldingsView {...viewProps} />}
-            {route === "tax" && <TaxView {...viewProps} />}
-            {route === "recs" && <RecsView {...viewProps} />}
-            {route === "markets" && <MarketsView {...viewProps} />}
-            {route === "options" && <OptionsView setSymbol={setSymbol} go={go} />}
-            {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
-          </main>
-        </div>
+        {/* -------- center pane: routed view -------- */}
+        <main id="vg-center" className="vg-pane vg-pane-center">
+          {route === "overview" && <OverviewView {...viewProps} notifs={notifs} />}
+          {route === "holdings" && <HoldingsView {...viewProps} />}
+          {route === "tax" && <TaxView {...viewProps} />}
+          {route === "recs" && <RecsView {...viewProps} />}
+          {route === "markets" && <MarketsView {...viewProps} />}
+          {route === "options" && <OptionsView setSymbol={setSymbol} go={go} />}
+          {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
+        </main>
 
-        <p className="vg-note" style={{ textAlign: "center", marginTop: 40 }}>
-          Vantage prototype · built on the Lookey design system · simulated data · AI analysis is educational only —
-          not financial, investment, or tax advice.
-        </p>
+        {/* -------- right pane: contextual AI rail (charts) or docked chat -------- */}
+        <aside className={cls("vg-pane", "vg-pane-right", !rightOpen && "clps")}>
+          <div className="vg-pane-top">
+            <button className="vg-collapse" title={rightOpen ? "Collapse panel" : "Expand panel"}
+              aria-label={rightOpen ? "Collapse AI panel" : "Expand AI panel"}
+              onClick={() => setRightOpen(!rightOpen)}>
+              {rightOpen ? "»" : "«"}
+            </button>
+            {rightOpen && (
+              <span className="vg-kicker" style={{ marginBottom: 0 }}>
+                {hasChartRail ? "AI insights" : "Vantage AI"}
+              </span>
+            )}
+          </div>
+          {!rightOpen && <span className="vg-sparkle" aria-hidden="true">✦</span>}
+          {rightOpen && (hasChartRail
+            ? <div className="vg-pane-body vg-rail"><ChartsRail symbol={symbol} /></div>
+            : <ChatPanel docked settings={settings} />)}
+        </aside>
       </div>
 
       <div className="vg-fabs">
         <button className="vg-fab" aria-label="Notifications" onClick={() => setNotifOpen(true)}>
           🔔{unread > 0 && <span className="cnt">{unread}</span>}
         </button>
-        <button className="vg-fab" aria-label="Vantage AI chat" onClick={() => setChatOpen(true)}>💬</button>
+        {(hasChartRail || !rightOpen) && (
+          <button className="vg-fab" aria-label="Vantage AI chat" onClick={() => setChatOpen(true)}>💬</button>
+        )}
       </div>
 
       {notifOpen && (
@@ -197,7 +254,7 @@ function LiveStatusDots({ settings }) {
   });
   const aiOff = settings.aiBackend !== "mira";
   return (
-    <div className="vg-note" style={{ display: "flex", gap: 14, alignItems: "center", marginTop: 8, padding: "0 8px" }}>
+    <span className="vg-note" style={{ display: "inline-flex", gap: 14, alignItems: "center", whiteSpace: "nowrap" }}>
       <span title={st.backend
         ? `Backend live at ${settings.backendUrl} — quotes: ${st.backend.source}${st.backend.stale ? " (stale)" : ""}, as of ${st.backend.as_of}`
         : `Backend unreachable at ${settings.backendUrl} — showing demo fixtures`}>
@@ -208,7 +265,7 @@ function LiveStatusDots({ settings }) {
         : st.mira ? `Mira reachable at ${settings.miraUrl}` : `Mira unreachable at ${settings.miraUrl} — canned demo replies`}>
         <span style={dot(!aiOff && st.mira)} />AI {aiOff ? "off" : st.mira ? "live" : "demo"}
       </span>
-    </div>
+    </span>
   );
 }
 
@@ -713,7 +770,9 @@ function NotifPanel({ notifs, setNotifs, settings, saveSettings, onClose }) {
   );
 }
 
-function ChatPanel({ settings, onClose }) {
+// Renders either as the classic slide-over (with scrim + close) or docked
+// inside the right studio pane (`docked` — no scrim, no close button).
+function ChatPanel({ settings, onClose, docked }) {
   const useMira = settings.aiBackend === "mira";
   const [msgs, setMsgs] = useState([
     { who: "ai", text: "Hi — I'm Vantage AI. I can see across all 4 of your linked accounts. Ask me about harvesting, wash sales, overlap, or your allocation." },
@@ -779,15 +838,15 @@ function ChatPanel({ settings, onClose }) {
     }
   };
 
-  return (
-    <div>
-      <div className="vg-scrim" onClick={onClose} />
-      <div className="vg-panel">
+  const inner = (
+    <>
+      {!docked && (
         <div className="vg-panel-head">
           <h3>Vantage AI</h3>
           <button className="vg-x" aria-label="Close" onClick={onClose}>×</button>
         </div>
-        <div className="vg-panel-body" ref={bodyRef}>
+      )}
+      <div className="vg-panel-body" ref={bodyRef}>
           {msgs.map((m, i) => (
             <div key={i} className={cls("vg-msg", m.who)}>
               {m.plan && m.plan.length > 0 && (
@@ -810,17 +869,24 @@ function ChatPanel({ settings, onClose }) {
             </div>
           ))}
         </div>
-        <div className="vg-chatform">
-          <FormField placeholder="Ask about your portfolio…" value={draft}
-            onChange={(e) => setDraft(e.target.value)} id="chat-input" />
-          <Button variant="primary" onClick={send}>Send</Button>
-        </div>
-        <p className="vg-note" style={{ padding: "0 16px 12px", margin: 0 }}>
-          {useMira
-            ? "Mira AI assistant — canned demo replies when offline · educational only."
-            : "Demo assistant with canned responses · educational only."}
-        </p>
+      <div className="vg-chatform">
+        <FormField placeholder="Ask about your portfolio…" value={draft}
+          onChange={(e) => setDraft(e.target.value)} id={docked ? "chat-input-dock" : "chat-input"} />
+        <Button variant="primary" onClick={send}>Send</Button>
       </div>
+      <p className="vg-note" style={{ padding: "0 16px 12px", margin: 0 }}>
+        {useMira
+          ? "Mira AI assistant — canned demo replies when offline · educational only."
+          : "Demo assistant with canned responses · educational only."}
+      </p>
+    </>
+  );
+
+  if (docked) return <div className="vg-chatdock">{inner}</div>;
+  return (
+    <div>
+      <div className="vg-scrim" onClick={onClose} />
+      <div className="vg-panel">{inner}</div>
     </div>
   );
 }

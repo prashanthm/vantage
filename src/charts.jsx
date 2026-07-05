@@ -3,7 +3,7 @@ import { TODAY, MARKET, LOTS, AI_INSIGHTS, CHART_PARAMS, CHART_MARKERS, CHART_LE
 import { genOHLC } from "./ohlc.js";
 import { usd, signUsd, signPct, cls, dirCls, acctOf, lotValue, lotCost, fmtDate } from "./util.jsx";
 
-const { useState, useMemo, useRef } = React;
+const { useState, useMemo, useRef, useEffect } = React;
 const { FAQItem } = window.LookeyDS;
 
 const TIMEFRAMES = [ { key: "1M", bars: 22 }, { key: "3M", bars: 66 }, { key: "6M", bars: 120 } ];
@@ -11,10 +11,28 @@ const UP = "#059669", DOWN = "#dc2626";
 
 const fmtD = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
+// Track an element's rendered size so the SVG viewBox can match it 1:1
+// (CSS gives .vg-chartwrap its fluid height; we re-render on resize).
+function useSize(ref, fallback) {
+  const [size, setSize] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect;
+      if (r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref]);
+  return size;
+}
+
 export function ChartsView({ symbol, setSymbol }) {
   const [tf, setTf] = useState("3M");
   const [hover, setHover] = useState(null); // bar index within visible slice
   const wrapRef = useRef(null);
+  const size = useSize(wrapRef, { w: 960, h: 450 });
 
   const all = useMemo(
     () => genOHLC(symbol, MARKET[symbol].price, CHART_PARAMS[symbol], TODAY, CHART_MARKERS[symbol] || []),
@@ -26,10 +44,10 @@ export function ChartsView({ symbol, setSymbol }) {
   const held = LOTS.filter((l) => l.symbol === symbol);
   const heldShares = held.reduce((s, l) => s + l.shares, 0);
   const avgCost = heldShares ? held.reduce((s, l) => s + lotCost(l), 0) / heldShares : null;
-  const heldUnrl = held.reduce((s, l) => s + lotValue(l) - lotCost(l), 0);
 
-  /* ---- geometry ---- */
-  const W = 960, H = 380, VH = 70, PADR = 56, PADT = 10;
+  /* ---- geometry (fluid: viewBox = measured px of .vg-chartwrap) ---- */
+  const W = Math.max(320, size.w), VH = 70, PADR = 56, PADT = 10;
+  const H = Math.max(240, size.h - VH); // price pane; volume pane (VH) sits below
   const plotW = W - PADR, n = bars.length;
   const levels = CHART_LEVELS[symbol];
   let lo = Math.min(...bars.map((b) => b.l)), hi = Math.max(...bars.map((b) => b.h));
@@ -40,7 +58,7 @@ export function ChartsView({ symbol, setSymbol }) {
   const x = (i) => (i + 0.5) * (plotW / n);
   const cw = Math.max(2, (plotW / n) * 0.62);
   const maxV = Math.max(...bars.map((b) => b.v));
-  const insight = AI_INSIGHTS[symbol], rec = CHART_RECS[symbol];
+  const insight = AI_INSIGHTS[symbol];
 
   const onMove = (e) => {
     const rect = wrapRef.current.getBoundingClientRect();
@@ -68,9 +86,8 @@ export function ChartsView({ symbol, setSymbol }) {
         </div>
       </div>
 
-      <div className="vg-chartgrid">
-        {/* ------- chart card ------- */}
-        <div className="vg-card" style={{ padding: 16 }}>
+      {/* ------- chart card (AI rail renders in the studio's right pane) ------- */}
+      <div className="vg-card" style={{ padding: 16 }}>
           <div className="vg-spread" style={{ marginBottom: 8 }}>
             <div className="vg-row">
               <strong style={{ fontSize: 17 }}>{symbol}</strong>
@@ -89,7 +106,7 @@ export function ChartsView({ symbol, setSymbol }) {
           </div>
 
           <div ref={wrapRef} className="vg-chartwrap" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-            <svg viewBox={`0 0 ${W} ${H + VH}`} style={{ width: "100%", display: "block" }} role="img"
+            <svg viewBox={`0 0 ${W} ${H + VH}`} preserveAspectRatio="none" role="img"
               aria-label={`${symbol} candlestick chart, ${tf}`}>
               {/* grid + y labels */}
               {Array.from({ length: gridLines + 1 }, (_, g) => {
@@ -181,63 +198,71 @@ export function ChartsView({ symbol, setSymbol }) {
               );
             })}
           </div>
-        </div>
+      </div>
+    </div>
+  );
+}
 
-        {/* ------- right panel: AI read + position + recommendation ------- */}
-        <div>
-          <div className="vg-card">
-            <div className="vg-kicker">AI read</div>
-            {insight && <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "0 0 10px" }}>{insight.summary}</p>}
-            {insight && (
-              <div className="vg-row" style={{ gap: 16 }}>
-                <div style={{ flex: 1 }}>
-                  <div className="vg-spread" style={{ fontSize: 12, color: "var(--color-grey)" }}>
-                    <span>Momentum</span><span>{insight.momentum}</span>
-                  </div>
-                  <div className="vg-meter"><span style={{ width: `${insight.momentum}%` }} /></div>
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div className="vg-spread" style={{ fontSize: 12, color: "var(--color-grey)" }}>
-                    <span>Sentiment</span><span>{insight.sentiment}</span>
-                  </div>
-                  <div className="vg-meter"><span style={{ width: `${insight.sentiment}%`, background: "var(--color-secondary)" }} /></div>
-                </div>
+// Contextual AI rail for the charts view — rendered by the app shell inside
+// the studio's right pane: AI read + your position + AI recommendation + FAQ.
+export function ChartsRail({ symbol }) {
+  const insight = AI_INSIGHTS[symbol], rec = CHART_RECS[symbol];
+  const held = LOTS.filter((l) => l.symbol === symbol);
+  const heldShares = held.reduce((s, l) => s + l.shares, 0);
+  const heldUnrl = held.reduce((s, l) => s + lotValue(l) - lotCost(l), 0);
+  return (
+    <div>
+      <div className="vg-card">
+        <div className="vg-kicker">AI read</div>
+        {insight && <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "0 0 10px" }}>{insight.summary}</p>}
+        {insight && (
+          <div className="vg-row" style={{ gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <div className="vg-spread" style={{ fontSize: 12, color: "var(--color-grey)" }}>
+                <span>Momentum</span><span>{insight.momentum}</span>
               </div>
-            )}
-          </div>
-
-          <div className="vg-card">
-            <div className="vg-kicker">Your position</div>
-            {heldShares > 0 ? (
-              <div>
-                <div className="vg-spread" style={{ fontSize: 14 }}>
-                  <b>{heldShares} sh · {usd(heldShares * MARKET[symbol].price)}</b>
-                  <span className={dirCls(heldUnrl)} style={{ color: heldUnrl >= 0 ? UP : DOWN, fontWeight: 600 }}>{signUsd(heldUnrl)}</span>
-                </div>
-                {held.map((l, i) => (
-                  <div key={i} className="vg-note" style={{ marginTop: 6 }}>
-                    {acctOf(l.account).short}: {l.shares} sh @ {usd(l.costPerShare, 2)} ({fmtDate(l.date)})
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="vg-note" style={{ margin: 0 }}>Not held in any linked account.</p>
-            )}
-          </div>
-
-          {rec && (
-            <div className="vg-card vg-reccard">
-              <div className="vg-kicker">AI recommendation</div>
-              <div className="vg-recaction">{rec.action}</div>
-              <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "8px 0" }}>{rec.detail}</p>
-              <p className="vg-note" style={{ margin: 0 }}>⚠ Risk: {rec.risk}</p>
+              <div className="vg-meter"><span style={{ width: `${insight.momentum}%` }} /></div>
             </div>
-          )}
-
-          <div className="vg-card">
-            <ChartFaq />
+            <div style={{ flex: 1 }}>
+              <div className="vg-spread" style={{ fontSize: 12, color: "var(--color-grey)" }}>
+                <span>Sentiment</span><span>{insight.sentiment}</span>
+              </div>
+              <div className="vg-meter"><span style={{ width: `${insight.sentiment}%`, background: "var(--color-secondary)" }} /></div>
+            </div>
           </div>
+        )}
+      </div>
+
+      <div className="vg-card">
+        <div className="vg-kicker">Your position</div>
+        {heldShares > 0 ? (
+          <div>
+            <div className="vg-spread" style={{ fontSize: 14 }}>
+              <b>{heldShares} sh · {usd(heldShares * MARKET[symbol].price)}</b>
+              <span className={dirCls(heldUnrl)} style={{ color: heldUnrl >= 0 ? UP : DOWN, fontWeight: 600 }}>{signUsd(heldUnrl)}</span>
+            </div>
+            {held.map((l, i) => (
+              <div key={i} className="vg-note" style={{ marginTop: 6 }}>
+                {acctOf(l.account).short}: {l.shares} sh @ {usd(l.costPerShare, 2)} ({fmtDate(l.date)})
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="vg-note" style={{ margin: 0 }}>Not held in any linked account.</p>
+        )}
+      </div>
+
+      {rec && (
+        <div className="vg-card vg-reccard">
+          <div className="vg-kicker">AI recommendation</div>
+          <div className="vg-recaction">{rec.action}</div>
+          <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "8px 0" }}>{rec.detail}</p>
+          <p className="vg-note" style={{ margin: 0 }}>⚠ Risk: {rec.risk}</p>
         </div>
+      )}
+
+      <div className="vg-card">
+        <ChartFaq />
       </div>
     </div>
   );
