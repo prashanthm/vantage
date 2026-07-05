@@ -112,6 +112,10 @@ with `--add-account "id,name,short,type,taxable"`. Live (delayed) quotes come
 from `./stack start --live` instead of `run-api`. Full importer
 semantics (merge vs replace, backups, generic CSV): [`server/README.md`](server/README.md).
 
+Robinhood positions can also be synced directly (read-only, no CSV) via
+`--broker robinhood` — see "Robinhood (read-only)" in
+[`server/README.md`](server/README.md).
+
 ### Frontend integration (Phase V4)
 
 The SPA is wired to both services through `src/live.js` (plain `fetch` +

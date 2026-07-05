@@ -70,3 +70,21 @@ cadence, extractable to its own repo without touching the engine. A root
 `./stack` script (setup/start/stop/status/logs, port-based process control)
 runs the four services — API :8641, MCP :8640, SPA :8642, Mira :8080 — with
 one command each way.
+
+## Implemented (V7) — Robinhood read-only sync
+
+`--broker robinhood` in the importer CLI syncs positions live from
+Robinhood's official Agentic Trading API (MCP over streamable HTTP,
+`server/vantage_server/brokers/`), with the same merge/replace/backup/dry-run
+semantics as the CSV brokers. The read-only guarantee is **enforced in code**:
+every broker call goes through one dispatcher with an explicit allowlist
+(`get_portfolio`, `get_equity_positions`, `get_equity_quotes`); any other tool
+raises `ReadOnlyViolation` before any network I/O (unit-tested). Auth is a
+self-owned OAuth PKCE grant (ported from sentinel; `--auth` one-time browser
+flow, auto-refresh, atomic chmod-600 token file, sentinel's standing grant
+reused when present). The `mcp` dependency is an optional extra
+(`pip install -e ".[robinhood]"`), imported lazily — the core server stays
+mcp-free. Known trade-off documented in the importer and README: Robinhood
+exposes AVERAGE cost basis, not tax lots, so the sync writes one synthetic lot
+per position dated `--as-of`; statement-CSV import remains the lot-accurate
+path.

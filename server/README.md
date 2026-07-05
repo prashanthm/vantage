@@ -87,6 +87,41 @@ Semantics:
 - `--data-dir` targets another data directory (default: `VANTAGE_DATA_DIR`
   or `server/data`).
 
+## Robinhood (read-only)
+
+`--broker robinhood` syncs positions straight from Robinhood's official
+Agentic Trading API (MCP over streamable HTTP) instead of a CSV — same
+merge/replace/backup/dry-run semantics as the CSV brokers:
+
+```sh
+.venv/bin/pip install -e ".[robinhood]"   # one-time: the optional mcp extra
+.venv/bin/python -m vantage_server.importer \
+    --broker robinhood --account rh-main --rh-account <N> --dry-run
+```
+
+Drop `--dry-run` to write; `--as-of YYYY-MM-DD` overrides the lot date
+(default: today). First-time users authorize once in the browser:
+
+```sh
+.venv/bin/python -m vantage_server.importer --broker robinhood --auth
+```
+
+- **Hard read-only guarantee (ADR-010)**: every Robinhood call goes through a
+  single dispatcher with an explicit allowlist
+  (`get_portfolio`, `get_equity_positions`, `get_equity_quotes` —
+  `brokers/robinhood.py`); anything else raises `ReadOnlyViolation` before
+  any network I/O. No order or transfer code path exists in this package.
+- **Grant reuse**: the token file resolves env `ROBINHOOD_TOKEN_FILE` >
+  `~/personal/sentinel/.robinhood_token.json` (an existing sentinel grant is
+  reused rather than creating a competing one) > `server/.robinhood_token.json`.
+  Saved atomically with chmod 600; token values are never printed or logged.
+- **Average-cost limitation**: Robinhood returns one row per symbol with an
+  AVERAGE buy price and no acquisition dates, so the sync writes ONE synthetic
+  lot per position dated `--as-of`. Wash-sale/TLH math then runs on average
+  basis — the statement-CSV import path stays the lot-accurate option.
+- Zero-share rows are skipped with warnings; the target `--account` must exist
+  in `accounts.json` (exit 2 otherwise; `--add-account` works here too).
+
 ## Live quotes
 
 Set `VANTAGE_QUOTES=stooq` (or use `make run-api-live` / `make run  # (in ../mcp)-live`)

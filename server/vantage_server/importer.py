@@ -1,4 +1,4 @@
-"""Broker positions-CSV importer — CLI file management for lots.json.
+"""Broker positions importer — CLI file management for lots.json.
 
 This CLI mutates the data directory the same way an operator editing the JSON
 by hand would. It is deliberately OUTSIDE the read-only service surface
@@ -7,6 +7,18 @@ command-line tool (run by the operator, on the operator's machine) writes.
 
     python -m vantage_server.importer positions.csv \
         --broker fidelity --account fid-taxable --as-of 2026-07-05
+
+    # Robinhood: no CSV — read positions live from the official Agentic
+    # Trading API (READ-ONLY by hard allowlist, see brokers/robinhood.py)
+    python -m vantage_server.importer \
+        --broker robinhood --account rh-main --rh-account <N> [--as-of DATE]
+    python -m vantage_server.importer --broker robinhood --auth  # one-time grant
+
+ROBINHOOD LIMITATION — average cost basis, not tax lots: Robinhood's
+get_equity_positions returns one row per symbol with an AVERAGE buy price and
+no acquisition dates, so the sync writes ONE SYNTHETIC LOT per position dated
+--as-of (default: today). Wash-sale and TLH math then runs on average basis;
+when you need lot-accurate numbers, import a statement CSV instead.
 
 Broker parsers are tolerant of the messy realities of positions exports:
 preamble lines, quoted "$1,234.56" numbers, cash/sweep rows, pending-activity
@@ -57,7 +69,7 @@ from pathlib import Path
 
 from .store import StoreError, resolve_data_dir
 
-BROKERS = ("fidelity", "schwab", "vanguard", "generic")
+BROKERS = ("fidelity", "schwab", "vanguard", "generic", "robinhood")
 
 EXIT_OK = 0
 EXIT_USER_ERROR = 2
@@ -328,6 +340,40 @@ PARSERS = {
 }
 
 
+# -------------------------------------------------------------- robinhood
+
+def robinhood_positions_to_lots(positions: list[dict], account: str, as_of: str):
+    """Convert normalized Robinhood positions ({symbol, shares, avg_cost, ...})
+    into synthetic lots: ONE lot per position, dated as_of, at the AVERAGE
+    cost basis (Robinhood exposes no tax-lot detail — see module docstring).
+    Zero/negative-share rows are skipped with warnings."""
+    lots, warnings = [], []
+    for pos in positions:
+        symbol = str(pos.get("symbol") or "").strip().upper()
+        if not symbol:
+            warnings.append("skipped a position with no symbol")
+            continue
+        shares = _to_float(pos.get("shares"))
+        if shares is None or shares <= 0:
+            warnings.append(f"skipped {symbol}: zero or non-positive share count")
+            continue
+        avg = _to_float(pos.get("avg_cost"))
+        if avg is None or avg < 0:
+            warnings.append(f"skipped {symbol}: no usable average cost basis")
+            continue
+        if avg == 0:
+            warnings.append(f"{symbol}: average cost basis is 0 — unrealized "
+                            "P/L will read as the full position value")
+        lots.append({
+            "account": account,
+            "symbol": symbol,
+            "date": as_of,
+            "shares": shares,
+            "cost_per_share": round(avg, 6),
+        })
+    return lots, warnings
+
+
 # ------------------------------------------------------------------ writer
 
 def write_lots(
@@ -392,11 +438,18 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Import a broker positions CSV into the Vantage lots.json "
                     "(operator-side file management — the API stays read-only).",
     )
-    p.add_argument("csv_file", help="path to the broker positions export")
+    p.add_argument("csv_file", nargs="?",
+                   help="path to the broker positions export (omit for "
+                        "--broker robinhood, which reads the API)")
     p.add_argument("--broker", required=True, choices=BROKERS)
     p.add_argument("--account",
                    help="target internal account id (required unless the generic "
                         "CSV carries an account column)")
+    p.add_argument("--rh-account", metavar="N",
+                   help="Robinhood account number (required for --broker robinhood)")
+    p.add_argument("--auth", action="store_true",
+                   help="--broker robinhood only: run the one-time browser "
+                        "authorization flow, save the token, and exit")
     p.add_argument("--data-dir", help="data directory (default: VANTAGE_DATA_DIR or server/data)")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--merge", action="store_true",
@@ -423,21 +476,47 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.auth:
+        if args.broker != "robinhood":
+            raise ImporterError("--auth is only valid with --broker robinhood")
+        from .brokers import robinhood_auth
+        robinhood_auth.interactive_login()
+        return EXIT_OK
+
     data_dir = resolve_data_dir(args.data_dir)
-    csv_path = Path(args.csv_file)
-    if not csv_path.is_file():
-        raise ImporterError(f"{csv_path}: file not found")
     if args.as_of and _to_iso_date(args.as_of) != args.as_of:
         raise ImporterError(f"--as-of must be an ISO date (YYYY-MM-DD), got '{args.as_of}'")
     if args.broker != "generic" and not args.account:
         raise ImporterError(f"--account is required for --broker {args.broker}")
 
-    text = csv_path.read_text(encoding="utf-8-sig")
-    lots, warnings = PARSERS[args.broker](text, args.account, args.as_of)
+    if args.broker == "robinhood":
+        if args.csv_file:
+            raise ImporterError(
+                "--broker robinhood reads positions from the API — do not pass a CSV file")
+        if not args.rh_account:
+            raise ImporterError("--rh-account is required for --broker robinhood")
+        as_of = args.as_of or _dt.date.today().isoformat()
+        from .brokers import robinhood
+        try:
+            positions = robinhood.fetch_positions(args.rh_account)
+        except (robinhood.AuthError, robinhood.RobinhoodError) as e:
+            raise ImporterError(f"robinhood: {e}") from e
+        lots, warnings = robinhood_positions_to_lots(positions, args.account, as_of)
+        source = f"Robinhood account ...{args.rh_account[-4:]}"
+    else:
+        if not args.csv_file:
+            raise ImporterError(f"a positions CSV file is required for --broker {args.broker}")
+        csv_path = Path(args.csv_file)
+        if not csv_path.is_file():
+            raise ImporterError(f"{csv_path}: file not found")
+        text = csv_path.read_text(encoding="utf-8-sig")
+        lots, warnings = PARSERS[args.broker](text, args.account, args.as_of)
+        source = str(csv_path)
+
     for w in warnings:
         print(f"warning: {w}", file=sys.stderr)
     if not lots:
-        raise ImporterError(f"{csv_path}: no position rows found — nothing to import")
+        raise ImporterError(f"{source}: no position rows found — nothing to import")
 
     # -- accounts: optional convenience append, then hard existence check
     accounts_path = data_dir / "accounts.json"
@@ -473,7 +552,7 @@ def _run(args: argparse.Namespace) -> int:
     mode = "replace" if args.replace else "merge"
 
     if args.dry_run:
-        print(f"DRY RUN — parsed {len(lots)} lot(s) from {csv_path} ({args.broker}):")
+        print(f"DRY RUN — parsed {len(lots)} lot(s) from {source} ({args.broker}):")
         for l in lots:
             print(f"  {l['account']:<14} {l['symbol']:<6} {l['date']}  "
                   f"{l['shares']:>12g} sh @ {l['cost_per_share']:.2f}")
