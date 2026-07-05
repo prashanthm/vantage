@@ -21,6 +21,7 @@ from mcp.types import ToolAnnotations
 from . import engine
 from .models import QuoteSnapshot, to_jsonable
 from .quotes import get_provider
+from .signals import grade_signals
 from .store import Store
 
 MCP_HOST = "127.0.0.1"
@@ -155,6 +156,23 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         snap = snapshot()
         return envelope("lots", snap, account=account,
                         lots=to_jsonable(engine.select_lots(dataset.lots, account)))
+
+    signal_seed = store.load_signals()
+
+    @mcp.tool(
+        name="vantage.signals",
+        annotations=_READ_ONLY,
+        description="Trade signals graded against the current quote snapshot: "
+                    "status open/hit_target/stopped (or unquoted), signed P/L % "
+                    "vs entry, and progress grade A-F. Statuses are computed "
+                    "from quotes, never authored. Optional symbol filter.",
+    )
+    def signals(symbol: str | None = None) -> dict:
+        snap = snapshot()
+        graded = grade_signals(signal_seed, snap.quotes)
+        if symbol:
+            graded = [g for g in graded if g.signal.sym == symbol.upper()]
+        return envelope("signals", snap, symbol=symbol, signals=to_jsonable(graded))
 
     @mcp.tool(
         name="vantage.quotes",

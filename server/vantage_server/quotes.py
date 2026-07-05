@@ -5,20 +5,50 @@ data dir — same numbers as the SPA's MARKET table). StooqQuoteProvider fetches
 free delayed CSV quotes from stooq.com over stdlib urllib (no credentials);
 it is only constructed when VANTAGE_QUOTES=stooq, and any failure degrades to
 the fixture snapshot with stale=True — the engine always has prices.
+
+To avoid hammering the free feed, successful Stooq fetches are cached on disk
+(<data_dir>/quotes_cache.json, with a fetched_at timestamp) and reused for
+VANTAGE_QUOTES_TTL seconds (default 900). Set VANTAGE_QUOTES_TTL=0 to bypass
+the cache entirely (every snapshot fetches). The clock is injectable so cache
+hit/expiry is unit-testable without sleeping.
 """
 from __future__ import annotations
 
+import csv
 import datetime as _dt
+import io
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 from .models import Quote, QuoteSnapshot
 from .store import StoreError, resolve_data_dir
 
 ENV_QUOTES = "VANTAGE_QUOTES"
+ENV_QUOTES_TTL = "VANTAGE_QUOTES_TTL"
+DEFAULT_TTL_SECONDS = 900.0
+CACHE_FILENAME = "quotes_cache.json"
 STOOQ_URL = "https://stooq.com/q/l/?s={symbols}&f=sd2t2ohlcv&h&e=csv"
+
+
+def _utc_now() -> _dt.datetime:
+    return _dt.datetime.now(_dt.timezone.utc)
+
+
+def resolve_ttl(ttl: float | None = None) -> float:
+    """Explicit arg > VANTAGE_QUOTES_TTL env > 900s default. <= 0 disables
+    the cache (every snapshot fetches; nothing is written)."""
+    if ttl is not None:
+        return float(ttl)
+    env = os.environ.get(ENV_QUOTES_TTL, "").strip()
+    if env:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    return DEFAULT_TTL_SECONDS
 
 
 class QuoteProvider(Protocol):
@@ -62,6 +92,11 @@ class FixtureQuoteProvider:
         return QuoteSnapshot(quotes=quotes, as_of=str(data["as_of"]), source=self.source)
 
 
+def stooq_symbol(symbol: str) -> str:
+    """Stooq wants lowercase with a '.us' suffix for US tickers: SPY -> spy.us."""
+    return f"{symbol.lower()}.us"
+
+
 class StooqQuoteProvider:
     """Free delayed quotes from stooq.com CSV, layered over fixture metadata.
 
@@ -71,23 +106,45 @@ class StooqQuoteProvider:
     has neither). CASH is never fetched (price is definitionally 1).
 
     Any failure — network, HTTP, unparsable CSV, or 'N/D' rows — degrades to
-    the fixture snapshot flagged stale=True. `urlopen` is injectable so tests
-    never touch the network.
+    the fixture snapshot flagged stale=True per symbol. `urlopen` is
+    injectable so tests never touch the network; `clock` is injectable so the
+    on-disk cache (quotes_cache.json, TTL `ttl` seconds) is testable.
     """
 
     source = "stooq"
 
-    def __init__(self, data_dir: str | os.PathLike[str] | None = None, urlopen=None, timeout: float = 10.0):
+    def __init__(
+        self,
+        data_dir: str | os.PathLike[str] | None = None,
+        urlopen=None,
+        timeout: float = 10.0,
+        ttl: float | None = None,
+        clock: Callable[[], _dt.datetime] | None = None,
+    ):
         self.data_dir = resolve_data_dir(data_dir)
         self._urlopen = urlopen  # test seam; resolved lazily to stdlib when None
         self.timeout = timeout
+        self.ttl = resolve_ttl(ttl)
+        self._clock = clock or _utc_now
+
+    @property
+    def _cache_path(self) -> Path:
+        return Path(self.data_dir) / CACHE_FILENAME
 
     def snapshot(self) -> QuoteSnapshot:
         fixture = FixtureQuoteProvider(self.data_dir).snapshot()
-        try:
-            live = self._fetch(sorted(s for s in fixture.quotes if s != "CASH"))
-        except Exception:
-            return replace(fixture, stale=True)  # degrade: fixture prices, flagged stale
+        symbols = sorted(s for s in fixture.quotes if s != "CASH")
+
+        cached = self._read_cache()
+        if cached is not None:
+            live, as_of = cached
+        else:
+            try:
+                live = self._fetch(symbols)
+            except Exception:
+                return replace(fixture, stale=True)  # degrade: fixture prices, flagged stale
+            as_of = self._clock().isoformat(timespec="seconds")
+            self._write_cache(live, as_of)
 
         quotes: dict[str, Quote] = {}
         missing = False
@@ -95,36 +152,76 @@ class StooqQuoteProvider:
             row = live.get(sym)
             if row is None:
                 if sym != "CASH":
-                    missing = True
+                    missing = True  # N/D or absent row: this symbol falls back to fixture
                 quotes[sym] = base
             else:
                 close, open_ = row
                 day_pct = round((close - open_) / open_ * 100, 2) if open_ else 0.0
                 quotes[sym] = replace(base, price=close, day_pct=day_pct)
-        as_of = _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds")
         return QuoteSnapshot(quotes=quotes, as_of=as_of, source=self.source, stale=missing)
+
+    # ------------------------------------------------------------- fetch
 
     def _fetch(self, symbols: list[str]) -> dict[str, tuple[float, float]]:
         """Return {SYMBOL: (close, open)} for symbols Stooq knows."""
         urlopen = self._urlopen
         if urlopen is None:
             from urllib.request import urlopen  # stdlib, imported only when live quotes are on
-        url = STOOQ_URL.format(symbols="+".join(f"{s.lower()}.us" for s in symbols))
+        url = STOOQ_URL.format(symbols="+".join(stooq_symbol(s) for s in symbols))
         with urlopen(url, timeout=self.timeout) as resp:
             body = resp.read().decode("utf-8", errors="replace")
+        return self._parse_csv(body)
+
+    @staticmethod
+    def _parse_csv(body: str) -> dict[str, tuple[float, float]]:
+        """Parse Stooq's 'Symbol,Date,Time,Open,High,Low,Close,Volume' CSV.
+        'N/D' cells (symbol unknown / market closed) skip the row so the
+        fixture price backfills that symbol (per-symbol stale fallback)."""
         out: dict[str, tuple[float, float]] = {}
-        lines = [ln for ln in body.strip().splitlines() if ln]
-        for line in lines[1:]:  # skip header
-            parts = line.split(",")
-            if len(parts) < 8:
+        reader = csv.reader(io.StringIO(body))
+        for parts in reader:
+            if len(parts) < 7 or parts[0].strip().lower() == "symbol":
+                continue  # header, blank, or truncated row
+            sym = parts[0].split(".")[0].strip().upper()
+            open_s, close_s = parts[3].strip(), parts[6].strip()
+            if not sym or "N/D" in (open_s, close_s):
                 continue
-            sym_raw, _date, _time, open_s, _hi, _lo, close_s = parts[0], *parts[1:7]
-            sym = sym_raw.split(".")[0].upper()
             try:
                 out[sym] = (float(close_s), float(open_s))
             except ValueError:
-                continue  # 'N/D' — symbol unknown to Stooq; fixture fills in
+                continue  # anything unparsable: fixture fills in
         return out
+
+    # ------------------------------------------------------------- cache
+
+    def _read_cache(self) -> tuple[dict[str, tuple[float, float]], str] | None:
+        """Return (rows, fetched_at) when a fresh cache exists; else None.
+        A corrupt or expired cache is simply ignored."""
+        if self.ttl <= 0:
+            return None
+        try:
+            data = json.loads(self._cache_path.read_text(encoding="utf-8"))
+            fetched_at = str(data["fetched_at"])
+            age = (self._clock() - _dt.datetime.fromisoformat(fetched_at)).total_seconds()
+            if age < 0 or age >= self.ttl:
+                return None
+            rows = {
+                str(sym): (float(pair[0]), float(pair[1]))
+                for sym, pair in dict(data["rows"]).items()
+            }
+            return rows, fetched_at
+        except Exception:
+            return None
+
+    def _write_cache(self, rows: dict[str, tuple[float, float]], fetched_at: str) -> None:
+        if self.ttl <= 0:
+            return  # cache disabled
+        try:
+            payload = {"fetched_at": fetched_at,
+                       "rows": {sym: list(pair) for sym, pair in rows.items()}}
+            self._cache_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        except OSError:
+            pass  # a read-only data dir must never break quote serving
 
 
 def get_provider(data_dir: str | os.PathLike[str] | None = None) -> QuoteProvider:

@@ -159,6 +159,13 @@ class Store:
             raise StoreError(f"{path}: must be a JSON object of symbol -> replacement symbol")
         return data
 
+    def load_signals(self):
+        """Authored trade signals (<data_dir>/signals.json — optional file).
+        Returns tuple[Signal, ...]; statuses are computed, never stored."""
+        from .signals import load_signals  # local import: signals.py imports store helpers
+
+        return load_signals(self.data_dir)
+
     # -- the whole dataset --------------------------------------------------
 
     def load_dataset(self) -> Dataset:

@@ -19,6 +19,7 @@ EXPECTED_TOOLS = {
     "vantage.tlh_candidates",
     "vantage.lots",
     "vantage.quotes",
+    "vantage.signals",
 }
 
 

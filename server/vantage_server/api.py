@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import engine
 from .models import QuoteSnapshot, to_jsonable
 from .quotes import get_provider
+from .signals import grade_signals
 from .store import Dataset, Store
 
 LOCALHOST_ORIGINS = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
@@ -146,6 +147,16 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     def quotes():
         snap = state.snapshot()
         return envelope(snap, quotes=to_jsonable(snap.quotes))
+
+    signal_seed = store.load_signals()
+
+    @app.get("/api/signals")
+    def signals():
+        """Graded signals — status/pnl/grade are COMPUTED from the current
+        quote snapshot on every read, never authored (see signals.py)."""
+        snap = state.snapshot()
+        graded = grade_signals(signal_seed, snap.quotes)
+        return envelope(snap, signals=to_jsonable(graded))
 
     return app
 

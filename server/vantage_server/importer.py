@@ -1,0 +1,492 @@
+"""Broker positions-CSV importer — CLI file management for lots.json.
+
+This CLI mutates the data directory the same way an operator editing the JSON
+by hand would. It is deliberately OUTSIDE the read-only service surface
+(ADR-010): the REST API and MCP tools never mutate anything; only this
+command-line tool (run by the operator, on the operator's machine) writes.
+
+    python -m vantage_server.importer positions.csv \
+        --broker fidelity --account fid-taxable --as-of 2026-07-05
+
+Broker parsers are tolerant of the messy realities of positions exports:
+preamble lines, quoted "$1,234.56" numbers, cash/sweep rows, pending-activity
+rows, and disclaimer footers are skipped (with per-row warnings where the row
+looked like a position). Each parser yields internal lot dicts
+{account, symbol, date, shares, cost_per_share}. A file that yields zero lots
+aborts with exit code 2 — so does an unknown target account (add it first,
+e.g. with --add-account).
+
+Parser assumptions per broker:
+
+- fidelity  Positions export: "Account Number,Account Name,Symbol,Description,
+            Quantity,...,Cost Basis Total,Average Cost Basis,...". Cost per
+            share prefers "Average Cost Basis", falling back to
+            Cost Basis Total / Quantity. No acquisition date column in the
+            standard export, so --as-of is required (a "Date Acquired" column
+            is used when present). Rows whose symbol ends in "**" (core/sweep
+            money market such as SPAXX**) and "Pending Activity" rows are
+            skipped.
+- schwab    Positions export: preamble line, then "Symbol,Description,
+            Qty (Quantity),Price,...,Cost Basis,...". Cost per share =
+            Cost Basis / Quantity ("Cost/Share" or "Date Acquired" columns are
+            used when present). "Cash & Cash Investments" / "Account Total"
+            footer rows are skipped. --as-of required when no date column.
+- vanguard  Holdings download: "Account Number,Investment Name,Symbol,Shares,
+            Share Price,Total Value". The basic download carries NO cost
+            basis; an "Average Cost"/"Total Cost" column is used when present,
+            otherwise cost per share falls back to Share Price with a warning.
+            Money-market sweep rows are skipped. --as-of required (no dates).
+- generic   Exactly the internal shape: header
+            "account,symbol,date,shares,costPerShare" (the account column is
+            optional when --account is given).
+
+Writes ALWAYS back up the previous lots.json to lots.json.bak-<ISO> first
+(write_lots takes an injectable `now` so tests are deterministic; the CLI
+passes the real clock). --dry-run prints the parsed lots and writes nothing.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as _dt
+import io
+import json
+import re
+import sys
+from pathlib import Path
+
+from .store import StoreError, resolve_data_dir
+
+BROKERS = ("fidelity", "schwab", "vanguard", "generic")
+
+EXIT_OK = 0
+EXIT_USER_ERROR = 2
+
+
+class ImporterError(Exception):
+    """A user-correctable import problem (bad file, unknown account, ...)."""
+
+
+# ------------------------------------------------------------- cell helpers
+
+def _norm(cell: str) -> str:
+    """Normalise a header cell: drop parentheticals, quotes, case, spacing.
+    'Qty (Quantity)' -> 'qty'."""
+    return re.sub(r"\(.*?\)", "", cell).strip().strip('"').strip().lower()
+
+
+def _to_float(cell: str | None) -> float | None:
+    """Parse a broker-formatted number ('$1,234.56', '(12.30)', 'N/A')."""
+    if cell is None:
+        return None
+    s = str(cell).strip().strip('"').replace("$", "").replace(",", "").replace("%", "")
+    if s in ("", "--", "n/a", "N/A", "N/D"):
+        return None
+    negative = s.startswith("(") and s.endswith(")")
+    if negative:
+        s = s[1:-1]
+    try:
+        value = float(s)
+    except ValueError:
+        return None
+    return -value if negative else value
+
+
+def _to_iso_date(cell: str | None) -> str | None:
+    s = (cell or "").strip().strip('"')
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y"):
+        try:
+            return _dt.datetime.strptime(s, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def _rows(text: str) -> list[list[str]]:
+    return [row for row in csv.reader(io.StringIO(text))]
+
+
+def _find_header(
+    rows: list[list[str]], symbol_col: str, qty_names: tuple[str, ...]
+) -> tuple[int, dict[str, int]]:
+    """Locate the header row (the one carrying a symbol AND a quantity-like
+    column) and return (row index, normalised-name -> column-index map)."""
+    for i, row in enumerate(rows):
+        names = [_norm(c) for c in row]
+        if symbol_col in names and any(q in names for q in qty_names):
+            return i, {name: idx for idx, name in enumerate(names) if name}
+    raise ImporterError(
+        f"could not find a header row with '{symbol_col}' and one of {qty_names} columns"
+    )
+
+
+def _cell(row: list[str], idx: int | None) -> str | None:
+    if idx is None or idx >= len(row):
+        return None
+    return row[idx]
+
+
+def _first(cols: dict[str, int], *names: str) -> int | None:
+    for name in names:
+        if name in cols:
+            return cols[name]
+    return None
+
+
+def _need_date(row_date: str | None, as_of: str | None, symbol: str) -> str:
+    if row_date:
+        return row_date
+    if as_of:
+        return as_of
+    raise ImporterError(
+        f"row for {symbol} has no acquisition date and --as-of was not given; "
+        "pass --as-of YYYY-MM-DD to date the imported lots deterministically"
+    )
+
+
+# ---------------------------------------------------------------- parsers
+#
+# Every parser: (text, account, as_of) -> (lots, warnings) where lots are
+# internal dicts {account, symbol, date, shares, cost_per_share}.
+
+_SCHWAB_FOOTERS = {"cash & cash investments", "account total", "total", "cash"}
+
+
+def parse_fidelity(text: str, account: str, as_of: str | None):
+    rows = _rows(text)
+    hi, cols = _find_header(rows, "symbol", ("quantity", "qty"))
+    i_sym = cols["symbol"]
+    i_qty = _first(cols, "quantity", "qty")
+    i_avg = _first(cols, "average cost basis", "average cost")
+    i_total = _first(cols, "cost basis total", "cost basis")
+    i_date = _first(cols, "date acquired", "acquisition date")
+    lots, warnings = [], []
+    for row in rows[hi + 1:]:
+        symbol = (_cell(row, i_sym) or "").strip().strip('"')
+        if not symbol or len(row) <= i_qty:
+            continue  # blank spacer / disclaimer footer
+        if "pending" in symbol.lower():
+            warnings.append(f"skipped pending-activity row '{symbol}'")
+            continue
+        if symbol.endswith("**"):
+            warnings.append(f"skipped cash/core position '{symbol}'")
+            continue
+        qty = _to_float(_cell(row, i_qty))
+        if qty is None or qty <= 0:
+            warnings.append(f"skipped {symbol}: quantity not a positive number")
+            continue
+        cost = _to_float(_cell(row, i_avg))
+        if cost is None:
+            total = _to_float(_cell(row, i_total))
+            cost = total / qty if total is not None else None
+        if cost is None:
+            warnings.append(f"skipped {symbol}: no usable cost basis")
+            continue
+        lots.append({
+            "account": account,
+            "symbol": symbol.upper(),
+            "date": _need_date(_to_iso_date(_cell(row, i_date)), as_of, symbol),
+            "shares": qty,
+            "cost_per_share": round(cost, 6),
+        })
+    return lots, warnings
+
+
+def parse_schwab(text: str, account: str, as_of: str | None):
+    rows = _rows(text)
+    hi, cols = _find_header(rows, "symbol", ("quantity", "qty"))
+    i_sym = cols["symbol"]
+    i_qty = _first(cols, "quantity", "qty")
+    i_cps = _first(cols, "cost/share", "cost per share")
+    i_total = _first(cols, "cost basis", "cost basis total")
+    i_date = _first(cols, "date acquired", "acquisition date")
+    lots, warnings = [], []
+    for row in rows[hi + 1:]:
+        symbol = (_cell(row, i_sym) or "").strip().strip('"')
+        if not symbol or len(row) <= i_qty:
+            continue
+        if symbol.lower() in _SCHWAB_FOOTERS or symbol.lower().startswith("account"):
+            warnings.append(f"skipped non-position row '{symbol}'")
+            continue
+        qty = _to_float(_cell(row, i_qty))
+        if qty is None or qty <= 0:
+            warnings.append(f"skipped {symbol}: quantity not a positive number")
+            continue
+        cost = _to_float(_cell(row, i_cps))
+        if cost is None:
+            total = _to_float(_cell(row, i_total))
+            cost = total / qty if total is not None else None
+        if cost is None:
+            warnings.append(f"skipped {symbol}: no usable cost basis")
+            continue
+        lots.append({
+            "account": account,
+            "symbol": symbol.upper(),
+            "date": _need_date(_to_iso_date(_cell(row, i_date)), as_of, symbol),
+            "shares": qty,
+            "cost_per_share": round(cost, 6),
+        })
+    return lots, warnings
+
+
+def parse_vanguard(text: str, account: str, as_of: str | None):
+    rows = _rows(text)
+    hi, cols = _find_header(rows, "symbol", ("shares", "quantity"))
+    i_sym = cols["symbol"]
+    i_shares = _first(cols, "shares", "quantity")
+    i_name = _first(cols, "investment name")
+    i_avg = _first(cols, "average cost", "average cost basis")
+    i_total = _first(cols, "total cost", "cost basis")
+    i_price = _first(cols, "share price")
+    lots, warnings = [], []
+    started = False
+    for row in rows[hi + 1:]:
+        if started and not any(c.strip() for c in row):
+            break  # blank line ends the holdings section (a trades section may follow)
+        symbol = (_cell(row, i_sym) or "").strip().strip('"')
+        if not symbol or len(row) <= i_shares:
+            continue
+        name = (_cell(row, i_name) or "").lower()
+        if "money market" in name or "sweep" in name:
+            warnings.append(f"skipped cash/sweep position '{symbol}'")
+            continue
+        shares = _to_float(_cell(row, i_shares))
+        if shares is None or shares <= 0:
+            warnings.append(f"skipped {symbol}: shares not a positive number")
+            continue
+        cost = _to_float(_cell(row, i_avg))
+        if cost is None:
+            total = _to_float(_cell(row, i_total))
+            cost = total / shares if total is not None else None
+        if cost is None:
+            cost = _to_float(_cell(row, i_price))
+            if cost is not None:
+                warnings.append(
+                    f"{symbol}: export has no cost basis — using Share Price "
+                    "as cost_per_share (unrealized P/L will read as zero)"
+                )
+        if cost is None:
+            warnings.append(f"skipped {symbol}: no usable cost or price")
+            continue
+        lots.append({
+            "account": account,
+            "symbol": symbol.upper(),
+            "date": _need_date(None, as_of, symbol),
+            "shares": shares,
+            "cost_per_share": round(cost, 6),
+        })
+        started = True
+    return lots, warnings
+
+
+def parse_generic(text: str, account: str | None, as_of: str | None):
+    reader = csv.DictReader(io.StringIO(text))
+    fields = {f.strip() for f in (reader.fieldnames or [])}
+    required = {"symbol", "date", "shares", "costPerShare"}
+    if not required <= fields:
+        raise ImporterError(
+            "generic CSV must have header 'account,symbol,date,shares,costPerShare' "
+            f"(account optional when --account is given); missing: {sorted(required - fields)}"
+        )
+    lots, warnings = [], []
+    for n, row in enumerate(reader, start=2):
+        symbol = (row.get("symbol") or "").strip()
+        if not symbol:
+            continue
+        acct = (row.get("account") or "").strip() or account
+        if not acct:
+            raise ImporterError(f"line {n}: no account column value and --account not given")
+        date = _to_iso_date(row.get("date")) or as_of
+        if not date:
+            warnings.append(f"skipped {symbol} (line {n}): bad or missing date and no --as-of")
+            continue
+        shares = _to_float(row.get("shares"))
+        cost = _to_float(row.get("costPerShare"))
+        if shares is None or shares <= 0:
+            warnings.append(f"skipped {symbol} (line {n}): shares not a positive number")
+            continue
+        if cost is None or cost < 0:
+            warnings.append(f"skipped {symbol} (line {n}): costPerShare not a non-negative number")
+            continue
+        lots.append({
+            "account": acct,
+            "symbol": symbol.upper(),
+            "date": date,
+            "shares": shares,
+            "cost_per_share": cost,
+        })
+    return lots, warnings
+
+
+PARSERS = {
+    "fidelity": parse_fidelity,
+    "schwab": parse_schwab,
+    "vanguard": parse_vanguard,
+    "generic": parse_generic,
+}
+
+
+# ------------------------------------------------------------------ writer
+
+def write_lots(
+    data_dir: str | Path, lots: list[dict], *, now: _dt.datetime | None = None
+) -> Path | None:
+    """Write lots.json, ALWAYS backing up the previous file first.
+
+    The backup lands next to lots.json as lots.json.bak-<ISO timestamp>
+    (colons replaced with '-' for filename portability). `now` is injectable
+    so tests get deterministic backup names; the CLI passes the real clock.
+    Returns the backup path, or None when there was no previous file.
+    """
+    now = now or _dt.datetime.now()
+    path = Path(data_dir) / "lots.json"
+    backup: Path | None = None
+    if path.is_file():
+        stamp = now.isoformat(timespec="seconds").replace(":", "-")
+        backup = path.with_name(f"lots.json.bak-{stamp}")
+        backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    path.write_text(json.dumps(lots, indent=2) + "\n", encoding="utf-8")
+    return backup
+
+
+# ----------------------------------------------------------------- account
+
+def _parse_add_account(spec: str) -> dict:
+    parts = [p.strip() for p in spec.split(",")]
+    if len(parts) != 5:
+        raise ImporterError(
+            '--add-account expects "id,name,short,type,taxable" (5 comma-separated fields)'
+        )
+    taxable_raw = parts[4].lower()
+    if taxable_raw not in ("true", "false", "yes", "no", "1", "0"):
+        raise ImporterError(f"--add-account: taxable must be true/false, got '{parts[4]}'")
+    return {
+        "id": parts[0],
+        "name": parts[1],
+        "short": parts[2],
+        "type": parts[3],
+        "taxable": taxable_raw in ("true", "yes", "1"),
+        "last_sync": "never",
+    }
+
+
+def _load_json_list(path: Path, what: str) -> list:
+    if not path.is_file():
+        raise ImporterError(f"{path}: {what} file not found")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise ImporterError(f"{path}: invalid JSON ({e})") from e
+    if not isinstance(data, list):
+        raise ImporterError(f"{path}: top level must be a JSON array")
+    return data
+
+
+# --------------------------------------------------------------------- CLI
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="python -m vantage_server.importer",
+        description="Import a broker positions CSV into the Vantage lots.json "
+                    "(operator-side file management — the API stays read-only).",
+    )
+    p.add_argument("csv_file", help="path to the broker positions export")
+    p.add_argument("--broker", required=True, choices=BROKERS)
+    p.add_argument("--account",
+                   help="target internal account id (required unless the generic "
+                        "CSV carries an account column)")
+    p.add_argument("--data-dir", help="data directory (default: VANTAGE_DATA_DIR or server/data)")
+    mode = p.add_mutually_exclusive_group()
+    mode.add_argument("--merge", action="store_true",
+                      help="replace only the imported accounts' lots, keep all others (default)")
+    mode.add_argument("--replace", action="store_true",
+                      help="swap the WHOLE lots file for the imported lots")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print the parsed lots and summary; write nothing")
+    p.add_argument("--as-of",
+                   help="ISO date (YYYY-MM-DD) used as the lot date when the export "
+                        "carries no acquisition dates (required for such exports)")
+    p.add_argument("--add-account", metavar='"id,name,short,type,taxable"',
+                   help="append this account to accounts.json before importing")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    try:
+        return _run(args)
+    except (ImporterError, StoreError) as e:
+        print(f"error: {e}", file=sys.stderr)
+        return EXIT_USER_ERROR
+
+
+def _run(args: argparse.Namespace) -> int:
+    data_dir = resolve_data_dir(args.data_dir)
+    csv_path = Path(args.csv_file)
+    if not csv_path.is_file():
+        raise ImporterError(f"{csv_path}: file not found")
+    if args.as_of and _to_iso_date(args.as_of) != args.as_of:
+        raise ImporterError(f"--as-of must be an ISO date (YYYY-MM-DD), got '{args.as_of}'")
+    if args.broker != "generic" and not args.account:
+        raise ImporterError(f"--account is required for --broker {args.broker}")
+
+    text = csv_path.read_text(encoding="utf-8-sig")
+    lots, warnings = PARSERS[args.broker](text, args.account, args.as_of)
+    for w in warnings:
+        print(f"warning: {w}", file=sys.stderr)
+    if not lots:
+        raise ImporterError(f"{csv_path}: no position rows found — nothing to import")
+
+    # -- accounts: optional convenience append, then hard existence check
+    accounts_path = data_dir / "accounts.json"
+    accounts = _load_json_list(accounts_path, "accounts")
+    known = {a.get("id") for a in accounts}
+    if args.add_account:
+        new_acct = _parse_add_account(args.add_account)
+        if new_acct["id"] in known:
+            print(f"warning: account '{new_acct['id']}' already exists — --add-account ignored",
+                  file=sys.stderr)
+        else:
+            accounts.append(new_acct)
+            known.add(new_acct["id"])
+            if not args.dry_run:
+                accounts_path.write_text(json.dumps(accounts, indent=2) + "\n", encoding="utf-8")
+                print(f"added account '{new_acct['id']}' to {accounts_path}")
+    imported_accounts = sorted({l["account"] for l in lots})
+    for acct in imported_accounts:
+        if acct not in known:
+            raise ImporterError(
+                f"account '{acct}' is not in {accounts_path} — add the account first "
+                f'(e.g. --add-account "{acct},Full Name,Short,Taxable,true")'
+            )
+
+    # -- merge/replace against the current file
+    lots_path = data_dir / "lots.json"
+    existing = _load_json_list(lots_path, "lots") if lots_path.is_file() else []
+    if args.replace:
+        final, kept = list(lots), 0
+    else:
+        keep = [l for l in existing if l.get("account") not in imported_accounts]
+        final, kept = keep + lots, len(keep)
+    mode = "replace" if args.replace else "merge"
+
+    if args.dry_run:
+        print(f"DRY RUN — parsed {len(lots)} lot(s) from {csv_path} ({args.broker}):")
+        for l in lots:
+            print(f"  {l['account']:<14} {l['symbol']:<6} {l['date']}  "
+                  f"{l['shares']:>12g} sh @ {l['cost_per_share']:.2f}")
+        print(f"would write {len(final)} lot(s) to {lots_path} "
+              f"({mode}; {kept} lot(s) from other accounts kept); nothing written")
+        return EXIT_OK
+
+    backup = write_lots(data_dir, final)
+    print(f"imported {len(lots)} lot(s) into {', '.join(imported_accounts)} ({mode})")
+    print(f"wrote {len(final)} lot(s) to {lots_path}"
+          + (f" (backup: {backup})" if backup else " (no previous file to back up)"))
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())

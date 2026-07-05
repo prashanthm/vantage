@@ -24,6 +24,7 @@ ALL_GET_ROUTES = [
     "/api/tax/wash",
     "/api/tax/tlh",
     "/api/quotes",
+    "/api/signals",
 ]
 
 
