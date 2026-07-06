@@ -25,6 +25,7 @@ import datetime as _dt
 import re
 import statistics
 
+from . import events as events_engine
 from .. import technicals as tech
 
 _MULTIPLIER = 100.0  # option contract multiplier (shares per contract)
@@ -357,9 +358,24 @@ def entry_features(
         feats["is_friday"] = None
     feats["holding_bucket"] = _holding_bucket(rt.get("holding_days"))
 
-    # --- earnings window ------------------------------------------------
+    # --- earnings window + event proximity ------------------------------
+    # earnings_within_window: legacy ±window flag (None when unknown, unchanged).
     feats["earnings_within_window"] = _earnings_within(
         earnings_dates, open_date, earnings_window_days)
+    # events.earnings_within: the richer before-entry / during-hold split. When
+    # earnings_dates is unknown (None), the flags are None (not a fabricated
+    # False) so an absent earnings feed never invents a "no earnings" bucket.
+    if earnings_dates is None or open_date is None:
+        feats["earnings_before_entry"] = None
+        feats["earnings_during_hold"] = None
+        feats["earnings_nearest_days"] = None
+    else:
+        ev = events_engine.earnings_within(
+            open_date, rt.get("close_date"), earnings_dates,
+            window_days=earnings_window_days)
+        feats["earnings_before_entry"] = ev["before_entry"]
+        feats["earnings_during_hold"] = ev["during_hold"]
+        feats["earnings_nearest_days"] = ev["nearest_days"]
 
     # --- size tertile ---------------------------------------------------
     feats["size_tertile"] = _size_tertile(rt, account_value, kind)

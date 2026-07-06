@@ -63,6 +63,8 @@ def test_allowlist_is_exactly_the_read_tools():
         # per-close realized-gain history — the authoritative win/loss label
         # for round-trip reconstruction (read-only)
         "get_pnl_trade_history",
+        # recent+upcoming earnings for one symbol — the event feature (read-only)
+        "get_earnings_results",
     })
     # frozenset: nobody can .add() a mutating tool at runtime
     with pytest.raises(AttributeError):

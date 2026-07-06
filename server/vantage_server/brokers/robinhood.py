@@ -51,6 +51,8 @@ READ_TOOLS = frozenset({
     "get_equity_historicals",  # EOD OHLCV bars for technical analysis (read-only)
     "get_pnl_trade_history",   # per-close realized-gain history — the authoritative
                                # win/loss label for round-trip reconstruction (read-only)
+    "get_earnings_results",    # recent+upcoming earnings for ONE symbol — report
+                               # dates + est/actual EPS (read-only event feature)
 })
 
 
@@ -723,6 +725,71 @@ def fetch_historicals_batch(
     return out
 
 
+# ------------------------------------------------------------- earnings
+
+def _normalize_earnings_row(row: dict) -> dict | None:
+    """One raw get_earnings_results row -> {date (ISO), eps_estimate (float|None),
+    eps_actual (float|None), when (str)}, or None when no report date is present.
+
+    OBSERVED get_earnings_results shape (live, 2026-07-05, post-_unwrap):
+    {"results": [{symbol, year, quarter, eps: {estimate, actual (strings|null)},
+    report: {date (ISO), timing ("am"|"pm"), verified (bool)}}]} — recent +
+    upcoming earnings for ONE equity. The report DATE nests under ``report.date``;
+    est/actual EPS under ``eps.{estimate,actual}``. We also tolerate flat
+    spellings (report_date/date, eps_estimate/estimate) for robustness. A row
+    with no resolvable date is dropped (never fabricated)."""
+    if not isinstance(row, dict):
+        return None
+    report = row.get("report") if isinstance(row.get("report"), dict) else {}
+    date = (
+        report.get("date") or row.get("report_date") or row.get("date")
+        or row.get("reportDate")
+    )
+    if not date:
+        return None
+    eps = row.get("eps") if isinstance(row.get("eps"), dict) else {}
+    est = (
+        row.get("eps_estimate")
+        if row.get("eps_estimate") not in (None, "")
+        else (eps.get("estimate") if eps.get("estimate") not in (None, "") else row.get("estimate"))
+    )
+    act = (
+        row.get("eps_actual")
+        if row.get("eps_actual") not in (None, "")
+        else (eps.get("actual") if eps.get("actual") not in (None, "") else row.get("actual"))
+    )
+    when = str(report.get("timing") or row.get("timing")
+               or row.get("call_timing") or row.get("when") or "")
+    return {
+        "date": str(date)[:10],
+        "eps_estimate": _f(est, None) if est not in (None, "") else None,
+        "eps_actual": _f(act, None) if act not in (None, "") else None,
+        "when": when,
+    }
+
+
+def fetch_earnings(symbol: str) -> list[dict]:
+    """Recent + upcoming earnings reports for ONE underlying, normalized to
+    [{date (ISO), eps_estimate (float|None), eps_actual (float|None), when}],
+    oldest -> newest.
+
+    Reads through the allowlisted get_earnings_results tool — one network path,
+    no mutation. Rows without a report date are dropped. Returns [] when the
+    symbol has no earnings (e.g. an index like SPXW, an ETF)."""
+    result = _call("get_earnings_results", {"symbol": symbol.upper()})
+    rows = (
+        result.get("earnings")
+        or result.get("results")
+        or result.get("data")
+        or []
+    )
+    if isinstance(rows, dict):
+        rows = rows.get("results") or rows.get("earnings") or []
+    out = [nr for r in rows if isinstance(r, dict) and (nr := _normalize_earnings_row(r))]
+    out.sort(key=lambda r: r["date"])
+    return out
+
+
 # ------------------------------------------------------------- connection
 
 @register_connection
@@ -762,6 +829,9 @@ class RobinhoodConnection:
                           interval: str = "day") -> list[dict]:
         return fetch_historicals(symbol, start_time=start_time,
                                  end_time=end_time, interval=interval)
+
+    def fetch_earnings(self, symbol: str) -> list[dict]:
+        return fetch_earnings(symbol)
 
     def list_accounts(self) -> list[dict]:
         return list_accounts()

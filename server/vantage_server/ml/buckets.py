@@ -172,8 +172,16 @@ DEFAULT_DIMENSIONS = (
     "is_friday",
     "holding_bucket",
     "earnings_within_window",
+    "earnings_before_entry",
+    "earnings_during_hold",
     "size_tertile",
 )
+
+#: The sentiment dimension is added ONLY when sentiment was built AND its scorer
+#: cleared the accuracy gate (build_features passes it explicitly). It is never
+#: in the default set — an ungated/estimated feature must not silently become a
+#: trusted bucket.
+SENTIMENT_DIMENSIONS = ("sentiment_band",)
 
 _BASELINE_DIMENSION = "__baseline__"
 _BASELINE_VALUE = "all_trades"

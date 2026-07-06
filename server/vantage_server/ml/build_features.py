@@ -34,8 +34,11 @@ import sys
 from pathlib import Path
 
 from . import buckets as buckets_engine
+from . import fetch_earnings as earnings_engine
 from . import features as features_engine
 from . import roundtrips as engine
+from . import sentiment as sentiment_engine
+from . import sentiment_eval as sentiment_eval_engine
 from .. import bars as bars_engine
 from ..bars_view import BarsNotFound, load_bars_file
 from ..brokers import CONNECTIONS, BrokerConnectionError, get_connection
@@ -170,6 +173,97 @@ def _bars_bundle_for(data_dir: str | Path, underlyings: set[str]) -> dict[str, d
     return out
 
 
+# ------------------------------------------------------------- sentiment gate
+
+def _golden_path() -> Path:
+    """The bundled golden set (tests/fixtures/sentiment_golden.jsonl)."""
+    return (Path(__file__).resolve().parents[2]
+            / "tests" / "fixtures" / "sentiment_golden.jsonl")
+
+
+def _choose_scorer(golden: list[dict]) -> tuple[object | None, dict | None]:
+    """Pick the best scorer that CLEARS THE GATE, else None.
+
+    Preference: OllamaScorer (if Ollama is reachable AND it passes the golden
+    gate) > LexiconScorer (if IT passes) > None (sentiment skipped). Returns
+    (scorer|None, eval_result|None). Never raises — an unreachable Ollama is
+    caught and the lexicon is tried instead."""
+    # 1) try Ollama, but only trust it if it clears the same gate
+    try:
+        ollama = sentiment_engine.OllamaScorer()
+        ev = sentiment_eval_engine.evaluate_scorer(ollama, golden)
+        if ev["passed"]:
+            return ollama, ev
+    except Exception:  # noqa: BLE001 — Ollama down / model missing: fall back
+        pass
+    # 2) deterministic lexicon fallback
+    lex = sentiment_engine.LexiconScorer()
+    ev = sentiment_eval_engine.evaluate_scorer(lex, golden)
+    if ev["passed"]:
+        return lex, ev
+    return None, ev
+
+
+def _add_sentiment(
+    data_dir: str | Path, featured: list[dict], underlyings: set[str], *,
+    as_of: str, source=None,
+) -> dict:
+    """Score headline sentiment per symbol and fold it into featured trips.
+
+    Runs the gate first: a scorer's ``sentiment_band`` reaches the features ONLY
+    when the scorer cleared the golden accuracy bar. Headlines come from a real
+    zero-credential source (Yahoo RSS) by default, degrading to no headlines if
+    unreachable; ``source`` can inject a FixtureHeadlineSource for tests.
+
+    Returns a report dict {trusted, method, accuracy, passed, n_scored}. On
+    every scored trip, features["sentiment_band"]/["sentiment_score"] are set
+    (band None when there were no headlines) plus ["sentiment_estimated"]=True
+    and ["sentiment_method"]. When no scorer passes the gate, nothing is added
+    and trusted is False."""
+    try:
+        golden = sentiment_eval_engine.load_golden(_golden_path())
+    except OSError:
+        golden = []
+    scorer, ev = _choose_scorer(golden)
+    if scorer is None:
+        print("sentiment: NO scorer cleared the gate "
+              f"(best acc={ev['accuracy'] if ev else 'n/a'} "
+              f"< {sentiment_eval_engine.GATE_MIN_ACCURACY}) — skipping sentiment")
+        return {"trusted": False, "method": None,
+                "accuracy": ev["accuracy"] if ev else None, "passed": False,
+                "n_scored": 0}
+
+    src = source or sentiment_engine.YahooRSSHeadlineSource()
+    # score each underlying once, then map onto its trips
+    band_by_symbol: dict[str, dict] = {}
+    for sym in sorted(underlyings):
+        if not sym:
+            continue
+        heads = src.headlines(sym, as_of)
+        band_by_symbol[sym] = sentiment_engine.score_headlines(heads, scorer=scorer)
+
+    n_scored = 0
+    for f in featured:
+        sym = str(f.get("symbol") or "").upper()
+        agg = band_by_symbol.get(sym)
+        feats = f.setdefault("features", {})
+        feats["sentiment_estimated"] = True
+        feats["sentiment_method"] = scorer.method
+        if agg and agg["n_headlines"] > 0:
+            feats["sentiment_band"] = agg["band"]
+            feats["sentiment_score"] = agg["score"]
+            n_scored += 1
+        else:
+            feats["sentiment_band"] = None
+            feats["sentiment_score"] = None
+
+    print(f"sentiment: {scorer.method} cleared gate "
+          f"(acc={ev['accuracy']} >= {sentiment_eval_engine.GATE_MIN_ACCURACY}); "
+          f"scored {n_scored} trip(s), flagged estimated=true")
+    return {"trusted": True, "method": scorer.method, "accuracy": ev["accuracy"],
+            "passed": True, "n_scored": n_scored}
+
+
 # ------------------------------------------------------------- persist
 
 def write_trade_stats(
@@ -251,6 +345,18 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--no-backfill", action="store_true",
                    help="do NOT fetch bars for underlyings that lack a bars file "
                         "(features for those symbols degrade to null)")
+    p.add_argument("--no-earnings", action="store_true",
+                   help="do NOT fetch/use earnings dates (earnings features "
+                        "degrade to null). Earnings are ON by default — "
+                        "deterministic and free.")
+    p.add_argument("--refresh-earnings", action="store_true",
+                   help="re-fetch earnings even when a cache file exists")
+    p.add_argument("--with-sentiment", action="store_true",
+                   help="ALSO build headline sentiment (OFF by default). Uses "
+                        "Ollama when up AND it clears the accuracy gate, else the "
+                        "deterministic lexicon if IT clears the gate, else skips "
+                        "sentiment entirely. Never blocks the build. Sentiment "
+                        "features are always flagged estimated=true.")
     p.add_argument("--account-value", type=float, dest="account_value",
                    help="account value for the size tertile feature (optional)")
     p.add_argument("--limit", type=int, default=500,
@@ -344,6 +450,26 @@ def _run(args: argparse.Namespace) -> int:
         have = sorted(u for u in underlyings
                       if _chartable_underlying(u) is not None)
 
+    # --- earnings dates (deterministic, free — ON by default) ----------
+    # Earnings fetch is INDEPENDENT of --no-backfill (that flag only governs the
+    # bars backfill): earnings are the primary event feature and are fetched
+    # unless --no-earnings or --dry-run. A missing broker capability or a fetch
+    # error degrades to cached/empty — never blocks the build.
+    earnings_by_symbol: dict[str, list[str]] = {}
+    if not args.no_earnings:
+        fetch_earn = None
+        if not args.dry_run:
+            conn = get_connection(args.broker)()
+            fetch_earn = getattr(conn, "fetch_earnings", None)
+            if fetch_earn is None:
+                print(f"warning: {args.broker}: no earnings capability — "
+                      "using cached earnings only", file=sys.stderr)
+        earnings_by_symbol = earnings_engine.load_earnings_by_symbol(
+            data_dir, underlyings, fetch=fetch_earn, as_of=as_of,
+            refresh=args.refresh_earnings)
+        n_with = sum(1 for v in earnings_by_symbol.values() if v)
+        print(f"earnings dates for {n_with}/{len(earnings_by_symbol)} underlying(s)")
+
     # --- features (no-leakage slicing) ---------------------------------
     bundle = _bars_bundle_for(data_dir, underlyings)
     resolver = build_display_symbol_resolver(orders)
@@ -351,12 +477,22 @@ def _run(args: argparse.Namespace) -> int:
         rt_rows,
         bars_by_symbol=bundle,
         display_symbol_by_trip=resolver,
+        earnings_by_symbol=earnings_by_symbol or None,
         account_value=args.account_value,
     )
 
+    # --- sentiment (OPTIONAL, eval-gated — OFF by default) -------------
+    dimensions = buckets_engine.DEFAULT_DIMENSIONS
+    sentiment_info: dict | None = None
+    if args.with_sentiment:
+        sentiment_info = _add_sentiment(
+            data_dir, featured, underlyings, as_of=as_of)
+        if sentiment_info.get("trusted"):
+            dimensions = dimensions + buckets_engine.SENTIMENT_DIMENSIONS
+
     # --- buckets + notable ---------------------------------------------
     baseline = buckets_engine.baseline_win_rate(featured)
-    buckets = buckets_engine.condition_buckets(featured)
+    buckets = buckets_engine.condition_buckets(featured, dimensions=dimensions)
     notable = buckets_engine.notable_buckets(
         buckets, baseline=baseline, min_n=args.min_n)
 

@@ -9,11 +9,19 @@ the read-only service surface (ADR-010).
 from __future__ import annotations
 
 from .buckets import beta_binomial, condition_buckets, notable_buckets
+from .events import earnings_within
 from .features import entry_features, features_for_all
 from .roundtrips import RoundTrip, reconstruct, summarize
+from .sentiment import (
+    LexiconScorer, OllamaScorer, FixtureHeadlineSource, score_headlines,
+)
+from .sentiment_eval import evaluate_scorer, load_golden
 
 __all__ = [
     "RoundTrip", "reconstruct", "summarize",
     "entry_features", "features_for_all",
     "beta_binomial", "condition_buckets", "notable_buckets",
+    "earnings_within",
+    "LexiconScorer", "OllamaScorer", "FixtureHeadlineSource", "score_headlines",
+    "evaluate_scorer", "load_golden",
 ]
