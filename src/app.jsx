@@ -5,7 +5,7 @@ import {
   NOTIFICATIONS_SEED, NOTIF_TYPES, CHAT_RULES, ALLOCATION_TARGETS, ASSET_CLASSES,
 } from "./data.js";
 import {
-  usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf,
+  usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
   positions, tlhCandidates, allocation, accountValue,
   loadSettings, SETTINGS_KEY, StatTile, heatTint,
 } from "./util.jsx";
@@ -84,6 +84,22 @@ function App() {
   // TLH: fixture math is the fallback; the backend engine takes over when live.
   const tlhFixture = useMemo(() => tlhCandidates(settings), [settings]);
   const tlh = useLive(() => live.tlh(settings).then(mapTlh), tlhFixture, [settings]).data;
+
+  // Account scope rail: live /api/accounts (includes imported accounts like
+  // Robinhood) with the fixture registry as the offline fallback.
+  const acctFixture = useMemo(
+    () => ACCOUNTS.map((a) => ({ id: a.id, short: a.short, type: a.type, value: accountValue(a.id) })),
+    [],
+  );
+  const scopeAccounts = useLive(
+    () => live.accounts().then((p) => {
+      if (!p || !p.accounts) return null;
+      registerAccounts(p.accounts);
+      return p.accounts.map((a) => ({ id: a.id, short: a.short, type: a.type, value: a.value }));
+    }),
+    acctFixture,
+    [settings],
+  ).data;
   const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
 
   const saveSettings = (next) => {
@@ -157,17 +173,17 @@ function App() {
                 <button className={cls("vg-acct", accountId === "all" && "sel")} onClick={() => setAccountId("all")}>
                   <div>
                     <div>All accounts</div>
-                    <div className="meta">{ACCOUNTS.length} linked</div>
+                    <div className="meta">{scopeAccounts.length} linked</div>
                   </div>
-                  <span className="bal">{usd(LOTS.reduce((s, l) => s + lotValue(l), 0))}</span>
+                  <span className="bal">{usd(scopeAccounts.reduce((s, a) => s + a.value, 0))}</span>
                 </button>
-                {ACCOUNTS.map((a) => (
+                {scopeAccounts.map((a) => (
                   <button key={a.id} className={cls("vg-acct", accountId === a.id && "sel")} onClick={() => setAccountId(a.id)}>
                     <div>
                       <div>{a.short}</div>
                       <div className="meta">{a.type}</div>
                     </div>
-                    <span className="bal">{usd(accountValue(a.id))}</span>
+                    <span className="bal">{usd(a.value)}</span>
                   </button>
                 ))}
                 <p className="vg-note" style={{ marginTop: 10, padding: "0 4px" }}>

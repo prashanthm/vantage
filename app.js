@@ -391,7 +391,11 @@
   var lotValue = (l) => l.shares * MARKET[l.symbol].price;
   var lotCost = (l) => l.shares * l.costPerShare;
   var lotUnrl = (l) => lotValue(l) - lotCost(l);
-  var acctOf = (id) => ACCOUNTS.find((a) => a.id === id);
+  var _liveAccounts = {};
+  var registerAccounts = (list) => {
+    for (const a of list || []) if (a && a.id) _liveAccounts[a.id] = a;
+  };
+  var acctOf = (id) => ACCOUNTS.find((a) => a.id === id) || _liveAccounts[id] || { id, name: id, short: id, type: "", taxable: true };
   function washFamily(sym) {
     const fam = WASH_FAMILIES.find((f) => f.includes(sym));
     return fam ? fam : [sym];
@@ -742,6 +746,7 @@
   var backendBase = () => (loadSettings().backendUrl || "").replace(/\/+$/, "");
   var miraBase = () => (loadSettings().miraUrl || "").replace(/\/+$/, "");
   var health = () => getJson(`${backendBase()}/api/health`);
+  var accounts = () => getJson(`${backendBase()}/api/accounts`);
   var positions2 = (account = "all") => getJson(`${backendBase()}/api/positions?account=${encodeURIComponent(account)}`);
   var allocation2 = (account = "all") => getJson(`${backendBase()}/api/allocation?account=${encodeURIComponent(account)}`);
   var tlh = ({ thresholdUsd, thresholdPct } = {}) => {
@@ -997,6 +1002,19 @@
     }, []);
     const tlhFixture = useMemo2(() => tlhCandidates(settings), [settings]);
     const tlh2 = useLive(() => tlh(settings).then(mapTlh), tlhFixture, [settings]).data;
+    const acctFixture = useMemo2(
+      () => ACCOUNTS.map((a) => ({ id: a.id, short: a.short, type: a.type, value: accountValue(a.id) })),
+      []
+    );
+    const scopeAccounts = useLive(
+      () => accounts().then((p) => {
+        if (!p || !p.accounts) return null;
+        registerAccounts(p.accounts);
+        return p.accounts.map((a) => ({ id: a.id, short: a.short, type: a.type, value: a.value }));
+      }),
+      acctFixture,
+      [settings]
+    ).data;
     const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
     const saveSettings = (next) => {
       setSettings(next);
@@ -1034,7 +1052,7 @@
       },
       /* @__PURE__ */ React.createElement("span", { className: "ic" }, it.icon),
       leftOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, it.label, it.id === "tax" && tlh2.some((c) => c.status === "clear") && /* @__PURE__ */ React.createElement("span", { className: "vg-navdot" }))
-    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, ACCOUNTS.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(LOTS.reduce((s, l) => s + lotValue(l), 0)))), ACCOUNTS.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(accountValue(a.id))))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation (demo). Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage prototype \xB7 built on the Lookey design system \xB7 simulated data \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { setSymbol, go }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
+    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation (demo). Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage prototype \xB7 built on the Lookey design system \xB7 simulated data \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { setSymbol, go }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-collapse",

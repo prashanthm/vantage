@@ -25,7 +25,17 @@ export const addDays = (iso, n) => {
 export const lotValue = (l) => l.shares * MARKET[l.symbol].price;
 export const lotCost = (l) => l.shares * l.costPerShare;
 export const lotUnrl = (l) => lotValue(l) - lotCost(l);
-export const acctOf = (id) => ACCOUNTS.find((a) => a.id === id);
+// Runtime account registry: live backend accounts (e.g. imported Robinhood)
+// registered by the App shell so views can resolve ids the fixtures don't know.
+// acctOf never returns undefined — unknown ids degrade to an id-labeled shape.
+const _liveAccounts = {};
+export const registerAccounts = (list) => {
+  for (const a of list || []) if (a && a.id) _liveAccounts[a.id] = a;
+};
+export const acctOf = (id) =>
+  ACCOUNTS.find((a) => a.id === id) ||
+  _liveAccounts[id] ||
+  { id, name: id, short: id, type: "", taxable: true };
 
 export function washFamily(sym) {
   const fam = WASH_FAMILIES.find((f) => f.includes(sym));
