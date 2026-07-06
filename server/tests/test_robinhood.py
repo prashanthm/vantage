@@ -35,7 +35,10 @@ AS_OF = "2026-07-05"
     "place_equity_order",
     "review_equity_order",
     "cancel_equity_order",
-    "get_equity_orders",   # not needed for sync — not allowlisted either
+    "place_option_order",
+    "cancel_option_order",
+    "add_option_to_watchlist",   # even non-trading mutations are refused
+    "get_pnl_trade_history",     # read-only on the server, but not needed — not allowlisted
     "transfer_funds",
     "",
 ])
@@ -45,9 +48,18 @@ def test_call_refuses_tools_outside_allowlist(tool):
 
 
 def test_allowlist_is_exactly_the_read_tools():
-    assert READ_TOOLS == frozenset(
-        {"get_accounts", "get_portfolio", "get_equity_positions", "get_equity_quotes"}
-    )
+    assert READ_TOOLS == frozenset({
+        "get_accounts",
+        "get_portfolio",
+        "get_equity_positions",
+        "get_equity_quotes",
+        # options breakout + transaction history (all read-only listings)
+        "get_option_positions",
+        "get_option_instruments",
+        "get_option_quotes",
+        "get_equity_orders",
+        "get_option_orders",
+    })
     # frozenset: nobody can .add() a mutating tool at runtime
     with pytest.raises(AttributeError):
         READ_TOOLS.add("place_equity_order")

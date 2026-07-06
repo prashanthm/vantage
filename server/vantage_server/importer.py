@@ -385,7 +385,8 @@ def api_positions_to_lots(positions: list[dict], account: str, as_of: str):
     return lots, warnings
 
 
-def api_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: str):
+def api_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: str,
+                 *, options_value: float = 0.0, sleeves_value: float = 0.0):
     """Represent the account's NON-EQUITY value as one synthetic CASH lot.
 
     Position APIs are typically equities-only; value held in futures, crypto,
@@ -394,6 +395,13 @@ def api_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: st
     $1-priced cash symbol) so the account's real worth shows in Vantage.
     Requires the connection's fetch_portfolio to include ``total_value``.
     Returns ``(lot | None, warnings)``.
+
+    With ``--breakout`` the remainder additionally subtracts the value already
+    booked as option lots (``options_value`` — the sum of the imported option
+    marks) and as CRYPTO/FUTURES sleeve lots (``sleeves_value``) so nothing is
+    double-counted. Any SKIPPED short option's negative market value is
+    thereby absorbed into CASH (total_value nets it; the imported longs do
+    not), keeping the account total honest.
     """
     warnings: list[str] = []
     total = _to_float(portfolio.get("total_value"))
@@ -411,13 +419,20 @@ def api_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: st
                     "for the CASH remainder calculation"
                 )
         equity_value += shares * price
-    cash = round(total - equity_value, 2)
+    cash = round(total - equity_value - options_value - sleeves_value, 2)
     if cash <= 0:
         return None, warnings
-    warnings.append(
-        f"CASH {cash:,.2f} = portfolio total {total:,.2f} minus equity value "
-        f"{equity_value:,.2f} (futures/crypto/sweep are not importable as positions)"
-    )
+    if options_value or sleeves_value:
+        warnings.append(
+            f"CASH {cash:,.2f} = portfolio total {total:,.2f} minus equity "
+            f"{equity_value:,.2f} minus options marks {options_value:,.2f} "
+            f"minus sleeves {sleeves_value:,.2f}"
+        )
+    else:
+        warnings.append(
+            f"CASH {cash:,.2f} = portfolio total {total:,.2f} minus equity value "
+            f"{equity_value:,.2f} (futures/crypto/sweep are not importable as positions)"
+        )
     return {
         "account": account,
         "symbol": "CASH",
@@ -425,6 +440,130 @@ def api_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: st
         "shares": cash,
         "cost_per_share": 1,
     }, warnings
+
+
+# ------------------------------------------------- options + sleeve breakout
+
+def option_lots_and_quotes(options: list[dict], account: str, as_of: str):
+    """Convert normalized option positions (brokers' fetch_option_positions
+    shape) into (lots, quote_entries, warnings, marked_value).
+
+    Each LONG contract becomes one lot under the compact display symbol
+    ("SPY 2026-07-17 750C"): shares = contracts, cost_per_share = avg premium
+    x multiplier (per-CONTRACT dollars), dated from opened_at when the API
+    provides it (real acquisition date) else as_of. quote_entries carries a
+    quotes.json record per symbol — price = mark x multiplier when the broker
+    returned a mark, else cost (honest staleness) — asset_class "options" so
+    the engine values the contract at its mark, not cost.
+
+    SHORT positions are SKIPPED with one loud warning listing them: the store
+    rejects non-positive-share lots (store.load_lots) and the engine's
+    positions/TLH math assumes long lots, so a negative-share representation
+    would poison the whole data dir at load time. Their negative market value
+    is absorbed by the --breakout CASH remainder (see api_cash_lot).
+
+    marked_value = Σ(contracts x (mark|cost) x multiplier) over the IMPORTED
+    lots — exactly what the CASH remainder must subtract.
+    """
+    lots: list[dict] = []
+    quote_entries: dict[str, dict] = {}
+    warnings: list[str] = []
+    skipped_shorts: list[str] = []
+    marked_value = 0.0
+    for opt in options:
+        symbol = opt.get("occ_symbol")
+        label = symbol or (
+            f"{opt.get('underlying', '?')} {opt.get('expiration', '?')} "
+            f"(instrument {opt.get('instrument_id', '?')})"
+        )
+        if opt.get("position_type") == "short":
+            skipped_shorts.append(label)
+            continue
+        if not symbol:
+            warnings.append(
+                f"skipped option {label}: strike/type lookup failed — cannot "
+                "name the contract"
+            )
+            continue
+        contracts = _to_float(opt.get("contracts"))
+        if contracts is None or contracts <= 0:
+            warnings.append(f"skipped option {label}: no open contracts")
+            continue
+        multiplier = _to_float(opt.get("multiplier")) or 100.0
+        avg = _to_float(opt.get("avg_price"))
+        if avg is None or avg < 0:
+            warnings.append(f"skipped option {label}: no usable average premium")
+            continue
+        cost_per_contract = round(avg * multiplier, 6)
+        opened = str(opt.get("opened_at") or "")[:10]
+        lots.append({
+            "account": account,
+            "symbol": symbol,
+            "date": opened if _to_iso_date(opened) else as_of,
+            "shares": contracts,
+            "cost_per_share": cost_per_contract,
+        })
+        mark = _to_float(opt.get("mark"))
+        price = round(mark * multiplier, 6) if mark is not None else cost_per_contract
+        if mark is None:
+            warnings.append(f"{symbol}: no mark from broker — valued at cost")
+        option_name = (
+            f"{opt.get('underlying', symbol)} ${_to_float(opt.get('strike')) or 0:g} "
+            f"{'Call' if str(opt.get('option_type')).lower().startswith('c') else 'Put'} "
+            f"{opt.get('expiration', '')}".strip()
+        )
+        quote_entries[symbol] = {
+            "name": option_name,
+            "price": price,
+            "day_pct": 0,
+            "asset_class": "options",
+        }
+        marked_value += contracts * price
+    if skipped_shorts:
+        warnings.append(
+            "SKIPPED SHORT OPTION POSITION(S) — the engine cannot represent "
+            "negative-share lots; their negative value is absorbed into the "
+            f"CASH remainder: {', '.join(skipped_shorts)}"
+        )
+    return lots, quote_entries, warnings, round(marked_value, 2)
+
+
+#: sleeve symbol -> (portfolio field, asset_class, display name)
+SLEEVES = {
+    "CRYPTO": ("crypto_value", "crypto", "Crypto sleeve (value via Robinhood portfolio)"),
+    "FUTURES": ("futures_value", "other", "Futures sleeve (value via Robinhood portfolio)"),
+}
+
+
+def sleeve_lots_and_quotes(portfolio: dict, account: str, as_of: str):
+    """Crypto/futures VALUE sleeves: no positions API exists for either, but
+    get_portfolio reports their current value (crypto_value/futures_value).
+    Book each nonzero sleeve as ONE $1-priced lot (shares = value, cost 1 —
+    like CASH, so unrealized P/L reads 0) plus a quotes.json entry carrying
+    its asset class. Returns (lots, quote_entries, warnings, sleeves_value).
+    """
+    lots: list[dict] = []
+    quote_entries: dict[str, dict] = {}
+    warnings: list[str] = []
+    sleeves_value = 0.0
+    for symbol, (field, asset_class, name) in SLEEVES.items():
+        value = _to_float(portfolio.get(field))
+        if value is None or value <= 0:
+            continue
+        value = round(value, 2)
+        lots.append({
+            "account": account,
+            "symbol": symbol,
+            "date": as_of,
+            "shares": value,
+            "cost_per_share": 1,
+        })
+        quote_entries[symbol] = {
+            "name": name, "price": 1, "day_pct": 0, "asset_class": asset_class,
+        }
+        warnings.append(f"{symbol} sleeve booked at {value:,.2f} (portfolio {field})")
+        sleeves_value += value
+    return lots, quote_entries, warnings, round(sleeves_value, 2)
 
 
 # Back-compat aliases from when Robinhood was the only API broker.
@@ -453,6 +592,59 @@ def write_lots(
         backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     path.write_text(json.dumps(lots, indent=2) + "\n", encoding="utf-8")
     return backup
+
+
+def update_quotes_file(
+    data_dir: str | Path, entries: dict[str, dict], *, now: _dt.datetime | None = None
+) -> Path:
+    """Upsert importer-maintained quote entries (option marks, sleeves) into
+    <data_dir>/quotes.json so the FixtureQuoteProvider values them.
+
+    Existing entries for other symbols — and the file's as_of — are preserved
+    (the fixture as_of is the engine's 'today'; a missing file gets a skeleton
+    stamped with the real clock). Each entry is a full quote record
+    {name, price, day_pct, asset_class}.
+    """
+    now = now or _dt.datetime.now()
+    path = Path(data_dir) / "quotes.json"
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ImporterError(f"{path}: invalid JSON ({e})") from e
+        if not isinstance(data, dict) or not isinstance(data.get("quotes"), dict):
+            raise ImporterError(f"{path}: must be an object with 'as_of' and 'quotes' keys")
+    else:
+        data = {"as_of": now.isoformat(timespec="seconds"), "quotes": {}}
+    data["quotes"].update(entries)
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def write_history(
+    data_dir: str | Path, account: str, rows: list[dict],
+    *, now: _dt.datetime | None = None,
+) -> tuple[Path, Path | None]:
+    """Snapshot transaction history to <data_dir>/history.json.
+
+    Merge-by-account like the lots merge: this account's previous rows are
+    replaced, every other account's rows are kept; the previous file is
+    ALWAYS backed up first (history.json.bak-<ISO>). Rows are stored newest
+    first. Returns (path, backup | None).
+    """
+    now = now or _dt.datetime.now()
+    path = Path(data_dir) / "history.json"
+    existing: list[dict] = []
+    backup: Path | None = None
+    if path.is_file():
+        existing = [r for r in _load_json_list(path, "history") if isinstance(r, dict)]
+        stamp = now.isoformat(timespec="seconds").replace(":", "-")
+        backup = path.with_name(f"history.json.bak-{stamp}")
+        backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    kept = [r for r in existing if r.get("account") != account]
+    merged = sorted(rows + kept, key=lambda r: str(r.get("date") or ""), reverse=True)
+    path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    return path, backup
 
 
 # ----------------------------------------------------------------- account
@@ -515,6 +707,16 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="API broker connections only: book the account's non-equity "
                         "value (futures/crypto/sweep/buying power) as a synthetic "
                         "CASH lot")
+    p.add_argument("--breakout", action="store_true",
+                   help="API broker connections only: break the non-equity value "
+                        "out per asset — one lot per LONG option contract (marked "
+                        "via quotes.json), CRYPTO/FUTURES value sleeves, and the "
+                        "remaining CASH (implies the cash booking; short options "
+                        "are skipped with a warning)")
+    p.add_argument("--with-history", action="store_true",
+                   help="API broker connections only: also snapshot the account's "
+                        "equity+option order history to <data-dir>/history.json "
+                        "(merge by account, backed up like lots.json)")
     p.add_argument("--auth", action="store_true",
                    help="API broker connections only: run the connection's one-time "
                         "authorization flow (e.g. browser OAuth), save the token, "
@@ -592,6 +794,9 @@ def _run(args: argparse.Namespace) -> int:
     if args.broker != "generic" and not args.account:
         raise ImporterError(f"--account is required for --broker {args.broker}")
 
+    quote_entries: dict[str, dict] = {}
+    history_rows: list[dict] | None = None
+
     if args.broker in CONNECTIONS:
         conn = get_connection(args.broker)()
         if args.csv_file:
@@ -604,7 +809,34 @@ def _run(args: argparse.Namespace) -> int:
         as_of = args.as_of or _dt.date.today().isoformat()
         positions = _api(args.broker, conn.fetch_positions, args.broker_account)
         lots, warnings = api_positions_to_lots(positions, args.account, as_of)
-        if args.include_cash:
+        if args.breakout:
+            fetch_opts = getattr(conn, "fetch_option_positions", None)
+            if fetch_opts is None:
+                raise ImporterError(
+                    f"{args.broker}: --breakout is not supported (no option-"
+                    "positions capability on this connection)")
+            options = _api(args.broker, fetch_opts, args.broker_account)
+            opt_lots, opt_quotes, opt_warnings, options_value = \
+                option_lots_and_quotes(options, args.account, as_of)
+            lots.extend(opt_lots)
+            quote_entries.update(opt_quotes)
+            warnings.extend(opt_warnings)
+            portfolio = _api(args.broker, conn.fetch_portfolio, args.broker_account)
+            sleeve_lots, sleeve_quotes, sleeve_warnings, sleeves_value = \
+                sleeve_lots_and_quotes(portfolio, args.account, as_of)
+            lots.extend(sleeve_lots)
+            quote_entries.update(sleeve_quotes)
+            warnings.extend(sleeve_warnings)
+            # --breakout implies the cash booking: the remainder AFTER options
+            # and sleeves, so nothing is double-counted.
+            cash_lot, cash_warnings = api_cash_lot(
+                portfolio, positions, args.account, as_of,
+                options_value=options_value, sleeves_value=sleeves_value,
+            )
+            warnings.extend(cash_warnings)
+            if cash_lot:
+                lots.append(cash_lot)
+        elif args.include_cash:
             portfolio = _api(args.broker, conn.fetch_portfolio, args.broker_account)
             cash_lot, cash_warnings = api_cash_lot(
                 portfolio, positions, args.account, as_of
@@ -612,8 +844,21 @@ def _run(args: argparse.Namespace) -> int:
             warnings.extend(cash_warnings)
             if cash_lot:
                 lots.append(cash_lot)
+        if args.with_history:
+            fetch_hist = getattr(conn, "fetch_history", None)
+            if fetch_hist is None:
+                raise ImporterError(
+                    f"{args.broker}: --with-history is not supported (no history "
+                    "capability on this connection)")
+            history_rows = _api(args.broker, fetch_hist, args.broker_account)
+            for row in history_rows:
+                row["account"] = args.account
         source = f"{conn.display_name} account ...{args.broker_account[-4:]}"
     else:
+        if args.breakout or args.with_history:
+            raise ImporterError(
+                "--breakout/--with-history are only valid with an API broker "
+                f"connection ({', '.join(sorted(CONNECTIONS))})")
         if not args.csv_file:
             raise ImporterError(f"a positions CSV file is required for --broker {args.broker}")
         csv_path = Path(args.csv_file)
@@ -664,16 +909,31 @@ def _run(args: argparse.Namespace) -> int:
     if args.dry_run:
         print(f"DRY RUN — parsed {len(lots)} lot(s) from {source} ({args.broker}):")
         for l in lots:
-            print(f"  {l['account']:<14} {l['symbol']:<6} {l['date']}  "
+            print(f"  {l['account']:<14} {l['symbol']:<24} {l['date']}  "
                   f"{l['shares']:>12g} sh @ {l['cost_per_share']:.2f}")
         print(f"would write {len(final)} lot(s) to {lots_path} "
               f"({mode}; {kept} lot(s) from other accounts kept); nothing written")
+        if quote_entries:
+            print(f"would upsert {len(quote_entries)} quote entrie(s) into "
+                  f"{data_dir / 'quotes.json'}; nothing written")
+        if history_rows is not None:
+            print(f"would write {len(history_rows)} history row(s) to "
+                  f"{data_dir / 'history.json'}; nothing written")
         return EXIT_OK
 
     backup = write_lots(data_dir, final)
     print(f"imported {len(lots)} lot(s) into {', '.join(imported_accounts)} ({mode})")
     print(f"wrote {len(final)} lot(s) to {lots_path}"
           + (f" (backup: {backup})" if backup else " (no previous file to back up)"))
+    if quote_entries:
+        quotes_path = update_quotes_file(data_dir, quote_entries)
+        print(f"upserted {len(quote_entries)} quote entrie(s) into {quotes_path}")
+    if history_rows is not None:
+        history_path, history_backup = write_history(
+            data_dir, args.account, history_rows)
+        print(f"wrote {len(history_rows)} history row(s) to {history_path}"
+              + (f" (backup: {history_backup})" if history_backup
+                 else " (no previous file to back up)"))
     return EXIT_OK
 
 

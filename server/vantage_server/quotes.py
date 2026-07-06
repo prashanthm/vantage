@@ -32,6 +32,12 @@ DEFAULT_TTL_SECONDS = 900.0
 CACHE_FILENAME = "quotes_cache.json"
 STOOQ_URL = "https://stooq.com/q/l/?s={symbols}&f=sd2t2ohlcv&h&e=csv"
 
+#: Asset classes Stooq can actually price. Imported real portfolios carry
+#: synthetic-symbol quote entries ("SPY 2026-07-17 750C" options marks,
+#: CRYPTO/FUTURES sleeves, CASH) whose prices are maintained by the importer
+#: — never fetched, and never counted as stale when absent from Stooq.
+STOOQ_FETCHABLE_CLASSES = frozenset({"usEquity", "intlEquity", "bonds"})
+
 
 def _utc_now() -> _dt.datetime:
     return _dt.datetime.now(_dt.timezone.utc)
@@ -133,7 +139,15 @@ class StooqQuoteProvider:
 
     def snapshot(self) -> QuoteSnapshot:
         fixture = FixtureQuoteProvider(self.data_dir).snapshot()
-        symbols = sorted(s for s in fixture.quotes if s != "CASH")
+        # Only real listed tickers go to Stooq: importer-maintained synthetic
+        # entries (options marks with spaces in the symbol, CRYPTO/FUTURES
+        # sleeves, CASH) are excluded by asset class — a space would corrupt
+        # the request URL and the feed cannot know them anyway.
+        fetchable = {
+            s for s, q in fixture.quotes.items()
+            if q.asset_class in STOOQ_FETCHABLE_CLASSES and " " not in s
+        }
+        symbols = sorted(fetchable)
 
         cached = self._read_cache()
         if cached is not None:
@@ -151,7 +165,7 @@ class StooqQuoteProvider:
         for sym, base in fixture.quotes.items():
             row = live.get(sym)
             if row is None:
-                if sym != "CASH":
+                if sym in fetchable:
                     missing = True  # N/D or absent row: this symbol falls back to fixture
                 quotes[sym] = base
             else:

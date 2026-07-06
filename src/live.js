@@ -48,6 +48,16 @@ export const tlh = ({ thresholdUsd, thresholdPct } = {}) => {
 };
 export const quotes = () => getJson(`${backendBase()}/api/quotes`);
 export const getSignals = () => getJson(`${backendBase()}/api/signals`);
+// GET /api/history[?account=..][&limit=N] -> payload or null. "all" means
+// unscoped (no account param). 404 (endpoint not deployed yet), non-200 and
+// network failures all resolve to null via getJson.
+export const getHistory = (account = "all", limit) => {
+  const q = new URLSearchParams();
+  if (account && account !== "all") q.set("account", account);
+  if (limit != null) q.set("limit", String(limit));
+  const qs = q.toString();
+  return getJson(`${backendBase()}/api/history${qs ? `?${qs}` : ""}`);
+};
 
 /* ---------------- payload -> view-shape mappers ---------------- */
 
@@ -155,6 +165,27 @@ export function mapSignals(payload) {
     price: g.price,
     pnlPct: g.pnl_pct,
     grade: g.progress_grade,
+  }));
+}
+
+// /api/history -> the row shape the Activity view consumes. Backend order
+// (newest first) is preserved as-is — no client-side re-sort. History has NO
+// fixture fallback: null (malformed payload / endpoint unavailable) or an
+// empty array both land on the view's "no activity imported" empty state.
+export function mapHistory(payload) {
+  if (!payload || !Array.isArray(payload.history)) return null;
+  return payload.history.map((h) => ({
+    account: h.account,
+    brokerAccount: h.broker_account,
+    date: h.date,
+    kind: h.kind || "other",   // "equity" | "option" | "other"
+    symbol: h.symbol,
+    description: h.description,
+    side: h.side,              // "buy" | "sell" | undefined
+    qty: h.quantity,
+    price: h.price,
+    amount: h.amount,          // signed: buys negative, sells positive
+    state: h.state,            // "filled" | "cancelled" | "open" | ...
   }));
 }
 

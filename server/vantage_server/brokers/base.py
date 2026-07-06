@@ -38,6 +38,19 @@ class Position(TypedDict):
     current_price: NotRequired[float]  # only when the API payload carries one
 
 
+def option_display_symbol(
+    underlying: str, expiration: str, strike: float, option_type: str
+) -> str:
+    """Vantage's compact display symbol for one option contract:
+    ``"<UND> <YYYY-MM-DD> <STRIKE><C|P>"`` e.g. ``"SPY 2026-07-17 750C"``.
+
+    Used as the lot/quote symbol for imported option positions and as the
+    history-row symbol, so both surfaces name a contract identically. The
+    strike renders with %g (no trailing zeros: 750, 7.5)."""
+    letter = "C" if str(option_type).lower().startswith("c") else "P"
+    return f"{str(underlying).upper()} {expiration} {float(strike):g}{letter}"
+
+
 class ReadOnlyViolation(Exception):
     """An attempt was made to invoke an operation outside a connection's
     read-only allowlist (the ADR-010 hard guarantee)."""

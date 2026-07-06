@@ -187,6 +187,38 @@ def test_allocation_per_account(dataset, quotes):
     assert alloc.by_class["cash"] == pytest.approx(1200.0)
 
 
+def test_allocation_tolerates_arbitrary_asset_classes():
+    """Imported real portfolios carry quote entries with classes beyond the
+    SPA's four (options marks, CRYPTO/FUTURES sleeves) — allocation must add
+    them as new keys, never KeyError, while the four known classes are always
+    present (zero when unheld)."""
+    from vantage_server.models import Lot, Quote
+    lots = [
+        Lot(account="a", symbol="SOXL 2026-07-10 178C", date="2026-07-02",
+            shares=1, cost_per_share=1982.0),
+        Lot(account="a", symbol="CRYPTO", date="2026-07-05",
+            shares=20723.17, cost_per_share=1),
+        Lot(account="a", symbol="FUTURES", date="2026-07-05",
+            shares=318.5, cost_per_share=1),
+    ]
+    q = {
+        "SOXL 2026-07-10 178C": Quote(symbol="SOXL 2026-07-10 178C", name="x",
+                                      price=2195.0, day_pct=0, asset_class="options"),
+        "CRYPTO": Quote(symbol="CRYPTO", name="c", price=1, day_pct=0,
+                        asset_class="crypto"),
+        "FUTURES": Quote(symbol="FUTURES", name="f", price=1, day_pct=0,
+                         asset_class="other"),
+    }
+    alloc = engine.allocation(lots, q)
+    assert alloc.by_class["options"] == pytest.approx(2195.0)
+    assert alloc.by_class["crypto"] == pytest.approx(20723.17)
+    assert alloc.by_class["other"] == pytest.approx(318.5)
+    # the four SPA classes stay present so the client never misses a key
+    assert alloc.by_class["usEquity"] == 0.0
+    assert alloc.by_class["cash"] == 0.0
+    assert alloc.total == pytest.approx(2195.0 + 20723.17 + 318.5)
+
+
 # --------------------------------------------------------------------- TLH
 
 def _tlh(dataset, quotes, today, **over):

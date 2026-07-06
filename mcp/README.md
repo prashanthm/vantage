@@ -5,7 +5,7 @@ The **AI-facing MCP tool surface** for Vantage — its own project, depending on
 Mira (the AI layer) consumes these tools; it performs no portfolio math of its own.
 
 Serves `vantage.*` read-only tools (positions, allocation, wash_status,
-tlh_candidates, lots, quotes, signals) over MCP streamable HTTP on
+tlh_candidates, lots, quotes, signals, history) over MCP streamable HTTP on
 `127.0.0.1:8640/mcp`. Every result carries a provenance block so AI answers can
 attribute every number.
 

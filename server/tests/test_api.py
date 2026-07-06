@@ -25,6 +25,7 @@ ALL_GET_ROUTES = [
     "/api/tax/tlh",
     "/api/quotes",
     "/api/signals",
+    "/api/history",
 ]
 
 
@@ -117,6 +118,69 @@ def test_quotes(client):
     body = client.get("/api/quotes").json()
     assert body["quotes"]["VOO"]["price"] == pytest.approx(683.20)
     assert body["quotes"]["VXUS"]["asset_class"] == "intlEquity"
+
+
+# ---------------------------------------------------------------- history
+
+def test_history_empty_state_when_never_imported(client):
+    """The fixture data dir has no history.json — the route serves an empty
+    list (the SPA shows an empty state), never an error."""
+    body = client.get("/api/history").json()
+    assert body["history"] == []
+    assert body["account"] == "all"
+
+
+HISTORY_ROWS = [
+    {"account": "fid-taxable", "broker_account": "...9024",
+     "date": "2026-07-02T19:40:00Z", "kind": "option",
+     "symbol": "SPXW 2026-07-02 7465C", "description": "long_call_spread open (debit)",
+     "side": "buy", "quantity": 1.0, "price": 1.72, "amount": -172.0,
+     "state": "filled"},
+    {"account": "wf-robo", "broker_account": "...0427",
+     "date": "2026-07-03T10:00:00Z", "kind": "equity", "symbol": "VOO",
+     "description": "market buy 1 VOO", "side": "buy", "quantity": 1.0,
+     "price": 683.0, "amount": -683.0, "state": "filled"},
+    {"account": "fid-taxable", "broker_account": "...9024",
+     "date": "2026-06-30T14:36:38Z", "kind": "equity", "symbol": "IMSR",
+     "description": "market sell 200 IMSR", "side": "sell", "quantity": 200.0,
+     "price": 7.07, "amount": 1414.0, "state": "filled"},
+]
+
+
+@pytest.fixture()
+def history_client(tmp_path, data_dir):
+    import json
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    (tmp_path / "history.json").write_text(json.dumps(HISTORY_ROWS), encoding="utf-8")
+    return TestClient(create_app(tmp_path))
+
+
+def test_history_newest_first_with_account_filter_and_limit(history_client):
+    body = history_client.get("/api/history").json()
+    assert [r["symbol"] for r in body["history"]] == [
+        "VOO", "SPXW 2026-07-02 7465C", "IMSR"]  # newest first
+    fid = history_client.get("/api/history", params={"account": "fid-taxable"}).json()
+    assert [r["symbol"] for r in fid["history"]] == ["SPXW 2026-07-02 7465C", "IMSR"]
+    limited = history_client.get("/api/history", params={"limit": 1}).json()
+    assert len(limited["history"]) == 1 and limited["history"][0]["symbol"] == "VOO"
+
+
+def test_history_unknown_account_404(history_client):
+    assert history_client.get(
+        "/api/history", params={"account": "etrade"}).status_code == 404
+
+
+def test_history_reads_per_request_no_restart_needed(tmp_path, data_dir):
+    import json
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    client = TestClient(create_app(tmp_path))
+    assert client.get("/api/history").json()["history"] == []
+    (tmp_path / "history.json").write_text(json.dumps(HISTORY_ROWS), encoding="utf-8")
+    assert len(client.get("/api/history").json()["history"]) == 3
 
 
 # ------------------------------------------------- read-only guarantee

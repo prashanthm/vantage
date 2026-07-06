@@ -168,6 +168,20 @@ class Store:
             raise StoreError(f"{path}: must be a JSON object of symbol -> replacement symbol")
         return data
 
+    def load_history(self) -> list[dict]:
+        """Imported transaction history (<data_dir>/history.json — optional
+        file written by the importer's --with-history). TOLERANT of a missing
+        file: returns an empty list so the API/MCP surface an empty state
+        instead of erroring (fixture datasets have no history). Rows are the
+        importer's history contract dicts, returned newest first."""
+        path = self.data_dir / "history.json"
+        if not path.is_file():
+            return []
+        rows = _require_list(_read_json(path), str(path))
+        out = [r for r in rows if isinstance(r, dict)]
+        out.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
+        return out
+
     def load_signals(self):
         """Authored trade signals (<data_dir>/signals.json — optional file).
         Returns tuple[Signal, ...]; statuses are computed, never stored."""

@@ -6,13 +6,13 @@ import {
 } from "./data.js";
 import {
   usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
-  positions, tlhCandidates, allocation, accountValue,
+  positions, tlhCandidates, allocation, accountValue, isOptionSym, isSleeveSym,
   loadSettings, SETTINGS_KEY, StatTile, heatTint,
 } from "./util.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
 import { OptionsView } from "./options.jsx";
 import * as live from "./live.js";
-import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals } from "./live.js";
+import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory } from "./live.js";
 
 const { useState, useMemo, useEffect, useRef } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
@@ -22,6 +22,7 @@ const NAV = [
   { group: "Portfolio", items: [
     { id: "overview", label: "Overview", icon: "◫" },
     { id: "holdings", label: "Holdings", icon: "▤" },
+    { id: "activity", label: "Activity", icon: "⇅" },
     { id: "tax", label: "Tax Center", icon: "🌾" },
     { id: "recs", label: "Recommendations", icon: "✦" },
   ]},
@@ -202,6 +203,7 @@ function App() {
         <main id="vg-center" className="vg-pane vg-pane-center">
           {route === "overview" && <OverviewView {...viewProps} notifs={notifs} />}
           {route === "holdings" && <HoldingsView {...viewProps} />}
+          {route === "activity" && <ActivityView {...viewProps} />}
           {route === "tax" && <TaxView {...viewProps} />}
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "markets" && <MarketsView {...viewProps} />}
@@ -405,18 +407,27 @@ function HoldingsView({ accountId, settings, setAnalysisSym }) {
             </tr>
           </thead>
           <tbody>
-            {pos.map((p) => (
+            {pos.map((p) => {
+              const opt = isOptionSym(p.symbol);
+              const sleeve = p.symbol === "CRYPTO" || p.symbol === "FUTURES";
+              // Option contracts and sleeves come from a live import with no
+              // per-symbol quote (day_pct 0) — show "—", not a fake +$0.
+              const noDay = p.symbol === "CASH" || ((opt || sleeve) && !p.dayPl);
+              return (
               <React.Fragment key={p.symbol}>
                 <tr className="click" onClick={() => setExpanded((e) => ({ ...e, [p.symbol]: !e[p.symbol] }))}>
                   <td>
                     <b>{p.symbol === "CASH" ? "Cash" : p.symbol}</b>
-                    <div className="vg-note">{(MARKET[p.symbol] || {}).name || ""}</div>
+                    {opt && <span className="vg-chip" style={{ marginLeft: 6 }} title="option contract">OPT</span>}
+                    <div className="vg-note">
+                      {(MARKET[p.symbol] || {}).name || (sleeve ? "sleeve — value via Robinhood portfolio" : "")}
+                    </div>
                   </td>
                   <td>
                     {[...p.accounts].map((id) => <span className="vg-chip" key={id}>{acctOf(id).short}</span>)}
                   </td>
                   <td className="num">{usd(p.value)}</td>
-                  <td className={cls("num", dirCls(p.dayPl))}>{p.symbol === "CASH" ? "—" : signUsd(p.dayPl)}</td>
+                  <td className={cls("num", dirCls(p.dayPl))}>{noDay ? "—" : signUsd(p.dayPl)}</td>
                   <td className={cls("num", dirCls(p.unrl))}>{p.symbol === "CASH" ? "—" : signUsd(p.unrl)}</td>
                   <td className="num">{p.weight.toFixed(1)}%</td>
                   <td>
@@ -425,7 +436,7 @@ function HoldingsView({ accountId, settings, setAnalysisSym }) {
                         Overlap: {p.overlap.label}
                       </span>
                     )}
-                    {p.symbol !== "CASH" && p.weight > 7 && ((MARKET[p.symbol] || {}).name || "").indexOf("ETF") === -1 && (
+                    {p.symbol !== "CASH" && !sleeve && p.weight > 7 && ((MARKET[p.symbol] || {}).name || "").indexOf("ETF") === -1 && (
                       <span className="vg-badge warn">Concentrated</span>
                     )}
                   </td>
@@ -441,10 +452,140 @@ function HoldingsView({ accountId, settings, setAnalysisSym }) {
                   </tr>
                 ))}
               </React.Fragment>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/* ================= Activity ================= */
+// Transaction history has NO fixture dataset: it exists only after a broker
+// import with --with-history, so offline/empty renders an instructional card.
+const ACTIVITY_PAGE = 50;
+const ACTIVITY_KINDS = [
+  { id: "all", label: "All" },
+  { id: "equity", label: "Equities" },
+  { id: "option", label: "Options" },
+];
+
+// Compact event timestamp: "Jul 2" + "2:31 PM" (raw string if unparseable).
+function fmtWhen(iso) {
+  const d = new Date(iso);
+  if (!iso || isNaN(d)) return { day: iso ? String(iso) : "—", time: "" };
+  return {
+    day: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }),
+  };
+}
+
+function ActivityView({ accountId, settings }) {
+  const [kind, setKind] = useState("all");
+  const [shown, setShown] = useState(ACTIVITY_PAGE);
+  // No fixture fallback — null (backend down / endpoint 404) stays null.
+  const rows = useLive(
+    () => live.getHistory(accountId).then(mapHistory),
+    null,
+    [accountId, settings],
+  ).data;
+  useEffect(() => { setShown(ACTIVITY_PAGE); }, [accountId, kind]);
+  const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
+  const all = rows || [];
+  const filtered = kind === "all" ? all : all.filter((r) => r.kind === kind);
+  const visible = filtered.slice(0, shown);
+  const signedAmt = (n) => `${n >= 0 ? "+" : "−"}${usd(Math.abs(n), 2)}`;
+
+  return (
+    <div>
+      <h2 style={{ margin: 0, fontSize: 19 }}>Activity</h2>
+      <p className="vg-sub">{acctLabel} · imported broker transaction history · newest first</p>
+
+      {all.length === 0 ? (
+        <div className="vg-card">
+          <div className="vg-kicker">No activity imported yet</div>
+          <p className="vg-note" style={{ margin: "6px 0 0", maxWidth: 560 }}>
+            Transaction history arrives with a broker import — run the importer with <b>--with-history</b> and
+            this view fills in. There is no demo fixture for account history, so it stays empty offline.
+          </p>
+          <pre style={{
+            background: "var(--color-light)", border: "1px solid var(--color-border)", borderRadius: 8,
+            padding: "10px 12px", margin: "10px 0 0", fontSize: 12, lineHeight: 1.5, overflowX: "auto",
+          }}>
+            <code>{"cd server\n.venv/bin/python -m vantage_server.importer \\\n    --broker robinhood --account rh-margin --with-history"}</code>
+          </pre>
+        </div>
+      ) : (
+        <>
+          <div className="vg-card vg-tablewrap" style={{ padding: "8px 12px" }}>
+            <div className="vg-spread" style={{ padding: "6px 4px 8px" }}>
+              <div className="vg-pills">
+                {ACTIVITY_KINDS.map((f) => (
+                  <button key={f.id} className={cls("vg-pill", kind === f.id && "sel")}
+                    onClick={() => setKind(f.id)}>{f.label}</button>
+                ))}
+              </div>
+              <span className="vg-note">{filtered.length === all.length
+                ? `${all.length} events`
+                : `${filtered.length} of ${all.length} events`}</span>
+            </div>
+            <table className="vg-table">
+              <thead>
+                <tr>
+                  <th>Date</th><th>Account</th><th>Symbol</th><th>Side</th>
+                  <th className="num">Qty</th><th className="num">Price</th>
+                  <th className="num">Amount</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((r, i) => {
+                  const w = fmtWhen(r.date);
+                  return (
+                    <tr key={i} style={r.state === "cancelled" ? { opacity: 0.55 } : undefined}>
+                      <td>{w.day}{w.time && <div className="vg-note">{w.time}</div>}</td>
+                      <td><span className="vg-chip">{acctOf(r.account).short}</span></td>
+                      <td>
+                        <b>{r.symbol || "—"}</b>
+                        {r.kind === "option" && (
+                          <span className="vg-chip" style={{ marginLeft: 6 }} title="option contract">OPT</span>
+                        )}
+                        {r.description && <div className="vg-note">{r.description}</div>}
+                      </td>
+                      <td>
+                        {r.side === "buy" && <span className="vg-badge good">Buy</span>}
+                        {r.side === "sell" && <span className="vg-badge bad">Sell</span>}
+                        {r.side !== "buy" && r.side !== "sell" && <span className="vg-note">—</span>}
+                      </td>
+                      <td className="num">{r.qty != null ? r.qty : "—"}</td>
+                      <td className="num">{r.price != null ? usd(r.price, 2) : "—"}</td>
+                      <td className={cls("num", dirCls(r.amount || 0))}>
+                        {r.amount != null ? signedAmt(r.amount) : "—"}
+                      </td>
+                      <td>
+                        {r.state === "filled" && <span style={{ fontSize: 12.5 }}>filled</span>}
+                        {r.state === "open" && <span className="vg-badge info">open</span>}
+                        {r.state === "cancelled" && <span className="vg-badge plain">cancelled</span>}
+                        {r.state && !["filled", "open", "cancelled"].includes(r.state) && (
+                          <span className="vg-badge plain">{r.state}</span>
+                        )}
+                        {!r.state && <span className="vg-note">—</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {filtered.length > shown && (
+            <div style={{ textAlign: "center", marginTop: 10 }}>
+              <button className="vg-linkbtn" onClick={() => setShown(shown + ACTIVITY_PAGE)}>
+                Show {Math.min(ACTIVITY_PAGE, filtered.length - shown)} more · {filtered.length - shown} remaining
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

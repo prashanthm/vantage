@@ -20,6 +20,7 @@ EXPECTED_TOOLS = {
     "vantage.lots",
     "vantage.quotes",
     "vantage.signals",
+    "vantage.history",
 }
 
 
@@ -138,6 +139,58 @@ def test_quotes_round_trip(mcp):
     payload = tool_payload(run_with_client(mcp, interact))
     assert payload["quotes"]["VOO"]["price"] == pytest.approx(683.20)
     assert payload["quotes"]["CASH"]["price"] == 1
+
+
+# --- history tool ---
+
+
+def test_history_empty_state_on_fixture_dataset(mcp):
+    """The fixture data dir carries no history.json — the tool answers an
+    empty list with provenance, never an error."""
+    async def interact(client):
+        return await client.call_tool("vantage.history", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["history"] == []
+    assert payload["account"] == "all"
+    assert payload["provenance"]["source_type"] == "vantage"
+
+
+def test_history_round_trip_with_imported_rows(tmp_path, data_dir):
+    """Same shape as GET /api/history: newest first, account filter, limit."""
+    rows = [
+        {"account": "fid-taxable", "broker_account": "...9024",
+         "date": "2026-07-02T19:40:00Z", "kind": "option",
+         "symbol": "SPXW 2026-07-02 7465C", "description": "d", "side": "buy",
+         "quantity": 1.0, "price": 1.72, "amount": -172.0, "state": "filled"},
+        {"account": "wf-robo", "broker_account": "...0427",
+         "date": "2026-07-03T10:00:00Z", "kind": "equity", "symbol": "VOO",
+         "description": "d", "side": "buy", "quantity": 1.0, "price": 683.0,
+         "amount": -683.0, "state": "filled"},
+    ]
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(),
+                                     encoding="utf-8")
+    (tmp_path / "history.json").write_text(json.dumps(rows), encoding="utf-8")
+    mcp = create_mcp(tmp_path)
+
+    async def all_rows(client):
+        return await client.call_tool("vantage.history", {})
+
+    payload = tool_payload(run_with_client(mcp, all_rows))
+    assert [r["symbol"] for r in payload["history"]] == [
+        "VOO", "SPXW 2026-07-02 7465C"]  # newest first
+    assert payload["provenance"] == {"source_type": "vantage",
+                                     "source_id": f"{tmp_path}#history"}
+
+    async def filtered(client):
+        return await client.call_tool(
+            "vantage.history", {"account": "fid-taxable", "limit": 5})
+
+    payload = tool_payload(run_with_client(mcp, filtered))
+    assert [r["kind"] for r in payload["history"]] == ["option"]
 
 
 # --- signals tool round-trips (moved with the vantage-mcp split) ---

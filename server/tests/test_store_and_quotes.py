@@ -66,6 +66,27 @@ def test_non_positive_shares_rejected(tmp_path):
         Store(tmp_path).load_lots()
 
 
+def test_load_history_missing_file_is_empty_list(data_dir):
+    # the fixture data dir never has a history.json — empty state, no error
+    assert Store(data_dir).load_history() == []
+
+
+def test_load_history_sorts_newest_first_and_drops_non_dicts(tmp_path):
+    _write(tmp_path, "history.json", [
+        {"account": "a", "date": "2026-06-30T14:00:00Z", "symbol": "OLD"},
+        "not-a-row",
+        {"account": "a", "date": "2026-07-03T10:00:00Z", "symbol": "NEW"},
+    ])
+    rows = Store(tmp_path).load_history()
+    assert [r["symbol"] for r in rows] == ["NEW", "OLD"]
+
+
+def test_load_history_rejects_non_array(tmp_path):
+    _write(tmp_path, "history.json", {"not": "a list"})
+    with pytest.raises(StoreError, match="top level must be a JSON array"):
+        Store(tmp_path).load_history()
+
+
 def test_partner_map_shape_enforced(tmp_path):
     _write(tmp_path, "partner_map.json", ["VOO", "VTI"])
     with pytest.raises(StoreError, match="partner_map"):
@@ -180,6 +201,38 @@ def test_stooq_url_uses_lowercase_dot_us_symbols(data_dir):
         assert sym in url
     assert "cash" not in url.lower().split("?")[1]  # CASH is never fetched
     assert "VOO" not in url  # no uppercase leaks
+
+
+def test_stooq_never_fetches_importer_maintained_symbols(tmp_path):
+    """Option marks, CRYPTO/FUTURES sleeves, and CASH are importer-maintained
+    quote entries: excluded from the Stooq request (a space would corrupt the
+    URL) and NOT counted as stale when absent from the feed."""
+    (tmp_path / "quotes.json").write_text(json.dumps({
+        "as_of": "2026-07-05T09:30:00-04:00",
+        "quotes": {
+            "VOO": {"name": "V", "price": 683.2, "day_pct": -0.12,
+                    "asset_class": "usEquity"},
+            "SOXL 2026-07-10 178C": {"name": "opt", "price": 2195.0,
+                                     "day_pct": 0, "asset_class": "options"},
+            "CRYPTO": {"name": "c", "price": 1, "day_pct": 0,
+                       "asset_class": "crypto"},
+            "FUTURES": {"name": "f", "price": 1, "day_pct": 0,
+                        "asset_class": "other"},
+            "CASH": {"name": "cash", "price": 1, "day_pct": 0,
+                     "asset_class": "cash"},
+        },
+    }), encoding="utf-8")
+    csv = ("Symbol,Date,Time,Open,High,Low,Close,Volume\n"
+           "VOO.US,2026-07-06,16:00:00,690.00,700.00,688.00,697.00,1000\n")
+    urlopen = _stub_urlopen(csv)
+    snap = StooqQuoteProvider(tmp_path, urlopen=urlopen, ttl=0).snapshot()
+    url = urlopen.calls[0]
+    assert "soxl" not in url.lower() and "crypto" not in url.lower() \
+        and "futures" not in url.lower()
+    assert snap.quotes["VOO"].price == pytest.approx(697.00)  # live overlay
+    assert snap.quotes["SOXL 2026-07-10 178C"].price == pytest.approx(2195.0)
+    assert snap.quotes["CRYPTO"].price == 1
+    assert snap.stale is False  # synthetic symbols never flag staleness
 
 
 # ------------------------------------------------------------ on-disk cache

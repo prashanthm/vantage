@@ -143,6 +143,20 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, threshold_usd=threshold_usd, threshold_pct=threshold_pct,
                         candidates=to_jsonable(cands))
 
+    @app.get("/api/history")
+    def history(account: str = Query("all"),
+                limit: int = Query(200, ge=1, le=1000)):
+        """Imported transaction history (importer --with-history), newest
+        first. Read from history.json PER REQUEST (the file appears/changes
+        when the operator imports; no restart needed); a missing file is an
+        empty list — the SPA shows an empty state."""
+        check_account(account)
+        snap = state.snapshot()
+        rows = store.load_history()
+        if account != "all":
+            rows = [r for r in rows if r.get("account") == account]
+        return envelope(snap, account=account, history=rows[:limit])
+
     @app.get("/api/quotes")
     def quotes():
         snap = state.snapshot()

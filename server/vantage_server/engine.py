@@ -275,11 +275,15 @@ def allocation(
     quotes: dict[str, Quote],
     account_id: str | None = None,
 ) -> Allocation:
+    # The four SPA classes are always present (zero when unheld); any OTHER
+    # asset class a quote declares (imported real portfolios carry "options",
+    # "crypto", "other" sleeves) is added as its own key instead of KeyError-ing.
     by_class = {"usEquity": 0.0, "intlEquity": 0.0, "bonds": 0.0, "cash": 0.0}
     total = 0.0
     for lot in select_lots(lots, account_id):
         v = lot_value(lot, quotes)
-        by_class[quote_for(lot.symbol, quotes).asset_class] += v
+        cls = quote_for(lot.symbol, quotes).asset_class
+        by_class[cls] = by_class.get(cls, 0.0) + v
         total += v
     return Allocation(by_class=by_class, total=total)
 

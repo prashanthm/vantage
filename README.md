@@ -28,7 +28,8 @@ No more single scroll: a persistent left sidebar routes between dedicated views
 standard fintech dashboard pattern (one job per screen, global account scope pinned
 in the sidebar):
 
-- **Portfolio**: Overview · Holdings · Tax Center · Recommendations
+- **Portfolio**: Overview · Holdings · Activity (imported transaction history — live only,
+  no fixture) · Tax Center · Recommendations
 - **Intelligence**: Market Intel · Options Intel · AI Charts
 
 ## Key aspects (industry standards)

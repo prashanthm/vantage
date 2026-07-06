@@ -28,7 +28,7 @@ import json
 import logging
 import time
 
-from .base import BrokerConnectionError, register_connection
+from .base import BrokerConnectionError, option_display_symbol, register_connection
 from .base import ReadOnlyViolation  # noqa: F401 — canonical home is base.py; re-exported for back-compat
 from .robinhood_auth import AuthError, MCP_URL, get_access_token  # noqa: F401 (AuthError re-exported)
 
@@ -42,6 +42,12 @@ READ_TOOLS = frozenset({
     "get_portfolio",
     "get_equity_positions",
     "get_equity_quotes",
+    "get_option_positions",    # list open/closed option positions (read-only)
+    "get_option_instruments",  # contract detail (strike/type) by UUID — positions
+                               # carry neither, so the breakout needs this lookup
+    "get_option_quotes",       # option marks by instrument UUID (read-only)
+    "get_equity_orders",       # order HISTORY listing (read-only; never places)
+    "get_option_orders",       # option order HISTORY listing (read-only)
 })
 
 
@@ -221,6 +227,302 @@ def list_accounts() -> list[dict]:
     return normalized
 
 
+# ----------------------------------------------------------- pagination
+
+def _cursor_from_next(next_url) -> str | None:
+    """List tools paginate with a 'next' URL whose ``cursor`` query param is
+    what the tool's own ``cursor`` argument wants back."""
+    if not next_url:
+        return None
+    from urllib.parse import parse_qs, urlparse
+
+    values = parse_qs(urlparse(str(next_url)).query).get("cursor")
+    return values[0] if values else None
+
+
+def _paged(tool: str, payload: dict, rows_key: str, *, max_rows: int,
+           max_pages: int = 25) -> list[dict]:
+    """Follow the cursor until max_rows rows, no next page, or max_pages."""
+    rows: list[dict] = []
+    cursor: str | None = None
+    for _ in range(max_pages):
+        page_payload = dict(payload)
+        if cursor:
+            page_payload["cursor"] = cursor
+        result = _call(tool, page_payload)
+        batch = result.get(rows_key) or result.get("results") or []
+        rows.extend(r for r in batch if isinstance(r, dict))
+        cursor = _cursor_from_next(result.get("next"))
+        if not cursor or len(rows) >= max_rows:
+            break
+    return rows
+
+
+def _chunks(items: list, size: int):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
+def _f(value, default: float = 0.0) -> float:
+    """Tolerant float: Robinhood sends numbers as strings ('1982.0000')."""
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+# ------------------------------------------------------- option positions
+
+def fetch_option_positions(account_number: str) -> list[dict]:
+    """Open option positions, one dict per contract, normalized.
+
+    OBSERVED get_option_positions shape (live, 2026-07-05): {"positions":
+    [...], "next": <cursor url|null>}; each row {option_id, chain_id,
+    chain_symbol, type ("long"|"short"), quantity ("1.0000"),
+    average_price (per CONTRACT — premium/share x multiplier; NEGATIVE for
+    shorts, it's the credit received), expiration_date, trade_value_multiplier
+    ("100.0000"), opened_at, intraday_*/pending_* fields}. ``nonzero: true``
+    returns only currently-open positions (without it the listing includes
+    every closed, zero-quantity position ever held — 750 rows on a real
+    account). CRUCIALLY the row carries NO strike and NO call/put type;
+    those come from get_option_instruments (ids=comma-separated UUIDs ->
+    {"instruments": [{id, chain_symbol, expiration_date, strike_price
+    ("2.0000"), type ("call"|"put"), state, tradability, min_ticks}]}).
+    Marks come from get_option_quotes (instrument_ids=[...] ->
+    {"results": [{"quote": {instrument_id, mark_price (PER SHARE),
+    adjusted_mark_price, bid/ask, greeks...}, "close": {...}}]}).
+
+    Returned dicts: {underlying, expiration, strike, option_type
+    ("call"|"put"), position_type ("long"|"short"), contracts (unsigned
+    float), avg_price (per-SHARE premium, unsigned), mark? (per-share, only
+    when the quote returned one), multiplier, instrument_id, occ_symbol
+    (compact display symbol, None when strike/type lookup failed),
+    opened_at?}.
+    """
+    rows = _paged(
+        "get_option_positions",
+        {"account_number": account_number, "nonzero": True},
+        "positions",
+        max_rows=1000,
+    )
+    open_rows = [r for r in rows if _f(r.get("quantity")) != 0]
+    ids = [str(r["option_id"]) for r in open_rows if r.get("option_id")]
+
+    instruments: dict[str, dict] = {}
+    marks: dict[str, float] = {}
+    for chunk in _chunks(ids, 20):
+        inst_result = _call("get_option_instruments", {"ids": ",".join(chunk)})
+        for inst in inst_result.get("instruments") or inst_result.get("results") or []:
+            if isinstance(inst, dict) and inst.get("id"):
+                instruments[str(inst["id"])] = inst
+        quote_result = _call("get_option_quotes", {"instrument_ids": list(chunk)})
+        for row in quote_result.get("results") or []:
+            quote = row.get("quote") if isinstance(row, dict) else None
+            if not isinstance(quote, dict) or not quote.get("instrument_id"):
+                continue
+            mark = quote.get("mark_price") or quote.get("adjusted_mark_price")
+            if mark not in (None, ""):
+                marks[str(quote["instrument_id"])] = _f(mark)
+
+    out: list[dict] = []
+    for r in open_rows:
+        oid = str(r.get("option_id") or "")
+        inst = instruments.get(oid, {})
+        multiplier = _f(r.get("trade_value_multiplier"), 100.0) or 100.0
+        strike = _f(inst.get("strike_price"), None) if inst.get("strike_price") else None
+        option_type = str(inst.get("type") or "") or None
+        underlying = str(r.get("chain_symbol") or inst.get("chain_symbol") or "").upper()
+        expiration = str(r.get("expiration_date") or inst.get("expiration_date") or "")
+        entry: dict = {
+            "underlying": underlying,
+            "expiration": expiration,
+            "strike": strike,
+            "option_type": option_type,
+            "position_type": "short" if str(r.get("type") or "").lower() == "short" else "long",
+            "contracts": abs(_f(r.get("quantity"))),
+            # average_price is per contract and signed by direction; normalize
+            # to the unsigned per-SHARE premium (position_type carries direction)
+            "avg_price": abs(_f(r.get("average_price"))) / multiplier,
+            "multiplier": multiplier,
+            "instrument_id": oid,
+            "occ_symbol": (
+                option_display_symbol(underlying, expiration, strike, option_type)
+                if underlying and expiration and strike is not None and option_type
+                else None
+            ),
+            "opened_at": r.get("opened_at"),
+        }
+        if oid in marks:
+            entry["mark"] = marks[oid]
+        out.append(entry)
+    return out
+
+
+# ---------------------------------------------------------------- history
+
+def _history_row(broker_account: str, **overrides) -> dict:
+    """THE history-row contract (exact keys — mirrored by /api/history,
+    vantage.history, and the SPA): account is filled by the importer."""
+    row = {
+        "account": "",
+        "broker_account": broker_account,
+        "date": "",
+        "kind": "other",
+        "symbol": "",
+        "description": "",
+        "side": "",
+        "quantity": 0.0,
+        "price": None,
+        "amount": 0.0,
+        "state": "",
+    }
+    row.update(overrides)
+    return row
+
+
+def _normalize_equity_order(order: dict, broker_account: str) -> dict:
+    """OBSERVED get_equity_orders row (live, 2026-07-05): {id, instrument_id,
+    symbol, side ("buy"|"sell"|"sell_short"), type ("market"|"limit"|...),
+    state ("filled"|"cancelled"|"failed"|"partially_filled_rest_cancelled"|
+    "locate_failed"|...), quantity, cumulative_quantity (filled qty),
+    price (limit, may be null), average_price (fill avg, null when unfilled),
+    fees, dollar_based_amount, time_in_force, market_hours, trigger,
+    placed_agent ("user"|"agentic"|...), created_at, last_transaction_at,
+    executions: [{id, price, quantity, timestamp, fees}]}. All numbers are
+    strings. Unmappable rows degrade to kind "other" — never dropped."""
+    try:
+        side_raw = str(order.get("side") or "")
+        side = "buy" if side_raw.startswith("buy") else "sell"
+        filled = _f(order.get("cumulative_quantity"))
+        quantity = filled if filled > 0 else _f(order.get("quantity"))
+        avg = order.get("average_price")
+        price = _f(avg, None) if avg not in (None, "") else (
+            _f(order["price"], None) if order.get("price") not in (None, "") else None
+        )
+        # amount = money that actually moved: filled shares x fill average,
+        # negative for buys; an unfilled/cancelled order moved nothing.
+        amount = 0.0
+        if filled > 0 and avg not in (None, ""):
+            amount = round(filled * _f(avg) * (-1 if side == "buy" else 1), 2)
+        symbol = str(order.get("symbol") or "").upper()
+        desc = f"{order.get('type') or 'order'} {side_raw} {quantity:g} {symbol}"
+        if price is not None:
+            desc += f" @ {price:g}"
+        return _history_row(
+            broker_account,
+            date=str(order.get("created_at") or ""),
+            kind="equity",
+            symbol=symbol,
+            description=desc,
+            side=side,
+            quantity=quantity,
+            price=price,
+            amount=amount,
+            state=str(order.get("state") or ""),
+        )
+    except Exception:  # defensive: surface, never drop
+        return _history_row(
+            broker_account,
+            date=str(order.get("created_at") or "") if isinstance(order, dict) else "",
+            kind="other",
+            description=repr(order)[:300],
+            state=str(order.get("state") or "unparseable") if isinstance(order, dict) else "unparseable",
+        )
+
+
+def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
+    """OBSERVED get_option_orders row (live, 2026-07-05): {id, chain_id,
+    chain_symbol, state ("filled"|"cancelled"|"rejected"|...), type, trigger,
+    direction ("debit"|"credit"), quantity, processed_quantity,
+    pending_quantity, canceled_quantity, price (per SHARE), stop_price,
+    premium (price x multiplier), processed_premium, trade_value_multiplier,
+    time_in_force, market_hours, opening_strategy/closing_strategy
+    ("long_call"|"long_call_spread"|...), placed_agent, created_at,
+    updated_at, legs: [{id, option_id, side ("buy"|"sell"), position_effect
+    ("open"|"close"), ratio_quantity, expiration_date, strike_price,
+    option_type ("call"|"put"), executions?: [{id, price (per SHARE),
+    quantity, settlement_date, trade_date, timestamp}]}]}. Filled legs always
+    carried executions in the live capture. One history row per LEG (spreads
+    become 2+ rows). Unmappable rows degrade to kind "other" — never dropped.
+    """
+    try:
+        legs = order.get("legs") or []
+        if not legs:
+            raise ValueError("option order without legs")
+        multiplier = _f(order.get("trade_value_multiplier"), 100.0) or 100.0
+        direction = str(order.get("direction") or "")
+        state = str(order.get("state") or "")
+        created = str(order.get("created_at") or "")
+        strategy = str(order.get("opening_strategy")
+                       or order.get("closing_strategy") or "option order")
+        order_qty = _f(order.get("quantity"))
+        processed = _f(order.get("processed_quantity"))
+        rows = []
+        for leg in legs:
+            side = "buy" if str(leg.get("side") or "") == "buy" else "sell"
+            ratio = _f(leg.get("ratio_quantity"), 1.0) or 1.0
+            executions = leg.get("executions") or []
+            exec_qty = sum(_f(e.get("quantity")) for e in executions)
+            exec_notional = sum(_f(e.get("quantity")) * _f(e.get("price"))
+                                for e in executions)
+            quantity = exec_qty if exec_qty > 0 else (processed or order_qty) * ratio
+            price = (exec_notional / exec_qty) if exec_qty > 0 else (
+                _f(order["price"], None) if order.get("price") not in (None, "") else None
+            )
+            # amount = contract dollars that actually moved on this leg
+            # (executions are per share -> x multiplier), negative for buys.
+            amount = 0.0
+            if exec_qty > 0:
+                amount = round(exec_notional * multiplier * (-1 if side == "buy" else 1), 2)
+            symbol = option_display_symbol(
+                str(order.get("chain_symbol") or ""),
+                str(leg.get("expiration_date") or ""),
+                _f(leg.get("strike_price")),
+                str(leg.get("option_type") or ""),
+            )
+            desc = f"{strategy} {leg.get('position_effect') or ''} ({direction})".strip()
+            rows.append(_history_row(
+                broker_account,
+                date=created,
+                kind="option",
+                symbol=symbol,
+                description=desc,
+                side=side,
+                quantity=quantity,
+                price=price,
+                amount=amount,
+                state=state,
+            ))
+        return rows
+    except Exception:  # defensive: surface, never drop
+        return [_history_row(
+            broker_account,
+            date=str(order.get("created_at") or "") if isinstance(order, dict) else "",
+            kind="other",
+            description=repr(order)[:300],
+            state=str(order.get("state") or "unparseable") if isinstance(order, dict) else "unparseable",
+        )]
+
+
+def fetch_history(account_number: str, *, limit: int = 200) -> list[dict]:
+    """Combined equity + option order history, newest first, normalized to
+    the history-row contract (see _history_row). ``account`` is left empty —
+    the importer fills the Vantage account id; ``broker_account`` is always
+    masked to the last four digits."""
+    masked = f"...{str(account_number)[-4:]}"
+    rows: list[dict] = []
+    for order in _paged("get_equity_orders", {"account_number": account_number},
+                        "orders", max_rows=limit)[:limit]:
+        rows.append(_normalize_equity_order(order, masked))
+    for order in _paged("get_option_orders", {"account_number": account_number},
+                        "orders", max_rows=limit)[:limit]:
+        rows.extend(_normalize_option_order(order, masked))
+    rows.sort(key=lambda r: r.get("date") or "", reverse=True)
+    return rows[:limit]
+
+
 # ------------------------------------------------------------- connection
 
 @register_connection
@@ -242,6 +544,12 @@ class RobinhoodConnection:
 
     def fetch_portfolio(self, account_number: str) -> dict:
         return fetch_portfolio(account_number)
+
+    def fetch_option_positions(self, account_number: str) -> list[dict]:
+        return fetch_option_positions(account_number)
+
+    def fetch_history(self, account_number: str, *, limit: int = 200) -> list[dict]:
+        return fetch_history(account_number, limit=limit)
 
     def list_accounts(self) -> list[dict]:
         return list_accounts()

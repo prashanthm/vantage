@@ -14,15 +14,29 @@ export const dirCls = (n) => (n > 0 ? "up" : n < 0 ? "down" : "");
 
 const DAY_MS = 86400000;
 export const daysAgo = (iso) => Math.floor((TODAY - new Date(iso + "T12:00:00")) / DAY_MS);
-export const fmtDate = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+export const fmtDate = (iso) => {
+  const d = new Date(iso + "T12:00:00");
+  return isNaN(d) ? String(iso || "—") : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
 export const addDays = (iso, n) => {
   const d = new Date(iso + "T12:00:00");
   d.setDate(d.getDate() + n);
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
+/* ---------- symbol classification (options / sleeves) ---------- */
+// Option-contract symbols from the importer: "SPY 2026-07-17 750C".
+export const isOptionSym = (sym) => /\d{4}-\d{2}-\d{2} \d+(\.\d+)?[CP]$/.test(sym || "");
+// Portfolio sleeves reported as a single value line (no per-share quote).
+export const isSleeveSym = (sym) => sym === "CRYPTO" || sym === "FUTURES" || sym === "CASH";
+
 /* ---------- portfolio math (real logic, mock data) ---------- */
-export const lotValue = (l) => l.shares * MARKET[l.symbol].price;
+// Unquoted symbols (option contracts, sleeves from a live import) fall back to
+// cost — fixture symbols are always in MARKET, so fixture math is unchanged.
+export const lotValue = (l) => {
+  const m = MARKET[l.symbol];
+  return l.shares * (m ? m.price : l.costPerShare);
+};
 export const lotCost = (l) => l.shares * l.costPerShare;
 export const lotUnrl = (l) => lotValue(l) - lotCost(l);
 // Runtime account registry: live backend accounts (e.g. imported Robinhood)

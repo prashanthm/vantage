@@ -178,6 +178,26 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         return envelope("signals", snap, symbol=symbol, signals=to_jsonable(graded))
 
     @mcp.tool(
+        name="vantage.history",
+        annotations=_READ_ONLY,
+        description="Imported broker transaction history (equity + option "
+                    "orders, newest first): date, kind equity/option/other, "
+                    "symbol (options use the compact 'UND YYYY-MM-DD 750C' "
+                    "form), side, quantity, price, signed amount (buys "
+                    "negative), state. Optional account filter and limit. "
+                    "Empty when no history has been imported.",
+    )
+    def history(account: str = "all", limit: int = 200) -> dict:
+        snap = snapshot()
+        # Read per call: history.json appears/changes when the operator
+        # imports with --with-history; a missing file is an empty list.
+        rows = store.load_history()
+        if account != "all":
+            rows = [r for r in rows if r.get("account") == account]
+        return envelope("history", snap, account=account,
+                        history=to_jsonable(rows[:max(int(limit), 0)]))
+
+    @mcp.tool(
         name="vantage.quotes",
         annotations=_READ_ONLY,
         description="Current quote snapshot (price, day %, asset class) for every "

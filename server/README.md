@@ -131,7 +131,61 @@ python -m vantage_server.importer --broker robinhood --list-accounts
 ```
 
 then import each with `--broker-account <N>` (add `--include-cash` to book
-non-equity value — options/crypto/futures/sweep — as a CASH position).
+non-equity value — options/crypto/futures/sweep — as a CASH position, or
+`--breakout` to break it out per asset — see below).
+
+### `--breakout`: options, crypto/futures sleeves, CASH remainder
+
+`--include-cash` lumps everything non-equity into one CASH lot. `--breakout`
+replaces that lump with a per-asset breakdown (it implies the cash booking;
+plain `--include-cash` behavior is unchanged for back-compat):
+
+```sh
+.venv/bin/python -m vantage_server.importer \
+    --broker robinhood --account rh-margin --broker-account <N> \
+    --breakout --with-history
+```
+
+- **Options as marked lots** — every open LONG option contract becomes one
+  lot under a compact display symbol `"<UND> <YYYY-MM-DD> <STRIKE><C|P>"`
+  (e.g. `SPY 2026-07-17 750C`): shares = contracts, cost_per_share = average
+  premium × 100 (per-contract dollars), dated from the broker's `opened_at`
+  when available. The importer also **upserts a quote entry per contract into
+  `<data-dir>/quotes.json`** (price = current mark × 100 when the broker
+  returns one, else cost; `asset_class: "options"`), so the engine values the
+  contract at its **mark**, not its cost — re-run the import to refresh marks.
+- **Short options are skipped** with one loud warning naming them: the store
+  and engine cannot represent negative-share lots. Their negative market
+  value is absorbed into the CASH remainder (the portfolio total nets it), so
+  the account total stays honest.
+- **Crypto/futures sleeves** — Robinhood exposes no positions API for either,
+  but `get_portfolio` reports their current value. Each nonzero sleeve is
+  booked as one $1-priced lot (`CRYPTO` / `FUTURES`, shares = value, like
+  CASH) with quote entries classed `crypto` / `other`.
+- **CASH remainder** = portfolio `total_value` − equity value − imported
+  option marks − sleeves, so nothing is double-counted.
+- Allocation (`/api/allocation`, `vantage.allocation`) reports the new asset
+  classes (`options`, `crypto`, `other`) as additional keys; the SPA's four
+  classes are always present.
+- Live Stooq quotes never fetch (and never mark stale) these
+  importer-maintained symbols — their prices refresh on import.
+
+### `--with-history`: transaction history
+
+`--with-history` also snapshots the account's **equity + option order
+history** (newest first, open and closed orders including fills) to
+`<data-dir>/history.json` — merged by account like the lots merge and backed
+up first (`history.json.bak-<ISO>`). Works together with `--breakout` in one
+run. Each row: `{account, broker_account (masked ...1234), date, kind
+equity|option|other, symbol (options use the compact display form),
+description, side buy|sell, quantity, price, amount (signed — buys negative,
+only money that actually moved), state}`. Multi-leg option orders become one
+row per leg; anything unmappable degrades to `kind: "other"` instead of being
+dropped.
+
+Read it back via `GET /api/history[?account=][&limit=]` or the
+`vantage.history` MCP tool — both read `history.json` per request (empty list
+when nothing has been imported) and answer newest first.
 
 
 `--broker robinhood` (the first live broker connection module) syncs
@@ -156,8 +210,10 @@ Drop `--dry-run` to write; `--as-of YYYY-MM-DD` overrides the lot date
 ```
 
 - **Hard read-only guarantee (ADR-010)**: every Robinhood call goes through a
-  single dispatcher with an explicit allowlist
-  (`get_portfolio`, `get_equity_positions`, `get_equity_quotes` —
+  single dispatcher with an explicit allowlist (`get_accounts`,
+  `get_portfolio`, `get_equity_positions`, `get_equity_quotes`,
+  `get_option_positions`, `get_option_instruments`, `get_option_quotes`,
+  `get_equity_orders`, `get_option_orders` — all read-only listings, see
   `brokers/robinhood.py`); anything else raises `ReadOnlyViolation` before
   any network I/O. No order or transfer code path exists in this package.
 - **Grant reuse**: the token file resolves env `ROBINHOOD_TOKEN_FILE` >
