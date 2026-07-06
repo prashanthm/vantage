@@ -11,6 +11,15 @@ Two independent builders, both deterministic and side-effect-free:
       NETS long and short legs, unlike the lots view (importer.option_lots_and_
       quotes), which skips shorts because the engine rejects negative shares.
 
+  group_by_ticker(option_positions, as_of=...)
+      Roll ALL of an underlying's open option legs into ONE position-book row,
+      regardless of expiry or strike. This DELIBERATELY combines what group_open
+      _strategies splits: a diagonal (long call at one expiry financed by a
+      short call sold later at a different strike AND expiry) lands in one row
+      with the short's credit netted against the long's cost. It is NOT a named
+      strategy — arithmetically it is the ticker's total option exposure and net
+      cost; for this user one book per ticker == the trade.
+
   closed_strategies_from_orders(option_orders)
       One strategy row per multi-leg (or single-leg) ORDER from the option
       order history (brokers' get_option_orders shape, unwrapped). This is the
@@ -324,6 +333,128 @@ def group_open_strategies(
 
     strategies.sort(key=lambda s: (s["underlying"], s["expiration"]))
     return strategies
+
+
+# --------------------------------------------- A2. per-ticker position book
+
+def group_by_ticker(
+    option_positions: list[dict], *, as_of: str | None = None
+) -> list[dict]:
+    """Roll a ticker's ENTIRE option leg set up into ONE position book row.
+
+    Unlike group_open_strategies (which groups by (underlying, expiration) and
+    so SPLITS a diagonal whose legs sit at different expiries), this combines
+    ALL of an underlying's option legs — every strike, every expiry — into a
+    single row. Robinhood never linked these legs as one order (they were
+    opened separately), so nothing but the shared ticker groups them; this
+    builder makes that grouping explicit.
+
+    NOT A NAMED STRATEGY. There is no attempt to classify the shape: a ticker's
+    legs may be an unrelated grab-bag. Arithmetically this row is simply the
+    ticker's TOTAL option exposure and its net cost. For this user, one book per
+    ticker == the trade (a long financed by a later short at another strike/
+    expiry), so the book's net_cost is the real capital at risk and its
+    unrealized is the real P&L — see net_cost sign note below.
+
+    Groups by (account?, underlying); ``account`` participates only when the
+    positions carry one (fetch_option_positions does not). Legs are sorted
+    CHRONOLOGICALLY by opened_at (missing dates sort last, then by strike).
+
+    Returns a list sorted by (underlying), each row:
+      {underlying, account?, status "open",
+       legs: [...normalized leg dicts...],
+       net_cost   — SIGNED debit: Σ(long avg×contracts×mult)
+                    − Σ(short avg×contracts×mult); positive = net debit paid,
+                    negative = net credit received (a short leg REDUCES it),
+       current_value — Σ(long mark $) − Σ(short mark $); None if ANY leg is
+                    unmarked (a missing short mark would distort the netting),
+       unrealized — current_value − net_cost (None when current_value is None),
+       first_opened / last_opened — ISO dates of the earliest / latest leg,
+       leg_count, has_short (bool), spans_expiries (bool — flags a
+                    diagonal/calendar: legs across two or more expiries)}.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    order: list[tuple] = []
+    for opt in option_positions:
+        underlying = str(opt.get("underlying") or "").upper()
+        account = opt.get("account")
+        key = (account, underlying)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(opt)
+
+    def _opened(leg: dict) -> str:
+        return str(leg.get("opened_at") or "")[:10]
+
+    books: list[dict] = []
+    for key in order:
+        account, underlying = key
+        # Chronological by opened_at; unparseable/missing dates sort last, then
+        # a stable strike tiebreak so equal-dated legs order deterministically.
+        legs = sorted(
+            groups[key],
+            key=lambda l: (
+                _opened(l) if _to_iso_date_safe(_opened(l)) else "9999-12-31",
+                _f(l.get("strike")) or 0.0,
+                str(l.get("option_type") or ""),
+            ),
+        )
+
+        net_cost = 0.0
+        current_value = 0.0
+        has_short = False
+        opened_dates: list[str] = []
+        expiries: set[str] = set()
+        for leg in legs:
+            cost = _leg_dollars(leg, "avg_price")
+            mark = _leg_dollars(leg, "mark")
+            if leg.get("position_type") == "long":
+                net_cost += cost
+                current_value += mark
+            else:
+                net_cost -= cost
+                current_value -= mark
+                has_short = True
+            opened = _opened(leg)
+            if _to_iso_date_safe(opened):
+                opened_dates.append(opened)
+            expiries.add(str(leg.get("expiration") or ""))
+
+        net_cost = round(net_cost, 2)
+        cv = round(current_value, 2) if _all_marked(legs) else None
+        unrealized = round(cv - net_cost, 2) if cv is not None else None
+
+        book: dict = {
+            "underlying": underlying,
+            "status": "open",
+            "legs": [dict(leg) for leg in legs],
+            "net_cost": net_cost,
+            "current_value": cv,
+            "unrealized": unrealized,
+            "first_opened": min(opened_dates) if opened_dates else None,
+            "last_opened": max(opened_dates) if opened_dates else None,
+            "leg_count": len(legs),
+            "has_short": has_short,
+            "spans_expiries": len({e for e in expiries if e}) > 1,
+        }
+        if account is not None:
+            book["account"] = account
+        books.append(book)
+
+    books.sort(key=lambda b: b["underlying"])
+    return books
+
+
+def _to_iso_date_safe(value: str | None) -> bool:
+    """True when ``value`` parses as an ISO date (YYYY-MM-DD)."""
+    if not value:
+        return False
+    try:
+        date.fromisoformat(str(value)[:10])
+        return True
+    except ValueError:
+        return False
 
 
 # --------------------------------------------------- B. closed strategies

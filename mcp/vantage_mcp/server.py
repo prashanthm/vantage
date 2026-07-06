@@ -200,21 +200,37 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     @mcp.tool(
         name="vantage.strategies",
         annotations=_READ_ONLY,
-        description="Options STRATEGY roll-up (importer --with-strategies): "
-                    "OPEN strategies grouped from current option positions "
+        description="Options STRATEGY roll-up (importer --with-strategies). "
+                    "by='strategy' (default): OPEN strategies grouped from "
+                    "current option positions "
                     "(single/vertical/butterfly/iron/calendar/multi-leg/complex, "
                     "with net_cost, current_value, unrealized, max_profit/loss, "
                     "dte) — SHORT LEGS INCLUDED and netted, unlike the lots view "
                     "— plus CLOSED per-order rows from option order history "
                     "(one row per spread order: direction, signed cash moved, "
-                    "state; realize only 'filled'). Optional account filter "
-                    "(open rows only; closed rows carry no vantage account) and "
-                    "status open|closed|all. Empty when nothing imported.",
+                    "state; realize only 'filled'). by='ticker': the per-"
+                    "underlying POSITION BOOK — EVERY option leg of a ticker "
+                    "combined into one row regardless of expiry/strike (netting "
+                    "a diagonal's short credit into the long's cost): net_cost "
+                    "(signed debit), current_value, unrealized, first/last "
+                    "opened, leg_count, has_short, spans_expiries. Optional "
+                    "account filter (open + by_ticker rows; closed rows carry no "
+                    "vantage account) and status open|closed|all. Empty when "
+                    "nothing imported.",
     )
-    def strategies(account: str = "all", status: str = "all") -> dict:
+    def strategies(account: str = "all", status: str = "all",
+                   by: str = "strategy") -> dict:
         snap = snapshot()
         # Read per call: strategies.json appears/changes on import.
         rollup = store.load_strategies()
+        if by == "ticker":
+            by_ticker_rows = rollup["by_ticker"]
+            if account != "all":
+                by_ticker_rows = [r for r in by_ticker_rows
+                                  if r.get("account") == account]
+            return envelope("strategies", snap, account=account, by=by,
+                            strategies_as_of=rollup["as_of"],
+                            by_ticker=to_jsonable(by_ticker_rows))
         open_rows = rollup["open"]
         closed_rows = rollup["closed"]
         if account != "all":

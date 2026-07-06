@@ -59,14 +59,17 @@ export const getHistory = (account = "all", limit) => {
   return getJson(`${backendBase()}/api/history${qs ? `?${qs}` : ""}`);
 };
 
-// GET /api/strategies[?account=..][&status=open|closed] -> payload or null.
-// "all" means unscoped (no account param); omit status to get both open and
-// closed. 404 (endpoint not deployed), non-200 and network failures resolve to
-// null via getJson — the Strategies section then shows its empty state.
-export const getStrategies = (account = "all", status) => {
+// GET /api/strategies[?account=..][&status=open|closed][&by=ticker] -> payload
+// or null. "all" means unscoped (no account param); omit status to get both
+// open and closed. by="ticker" returns the per-underlying position book
+// (by_ticker) instead of the open/closed strategy roll-up. 404 (endpoint not
+// deployed), non-200 and network failures resolve to null via getJson — the
+// Strategies section then shows its empty state.
+export const getStrategies = (account = "all", status, by) => {
   const q = new URLSearchParams();
   if (account && account !== "all") q.set("account", account);
   if (status) q.set("status", status);
+  if (by) q.set("by", by);
   const qs = q.toString();
   return getJson(`${backendBase()}/api/strategies${qs ? `?${qs}` : ""}`);
 };
@@ -212,9 +215,35 @@ const mapStrategyLeg = (l) => ({
   contracts: l.contracts,
   positionType: l.position_type, // "long" | "short" (open legs)
   ratio: l.ratio,               // closed legs
+  expiration: l.expiration,     // by_ticker legs carry their own expiry
+  openedAt: l.opened_at,        // by_ticker legs carry their open date
   avgPrice: l.avg_price,
   mark: l.mark,
 });
+
+// /api/strategies?by=ticker -> { byTicker: [...] } of camelCase position-book
+// rows (all option legs of a ticker in one row, netting a diagonal's short).
+// null (malformed payload / endpoint unavailable) drives the empty state.
+export function mapByTicker(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const rows = payload.by_ticker;
+  if (rows != null && !Array.isArray(rows)) return null;
+  return {
+    byTicker: (rows || []).map((s) => ({
+      underlying: s.underlying,
+      netCost: s.net_cost,             // signed debit: positive = you paid
+      currentValue: s.current_value,   // may be null if a leg is unmarked
+      unrealized: s.unrealized,        // null if currentValue null
+      firstOpened: s.first_opened,
+      lastOpened: s.last_opened,
+      legCount: s.leg_count,
+      hasShort: s.has_short,
+      spansExpiries: s.spans_expiries, // flags diagonals/calendars
+      account: s.account,
+      legs: (s.legs || []).map(mapStrategyLeg),
+    })),
+  };
+}
 
 export function mapStrategies(payload) {
   if (!payload || typeof payload !== "object") return null;

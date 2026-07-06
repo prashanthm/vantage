@@ -10,6 +10,7 @@ import pytest
 
 from vantage_server.strategies import (
     closed_strategies_from_orders,
+    group_by_ticker,
     group_open_strategies,
     realized_pnl_pairs,
 )
@@ -18,7 +19,8 @@ AS_OF = "2026-07-05"
 
 
 def _leg(underlying, expiration, strike, option_type, position_type,
-         contracts=1.0, avg_price=0.0, mark=None, multiplier=100.0):
+         contracts=1.0, avg_price=0.0, mark=None, multiplier=100.0,
+         opened_at=None):
     """Build one normalized open option-position leg (fetch_option_positions
     shape). avg_price / mark are PER-SHARE."""
     leg = {
@@ -28,6 +30,8 @@ def _leg(underlying, expiration, strike, option_type, position_type,
     }
     if mark is not None:
         leg["mark"] = mark
+    if opened_at is not None:
+        leg["opened_at"] = opened_at
     return leg
 
 
@@ -233,6 +237,94 @@ def test_short_legs_are_included_unlike_lots_view():
         as_of=AS_OF)
     assert len(strats) == 1
     assert strats[0]["legs"][0]["position_type"] == "short"
+
+
+# ----------------------------------------------- per-ticker position book
+
+def _book(strats):
+    assert len(strats) == 1, [s["underlying"] for s in strats]
+    return strats[0]
+
+
+def test_group_by_ticker_diagonal_nets_short_credit_one_row():
+    # The SOXS-shaped diagonal: a long call bought early, financed by a short
+    # call sold LATER at a different strike AND expiry. group_open_strategies
+    # would split these into two groups (different expirations); the ticker book
+    # combines them into one row with the short's credit netted in.
+    legs = [
+        _leg("SOXS", "2028-01-21", 3, "call", "long", contracts=1,
+             avg_price=4.0, mark=5.0, opened_at="2026-02-01T10:00:00Z"),
+        _leg("SOXS", "2026-07-10", 5, "call", "short", contracts=1,
+             avg_price=1.5, mark=1.0, opened_at="2026-06-15T10:00:00Z"),
+    ]
+    book = _book(group_by_ticker(legs, as_of=AS_OF))
+    assert book["underlying"] == "SOXS"
+    assert book["leg_count"] == 2
+    assert book["has_short"] is True
+    assert book["spans_expiries"] is True
+    # net_cost = long 4*100 - short 1.5*100 = 400 - 150 = 250 (short credit
+    # REDUCES the cost) -> positive net debit.
+    assert book["net_cost"] == pytest.approx(250.0)
+    # current_value = long mark 5*100 - short mark 1*100 = 500 - 100 = 400
+    assert book["current_value"] == pytest.approx(400.0)
+    assert book["unrealized"] == pytest.approx(150.0)  # 400 - 250
+    # legs sorted CHRONOLOGICALLY by opened_at: long (Feb) before short (Jun)
+    assert [l["strike"] for l in book["legs"]] == [3, 5]
+    assert book["first_opened"] == "2026-02-01"
+    assert book["last_opened"] == "2026-06-15"
+
+
+def test_group_by_ticker_single_leg_book():
+    legs = [
+        _leg("PLTR", "2026-08-21", 120, "call", "long", contracts=2,
+             avg_price=6.0, mark=7.0, opened_at="2026-05-01T10:00:00Z"),
+    ]
+    book = _book(group_by_ticker(legs, as_of=AS_OF))
+    assert book["leg_count"] == 1
+    assert book["has_short"] is False
+    assert book["spans_expiries"] is False
+    assert book["net_cost"] == pytest.approx(1200.0)  # 6*2*100
+    assert book["current_value"] == pytest.approx(1400.0)
+    assert book["unrealized"] == pytest.approx(200.0)
+    assert book["first_opened"] == book["last_opened"] == "2026-05-01"
+
+
+def test_group_by_ticker_same_expiry_pair_not_flagged_diagonal():
+    # A same-expiry vertical still combines into one ticker row, but
+    # spans_expiries is False (only one expiry) so it is NOT a diagonal.
+    legs = [
+        _leg("QQQ", "2026-08-21", 100, "call", "long", avg_price=6.0, mark=6.5,
+             opened_at="2026-06-01T10:00:00Z"),
+        _leg("QQQ", "2026-08-21", 110, "call", "short", avg_price=2.0, mark=1.8,
+             opened_at="2026-06-01T10:00:00Z"),
+    ]
+    book = _book(group_by_ticker(legs, as_of=AS_OF))
+    assert book["has_short"] is True
+    assert book["spans_expiries"] is False  # same expiry -> not a diagonal
+    assert book["net_cost"] == pytest.approx(400.0)  # 600 - 200
+
+
+def test_group_by_ticker_unmarked_leg_nulls_current_value():
+    legs = [
+        _leg("AAA", "2026-07-15", 10, "call", "long", avg_price=1.0, mark=1.5,
+             opened_at="2026-05-01T10:00:00Z"),
+        _leg("AAA", "2026-08-15", 12, "call", "short", avg_price=0.5),  # no mark
+    ]
+    book = _book(group_by_ticker(legs, as_of=AS_OF))
+    assert book["current_value"] is None
+    assert book["unrealized"] is None
+    assert book["net_cost"] == pytest.approx(50.0)  # 100 - 50
+
+
+def test_group_by_ticker_multiple_tickers_sorted():
+    legs = [
+        _leg("ZZZ", "2026-08-21", 5, "call", "long", avg_price=1.0, mark=1.0,
+             opened_at="2026-06-01T10:00:00Z"),
+        _leg("AAA", "2026-08-21", 5, "call", "long", avg_price=1.0, mark=1.0,
+             opened_at="2026-06-01T10:00:00Z"),
+    ]
+    books = group_by_ticker(legs, as_of=AS_OF)
+    assert [b["underlying"] for b in books] == ["AAA", "ZZZ"]  # sorted
 
 
 # ------------------------------------------------- closed per-order roll-up

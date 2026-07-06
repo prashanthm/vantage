@@ -200,6 +200,14 @@ STRATEGY_ROLLUP = {
         {"order_id": "oo-2", "_vantage_account": "fid-taxable", "underlying": "SNK",
          "direction": "credit", "cash": 0.0, "state": "cancelled", "filled": False},
     ],
+    "by_ticker": [
+        {"underlying": "SOXS", "account": "fid-taxable", "net_cost": 250.0,
+         "current_value": 400.0, "unrealized": 150.0, "leg_count": 2,
+         "has_short": True, "spans_expiries": True, "status": "open"},
+        {"underlying": "PLTR", "account": "wf-robo", "net_cost": 1200.0,
+         "leg_count": 1, "has_short": False, "spans_expiries": False,
+         "status": "open"},
+    ],
     "as_of": "2026-07-05",
 }
 
@@ -236,6 +244,28 @@ def test_strategies_contract_filters_and_per_request(tmp_path, data_dir):
     assert fid["closed"] == []
 
 
+def test_strategies_by_ticker_view(tmp_path, data_dir):
+    import json
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    client = TestClient(create_app(tmp_path))
+    # no file yet -> empty by_ticker view
+    empty = client.get("/api/strategies", params={"by": "ticker"}).json()
+    assert empty["by_ticker"] == [] and "open" not in empty
+    (tmp_path / "strategies.json").write_text(json.dumps(STRATEGY_ROLLUP),
+                                              encoding="utf-8")
+    body = client.get("/api/strategies", params={"by": "ticker"}).json()
+    assert [b["underlying"] for b in body["by_ticker"]] == ["SOXS", "PLTR"]
+    soxs = body["by_ticker"][0]
+    assert soxs["net_cost"] == 250.0 and soxs["spans_expiries"] is True
+    assert body["strategies_as_of"] == "2026-07-05"
+    # account filter narrows by_ticker rows to that vantage account
+    fid = client.get("/api/strategies",
+                     params={"by": "ticker", "account": "fid-taxable"}).json()
+    assert [b["underlying"] for b in fid["by_ticker"]] == ["SOXS"]
+
+
 def test_strategies_unknown_account_404(client):
     assert client.get("/api/strategies",
                       params={"account": "etrade"}).status_code == 404
@@ -244,6 +274,11 @@ def test_strategies_unknown_account_404(client):
 def test_strategies_bad_status_422(client):
     assert client.get("/api/strategies",
                       params={"status": "nope"}).status_code == 422
+
+
+def test_strategies_bad_by_422(client):
+    assert client.get("/api/strategies",
+                      params={"by": "nope"}).status_code == 422
 
 
 # ------------------------------------------------- read-only guarantee

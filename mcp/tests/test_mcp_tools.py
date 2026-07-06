@@ -223,6 +223,14 @@ def test_strategies_round_trip_with_filters(tmp_path, data_dir):
              "underlying": "SPXW", "direction": "credit", "cash": 300.0,
              "state": "filled", "filled": True},
         ],
+        "by_ticker": [
+            {"underlying": "SOXS", "account": "fid-taxable", "net_cost": 250.0,
+             "leg_count": 2, "has_short": True, "spans_expiries": True,
+             "status": "open"},
+            {"underlying": "PLTR", "account": "wf-robo", "net_cost": 1200.0,
+             "leg_count": 1, "has_short": False, "spans_expiries": False,
+             "status": "open"},
+        ],
         "as_of": "2026-07-05",
     }
     for name in ("accounts.json", "lots.json", "recent_buys.json",
@@ -249,6 +257,23 @@ def test_strategies_round_trip_with_filters(tmp_path, data_dir):
     payload = tool_payload(run_with_client(mcp, filtered))
     assert [s["underlying"] for s in payload["open"]] == ["PLTR"]
     assert payload["closed"] == []  # account filter drops account-less closed rows
+
+    # by='ticker' returns the per-underlying position book instead
+    async def by_ticker(client):
+        return await client.call_tool("vantage.strategies", {"by": "ticker"})
+
+    payload = tool_payload(run_with_client(mcp, by_ticker))
+    assert [b["underlying"] for b in payload["by_ticker"]] == ["SOXS", "PLTR"]
+    assert payload["by_ticker"][0]["spans_expiries"] is True
+    assert "open" not in payload  # ticker view is distinct from strategy view
+
+    # account filter also narrows the ticker view
+    async def by_ticker_filtered(client):
+        return await client.call_tool(
+            "vantage.strategies", {"by": "ticker", "account": "fid-taxable"})
+
+    payload = tool_payload(run_with_client(mcp, by_ticker_filtered))
+    assert [b["underlying"] for b in payload["by_ticker"]] == ["SOXS"]
 
 
 # --- signals tool round-trips (moved with the vantage-mcp split) ---

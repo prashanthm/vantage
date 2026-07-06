@@ -159,19 +159,37 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
 
     @app.get("/api/strategies")
     def strategies(account: str = Query("all"),
-                   status: str = Query("all")):
+                   status: str = Query("all"),
+                   by: str = Query("strategy")):
         """Options strategy roll-up (importer --with-strategies), read PER
         REQUEST from strategies.json (appears/changes on import; no restart).
-        A missing file is an empty roll-up. ``status`` filters open|closed|all;
-        ``account`` filters open rows by their account id (closed rows carry no
-        vantage account — they are masked broker-order rows — so an account
-        filter narrows to open only)."""
+        A missing file is an empty roll-up.
+
+        ``by`` selects the view: the default "strategy" returns the open/closed
+        strategy roll-up (``status`` filters open|closed|all); "ticker" returns
+        the per-underlying POSITION BOOK (``by_ticker`` — every option leg of a
+        ticker combined into one row regardless of expiry/strike, netting a
+        diagonal's short credit into the long's cost). ``account`` filters open
+        and by_ticker rows by their account id (closed rows carry no vantage
+        account — they are masked broker-order rows — so an account filter
+        narrows those away)."""
         check_account(account)
+        if by not in {"strategy", "ticker"}:
+            raise HTTPException(status_code=422,
+                                detail="by must be one of strategy|ticker")
         if status not in {"all", "open", "closed"}:
             raise HTTPException(status_code=422,
                                 detail="status must be one of all|open|closed")
         snap = state.snapshot()
         rollup = store.load_strategies()
+        if by == "ticker":
+            by_ticker_rows = rollup["by_ticker"]
+            if account != "all":
+                by_ticker_rows = [r for r in by_ticker_rows
+                                  if r.get("account") == account]
+            return envelope(snap, account=account,
+                            strategies_as_of=rollup["as_of"],
+                            by_ticker=by_ticker_rows)
         open_rows = rollup["open"]
         closed_rows = rollup["closed"]
         if account != "all":

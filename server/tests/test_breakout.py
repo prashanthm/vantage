@@ -568,7 +568,7 @@ def test_fetch_option_orders_returns_raw_unwrapped_newest_first(monkeypatch):
 def test_cli_with_strategies_writes_rollup(workdir, stub_connection):
     assert run_cli(workdir, "--with-strategies") == EXIT_OK
     data = json.loads((workdir / "strategies.json").read_text())
-    assert set(data) == {"open", "closed", "as_of"}
+    assert set(data) == {"open", "closed", "by_ticker", "as_of"}
     assert data["as_of"] == AS_OF
     # OPEN: shorts INCLUDED (contrast the lots view which skips them)
     opens = {(s["underlying"], s["expiration"]): s for s in data["open"]}
@@ -578,6 +578,12 @@ def test_cli_with_strategies_writes_rollup(workdir, stub_connection):
     # CLOSED: one row per order, tagged with the vantage account for merge
     assert len(data["closed"]) == len(CANNED_OPTION_ORDERS["orders"])
     assert all(r["_vantage_account"] == "rh-margin" for r in data["closed"])
+    # BY_TICKER: one position-book row per underlying, tagged for merge
+    by_ticker = {b["underlying"]: b for b in data["by_ticker"]}
+    assert all(b["account"] == "rh-margin" for b in data["by_ticker"])
+    # SOXS has a single short leg here -> one book row with has_short set
+    assert by_ticker["SOXS"]["has_short"] is True
+    assert by_ticker["SOXS"]["leg_count"] == 1
 
 
 def test_breakout_implies_strategies(workdir, stub_connection):

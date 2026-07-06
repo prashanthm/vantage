@@ -650,20 +650,23 @@ def write_history(
 
 def write_strategies(
     data_dir: str | Path, account: str, open_rows: list[dict],
-    closed_rows: list[dict], as_of: str, *, now: _dt.datetime | None = None,
+    closed_rows: list[dict], as_of: str, *, by_ticker_rows: list[dict] | None = None,
+    now: _dt.datetime | None = None,
 ) -> tuple[Path, Path | None]:
     """Snapshot the options strategy roll-up to <data_dir>/strategies.json.
 
-    File shape: {"open": [...], "closed": [...], "as_of": <iso>}. Merge-by-
-    account like history: THIS account's previous open rows (tagged with an
-    ``account`` field) are replaced and its closed rows (tagged
-    ``_vantage_account``) are replaced, every other account's rows are kept; the
-    previous file is ALWAYS backed up first (strategies.json.bak-<ISO>).
+    File shape: {"open": [...], "closed": [...], "by_ticker": [...],
+    "as_of": <iso>}. Merge-by-account like history: THIS account's previous open
+    rows (tagged with an ``account`` field) are replaced, its closed rows (tagged
+    ``_vantage_account``) are replaced, and its by_ticker rows (tagged
+    ``account``) are replaced; every other account's rows are kept; the previous
+    file is ALWAYS backed up first (strategies.json.bak-<ISO>).
     Returns (path, backup | None)."""
     now = now or _dt.datetime.now()
     path = Path(data_dir) / "strategies.json"
     existing_open: list[dict] = []
     existing_closed: list[dict] = []
+    existing_by_ticker: list[dict] = []
     backup: Path | None = None
     if path.is_file():
         try:
@@ -673,17 +676,22 @@ def write_strategies(
         if isinstance(data, dict):
             existing_open = [r for r in (data.get("open") or []) if isinstance(r, dict)]
             existing_closed = [r for r in (data.get("closed") or []) if isinstance(r, dict)]
+            existing_by_ticker = [r for r in (data.get("by_ticker") or [])
+                                  if isinstance(r, dict)]
         stamp = now.isoformat(timespec="seconds").replace(":", "-")
         backup = path.with_name(f"strategies.json.bak-{stamp}")
         backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     # tag the freshly-built rows with the account so re-imports merge cleanly
     tagged_open = [dict(r, account=account) for r in open_rows]
     tagged_closed = [dict(r, _vantage_account=account) for r in closed_rows]
+    tagged_by_ticker = [dict(r, account=account) for r in (by_ticker_rows or [])]
     kept_open = [r for r in existing_open if r.get("account") != account]
     kept_closed = [r for r in existing_closed if r.get("_vantage_account") != account]
+    kept_by_ticker = [r for r in existing_by_ticker if r.get("account") != account]
     merged = {
         "open": tagged_open + kept_open,
         "closed": tagged_closed + kept_closed,
+        "by_ticker": tagged_by_ticker + kept_by_ticker,
         "as_of": as_of,
     }
     path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
@@ -921,9 +929,12 @@ def _run(args: argparse.Namespace) -> int:
                 option_positions, as_of=as_of)
             closed_strats = strategies_engine.closed_strategies_from_orders(
                 option_orders)
+            by_ticker = strategies_engine.group_by_ticker(
+                option_positions, as_of=as_of)
             strategy_rollup = {
                 "open": open_strats,
                 "closed": closed_strats,
+                "by_ticker": by_ticker,
                 "as_of": as_of,
             }
         source = f"{conn.display_name} account ...{args.broker_account[-4:]}"
@@ -994,7 +1005,8 @@ def _run(args: argparse.Namespace) -> int:
                   f"{data_dir / 'history.json'}; nothing written")
         if strategy_rollup is not None:
             print(f"would write {len(strategy_rollup['open'])} open + "
-                  f"{len(strategy_rollup['closed'])} closed strateg(ies) to "
+                  f"{len(strategy_rollup['closed'])} closed + "
+                  f"{len(strategy_rollup['by_ticker'])} by-ticker strateg(ies) to "
                   f"{data_dir / 'strategies.json'}; nothing written")
         return EXIT_OK
 
@@ -1014,9 +1026,11 @@ def _run(args: argparse.Namespace) -> int:
     if strategy_rollup is not None:
         strat_path, strat_backup = write_strategies(
             data_dir, args.account, strategy_rollup["open"],
-            strategy_rollup["closed"], strategy_rollup["as_of"])
+            strategy_rollup["closed"], strategy_rollup["as_of"],
+            by_ticker_rows=strategy_rollup["by_ticker"])
         print(f"wrote {len(strategy_rollup['open'])} open + "
-              f"{len(strategy_rollup['closed'])} closed strateg(ies) to {strat_path}"
+              f"{len(strategy_rollup['closed'])} closed + "
+              f"{len(strategy_rollup['by_ticker'])} by-ticker strateg(ies) to {strat_path}"
               + (f" (backup: {strat_backup})" if strat_backup
                  else " (no previous file to back up)"))
     return EXIT_OK

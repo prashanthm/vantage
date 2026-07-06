@@ -185,26 +185,33 @@ class Store:
     def load_strategies(self) -> dict:
         """Options strategy roll-up (<data_dir>/strategies.json — optional file
         written by the importer's --with-strategies). TOLERANT of a missing
-        file: returns {"open": [], "closed": [], "as_of": None} so the API/MCP
-        surface an empty state instead of erroring (fixture datasets have none).
+        file: returns {"open": [], "closed": [], "by_ticker": [], "as_of": None}
+        so the API/MCP surface an empty state instead of erroring (fixture
+        datasets have none).
 
-        The file is {open: [...], closed: [...], as_of}; malformed sections
-        degrade to empty lists rather than raising — the roll-up is derived,
-        advisory data, not a load-time invariant like lots."""
+        The file is {open: [...], closed: [...], by_ticker: [...], as_of};
+        malformed sections degrade to empty lists rather than raising — the
+        roll-up is derived, advisory data, not a load-time invariant like lots.
+        ``by_ticker`` is the per-underlying position book (all legs of a ticker
+        combined regardless of expiry — netting a diagonal's short into one
+        row); it defaults to [] for files written before it existed."""
         path = self.data_dir / "strategies.json"
         if not path.is_file():
-            return {"open": [], "closed": [], "as_of": None}
+            return {"open": [], "closed": [], "by_ticker": [], "as_of": None}
         data = _read_json(path)
         if not isinstance(data, dict):
             raise StoreError(f"{path}: top level must be a JSON object with "
                              "'open' and 'closed' keys")
         open_rows = data.get("open")
         closed_rows = data.get("closed")
+        by_ticker_rows = data.get("by_ticker")
         return {
             "open": [r for r in open_rows if isinstance(r, dict)]
             if isinstance(open_rows, list) else [],
             "closed": [r for r in closed_rows if isinstance(r, dict)]
             if isinstance(closed_rows, list) else [],
+            "by_ticker": [r for r in by_ticker_rows if isinstance(r, dict)]
+            if isinstance(by_ticker_rows, list) else [],
             "as_of": data.get("as_of"),
         }
 

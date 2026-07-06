@@ -1,7 +1,7 @@
 // Options Intelligence view — strategy roll-up, IV context, income ideas, flow.
 import { OPTIONS_CONTEXT, OPTIONS_FLOW, INCOME_IDEAS } from "./data.js";
 import { cls, acctOf, usd, signUsd } from "./util.jsx";
-import { useLive, getStrategies, mapStrategies } from "./live.js";
+import { useLive, getStrategies, mapStrategies, mapByTicker } from "./live.js";
 
 const { useState, useEffect } = React;
 const { SecurityCard, FAQItem } = window.LookeyDS;
@@ -66,6 +66,68 @@ function StrategyLeg({ leg, underlying, expiration }) {
         </span>
       )}
     </div>
+  );
+}
+
+// One chronological leg line for a per-ticker book: "date · ±contracts ·
+// strikeC|P · expiry · avg→mark" with a long/short chip.
+function TickerLeg({ leg }) {
+  const n = leg.contracts != null ? leg.contracts : 1;
+  const dir = leg.side === "sell" ? "−" : "+";
+  const oc = leg.optionType === "put" ? "P" : "C";
+  const isShort = leg.positionType === "short" || leg.side === "sell";
+  const opened = leg.openedAt ? shortExp(leg.openedAt) : "—";
+  return (
+    <div className="vg-note" style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
+      <span className={cls("vg-badge", isShort ? "bad" : "good")} style={{ minWidth: 44, textAlign: "center" }}>
+        {isShort ? "short" : "long"}
+      </span>
+      <span style={{ minWidth: 52, fontVariantNumeric: "tabular-nums" }}>{opened}</span>
+      <span style={{ fontVariantNumeric: "tabular-nums" }}>
+        {dir}{Math.abs(n)} {leg.strike != null ? leg.strike : "?"}{oc} · {leg.expiration ? shortExp(leg.expiration) : "—"}
+      </span>
+      {(leg.avgPrice != null || leg.mark != null) && (
+        <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums" }}>
+          {leg.avgPrice != null ? usd(leg.avgPrice, 2) : "—"} → {leg.mark != null ? usd(leg.mark, 2) : "—"}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function TickerRow({ s, expanded, onToggle }) {
+  const legs = s.legs || [];
+  const isDiagonal = s.spansExpiries && s.hasShort;
+  return (
+    <>
+      <tr onClick={onToggle} style={{ cursor: "pointer" }} title="Show legs">
+        <td>
+          <span style={{ marginRight: 6, color: "var(--color-grey)" }}>{expanded ? "▾" : "▸"}</span>
+          <b>{s.underlying || "—"}</b>
+        </td>
+        <td>
+          {s.legCount != null ? s.legCount : legs.length}
+          {isDiagonal && <span className="vg-badge warn" style={{ marginLeft: 6 }}>DIAGONAL</span>}
+        </td>
+        <td className="num">{s.netCost != null ? usd(s.netCost) : "—"}</td>
+        <td className="num">{s.currentValue != null ? usd(s.currentValue) : "—"}</td>
+        <td className={cls("num", s.unrealized == null ? "" : s.unrealized >= 0 ? "up" : "down")}>
+          {s.unrealized != null ? signUsd(s.unrealized) : "—"}
+        </td>
+        <td>
+          {shortExp(s.firstOpened)} → {shortExp(s.lastOpened)}
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={6} style={{ background: "var(--color-light)", padding: "6px 12px" }}>
+            {legs.length
+              ? legs.map((leg, i) => <TickerLeg key={i} leg={leg} />)
+              : <span className="vg-note">no leg detail</span>}
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
@@ -146,7 +208,7 @@ function ClosedStrategyRow({ s, expanded, onToggle }) {
 }
 
 function StrategiesSection({ accountId }) {
-  const [tab, setTab] = useState("open"); // "open" | "history"
+  const [tab, setTab] = useState("open"); // "open" | "history" | "ticker"
   const [shown, setShown] = useState(STRAT_PAGE);
   const [open, setOpen] = useState({}); // expanded row keys
   // No fixture fallback — null (backend down / endpoint 404) stays null and
@@ -156,11 +218,17 @@ function StrategiesSection({ accountId }) {
     null,
     [accountId],
   ).data;
+  const byTickerData = useLive(
+    () => getStrategies(accountId, undefined, "ticker").then(mapByTicker),
+    null,
+    [accountId],
+  ).data;
   useEffect(() => { setShown(STRAT_PAGE); setOpen({}); }, [accountId, tab]);
 
   const openRows = (strat && strat.open) || [];
   const closedRows = (strat && strat.closed) || [];
-  const hasAny = openRows.length > 0 || closedRows.length > 0;
+  const tickerRows = (byTickerData && byTickerData.byTicker) || [];
+  const hasAny = openRows.length > 0 || closedRows.length > 0 || tickerRows.length > 0;
   const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
 
   return (
@@ -190,10 +258,32 @@ function StrategiesSection({ accountId }) {
                 <button className={cls("vg-pill", tab === "history" && "sel")} onClick={() => setTab("history")}>
                   History{closedRows.length ? ` · ${closedRows.length}` : ""}
                 </button>
+                <button className={cls("vg-pill", tab === "ticker" && "sel")} onClick={() => setTab("ticker")}>
+                  By ticker{tickerRows.length ? ` · ${tickerRows.length}` : ""}
+                </button>
               </div>
             </div>
 
-            {tab === "open" ? (
+            {tab === "ticker" ? (
+              tickerRows.length === 0 ? (
+                <p className="vg-note" style={{ padding: "4px" }}>No ticker books.</p>
+              ) : (
+                <table className="vg-table">
+                  <thead>
+                    <tr>
+                      <th>Ticker</th><th>Legs</th>
+                      <th className="num">Net cost</th><th className="num">Current</th>
+                      <th className="num">Unrealized</th><th>First → last</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tickerRows.map((s, i) => (
+                      <TickerRow key={i} s={s} expanded={!!open[`t${i}`]} onToggle={() => toggle(`t${i}`)} />
+                    ))}
+                  </tbody>
+                </table>
+              )
+            ) : tab === "open" ? (
               openRows.length === 0 ? (
                 <p className="vg-note" style={{ padding: "4px" }}>No open strategies.</p>
               ) : (
