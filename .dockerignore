@@ -1,0 +1,19 @@
+# Root build context (used by mcp/Dockerfile and Dockerfile.spa).
+# Keep: server/vantage_server, mcp/vantage_mcp, index.html, app.js, app.css,
+# ds/, vendor/. Exclude everything heavy or secret.
+**/.venv/
+**/.pytest_cache/
+**/__pycache__/
+**/*.pyc
+**/*.egg-info/
+.git/
+logs/
+initiatives/
+specs/
+src/
+data/
+server/data-local/
+server/tests/
+mcp/tests/
+**/.robinhood_token.json
+*.bak-*

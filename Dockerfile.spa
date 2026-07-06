@@ -1,0 +1,23 @@
+# Vantage SPA — buildless static assets served by nginx on :8642.
+#
+# The SPA is a browser app: it talks to the backend (:8641) and Mira (:8080) on
+# the HOST via published ports (settings default to http://127.0.0.1:8641 /
+# :8080). nginx here only serves the static shell + assets; it proxies nothing.
+#
+# Build with the VANTAGE REPO ROOT as context (the static files live there):
+#     docker build -f Dockerfile.spa -t vantage-spa .
+FROM nginx:alpine
+
+# Buildless SPA payload: shell + app + design system + vendored libs.
+COPY index.html /usr/share/nginx/html/index.html
+COPY app.js     /usr/share/nginx/html/app.js
+COPY app.css    /usr/share/nginx/html/app.css
+COPY ds         /usr/share/nginx/html/ds
+COPY vendor     /usr/share/nginx/html/vendor
+
+COPY deploy/nginx.conf /etc/nginx/nginx.conf
+
+EXPOSE 8642
+
+# nginx.conf sets `worker_processes`, so run in the foreground for the container.
+CMD ["nginx", "-g", "daemon off;"]

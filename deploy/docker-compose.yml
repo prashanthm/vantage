@@ -1,0 +1,121 @@
+# Vantage + Mira containerized stack (PROD / portable path).
+#
+# Dev path stays `./stack` (venv runner) at the repo root — see deploy/README.md.
+#
+# Run from anywhere:  docker compose -f deploy/docker-compose.yml up --build
+#
+# Service graph:
+#   vantage-backend (:8641)  owns vantage.db  (READ-WRITE volume) + refresh writes
+#   vantage-mcp     (:8640)  reads the SAME db (READ-ONLY volume)
+#   vantage-spa     (:8642)  static SPA shell (browser talks to host-published ports)
+#   mira            (:8080)  → vantage-mcp:8640/mcp (tools) + host Ollama (LLM)
+#
+# The named volume `vantage-data` starts EMPTY. Seed it once before first `up`
+# (see deploy/README.md "Seeding the database") or the backend serves an empty
+# portfolio. VANTAGE_QUOTES defaults to `fixture`; set it to `stooq` in .env for
+# the live delayed feed. ROBINHOOD_TOKEN_FILE (host path) is REQUIRED only for
+# POST /api/refresh; reads work without it.
+
+# Fixed project name so the volume is always `vantage_vantage-data` regardless
+# of the directory compose is invoked from (the seed helper relies on this).
+name: vantage
+
+services:
+  vantage-backend:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    image: vantage-backend:local
+    ports:
+      - "8641:8641"
+    volumes:
+      # Read-write: the backend owns the db (refresh writes, WAL).
+      - vantage-data:/data
+      # The Robinhood OAuth token, mounted read-only from a host path the
+      # operator sets in .env (never baked into the image). Reads work without
+      # it; only POST /api/refresh needs it.
+      - "${ROBINHOOD_TOKEN_FILE:-/dev/null}:/run/secrets/robinhood_token.json:ro"
+    environment:
+      VANTAGE_DB: /data/vantage.db
+      VANTAGE_QUOTES: "${VANTAGE_QUOTES:-fixture}"
+      ROBINHOOD_TOKEN_FILE: /run/secrets/robinhood_token.json
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8641/api/health',timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  vantage-mcp:
+    build:
+      # Repo root context so both server/ and mcp/ are visible to the build.
+      context: ..
+      dockerfile: mcp/Dockerfile
+    image: vantage-mcp:local
+    ports:
+      - "8640:8640"
+    # Run as the backend's uid so it can OPEN the shared vantage.db. SQLite in
+    # WAL mode (db.py forces PRAGMA journal_mode=WAL on connect) needs WRITE
+    # access to the db file to attach/create the -wal/-shm sidecars — a truly
+    # read-only OS mount fails with "unable to open database file". So the mount
+    # is read-write at the OS level; the READ-ONLY guarantee is enforced in code
+    # (ADR-010): the MCP tool surface only ever calls Store.load_* and never any
+    # write method. See deploy/README.md "Why the MCP mount is read-write".
+    user: "10001:10001"
+    volumes:
+      # SAME db as the backend. RW at the OS layer (WAL needs it); read-only by
+      # doctrine (ADR-010) — the MCP surface never mutates.
+      - vantage-data:/data
+    environment:
+      VANTAGE_DB: /data/vantage.db
+      VANTAGE_QUOTES: "${VANTAGE_QUOTES:-fixture}"
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: "8640"
+      MCP_PATH: /mcp
+    depends_on:
+      # The db must exist (backend created/seeded it) before MCP reads it.
+      vantage-backend:
+        condition: service_started
+    restart: unless-stopped
+
+  vantage-spa:
+    build:
+      # Repo root context so index.html/app.js/app.css/ds/vendor are visible.
+      context: ..
+      dockerfile: Dockerfile.spa
+    image: vantage-spa:local
+    ports:
+      - "8642:8642"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8642/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  mira:
+    build:
+      context: ~/personal/mira
+      dockerfile: Dockerfile
+    image: mira:local
+    ports:
+      - "8080:8080"
+    environment:
+      # Vantage MCP over the compose network (container DNS name), NOT localhost.
+      MCP_BASE_URL: "${MCP_BASE_URL:-http://vantage-mcp:8640/mcp}"
+      # Host Ollama (OpenAI-compatible). Override in .env for a different LLM.
+      LLM_BASE_URL: "${LLM_BASE_URL:-http://host.docker.internal:11434/v1}"
+      LLM_MODEL: "${LLM_MODEL:-qwen2.5}"
+      LLM_API_KEY: "${LLM_API_KEY:-ollama}"
+    extra_hosts:
+      # Linux needs this mapping for host.docker.internal (no-op on Docker Desktop).
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      vantage-mcp:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  vantage-data:
+    # Named volume the backend owns and the MCP mounts read-only.

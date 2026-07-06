@@ -30,9 +30,9 @@ from vantage_server.quotes import get_provider
 from vantage_server.signals import grade_signals
 from vantage_server.store import Store
 
-MCP_HOST = "127.0.0.1"
-MCP_PORT = 8640
-MCP_PATH = "/mcp"
+MCP_HOST = os.environ.get("MCP_HOST", "127.0.0.1")
+MCP_PORT = int(os.environ.get("MCP_PORT", "8640"))
+MCP_PATH = os.environ.get("MCP_PATH", "/mcp")
 
 _READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
