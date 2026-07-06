@@ -29,6 +29,10 @@ export const addDays = (iso, n) => {
 export const isOptionSym = (sym) => /\d{4}-\d{2}-\d{2} \d+(\.\d+)?[CP]$/.test(sym || "");
 // Portfolio sleeves reported as a single value line (no per-share quote).
 export const isSleeveSym = (sym) => sym === "CRYPTO" || sym === "FUTURES" || sym === "CASH";
+// The chartable equity underlying of a holding symbol: option contracts and
+// plain tickers both reduce to their first token ("SPY 2026-07-17 750C" → SPY).
+// This is the key /api/analysis decisions are indexed by.
+export const underlyingOf = (sym) => (sym || "").trim().split(" ")[0].toUpperCase();
 
 /* ---------- portfolio math (real logic, mock data) ---------- */
 // Unquoted symbols (option contracts, sleeves from a live import) fall back to

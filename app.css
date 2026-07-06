@@ -172,6 +172,11 @@ body {
 }
 .vg-pill:hover { border-color: var(--color-primary); color: var(--color-primary); }
 .vg-pill.sel { background: var(--color-primary); border-color: var(--color-primary); color: #fff; }
+.vg-select, .vg-input {
+  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--color-border);
+  background: #fff; font-family: var(--font-family-base); font-size: 13px; color: var(--color-text);
+}
+.vg-select:hover, .vg-input:focus { border-color: var(--color-primary); outline: none; }
 
 /* ---------- heatmap ---------- */
 .vg-heat { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }

@@ -6,7 +6,7 @@ import {
 } from "./data.js";
 import {
   usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
-  positions, tlhCandidates, allocation, accountValue, isOptionSym, isSleeveSym,
+  positions, tlhCandidates, allocation, accountValue, isOptionSym, isSleeveSym, underlyingOf,
   loadSettings, SETTINGS_KEY, StatTile, heatTint,
 } from "./util.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
@@ -389,74 +389,163 @@ function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen }) {
 }
 
 /* ================= Holdings ================= */
-function HoldingsView({ accountId, settings, setAnalysisSym }) {
+// Compact recommendation for a Holdings row — the same chip vocabulary as the
+// Recommendations view, plus a one-line detail; clicking jumps to AI Charts.
+function HoldingRec({ d, onOpen }) {
+  if (!d) return <span className="vg-note">—</span>;
+  const rec = REC_CHIP[d.recommendation] || { cls: "plain", text: d.recommendation };
+  const a = d.action || {};
+  let detail = "";
+  if (d.recommendation === "HOLD_AND_SELL_CALL" && a.suggestedStrike != null) {
+    detail = `sell ${Number(a.suggestedStrike).toFixed(2)}C ~${usd(a.estCredit || 0)}`;
+  } else if (d.recommendation === "CLOSE_AND_BOOK_LOSS" && a.unrealizedLoss != null) {
+    detail = `book ${signUsd(a.unrealizedLoss)}`;
+  } else if (d.recommendation === "HOLD_WASH_BLOCKED") {
+    detail = a.washClearsOn ? `clears ${a.washClearsOn}` : "wash-blocked";
+  }
+  return (
+    <span title={d.rationale || ""}
+      onClick={(e) => { e.stopPropagation(); onOpen && onOpen(d.symbol); }}
+      style={{ cursor: onOpen ? "pointer" : "default" }}>
+      <span className={cls("vg-badge", rec.cls)}>{rec.text}</span>
+      {detail && <span className="vg-note" style={{ marginLeft: 6 }}>{detail}</span>}
+    </span>
+  );
+}
+
+const HOLD_SORTS = {
+  action: { label: "Action priority", key: (p) => REC_ORDER[p._rec?.recommendation] ?? 9, dir: 1 },
+  value:  { label: "Value",           key: (p) => p.value,      dir: -1 },
+  unrl:   { label: "Unrealized",      key: (p) => p.unrl,       dir: -1 },
+  weight: { label: "Weight",          key: (p) => p.weight,     dir: -1 },
+  day:    { label: "Day P/L",         key: (p) => p.dayPl || 0, dir: -1 },
+  symbol: { label: "Symbol",          key: (p) => p.symbol,     dir: 1 },
+};
+
+function HoldingsView({ accountId, settings, go, setSymbol }) {
   const [expanded, setExpanded] = useState({});
+  const [sortKey, setSortKey] = useState("value");
+  const [recFilter, setRecFilter] = useState("all");
+  const [kindFilter, setKindFilter] = useState("all"); // all | equity | option | losers
+  const [query, setQuery] = useState("");
+
   const posFixture = useMemo(() => positions(accountId), [accountId]);
   const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
+  // Journal decisions indexed by underlying — an option contract inherits its
+  // underlying's read; a plain ticker maps to its own decision.
+  const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings]).data;
+  const byUnderlying = useMemo(() => {
+    const m = {};
+    for (const d of (analysis?.decisions || [])) m[underlyingOf(d.symbol)] = d;
+    return m;
+  }, [analysis]);
+
   const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
+
+  const rows = useMemo(() => {
+    const withRec = pos
+      .filter((p) => p.symbol !== "CASH")
+      .map((p) => ({ ...p, _rec: byUnderlying[underlyingOf(p.symbol)] || null }));
+    const q = query.trim().toUpperCase();
+    const filtered = withRec.filter((p) => {
+      if (q && !p.symbol.toUpperCase().includes(q)) return false;
+      if (kindFilter === "option" && !isOptionSym(p.symbol)) return false;
+      if (kindFilter === "equity" && (isOptionSym(p.symbol) || isSleeveSym(p.symbol))) return false;
+      if (kindFilter === "losers" && !(p.unrl < 0)) return false;
+      if (recFilter === "actionable" && (REC_ORDER[p._rec?.recommendation] ?? 9) > 1) return false;
+      if (recFilter !== "all" && recFilter !== "actionable" && p._rec?.recommendation !== recFilter) return false;
+      return true;
+    });
+    const s = HOLD_SORTS[sortKey] || HOLD_SORTS.value;
+    return filtered.sort((a, b) => {
+      const ka = s.key(a), kb = s.key(b);
+      const cmp = typeof ka === "string" ? ka.localeCompare(kb) : ka - kb;
+      return cmp * s.dir;
+    });
+  }, [pos, byUnderlying, query, kindFilter, recFilter, sortKey]);
+
+  const openChart = (sym) => { if (setSymbol) setSymbol(underlyingOf(sym)); if (go) go("charts"); };
+  const actionable = rows.filter((p) => (REC_ORDER[p._rec?.recommendation] ?? 9) <= 1).length;
+
   return (
     <div>
       <h2 style={{ margin: 0, fontSize: 19 }}>Holdings</h2>
       <p className="vg-sub">
-        {acctLabel} · {pos.filter((p) => p.symbol !== "CASH").length} positions · click a row for per-lot detail
+        {acctLabel} · {rows.length} shown{analysis ? ` · ${actionable} actionable` : ""} · click a row for per-lot detail
       </p>
+
+      <div className="vg-spread" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        <div className="vg-pills">
+          {[["all", "All"], ["equity", "Equities"], ["option", "Options"], ["losers", "Losers"]].map(([k, l]) => (
+            <button key={k} className={cls("vg-pill", kindFilter === k && "sel")} onClick={() => setKindFilter(k)}>{l}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select className="vg-select" value={recFilter} onChange={(e) => setRecFilter(e.target.value)} title="Filter by recommendation">
+            <option value="all">Any recommendation</option>
+            <option value="actionable">Actionable only</option>
+            <option value="HOLD_AND_SELL_CALL">Hold &amp; sell call</option>
+            <option value="CLOSE_AND_BOOK_LOSS">Close &amp; book loss</option>
+            <option value="MONITOR">Monitor</option>
+          </select>
+          <select className="vg-select" value={sortKey} onChange={(e) => setSortKey(e.target.value)} title="Sort by">
+            {Object.entries(HOLD_SORTS).map(([k, s]) => <option key={k} value={k}>Sort: {s.label}</option>)}
+          </select>
+          <input className="vg-input" placeholder="Search symbol…" value={query} onChange={(e) => setQuery(e.target.value)} style={{ width: 130 }} />
+        </div>
+      </div>
+
       <div className="vg-card vg-tablewrap" style={{ padding: "8px 12px" }}>
         <table className="vg-table">
           <thead>
             <tr>
-              <th>Symbol</th><th>Accounts</th><th className="num">Value</th>
+              <th>Symbol</th><th className="num">Value</th>
               <th className="num">Day</th><th className="num">Unrealized</th>
-              <th className="num">Weight</th><th>Flags</th>
+              <th className="num">Weight</th><th>Recommendation</th>
             </tr>
           </thead>
           <tbody>
-            {pos.map((p) => {
+            {rows.map((p) => {
               const opt = isOptionSym(p.symbol);
               const sleeve = p.symbol === "CRYPTO" || p.symbol === "FUTURES";
-              // Option contracts and sleeves come from a live import with no
-              // per-symbol quote (day_pct 0) — show "—", not a fake +$0.
-              const noDay = p.symbol === "CASH" || ((opt || sleeve) && !p.dayPl);
+              const noDay = (opt || sleeve) && !p.dayPl;
               return (
               <React.Fragment key={p.symbol}>
                 <tr className="click" onClick={() => setExpanded((e) => ({ ...e, [p.symbol]: !e[p.symbol] }))}>
                   <td>
-                    <b>{p.symbol === "CASH" ? "Cash" : p.symbol}</b>
+                    <b>{p.symbol}</b>
                     {opt && <span className="vg-chip" style={{ marginLeft: 6 }} title="option contract">OPT</span>}
+                    {p.overlap && accountId === "all" && (
+                      <span className="vg-badge info" style={{ marginLeft: 6 }} title={`Held as ${p.overlap.symbols.join(", ")}`}>Overlap</span>
+                    )}
+                    {!sleeve && p.weight > 7 && ((MARKET[p.symbol] || {}).name || "").indexOf("ETF") === -1 && (
+                      <span className="vg-badge warn" style={{ marginLeft: 6 }}>Concentrated</span>
+                    )}
                     <div className="vg-note">
                       {(MARKET[p.symbol] || {}).name || (sleeve ? "sleeve — value via Robinhood portfolio" : "")}
                     </div>
                   </td>
-                  <td>
-                    {[...p.accounts].map((id) => <span className="vg-chip" key={id}>{acctOf(id).short}</span>)}
-                  </td>
                   <td className="num">{usd(p.value)}</td>
                   <td className={cls("num", dirCls(p.dayPl))}>{noDay ? "—" : signUsd(p.dayPl)}</td>
-                  <td className={cls("num", dirCls(p.unrl))}>{p.symbol === "CASH" ? "—" : signUsd(p.unrl)}</td>
+                  <td className={cls("num", dirCls(p.unrl))}>{signUsd(p.unrl)}</td>
                   <td className="num">{p.weight.toFixed(1)}%</td>
-                  <td>
-                    {p.overlap && accountId === "all" && (
-                      <span className="vg-badge info" title={`Held as ${p.overlap.symbols.join(", ")}`}>
-                        Overlap: {p.overlap.label}
-                      </span>
-                    )}
-                    {p.symbol !== "CASH" && !sleeve && p.weight > 7 && ((MARKET[p.symbol] || {}).name || "").indexOf("ETF") === -1 && (
-                      <span className="vg-badge warn">Concentrated</span>
-                    )}
-                  </td>
+                  <td>{sleeve ? <span className="vg-note">—</span> : <HoldingRec d={p._rec} onOpen={openChart} />}</td>
                 </tr>
                 {expanded[p.symbol] && p.lots.map((l, i) => (
                   <tr className="vg-subrow" key={i}>
                     <td style={{ paddingLeft: 26 }}>lot · {fmtDate(l.date)}</td>
-                    <td>{acctOf(l.account).short}</td>
                     <td className="num">{usd(lotValue(l))}</td>
-                    <td className="num">{l.symbol === "CASH" ? "—" : `${l.shares} sh @ ${usd(l.costPerShare, 2)}`}</td>
-                    <td className={cls("num", dirCls(lotUnrl(l)))}>{l.symbol === "CASH" ? "—" : signUsd(lotUnrl(l))}</td>
-                    <td className="num" colSpan={2}>{l.symbol === "CASH" ? "" : `${daysAgo(l.date) > 365 ? "long-term" : "short-term"}`}</td>
+                    <td className="num">{`${l.shares} sh @ ${usd(l.costPerShare, 2)}`}</td>
+                    <td className={cls("num", dirCls(lotUnrl(l)))}>{signUsd(lotUnrl(l))}</td>
+                    <td className="num" colSpan={2}>{daysAgo(l.date) > 365 ? "long-term" : "short-term"}</td>
                   </tr>
                 ))}
               </React.Fragment>
               );
             })}
+            {rows.length === 0 && (
+              <tr><td colSpan={6} className="vg-note" style={{ padding: 16 }}>No holdings match the current filters.</td></tr>
+            )}
           </tbody>
         </table>
       </div>
