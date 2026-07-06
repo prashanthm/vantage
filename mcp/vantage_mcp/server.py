@@ -21,6 +21,7 @@ import os
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from vantage_server import analyze
 from vantage_server import engine
 from vantage_server.models import QuoteSnapshot, to_jsonable
 from vantage_server.quotes import get_provider
@@ -253,6 +254,64 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     def quotes() -> dict:
         snap = snapshot()
         return envelope("quotes", snap, quotes=to_jsonable(snap.quotes))
+
+    @mcp.tool(
+        name="vantage.analysis",
+        annotations=_READ_ONLY,
+        description="The nightly covered-call / cost-reduction DECISION JOURNAL "
+                    "(written by `python -m vantage_server.analyze`). Each "
+                    "position's recommendation "
+                    "(HOLD_AND_SELL_CALL/CLOSE_AND_BOOK_LOSS/HOLD_WASH_BLOCKED/"
+                    "MONITOR), rationale, full evidence (per-timeframe trend/"
+                    "momentum, support/resistance, conviction score+label, which "
+                    "rule fired), and action_detail (strike/credit/basis math for "
+                    "holds, loss + wash status for closes). Optional date "
+                    "(YYYY-MM-DD; latest when omitted) and symbol filter. Empty "
+                    "when nothing has been journaled. Read this — never recompute "
+                    "the playbook.",
+    )
+    def analysis(date: str | None = None, symbol: str | None = None) -> dict:
+        snap = snapshot()
+        day = analyze.load_day(store.data_dir, date)
+        decisions = (day or {}).get("decisions", [])
+        if symbol:
+            want = symbol.upper()
+            decisions = [d for d in decisions
+                         if str(d.get("symbol", "")).upper() == want]
+        return envelope("analysis", snap, date=(day or {}).get("as_of", date),
+                        generated_at=(day or {}).get("generated_at"),
+                        symbol=symbol, decisions=decisions)
+
+    @mcp.tool(
+        name="vantage.position_actions",
+        annotations=_READ_ONLY,
+        description="COMPACT per-symbol actions from the latest nightly journal — "
+                    "just {symbol, conviction, recommendation, action_detail} for "
+                    "each position, stripped of the full evidence block. The "
+                    "advisor-facing view: what to do per position, without the "
+                    "underlying technical read. Optional symbol filter. Empty when "
+                    "nothing has been journaled.",
+    )
+    def position_actions(symbol: str | None = None) -> dict:
+        snap = snapshot()
+        day = analyze.load_day(store.data_dir, None)
+        decisions = (day or {}).get("decisions", [])
+        if symbol:
+            want = symbol.upper()
+            decisions = [d for d in decisions
+                         if str(d.get("symbol", "")).upper() == want]
+        actions = [
+            {
+                "symbol": d.get("symbol"),
+                "conviction": d.get("conviction"),
+                "recommendation": d.get("recommendation"),
+                "rationale": d.get("rationale"),
+                "action_detail": d.get("action_detail"),
+            }
+            for d in decisions
+        ]
+        return envelope("position_actions", snap, date=(day or {}).get("as_of"),
+                        symbol=symbol, actions=actions)
 
     return mcp
 

@@ -22,6 +22,8 @@ EXPECTED_TOOLS = {
     "vantage.signals",
     "vantage.history",
     "vantage.strategies",
+    "vantage.analysis",
+    "vantage.position_actions",
 }
 
 
@@ -296,3 +298,86 @@ def test_mcp_signals_round_trip(data_dir):
     payload = tool_payload(run_with_client(mcp, filtered))
     assert [s["signal"]["sym"] for s in payload["signals"]] == ["PLTR"]
     assert payload["signals"][0]["status"] == "unquoted"
+
+
+# --- analysis + position_actions tools (the nightly decision journal) ---
+
+
+def _seed_analysis_dir(tmp_path, data_dir):
+    """A data dir with the fixture files + a two-day analysis journal."""
+    from vantage_server import analyze, income
+    import datetime as _dt
+
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+
+    def dec(sym, rec, detail=None):
+        return income.PositionDecision(
+            symbol=sym, as_of="2026-07-05", current_price=100.0,
+            conviction=income.ConvictionView(label="strong", score=0.9),
+            recommendation=rec, rule="r", rationale=f"{sym} rationale",
+            evidence={"per_tf": {"daily": {}}}, action_detail=detail)
+
+    analyze.write_journal(tmp_path, "2026-07-04", [dec("PLTR", "MONITOR")],
+                          now=_dt.datetime(2026, 7, 4, 21, 0, 0))
+    analyze.write_journal(
+        tmp_path, "2026-07-05",
+        [dec("PLTR", "CLOSE_AND_BOOK_LOSS", {"kind": "close", "wash_blocked": False}),
+         dec("SOXS", "MONITOR")],
+        now=_dt.datetime(2026, 7, 5, 21, 0, 0))
+    return tmp_path
+
+
+def test_analysis_empty_state_on_fixture(data_dir):
+    """Fixture data dir has no analysis/ dir — empty decisions, with provenance."""
+    mcp = create_mcp(data_dir)
+
+    async def interact(client):
+        return await client.call_tool("vantage.analysis", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["decisions"] == []
+    assert payload["provenance"]["source_type"] == "vantage"
+
+
+def test_analysis_latest_date_and_symbol(tmp_path, data_dir):
+    mcp = create_mcp(_seed_analysis_dir(tmp_path, data_dir))
+
+    async def latest(client):
+        return await client.call_tool("vantage.analysis", {})
+
+    payload = tool_payload(run_with_client(mcp, latest))
+    assert payload["date"] == "2026-07-05"
+    assert {d["symbol"] for d in payload["decisions"]} == {"PLTR", "SOXS"}
+
+    async def specific(client):
+        return await client.call_tool("vantage.analysis", {"date": "2026-07-04"})
+
+    payload = tool_payload(run_with_client(mcp, specific))
+    assert [d["symbol"] for d in payload["decisions"]] == ["PLTR"]
+
+    async def filtered(client):
+        return await client.call_tool("vantage.analysis", {"symbol": "pltr"})
+
+    payload = tool_payload(run_with_client(mcp, filtered))
+    assert [d["symbol"] for d in payload["decisions"]] == ["PLTR"]
+    assert payload["decisions"][0]["recommendation"] == "CLOSE_AND_BOOK_LOSS"
+
+
+def test_position_actions_is_compact(tmp_path, data_dir):
+    mcp = create_mcp(_seed_analysis_dir(tmp_path, data_dir))
+
+    async def interact(client):
+        return await client.call_tool("vantage.position_actions", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["date"] == "2026-07-05"
+    actions = {a["symbol"]: a for a in payload["actions"]}
+    assert set(actions) == {"PLTR", "SOXS"}
+    # compact: recommendation + action_detail present, NO evidence block
+    assert actions["PLTR"]["recommendation"] == "CLOSE_AND_BOOK_LOSS"
+    assert "action_detail" in actions["PLTR"]
+    assert "evidence" not in actions["PLTR"]
+    assert actions["PLTR"]["conviction"]["label"] == "strong"

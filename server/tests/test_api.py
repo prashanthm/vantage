@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from vantage_server import income
 from vantage_server.api import create_app
 
 FIXTURE_AS_OF = "2026-07-05T09:30:00-04:00"
@@ -27,6 +28,7 @@ ALL_GET_ROUTES = [
     "/api/signals",
     "/api/history",
     "/api/strategies",
+    "/api/analysis",
 ]
 
 
@@ -327,3 +329,82 @@ def test_cors_preflight_get_only(client):
 def test_cors_rejects_foreign_origin(client):
     r = client.get("/api/positions", headers={"Origin": "https://evil.example.com"})
     assert "access-control-allow-origin" not in r.headers
+
+
+# ----------------------------------------------------- analysis journal routes
+
+def test_analysis_empty_when_no_journal(client):
+    """The fixture data dir has no analysis/ dir — the route is a clean empty
+    state, never a 500."""
+    r = client.get("/api/analysis")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["decisions"] == []
+
+
+def _seed_journal(tmp_path, src):
+    """A minimal data dir: fixture files copied in + a two-day analysis journal."""
+    import shutil
+    from vantage_server import analyze, income
+
+    for name in ("accounts.json", "lots.json", "recent_buys.json", "auto_buys.json",
+                 "partner_map.json", "quotes.json", "signals.json"):
+        shutil.copy(src / name, tmp_path / name)
+
+    def dec(sym, rec):
+        return income.PositionDecision(
+            symbol=sym, as_of="2026-07-05", current_price=100.0,
+            conviction=income.ConvictionView(label="strong", score=0.9),
+            recommendation=rec, rule="r", rationale="why",
+            evidence={"per_tf": {"daily": {}}}, action_detail={"kind": "close"})
+
+    import datetime as _dt
+    analyze.write_journal(tmp_path, "2026-07-04", [dec("PLTR", income.MONITOR)],
+                          now=_dt.datetime(2026, 7, 4, 21, 0, 0))
+    analyze.write_journal(tmp_path, "2026-07-05",
+                          [dec("PLTR", income.CLOSE_AND_BOOK_LOSS), dec("SOXS", income.MONITOR)],
+                          now=_dt.datetime(2026, 7, 5, 21, 0, 0))
+    return tmp_path
+
+
+def test_analysis_latest_and_date_and_symbol_filter(tmp_path, data_dir):
+    from fastapi.testclient import TestClient
+    from vantage_server.api import create_app
+
+    seeded = _seed_journal(tmp_path, data_dir)
+    c = TestClient(create_app(seeded))
+
+    # latest day
+    body = c.get("/api/analysis").json()
+    assert body["date"] == "2026-07-05"
+    assert {d["symbol"] for d in body["decisions"]} == {"PLTR", "SOXS"}
+
+    # specific older day
+    body4 = c.get("/api/analysis", params={"date": "2026-07-04"}).json()
+    assert body4["date"] == "2026-07-04"
+    assert [d["symbol"] for d in body4["decisions"]] == ["PLTR"]
+
+    # symbol filter
+    only = c.get("/api/analysis", params={"symbol": "pltr"}).json()
+    assert [d["symbol"] for d in only["decisions"]] == ["PLTR"]
+    assert only["decisions"][0]["recommendation"] == income.CLOSE_AND_BOOK_LOSS
+
+
+def test_analysis_history_trail(tmp_path, data_dir):
+    from fastapi.testclient import TestClient
+    from vantage_server.api import create_app
+
+    seeded = _seed_journal(tmp_path, data_dir)
+    c = TestClient(create_app(seeded))
+
+    body = c.get("/api/analysis/history", params={"symbol": "PLTR"}).json()
+    assert body["symbol"] == "PLTR"
+    assert [r["as_of"] for r in body["history"]] == ["2026-07-05", "2026-07-04"]
+    # required symbol param -> 422 without it
+    assert c.get("/api/analysis/history").status_code == 422
+
+
+def test_analysis_routes_reject_mutation(client):
+    for route in ("/api/analysis", "/api/analysis/history?symbol=PLTR"):
+        for method in ("post", "put", "delete", "patch"):
+            assert getattr(client, method)(route).status_code == 405

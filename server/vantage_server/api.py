@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from . import analyze
 from . import engine
 from .models import QuoteSnapshot, to_jsonable
 from .quotes import get_provider
@@ -202,6 +203,33 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, account=account, status=status,
                         strategies_as_of=rollup["as_of"],
                         open=open_rows, closed=closed_rows)
+
+    @app.get("/api/analysis")
+    def analysis(date: str | None = Query(None),
+                 symbol: str | None = Query(None)):
+        """The nightly decision journal (written by `python -m
+        vantage_server.analyze`), read PER REQUEST from analysis/<date>.json
+        (or latest.json when no date). Optional ``date`` (YYYY-MM-DD) selects a
+        day; ``symbol`` narrows to that underlying. A missing journal is an
+        empty state (decisions: [])."""
+        snap = state.snapshot()
+        day = analyze.load_day(store.data_dir, date)
+        decisions = (day or {}).get("decisions", [])
+        if symbol:
+            want = symbol.upper()
+            decisions = [d for d in decisions if str(d.get("symbol", "")).upper() == want]
+        return envelope(snap, date=(day or {}).get("as_of", date),
+                        generated_at=(day or {}).get("generated_at"),
+                        symbol=symbol, decisions=decisions)
+
+    @app.get("/api/analysis/history")
+    def analysis_history(symbol: str = Query(...)):
+        """The decision trail for one underlying across ALL journaled days,
+        newest first — the record Mira reads to explain how a position's
+        recommendation evolved. Empty when the symbol has never been journaled."""
+        snap = state.snapshot()
+        trail = analyze.load_symbol_history(store.data_dir, symbol)
+        return envelope(snap, symbol=symbol.upper(), history=trail)
 
     @app.get("/api/quotes")
     def quotes():
