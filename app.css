@@ -111,7 +111,24 @@ body {
 .vg-acct:hover { border-color: var(--color-primary); }
 .vg-acct.sel { border-color: var(--color-primary); background: var(--color-accent); }
 .vg-acct .meta { color: var(--color-grey); font-size: 12px; }
+.vg-acct .synced { color: var(--color-grey); font-size: 11px; margin-top: 2px; }
 .vg-acct .bal { margin-left: auto; font-weight: 600; font-size: 13.5px; white-space: nowrap; }
+
+/* ---------- refresh (⟳) controls ---------- */
+.vg-refresh {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; padding: 0; border-radius: 7px; cursor: pointer;
+  border: 1px solid var(--color-border); background: #fff; color: var(--color-primary);
+  font-size: 14px; line-height: 1; flex: 0 0 auto;
+}
+.vg-refresh:hover:not(:disabled) { border-color: var(--color-primary); background: var(--color-accent); }
+.vg-refresh:disabled { opacity: 0.45; cursor: not-allowed; }
+.vg-refresh.spinning { color: var(--color-primary); }
+.vg-refresh.spinning .ic { display: inline-block; animation: vg-spin 0.8s linear infinite; }
+.vg-scope-head { display: flex; align-items: center; justify-content: space-between; margin: 0 8px 4px; }
+.vg-scope-head .vg-kicker { margin: 0; }
+.vg-acct .actions { margin-left: 8px; display: inline-flex; align-items: center; }
+@keyframes vg-spin { to { transform: rotate(360deg); } }
 
 /* ---------- stat tiles ---------- */
 .vg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }

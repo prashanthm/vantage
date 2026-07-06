@@ -391,6 +391,21 @@
     d.setDate(d.getDate() + n);
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
+  var syncedAgo = (iso) => {
+    if (!iso || iso === "never") return "never";
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return "never";
+    const secs = Math.max(0, Math.floor((Date.now() - t) / 1e3));
+    if (secs < 60) return "just now";
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 7) return `${days}d ago`;
+    const d = new Date(t);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
   var isOptionSym = (sym) => /\d{4}-\d{2}-\d{2} \d+(\.\d+)?[CP]$/.test(sym || "");
   var isSleeveSym = (sym) => sym === "CRYPTO" || sym === "FUTURES" || sym === "CASH";
   var underlyingOf = (sym) => (sym || "").trim().split(" ")[0].toUpperCase();
@@ -590,10 +605,30 @@
       clearTimeout(timer);
     }
   }
+  async function postJson(url, body = {}, { timeoutMs = 3e4 } = {}) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {}),
+        signal: ctrl.signal
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
   var backendBase = () => (loadSettings().backendUrl || "").replace(/\/+$/, "");
   var miraBase = () => (loadSettings().miraUrl || "").replace(/\/+$/, "");
   var health = () => getJson(`${backendBase()}/api/health`);
   var accounts = () => getJson(`${backendBase()}/api/accounts`);
+  var refreshAccount = (accountId) => postJson(`${backendBase()}/api/refresh`, { account: accountId });
+  var refreshAll = () => postJson(`${backendBase()}/api/refresh`, {});
   var positions2 = (account = "all") => getJson(`${backendBase()}/api/positions?account=${encodeURIComponent(account)}`);
   var allocation2 = (account = "all") => getJson(`${backendBase()}/api/allocation?account=${encodeURIComponent(account)}`);
   var tlh = ({ thresholdUsd, thresholdPct } = {}) => {
@@ -1721,6 +1756,9 @@
     const [analysisSym, setAnalysisSym] = useState3(null);
     const [leftOpen, setLeftOpen] = useState3(() => window.innerWidth >= 860);
     const [rightOpen, setRightOpen] = useState3(() => window.innerWidth >= 1100);
+    const [refreshNonce, setRefreshNonce] = useState3(0);
+    const [refreshing, setRefreshing] = useState3({});
+    const [refreshNote, setRefreshNote] = useState3(null);
     useEffect3(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
@@ -1749,15 +1787,59 @@
       () => accounts().then((p) => {
         if (!p || !p.accounts) return null;
         registerAccounts(p.accounts);
-        return p.accounts.map((a) => ({ id: a.id, short: a.short, type: a.type, value: a.value }));
+        return p.accounts.map((a) => ({
+          id: a.id,
+          short: a.short,
+          type: a.type,
+          value: a.value,
+          lastSynced: a.last_synced,
+          broker: a.broker,
+          refreshable: a.refreshable
+        }));
       }),
       acctFixture,
-      [settings],
+      [settings, refreshNonce],
+      // re-fetch the rail after a refresh completes
       { blankOnOutage: true }
     );
     const scopeAccounts = scopeLive.data;
     const scopeOutage = scopeLive.outage;
     const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
+    const summarizeRefresh = (payload) => {
+      if (!payload || !payload.results) {
+        return { tone: "warn", text: "Refresh failed \u2014 backend unreachable." };
+      }
+      const parts = [];
+      let anyError = false;
+      for (const r of payload.results) {
+        if (r.errors && r.errors.length) {
+          anyError = true;
+          parts.push(`${r.account}: ${r.errors[0]}`);
+          continue;
+        }
+        if (r.csv_only) {
+          parts.push(`${r.account}: ${r.message}`);
+          continue;
+        }
+        const label = r.broker ? r.broker[0].toUpperCase() + r.broker.slice(1) : r.account;
+        parts.push(`${label}: ${r.positions} positions, ${r.new_transactions} new transactions`);
+      }
+      return { tone: anyError ? "warn" : "ok", text: parts.join(" \xB7 ") || "Nothing to refresh." };
+    };
+    const runRefresh = async (key, fetcher) => {
+      setRefreshing((s) => ({ ...s, [key]: true }));
+      setRefreshNote(null);
+      const payload = await fetcher();
+      setRefreshing((s) => {
+        const n = { ...s };
+        delete n[key];
+        return n;
+      });
+      setRefreshNote(summarizeRefresh(payload));
+      if (payload && payload.results) setRefreshNonce((n) => n + 1);
+    };
+    const onRefreshAccount = (id) => runRefresh(id, () => refreshAccount(id));
+    const onRefreshAll = () => runRefresh("all", () => refreshAll());
     const saveSettings = (next) => {
       setSettings(next);
       try {
@@ -1765,7 +1847,7 @@
       } catch (e) {
       }
     };
-    const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh: tlh2, go, setAnalysisSym, setNotifOpen };
+    const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh: tlh2, go, setAnalysisSym, setNotifOpen, refreshNonce };
     const hasChartRail = route === "charts";
     return /* @__PURE__ */ React.createElement("div", { className: "vg-app" }, /* @__PURE__ */ React.createElement("div", { className: "vg-compliance" }, "AI-generated analysis \xB7 Educational purposes only \u2014 not financial, investment, or tax advice"), /* @__PURE__ */ React.createElement(
       Navbar,
@@ -1794,7 +1876,44 @@
       },
       /* @__PURE__ */ React.createElement("span", { className: "ic" }, it.icon),
       leftOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, it.label, it.id === "tax" && tlh2.some((c) => c.status === "clear") && /* @__PURE__ */ React.createElement("span", { className: "vg-navdot" }))
-    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
+    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-scope-head" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Account scope"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: cls("vg-refresh", refreshing.all && "spinning"),
+        title: "Refresh all accounts (re-pull holdings + transactions)",
+        "aria-label": "Refresh all accounts",
+        disabled: !!refreshing.all,
+        onClick: onRefreshAll
+      },
+      /* @__PURE__ */ React.createElement("span", { className: "ic" }, "\u27F3")
+    )), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => {
+      const csvOnly = a.refreshable === false;
+      const pending = !!refreshing[a.id];
+      return /* @__PURE__ */ React.createElement("div", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), style: { cursor: "default" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          onClick: () => setAccountId(a.id),
+          style: { all: "unset", cursor: "pointer", flex: 1, minWidth: 0 },
+          title: `Scope to ${a.short}`
+        },
+        /* @__PURE__ */ React.createElement("div", null, a.short),
+        /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type),
+        a.lastSynced !== void 0 && /* @__PURE__ */ React.createElement("div", { className: "synced" }, "synced ", syncedAgo(a.lastSynced))
+      ), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)), /* @__PURE__ */ React.createElement("span", { className: "actions" }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: cls("vg-refresh", pending && "spinning"),
+          title: csvOnly ? "re-import CSV to refresh \u2014 no live API" : `Refresh ${a.short} (re-pull holdings + transactions)`,
+          "aria-label": `Refresh ${a.short}`,
+          disabled: pending || csvOnly,
+          onClick: (e) => {
+            e.stopPropagation();
+            if (!csvOnly) onRefreshAccount(a.id);
+          }
+        },
+        /* @__PURE__ */ React.createElement("span", { className: "ic" }, "\u27F3")
+      )));
+    }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-collapse",
@@ -1851,11 +1970,11 @@
     const aiOff = settings.aiBackend !== "mira";
     return /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { display: "inline-flex", gap: 14, alignItems: "center", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("span", { title: st.backend ? `Backend live at ${settings.backendUrl} \u2014 quotes: ${st.backend.source}${st.backend.stale ? " (stale)" : ""}, as of ${st.backend.as_of}` : `Backend unreachable at ${settings.backendUrl} \u2014 showing demo fixtures` }, /* @__PURE__ */ React.createElement("span", { style: dot(st.backend) }), "data ", st.backend ? "live" : "demo"), /* @__PURE__ */ React.createElement("span", { title: aiOff ? "AI backend set to Off in Settings \u2014 canned demo replies" : st.mira ? `Mira reachable at ${settings.miraUrl}` : `Mira unreachable at ${settings.miraUrl} \u2014 canned demo replies` }, /* @__PURE__ */ React.createElement("span", { style: dot(!aiOff && st.mira) }), "AI ", aiOff ? "off" : st.mira ? "live" : "demo"));
   }
-  function OverviewView({ accountId, settings, tlh: tlh2, go, notifs, setNotifOpen }) {
+  function OverviewView({ accountId, settings, tlh: tlh2, go, notifs, setNotifOpen, refreshNonce }) {
     const posFixture = useMemo3(() => positions(accountId), [accountId]);
-    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
+    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
     const allocFixture = useMemo3(() => allocation(accountId), [accountId]);
-    const alloc = useLive(() => allocation2(accountId).then(mapAllocation), allocFixture, [accountId, settings]).data;
+    const alloc = useLive(() => allocation2(accountId).then(mapAllocation), allocFixture, [accountId, settings, refreshNonce]).data;
     const totalValue = alloc.total;
     const dayPl = pos.reduce((s, p) => s + p.dayPl, 0);
     const unrlPl = pos.reduce((s, p) => s + p.unrl, 0);
@@ -1930,14 +2049,14 @@
     day: { label: "Day P/L", key: (p) => p.dayPl || 0, dir: -1 },
     symbol: { label: "Symbol", key: (p) => p.symbol, dir: 1 }
   };
-  function HoldingsView({ accountId, settings, go, setSymbol }) {
+  function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
     const [expanded, setExpanded] = useState3({});
     const [sortKey, setSortKey] = useState3("value");
     const [recFilter, setRecFilter] = useState3("all");
     const [kindFilter, setKindFilter] = useState3("all");
     const [query, setQuery] = useState3("");
     const posFixture = useMemo3(() => positions(accountId), [accountId]);
-    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
+    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings]).data;
     const byUnderlying = useMemo3(() => {
       const m = {};
@@ -1990,13 +2109,13 @@
       time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
     };
   }
-  function ActivityView({ accountId, settings }) {
+  function ActivityView({ accountId, settings, refreshNonce }) {
     const [kind, setKind] = useState3("all");
     const [shown, setShown] = useState3(ACTIVITY_PAGE);
     const rows = useLive(
       () => getHistory(accountId).then(mapHistory),
       null,
-      [accountId, settings]
+      [accountId, settings, refreshNonce]
     ).data;
     useEffect3(() => {
       setShown(ACTIVITY_PAGE);

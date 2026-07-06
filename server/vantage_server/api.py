@@ -1,9 +1,16 @@
-"""REST surface for the SPA — read-only by construction (ADR-010/ADR-014).
+"""REST surface for the SPA — reads are the norm; ONE deliberate write (refresh).
 
-Every route is GET; there are no mutating routes whatsoever, so no
-misconfiguration can create one (FastAPI answers 405 for any other method on
-these paths). CORS allows http://localhost on any port — the SPA serves from
-:8642; this API listens on :8641.
+Every GET route is read-only (ADR-010/ADR-014): the engine/quotes/journal
+surface only ever reads. The SINGLE mutating route is ``POST /api/refresh`` — a
+deliberate operator write added under the productization policy shift (see its
+handler comment). It writes to OUR OWN SQLite (positions/history/last_synced)
+using ONLY read broker tools (fetch_positions/history/portfolio); it can never
+place an order or move funds — the broker connectors enforce that at the
+transport layer (robinhood.py's READ_TOOLS allowlist). No other route mutates.
+
+CORS allows http://localhost on any port — the SPA serves from :8642; this API
+listens on :8641. GET and POST are the only allowed methods (POST solely for
+/api/refresh); every other method answers 405.
 
 Every payload carries {"as_of": ..., "source": "fixture"|"stooq"} so the
 client can always tell what data it is looking at.
@@ -15,7 +22,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import analyze
@@ -24,6 +31,7 @@ from . import engine
 from .ml.roundtrips import summarize_rows as ml_summarize
 from .models import QuoteSnapshot, to_jsonable
 from .quotes import get_provider
+from .refresh import refresh_accounts
 from .signals import grade_signals
 from .store import Dataset, Store
 
@@ -54,7 +62,9 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=LOCALHOST_ORIGINS,
-        allow_methods=["GET"],
+        # GET for every read route; POST solely for the deliberate /api/refresh
+        # write (productization policy shift — see the handler comment).
+        allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
 
@@ -74,11 +84,28 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
 
     @app.get("/api/accounts")
     def accounts():
+        # Reload from the store so a refresh's freshly-written lots/last_synced
+        # are reflected without an API restart (the dataset captured at startup
+        # is the fixture/offline baseline; the store is the live source).
+        from .refresh import CONNECTIONS as _CONN, resolve_broker
+
+        acct_rows = store.load_accounts()
+        lots = store.load_lots()
         snap = state.snapshot()
-        rows = [
-            {**to_jsonable(a), "value": engine.account_value(ds.lots, snap.quotes, a.id)}
-            for a in ds.accounts
-        ]
+        rows = []
+        for a in acct_rows:
+            broker = resolve_broker(store, a.id)
+            rows.append({
+                **to_jsonable(a),
+                "value": engine.account_value(lots, snap.quotes, a.id),
+                # last_synced from meta (SQLite only; None on JSON) so the UI can
+                # show "synced 5m ago". Falls back to the account's last_sync.
+                "last_synced": store.get_meta(f"last_synced:{a.id}") or a.last_sync,
+                # Broker + whether refresh can pull it live (an API connection)
+                # or only re-import CSV — the rail's ⟳ honesty depends on this.
+                "broker": broker,
+                "refreshable": broker in _CONN,
+            })
         return envelope(snap, accounts=rows)
 
     @app.get("/api/positions")
@@ -332,6 +359,32 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         baseline_win_rate=block.get("baseline_win_rate"),
                         buckets=buckets,
                         notable=list(block.get("notable") or []))
+
+    # ==================================================================
+    # POST /api/refresh — THE deliberate mutating route (read tools only).
+    #
+    # This is the FIRST and ONLY route that WRITES. It is an operator action:
+    # re-pull broker holdings + transactions and persist them to OUR OWN SQLite
+    # (positions replaced for the account, history accumulated/deduped,
+    # last_synced stamped). It calls ONLY read broker tools (fetch_positions /
+    # fetch_option_positions / fetch_portfolio / fetch_history) — order
+    # placement and fund movement are impossible (the broker connectors enforce
+    # a read-only allowlist at the transport layer, ADR-010). Runs synchronously
+    # (fine for a handful of accounts) and returns per-account results. Broker
+    # resolution failure for one account is reported in that account's ``errors``
+    # while the others proceed.
+    # ==================================================================
+    @app.post("/api/refresh")
+    def refresh(body: dict = Body(default={})):
+        account = (body or {}).get("account")
+        if account is not None and str(account) != "all":
+            account = str(account)
+            check_account(account)  # 404 for an unknown account id
+        else:
+            account = None  # omitted or "all" -> refresh every API-broker account
+        results = refresh_accounts(store, account)
+        snap = state.snapshot()
+        return envelope(snap, results=[r.to_dict() for r in results])
 
     signal_seed = store.load_signals()
 

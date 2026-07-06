@@ -25,13 +25,48 @@ export async function getJson(url, { timeoutMs = 2500 } = {}) {
   }
 }
 
+// POST url + JSON body -> parsed JSON, or null on non-200 / network error /
+// timeout. Refresh is a slower operation (a real broker round-trip), so its
+// timeout is longer than a GET. Never throws — a backend that is down resolves
+// to null and the caller surfaces a quiet note.
+export async function postJson(url, body = {}, { timeoutMs = 30000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch (e) {
+    return null; // unreachable, aborted, or bad JSON — caller shows a note
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 const backendBase = () => (loadSettings().backendUrl || "").replace(/\/+$/, "");
 const miraBase = () => (loadSettings().miraUrl || "").replace(/\/+$/, "");
 
 /* ---------------- Vantage backend client (:8641) ---------------- */
 
 export const health = () => getJson(`${backendBase()}/api/health`);
+// GET /api/accounts -> {accounts: [{id, short, type, value, last_synced, ...}]}
+// or null. Each account now carries last_synced (from the store's meta) so the
+// rail can show "synced 5m ago".
 export const accounts = () => getJson(`${backendBase()}/api/accounts`);
+
+// POST /api/refresh — THE deliberate write. Re-pull one account's (or, with no
+// account, every API-broker account's) holdings + transactions into the store.
+// Read broker tools only; the backend can never place an order. Resolves to
+// null when the backend is down (caller shows a quiet note), or a payload
+// {results: [{account, positions, new_transactions, cash, csv_only?, errors}]}.
+export const refreshAccount = (accountId) =>
+  postJson(`${backendBase()}/api/refresh`, { account: accountId });
+export const refreshAll = () => postJson(`${backendBase()}/api/refresh`, {});
 export const positions = (account = "all") =>
   getJson(`${backendBase()}/api/positions?account=${encodeURIComponent(account)}`);
 export const allocation = (account = "all") =>

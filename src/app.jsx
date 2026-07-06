@@ -7,7 +7,7 @@ import {
 import {
   usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
   positions, tlhCandidates, allocation, accountValue, isOptionSym, isSleeveSym, underlyingOf,
-  loadSettings, SETTINGS_KEY, StatTile, heatTint,
+  loadSettings, SETTINGS_KEY, StatTile, heatTint, syncedAgo,
 } from "./util.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
 import { OptionsView } from "./options.jsx";
@@ -70,6 +70,11 @@ function App() {
   // NotebookLM-style collapsible side panels (component state; default from viewport).
   const [leftOpen, setLeftOpen] = useState(() => window.innerWidth >= 860);
   const [rightOpen, setRightOpen] = useState(() => window.innerWidth >= 1100);
+  // Refresh wiring: a monotonically-bumped nonce that live-data fetchers depend
+  // on, so a completed refresh re-pulls positions/rail without a page reload.
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [refreshing, setRefreshing] = useState({}); // {accountId|"all": true}
+  const [refreshNote, setRefreshNote] = useState(null); // {tone, text} | null
 
   // Auto-collapse (never auto-expand) when the viewport shrinks past a breakpoint.
   useEffect(() => {
@@ -101,22 +106,54 @@ function App() {
     () => live.accounts().then((p) => {
       if (!p || !p.accounts) return null;
       registerAccounts(p.accounts);
-      return p.accounts.map((a) => ({ id: a.id, short: a.short, type: a.type, value: a.value }));
+      return p.accounts.map((a) => ({
+        id: a.id, short: a.short, type: a.type, value: a.value,
+        lastSynced: a.last_synced, broker: a.broker, refreshable: a.refreshable,
+      }));
     }),
     acctFixture,
-    [settings],
+    [settings, refreshNonce], // re-fetch the rail after a refresh completes
     { blankOnOutage: true },
   );
   const scopeAccounts = scopeLive.data;
   const scopeOutage = scopeLive.outage;
   const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
 
+  // -- refresh handlers: the ONLY writes the SPA issues. Read broker tools
+  // only (the backend enforces it); any failure degrades to a quiet note and
+  // never throws. On success we bump refreshNonce so the rail + positions
+  // re-fetch without a page reload.
+  const summarizeRefresh = (payload) => {
+    if (!payload || !payload.results) {
+      return { tone: "warn", text: "Refresh failed — backend unreachable." };
+    }
+    const parts = [];
+    let anyError = false;
+    for (const r of payload.results) {
+      if (r.errors && r.errors.length) { anyError = true; parts.push(`${r.account}: ${r.errors[0]}`); continue; }
+      if (r.csv_only) { parts.push(`${r.account}: ${r.message}`); continue; }
+      const label = r.broker ? r.broker[0].toUpperCase() + r.broker.slice(1) : r.account;
+      parts.push(`${label}: ${r.positions} positions, ${r.new_transactions} new transactions`);
+    }
+    return { tone: anyError ? "warn" : "ok", text: parts.join(" · ") || "Nothing to refresh." };
+  };
+  const runRefresh = async (key, fetcher) => {
+    setRefreshing((s) => ({ ...s, [key]: true }));
+    setRefreshNote(null);
+    const payload = await fetcher();
+    setRefreshing((s) => { const n = { ...s }; delete n[key]; return n; });
+    setRefreshNote(summarizeRefresh(payload));
+    if (payload && payload.results) setRefreshNonce((n) => n + 1); // re-pull live data
+  };
+  const onRefreshAccount = (id) => runRefresh(id, () => live.refreshAccount(id));
+  const onRefreshAll = () => runRefresh("all", () => live.refreshAll());
+
   const saveSettings = (next) => {
     setSettings(next);
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch (e) { /* private mode */ }
   };
 
-  const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh, go, setAnalysisSym, setNotifOpen };
+  const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh, go, setAnalysisSym, setNotifOpen, refreshNonce };
   const hasChartRail = route === "charts";
 
   return (
@@ -178,7 +215,19 @@ function App() {
             {leftOpen && (
               <div>
                 <div className="vg-divider" />
-                <div className="vg-kicker" style={{ margin: "0 8px 4px" }}>Account scope</div>
+                <div className="vg-scope-head">
+                  <div className="vg-kicker">Account scope</div>
+                  {/* Global refresh: re-pull every API-broker account. */}
+                  <button
+                    className={cls("vg-refresh", refreshing.all && "spinning")}
+                    title="Refresh all accounts (re-pull holdings + transactions)"
+                    aria-label="Refresh all accounts"
+                    disabled={!!refreshing.all}
+                    onClick={onRefreshAll}
+                  >
+                    <span className="ic">⟳</span>
+                  </button>
+                </div>
                 <button className={cls("vg-acct", accountId === "all" && "sel")} onClick={() => setAccountId("all")}>
                   <div>
                     <div>All accounts</div>
@@ -186,15 +235,46 @@ function App() {
                   </div>
                   <span className="bal">{usd(scopeAccounts.reduce((s, a) => s + a.value, 0))}</span>
                 </button>
-                {scopeAccounts.map((a) => (
-                  <button key={a.id} className={cls("vg-acct", accountId === a.id && "sel")} onClick={() => setAccountId(a.id)}>
-                    <div>
-                      <div>{a.short}</div>
-                      <div className="meta">{a.type}</div>
+                {scopeAccounts.map((a) => {
+                  // refreshable === false -> a CSV-only broker (no live API): the
+                  // ⟳ is disabled and honest ("re-import CSV to refresh").
+                  const csvOnly = a.refreshable === false;
+                  const pending = !!refreshing[a.id];
+                  return (
+                    <div key={a.id} className={cls("vg-acct", accountId === a.id && "sel")} style={{ cursor: "default" }}>
+                      <button
+                        onClick={() => setAccountId(a.id)}
+                        style={{ all: "unset", cursor: "pointer", flex: 1, minWidth: 0 }}
+                        title={`Scope to ${a.short}`}
+                      >
+                        <div>{a.short}</div>
+                        <div className="meta">{a.type}</div>
+                        {a.lastSynced !== undefined && (
+                          <div className="synced">synced {syncedAgo(a.lastSynced)}</div>
+                        )}
+                      </button>
+                      <span className="bal">{usd(a.value)}</span>
+                      <span className="actions">
+                        <button
+                          className={cls("vg-refresh", pending && "spinning")}
+                          title={csvOnly
+                            ? "re-import CSV to refresh — no live API"
+                            : `Refresh ${a.short} (re-pull holdings + transactions)`}
+                          aria-label={`Refresh ${a.short}`}
+                          disabled={pending || csvOnly}
+                          onClick={(e) => { e.stopPropagation(); if (!csvOnly) onRefreshAccount(a.id); }}
+                        >
+                          <span className="ic">⟳</span>
+                        </button>
+                      </span>
                     </div>
-                    <span className="bal">{usd(a.value)}</span>
-                  </button>
-                ))}
+                  );
+                })}
+                {refreshNote && (
+                  <p className={cls("vg-note")} style={{ marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : undefined }}>
+                    {refreshNote.text}
+                  </p>
+                )}
                 {scopeAccounts.length === 0 && scopeOutage && (
                   <p className="vg-note" style={{ marginTop: 8, padding: "0 4px" }}>
                     Backend unreachable — no accounts to show. Start the Vantage server, or import a broker.
@@ -302,11 +382,11 @@ function LiveStatusDots({ settings }) {
 }
 
 /* ================= Overview ================= */
-function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen }) {
+function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen, refreshNonce }) {
   const posFixture = useMemo(() => positions(accountId), [accountId]);
-  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
   const allocFixture = useMemo(() => allocation(accountId), [accountId]);
-  const alloc = useLive(() => live.allocation(accountId).then(mapAllocation), allocFixture, [accountId, settings]).data;
+  const alloc = useLive(() => live.allocation(accountId).then(mapAllocation), allocFixture, [accountId, settings, refreshNonce]).data;
   const totalValue = alloc.total;
   const dayPl = pos.reduce((s, p) => s + p.dayPl, 0);
   const unrlPl = pos.reduce((s, p) => s + p.unrl, 0);
@@ -433,7 +513,7 @@ const HOLD_SORTS = {
   symbol: { label: "Symbol",          key: (p) => p.symbol,     dir: 1 },
 };
 
-function HoldingsView({ accountId, settings, go, setSymbol }) {
+function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
   const [expanded, setExpanded] = useState({});
   const [sortKey, setSortKey] = useState("value");
   const [recFilter, setRecFilter] = useState("all");
@@ -441,7 +521,7 @@ function HoldingsView({ accountId, settings, go, setSymbol }) {
   const [query, setQuery] = useState("");
 
   const posFixture = useMemo(() => positions(accountId), [accountId]);
-  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
   // Journal decisions indexed by underlying — an option contract inherits its
   // underlying's read; a plain ticker maps to its own decision.
   const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings]).data;
@@ -584,14 +664,14 @@ function fmtWhen(iso) {
   };
 }
 
-function ActivityView({ accountId, settings }) {
+function ActivityView({ accountId, settings, refreshNonce }) {
   const [kind, setKind] = useState("all");
   const [shown, setShown] = useState(ACTIVITY_PAGE);
   // No fixture fallback — null (backend down / endpoint 404) stays null.
   const rows = useLive(
     () => live.getHistory(accountId).then(mapHistory),
     null,
-    [accountId, settings],
+    [accountId, settings, refreshNonce],
   ).data;
   useEffect(() => { setShown(ACTIVITY_PAGE); }, [accountId, kind]);
   const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;

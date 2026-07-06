@@ -428,6 +428,9 @@ def test_trade_stats_unknown_account_404(client):
 
 
 # ------------------------------------------------- read-only guarantee
+# Policy shift (productization): /api/refresh is a DELIBERATE operator WRITE.
+# Every OTHER route stays read-only; refresh writes to OUR store only and calls
+# ONLY read broker tools (no order/fund mutation — enforced by the connectors).
 
 @pytest.mark.parametrize("route", ALL_GET_ROUTES)
 @pytest.mark.parametrize("method", ["post", "put", "delete", "patch"])
@@ -436,12 +439,23 @@ def test_no_mutating_method_exists(client, route, method):
     assert r.status_code == 405, f"{method.upper()} {route} must be rejected"
 
 
-def test_no_mutating_routes_registered(client):
+#: The single deliberate mutating route (a productization write) — every other
+#: route must remain read-only.
+ALLOWED_WRITE_ROUTES = {"/api/refresh"}
+
+
+def test_only_refresh_route_mutates(client):
     app = client.app
     for route in app.routes:
         methods = getattr(route, "methods", None) or set()
-        assert not (methods - {"GET", "HEAD", "OPTIONS"}), (
-            f"mutating route found: {route.path} {methods} (violates ADR-010)"
+        extra = methods - {"GET", "HEAD", "OPTIONS"}
+        if not extra:
+            continue
+        assert getattr(route, "path", None) in ALLOWED_WRITE_ROUTES, (
+            f"unexpected mutating route: {route.path} {methods}"
+        )
+        assert extra == {"POST"}, (
+            f"{route.path} may only add POST, found {extra}"
         )
 
 
@@ -452,23 +466,26 @@ def test_cors_allows_spa_origin(client):
     assert r.headers.get("access-control-allow-origin") == "http://localhost:8642"
 
 
-def test_cors_preflight_get_only(client):
-    r = client.options(
+def test_cors_preflight_allows_get_and_post(client):
+    # GET (every read route) and POST (the deliberate /api/refresh write) are
+    # the only allowed methods after the policy shift.
+    for method in ("GET", "POST"):
+        r = client.options(
+            "/api/positions",
+            headers={
+                "Origin": "http://localhost:8642",
+                "Access-Control-Request-Method": method,
+            },
+        )
+        assert r.status_code == 200, f"{method} preflight should be allowed"
+    r_delete = client.options(
         "/api/positions",
         headers={
             "Origin": "http://localhost:8642",
-            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Method": "DELETE",
         },
     )
-    assert r.status_code == 200
-    r_post = client.options(
-        "/api/positions",
-        headers={
-            "Origin": "http://localhost:8642",
-            "Access-Control-Request-Method": "POST",
-        },
-    )
-    assert r_post.status_code == 400  # POST is not an allowed method
+    assert r_delete.status_code == 400  # DELETE is still not an allowed method
 
 def test_cors_rejects_foreign_origin(client):
     r = client.get("/api/positions", headers={"Origin": "https://evil.example.com"})

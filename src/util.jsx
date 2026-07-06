@@ -24,6 +24,25 @@ export const addDays = (iso, n) => {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
+// Relative "synced <time> ago" for the account rail. Reads a real wall-clock
+// ISO timestamp (last_synced meta from the store), NOT the frozen fixture TODAY.
+// "never"/empty -> "never"; <60s -> "just now"; then m/h/d; older -> a date.
+export const syncedAgo = (iso) => {
+  if (!iso || iso === "never") return "never";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return "never";
+  const secs = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  const d = new Date(t);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+};
+
 /* ---------- symbol classification (options / sleeves) ---------- */
 // Option-contract symbols from the importer: "SPY 2026-07-17 750C".
 export const isOptionSym = (sym) => /\d{4}-\d{2}-\d{2} \d+(\.\d+)?[CP]$/.test(sym || "");
