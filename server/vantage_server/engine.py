@@ -112,8 +112,24 @@ def next_day_of_month(today: datetime, day_of_month: int) -> date:
 
 # ------------------------------------------------------------ lot valuation
 
+def quote_for(symbol: str, quotes: dict[str, Quote], *, cost_per_share: float = 0.0) -> Quote:
+    """Quote for ``symbol``, degrading to a cost-valued placeholder.
+
+    Imported real portfolios hold symbols the quote table may not cover (the
+    fixture table certainly doesn't). Rather than crashing the API, an unknown
+    symbol is valued at its cost basis with day_pct 0 and classed usEquity —
+    honest staleness the SPA can render, never a 500. Live quote providers
+    (VANTAGE_QUOTES=stooq) resolve real symbols and shrink this fallback path.
+    """
+    quote = quotes.get(symbol)
+    if quote is not None:
+        return quote
+    return Quote(symbol=symbol, name=f"{symbol} (unquoted)", price=cost_per_share,
+                 day_pct=0.0, asset_class="usEquity")
+
+
 def lot_value(lot: Lot, quotes: dict[str, Quote]) -> float:
-    return lot.shares * quotes[lot.symbol].price
+    return lot.shares * quote_for(lot.symbol, quotes, cost_per_share=lot.cost_per_share).price
 
 
 def lot_cost(lot: Lot) -> float:
@@ -243,7 +259,7 @@ def positions(
                 value=value,
                 cost=cost,
                 unrealized=value - cost,
-                day_pl=value * quotes[symbol].day_pct / 100,
+                day_pl=value * quote_for(symbol, quotes).day_pct / 100,
                 weight=(value / total) * 100 if total else 0.0,
                 accounts=tuple(sorted({l.account for l in sym_lots})),
                 lots=tuple(sym_lots),
@@ -263,7 +279,7 @@ def allocation(
     total = 0.0
     for lot in select_lots(lots, account_id):
         v = lot_value(lot, quotes)
-        by_class[quotes[lot.symbol].asset_class] += v
+        by_class[quote_for(lot.symbol, quotes).asset_class] += v
         total += v
     return Allocation(by_class=by_class, total=total)
 

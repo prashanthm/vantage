@@ -46,7 +46,7 @@ def test_call_refuses_tools_outside_allowlist(tool):
 
 def test_allowlist_is_exactly_the_read_tools():
     assert READ_TOOLS == frozenset(
-        {"get_portfolio", "get_equity_positions", "get_equity_quotes"}
+        {"get_accounts", "get_portfolio", "get_equity_positions", "get_equity_quotes"}
     )
     # frozenset: nobody can .add() a mutating tool at runtime
     with pytest.raises(AttributeError):
@@ -431,3 +431,26 @@ def test_cash_lot_none_when_fully_invested_or_missing_total():
     lot, warnings = robinhood_cash_lot({}, [], "rh-main", "2026-07-05")
     assert lot is None
     assert any("total_value missing" in w for w in warnings)
+
+
+# ---------------------------------------------------------------- accounts
+
+def test_list_accounts_normalizes_and_marks_agentic(monkeypatch):
+    canned = {"accounts": [
+        {"account_number": "532189024", "type": "margin", "is_default": True,
+         "agentic_allowed": False, "brokerage_account_type": "individual"},
+        {"account_number": "472120427", "type": "cash", "nickname": "Agentic",
+         "agentic_allowed": True},
+        {"no_account_number": True},
+    ]}
+    monkeypatch.setattr(robinhood, "_call", lambda tool, payload: canned)
+    accounts = robinhood.list_accounts()
+    assert [a["account_number"] for a in accounts] == ["532189024", "472120427"]
+    assert accounts[0]["is_default"] and not accounts[0]["agentic_allowed"]
+    assert accounts[1]["nickname"] == "Agentic" and accounts[1]["agentic_allowed"]
+
+
+def test_get_accounts_is_allowlisted():
+    # The discovery tool must be callable through the read-only dispatcher
+    # (no ReadOnlyViolation) — transport errors are fine for this test.
+    assert "get_accounts" in READ_TOOLS

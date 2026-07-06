@@ -123,6 +123,17 @@ return to demo mode.
 
 ## Robinhood (read-only)
 
+**All your Robinhood accounts are readable**, not just agentic-enrolled ones —
+`agentic_allowed: false` gates trading, never reads. Discover account numbers:
+
+```bash
+python -m vantage_server.importer --broker robinhood --list-accounts
+```
+
+then import each with `--broker-account <N>` (add `--include-cash` to book
+non-equity value — options/crypto/futures/sweep — as a CASH position).
+
+
 `--broker robinhood` (the first live broker connection module) syncs
 positions straight from Robinhood's official Agentic Trading API (MCP over
 streamable HTTP) instead of a CSV — same merge/replace/backup/dry-run

@@ -508,6 +508,9 @@ def _build_parser() -> argparse.ArgumentParser:
                    metavar="N",
                    help="broker-side account number (required for API broker "
                         "connections; --rh-account is a deprecated alias)")
+    p.add_argument("--list-accounts", action="store_true",
+                   help="API broker connections only: list the broker accounts "
+                        "visible under the grant (account numbers for --broker-account) and exit")
     p.add_argument("--include-cash", action="store_true",
                    help="API broker connections only: book the account's non-equity "
                         "value (futures/crypto/sweep/buying power) as a synthetic "
@@ -561,6 +564,26 @@ def _run(args: argparse.Namespace) -> int:
             )
         conn = get_connection(args.broker)()
         _api(args.broker, conn.interactive_auth)
+        return EXIT_OK
+
+    if args.list_accounts:
+        if args.broker not in CONNECTIONS:
+            raise ImporterError(
+                "--list-accounts is only valid with an API broker connection "
+                f"({', '.join(sorted(CONNECTIONS))})"
+            )
+        conn = get_connection(args.broker)()
+        lister = getattr(conn, "list_accounts", None)
+        if lister is None:
+            raise ImporterError(f"{args.broker}: account listing is not supported")
+        accounts = _api(args.broker, lister)
+        for a in accounts:
+            flags = []
+            if a.get("is_default"):
+                flags.append("default")
+            flags.append("agentic" if a.get("agentic_allowed") else "read-only via API")
+            nickname = f" ({a['nickname']})" if a.get("nickname") else ""
+            print(f"  {a['account_number']}  {a.get('type', ''):8}{nickname}  [{', '.join(flags)}]")
         return EXIT_OK
 
     data_dir = resolve_data_dir(args.data_dir)

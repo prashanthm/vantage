@@ -38,6 +38,7 @@ log = logging.getLogger(__name__)
 #: review/place/cancel order tools — is refused by _call() with
 #: ReadOnlyViolation. Extend deliberately, with read-only tools only.
 READ_TOOLS = frozenset({
+    "get_accounts",
     "get_portfolio",
     "get_equity_positions",
     "get_equity_quotes",
@@ -196,6 +197,30 @@ def fetch_portfolio(account_number: str) -> dict:
     return result
 
 
+def list_accounts() -> list[dict]:
+    """The brokerage accounts visible under the grant, normalized.
+
+    ``agentic_allowed: false`` gates TRADING only — every account listed here
+    is readable (positions/portfolio), verified against a live non-agentic
+    margin account. Returns {account_number, type, nickname, is_default,
+    agentic_allowed} per account.
+    """
+    result = _call("get_accounts", {})
+    accounts = result.get("accounts", result if isinstance(result, list) else [result])
+    normalized = []
+    for a in accounts:
+        if not isinstance(a, dict) or not a.get("account_number"):
+            continue
+        normalized.append({
+            "account_number": str(a["account_number"]),
+            "type": str(a.get("type") or a.get("brokerage_account_type") or ""),
+            "nickname": str(a.get("nickname") or ""),
+            "is_default": bool(a.get("is_default")),
+            "agentic_allowed": bool(a.get("agentic_allowed")),
+        })
+    return normalized
+
+
 # ------------------------------------------------------------- connection
 
 @register_connection
@@ -217,6 +242,9 @@ class RobinhoodConnection:
 
     def fetch_portfolio(self, account_number: str) -> dict:
         return fetch_portfolio(account_number)
+
+    def list_accounts(self) -> list[dict]:
+        return list_accounts()
 
     def interactive_auth(self) -> None:
         from . import robinhood_auth
