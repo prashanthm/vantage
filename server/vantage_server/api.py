@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import analyze
+from . import bars_view
 from . import engine
 from .models import QuoteSnapshot, to_jsonable
 from .quotes import get_provider
@@ -230,6 +231,40 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         snap = state.snapshot()
         trail = analyze.load_symbol_history(store.data_dir, symbol)
         return envelope(snap, symbol=symbol.upper(), history=trail)
+
+    @app.get("/api/bars")
+    def bars(symbol: str = Query(...),
+             timeframe: str = Query("daily")):
+        """OHLCV bars + computed S/R levels for one ticker/timeframe — the
+        chart's data. Read PER REQUEST from bars/<SYMBOL>.json (written by
+        snapshot_bars). ``timeframe`` is daily|weekly|monthly. ``levels`` come
+        from technicals.support_resistance over that timeframe at the last
+        close, serialized to {price, strength, kind}. 404
+        {"error":"no_bars_for_symbol"} when the ticker has no bars file (the
+        SPA falls back to its fixture chart)."""
+        snap = state.snapshot()
+        try:
+            payload = bars_view.bars_payload(store.data_dir, symbol, timeframe)
+        except ValueError:
+            raise HTTPException(status_code=422,
+                                detail="timeframe must be one of daily|weekly|monthly")
+        except bars_view.BarsNotFound:
+            raise HTTPException(status_code=404, detail={"error": "no_bars_for_symbol"})
+        return envelope(snap, **payload)
+
+    @app.get("/api/bars/overlay")
+    def bars_overlay(symbol: str = Query(...)):
+        """The chart's full overlay bundle for one ticker — {symbol,
+        current_price, levels (all timeframes), analysis (latest journal
+        decision), cost_basis (lots avg cost)}. The single call the chart makes
+        to draw everything. 404 {"error":"no_bars_for_symbol"} when no bars
+        file exists."""
+        snap = state.snapshot()
+        try:
+            payload = bars_view.overlay_payload(store.data_dir, symbol)
+        except bars_view.BarsNotFound:
+            raise HTTPException(status_code=404, detail={"error": "no_bars_for_symbol"})
+        return envelope(snap, **payload)
 
     @app.get("/api/quotes")
     def quotes():

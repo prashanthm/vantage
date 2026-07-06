@@ -408,3 +408,163 @@ def test_analysis_routes_reject_mutation(client):
     for route in ("/api/analysis", "/api/analysis/history?symbol=PLTR"):
         for method in ("post", "put", "delete", "patch"):
             assert getattr(client, method)(route).status_code == 405
+
+
+# ------------------------------------------------------------- /api/bars
+
+def _make_daily(n: int, start_day: int = 1, base: float = 100.0) -> list[dict]:
+    """A synthetic upward-then-wavy daily series with enough bars for pivots."""
+    bars = []
+    for i in range(n):
+        px = base + (i % 20) - (i % 7) * 2  # some swings so S/R has pivots
+        day = start_day + i
+        bars.append({
+            "date": f"2026-{(day // 28) + 1:02d}-{(day % 28) + 1:02d}",
+            "open": px, "high": px + 3, "low": px - 3, "close": px + 1,
+            "volume": 1_000_000 + i,
+        })
+    return bars
+
+
+def _seed_bars_dir(tmp_path, src, symbol="PLTR"):
+    """A data dir with fixture files + a bars/<SYMBOL>.json + a journal for it."""
+    import shutil
+    from vantage_server import analyze, bars as bars_engine, income, snapshot_bars
+
+    for name in ("accounts.json", "lots.json", "recent_buys.json", "auto_buys.json",
+                 "partner_map.json", "quotes.json", "signals.json"):
+        shutil.copy(src / name, tmp_path / name)
+
+    daily = _make_daily(120)
+    series = {"daily": daily, "weekly": bars_engine.resample(daily, "week"),
+              "monthly": bars_engine.resample(daily, "month")}
+    snapshot_bars.write_bars(tmp_path, symbol, series, as_of="2026-07-05",
+                             lookback_days=400, backfilled=True)
+
+    import datetime as _dt
+    dec = income.PositionDecision(
+        symbol=symbol, as_of="2026-07-05", current_price=float(daily[-1]["close"]),
+        conviction=income.ConvictionView(label="strong", score=0.9),
+        recommendation=income.HOLD_AND_SELL_CALL, rule="strong_at_support",
+        rationale="reads strong at support",
+        evidence={"per_tf": {"daily": {}}},
+        action_detail={"kind": "sell_call", "suggested_strike": 135.0,
+                       "est_credit": 250.0})
+    analyze.write_journal(tmp_path, "2026-07-05", [dec],
+                          now=_dt.datetime(2026, 7, 5, 21, 0, 0))
+    return tmp_path
+
+
+def _bars_client(tmp_path, data_dir):
+    from fastapi.testclient import TestClient
+    from vantage_server.api import create_app
+    return TestClient(create_app(_seed_bars_dir(tmp_path, data_dir)))
+
+
+@pytest.mark.parametrize("tf", ["daily", "weekly", "monthly"])
+def test_bars_timeframes_with_serialized_levels(tmp_path, data_dir, tf):
+    c = _bars_client(tmp_path, data_dir)
+    r = c.get("/api/bars", params={"symbol": "PLTR", "timeframe": tf})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "PLTR"
+    assert body["timeframe"] == tf
+    assert body["bar_count"] == len(body["bars"]) > 0
+    assert body["first_bar"] and body["last_bar"]
+    # levels serialized to {price, strength, kind} — Level objects are not
+    # subscriptable, so a JSON round-trip proves serialization happened.
+    levels = body["levels"]
+    assert set(levels) == {"support", "resistance"}
+    for side in ("support", "resistance"):
+        for lv in levels[side]:
+            assert set(lv) == {"price", "strength", "kind"}
+            assert isinstance(lv["price"], (int, float))
+
+
+def test_bars_defaults_to_daily(tmp_path, data_dir):
+    c = _bars_client(tmp_path, data_dir)
+    body = c.get("/api/bars", params={"symbol": "PLTR"}).json()
+    assert body["timeframe"] == "daily"
+
+
+def test_bars_404_when_no_bars_for_symbol(tmp_path, data_dir):
+    c = _bars_client(tmp_path, data_dir)
+    r = c.get("/api/bars", params={"symbol": "ZZZZ"})
+    assert r.status_code == 404
+    assert r.json()["detail"] == {"error": "no_bars_for_symbol"}
+
+
+def test_bars_bad_timeframe_422(tmp_path, data_dir):
+    c = _bars_client(tmp_path, data_dir)
+    assert c.get("/api/bars",
+                 params={"symbol": "PLTR", "timeframe": "quarter"}).status_code == 422
+
+
+def test_bars_missing_symbol_422(tmp_path, data_dir):
+    c = _bars_client(tmp_path, data_dir)
+    assert c.get("/api/bars").status_code == 422
+
+
+def test_bars_carries_envelope(tmp_path, data_dir):
+    c = _bars_client(tmp_path, data_dir)
+    body = c.get("/api/bars", params={"symbol": "PLTR"}).json()
+    assert "as_of" in body and "source" in body and "stale" in body
+
+
+@pytest.mark.parametrize("method", ["post", "put", "delete", "patch"])
+def test_bars_routes_reject_mutation(tmp_path, data_dir, method):
+    c = _bars_client(tmp_path, data_dir)
+    assert getattr(c, method)("/api/bars?symbol=PLTR").status_code == 405
+    assert getattr(c, method)("/api/bars/overlay?symbol=PLTR").status_code == 405
+
+
+# ------------------------------------------------------- /api/bars/overlay
+
+def test_bars_overlay_bundle(tmp_path, data_dir):
+    c = _bars_client(tmp_path, data_dir)
+    r = c.get("/api/bars/overlay", params={"symbol": "PLTR"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["symbol"] == "PLTR"
+    assert isinstance(body["current_price"], (int, float))
+
+    # levels for every timeframe, serialized
+    assert set(body["levels"]) == {"daily", "weekly", "monthly"}
+    for tf in ("daily", "weekly", "monthly"):
+        assert set(body["levels"][tf]) == {"support", "resistance"}
+
+    # the latest journal decision for this symbol is bundled
+    analysis = body["analysis"]
+    assert analysis["symbol"] == "PLTR"
+    assert analysis["recommendation"] == "HOLD_AND_SELL_CALL"
+    assert analysis["action_detail"]["suggested_strike"] == 135.0
+
+    # cost_basis from the underlying's lots (fixture has no PLTR lot -> None here)
+    assert "cost_basis" in body
+
+
+def test_bars_overlay_cost_basis_from_lots(tmp_path, data_dir):
+    # NVDA is a plain-equity holding in the fixture lots -> cost_basis.equity set.
+    from fastapi.testclient import TestClient
+    from vantage_server.api import create_app
+
+    seeded = _seed_bars_dir(tmp_path, data_dir, symbol="NVDA")
+    c = TestClient(create_app(seeded))
+    body = c.get("/api/bars/overlay", params={"symbol": "NVDA"}).json()
+    cb = body["cost_basis"]
+    assert cb is not None and cb["equity"] is not None
+    assert cb["equity"]["shares"] == 60          # fixture NVDA lot
+    assert cb["equity"]["avg_cost"] == 121.4
+
+
+def test_bars_overlay_404_when_no_bars(tmp_path, data_dir):
+    c = _bars_client(tmp_path, data_dir)
+    r = c.get("/api/bars/overlay", params={"symbol": "ZZZZ"})
+    assert r.status_code == 404
+    assert r.json()["detail"] == {"error": "no_bars_for_symbol"}
+
+
+def test_bars_endpoints_absent_gracefully_on_fixture(client):
+    """The fixture data dir has no bars/ directory -> clean 404, never a 500."""
+    assert client.get("/api/bars", params={"symbol": "PLTR"}).status_code == 404
+    assert client.get("/api/bars/overlay", params={"symbol": "PLTR"}).status_code == 404

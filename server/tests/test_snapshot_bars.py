@@ -100,3 +100,92 @@ def test_underlying_extraction():
     assert _underlying("CRYPTO") is None
     assert _underlying("FUTURES") is None
     assert _underlying("") is None
+
+
+# ------------------------------------------------------------- backfill marker
+
+# 10 pre-IPO padding rows + a run of real bars.
+_PAD = [{"date": f"2015-01-{i + 1:02d}", "open": 0, "high": 0, "low": 0,
+         "close": 0, "volume": 0} for i in range(10)]
+_REAL = [{"date": f"2020-06-{i + 1:02d}", "open": 100 + i, "high": 102 + i,
+          "low": 99 + i, "close": 101 + i, "volume": 1_000_000} for i in range(15)]
+
+
+def test_backfill_writes_marker_fields_and_trims(tmp_path, monkeypatch):
+    class StubConn:
+        def fetch_historicals(self, symbol, *, start_time, interval="day"):
+            # a young ticker: padding then real history
+            return _PAD + _REAL
+
+    monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: StubConn()))
+    monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": StubConn})
+
+    rc = snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+                    "--as-of", "2026-07-05", "--backfill", "PLTR"])
+    assert rc == snap.EXIT_OK
+    data = json.loads((tmp_path / "bars" / "PLTR.json").read_text())
+    assert data["backfilled"] is True
+    assert data["bar_count"] == len(_REAL)            # padding trimmed
+    assert data["first_bar"] == "2020-06-01"          # real inception, not 2015
+    assert data["last_bar"] == "2020-06-15"
+    assert data["daily"][0]["date"] == "2020-06-01"   # no fake pre-IPO bars
+
+
+def test_symbol_flag_adds_ticker_for_on_demand_backfill(tmp_path, monkeypatch):
+    seen = []
+
+    class StubConn:
+        def fetch_historicals(self, symbol, *, start_time, interval="day"):
+            seen.append(symbol)
+            return _REAL
+
+    monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: StubConn()))
+    monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": StubConn})
+
+    rc = snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+                    "--as-of", "2026-07-05", "--backfill", "--symbol", "NVDA"])
+    assert rc == snap.EXIT_OK
+    assert seen == ["NVDA"]
+    assert (tmp_path / "bars" / "NVDA.json").is_file()
+
+
+def test_nightly_snapshot_merges_into_existing_deep_file_no_history_loss(
+    tmp_path, monkeypatch
+):
+    # 1) seed a DEEP backfilled file.
+    class BackfillConn:
+        def fetch_historicals(self, symbol, *, start_time, interval="day"):
+            return _REAL  # 15 bars, 2020-06-01..2020-06-15
+
+    monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: BackfillConn()))
+    monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": BackfillConn})
+    assert snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+                      "--as-of", "2026-07-05", "--backfill", "AAA"]) == snap.EXIT_OK
+    deep = json.loads((tmp_path / "bars" / "AAA.json").read_text())
+    assert deep["bar_count"] == 15 and deep["backfilled"] is True
+
+    # 2) a plain nightly run returns only the newest 2 bars + a fresh one.
+    nightly_bars = [
+        _REAL[-1],  # 2020-06-15 (overlaps)
+        {"date": "2020-06-16", "open": 200, "high": 205, "low": 199,
+         "close": 201, "volume": 2_000_000},  # new bar
+    ]
+
+    class NightlyConn:
+        def fetch_historicals(self, symbol, *, start_time, interval="day"):
+            return list(nightly_bars)
+
+    monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: NightlyConn()))
+    monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": NightlyConn})
+    assert snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+                      "--as-of", "2026-07-06", "AAA"]) == snap.EXIT_OK
+
+    merged = json.loads((tmp_path / "bars" / "AAA.json").read_text())
+    # union: deep 15 + 1 new = 16, NOT shrunk to the 2-bar nightly fetch.
+    assert merged["bar_count"] == 16
+    assert merged["first_bar"] == "2020-06-01"   # deep history preserved
+    assert merged["last_bar"] == "2020-06-16"    # new bar appended
+    assert merged["backfilled"] is True          # sticky marker
+    # weekly/monthly re-derived from the full merged daily
+    from vantage_server.bars import resample
+    assert merged["weekly"] == resample(merged["daily"], "week")

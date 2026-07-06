@@ -22,6 +22,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from vantage_server import analyze
+from vantage_server import bars_view
 from vantage_server import engine
 from vantage_server.models import QuoteSnapshot, to_jsonable
 from vantage_server.quotes import get_provider
@@ -254,6 +255,38 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     def quotes() -> dict:
         snap = snapshot()
         return envelope("quotes", snap, quotes=to_jsonable(snap.quotes))
+
+    @mcp.tool(
+        name="vantage.bars",
+        annotations=_READ_ONLY,
+        description="Deep OHLCV bars + computed support/resistance levels for one "
+                    "ticker (written by snapshot_bars; ~10yr daily backfill). "
+                    "timeframe daily|weekly|monthly (default daily). Returns "
+                    "{symbol, as_of, timeframe, bars:[{date,open,high,low,close,"
+                    "volume}], levels:{support:[{price,strength,kind}], "
+                    "resistance:[...]}, first_bar, last_bar, bar_count}. Levels "
+                    "are technicals.support_resistance at the last close — never "
+                    "recompute them. Empty {bars:[]} with no_bars=true when the "
+                    "ticker has no bars file (or no symbol given).",
+    )
+    def bars(symbol: str = "", timeframe: str = "daily") -> dict:
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("bars", snap, symbol="", timeframe=timeframe,
+                            bars=[], levels={"support": [], "resistance": []},
+                            no_bars=True)
+        try:
+            payload = bars_view.bars_payload(store.data_dir, symbol, timeframe)
+        except ValueError:
+            return envelope("bars", snap, symbol=symbol.upper(), timeframe=timeframe,
+                            error="unknown timeframe (want daily|weekly|monthly)",
+                            bars=[], levels={"support": [], "resistance": []},
+                            no_bars=True)
+        except bars_view.BarsNotFound:
+            return envelope("bars", snap, symbol=symbol.upper(), timeframe=timeframe,
+                            bars=[], levels={"support": [], "resistance": []},
+                            no_bars=True)
+        return envelope("bars", snap, no_bars=False, **payload)
 
     @mcp.tool(
         name="vantage.analysis",

@@ -11,7 +11,14 @@ import datetime as _dt
 
 import pytest
 
-from vantage_server.bars import BarsError, resample, snapshot_bars
+from vantage_server.bars import (
+    BarsError,
+    backfill_bars,
+    merge_daily,
+    resample,
+    snapshot_bars,
+    trim_padding,
+)
 
 
 # A hand-checked series spanning two ISO weeks (Jun 1-5 = week 23, Jun 8-9 =
@@ -114,3 +121,110 @@ def test_snapshot_bars_multiple_symbols():
                          fetch=fake_fetch)
     assert snap["AAA"]["daily"] == DAILY
     assert snap["BBB"] == {"daily": [], "weekly": [], "monthly": []}
+
+
+# ----------------------------------------------------------- trim_padding
+
+def _pad_row(date: str) -> dict:
+    """A degenerate pre-IPO padding row: zero volume, flat/zero OHLC."""
+    return {"date": date, "open": 0, "high": 0, "low": 0, "close": 0, "volume": 0}
+
+
+def _real_row(date: str, base: float) -> dict:
+    return {"date": date, "open": base, "high": base + 2, "low": base - 1,
+            "close": base + 1, "volume": 1_000_000}
+
+
+def test_trim_padding_drops_leading_padding_keeps_real_history():
+    # 50 pad rows (2015 pre-IPO placeholders) + 200 real trading bars.
+    pad = [_pad_row(f"2015-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}") for i in range(50)]
+    real = [_real_row(f"2020-{(i // 28) + 1:02d}-{(i % 28) + 1:02d}", 100 + i)
+            for i in range(200)]
+    trimmed = trim_padding(pad + real)
+    assert len(trimmed) == 200
+    assert trimmed == real  # exact real history preserved, unchanged
+    assert trimmed[0]["date"].startswith("2020-")
+
+
+def test_trim_padding_treats_flat_and_zero_volume_and_zero_price_as_padding():
+    rows = [
+        {"date": "2019-01-01", "open": 5, "high": 5, "low": 5, "close": 5, "volume": 10},  # flat OHLC
+        {"date": "2019-01-02", "open": 6, "high": 7, "low": 5, "close": 6, "volume": 0},   # zero volume
+        {"date": "2019-01-03", "open": 0, "high": 3, "low": 0, "close": 2, "volume": 50},  # zero price
+        _real_row("2019-01-04", 20),  # first real bar
+        _real_row("2019-01-05", 21),
+    ]
+    trimmed = trim_padding(rows)
+    assert len(trimmed) == 2
+    assert trimmed[0]["date"] == "2019-01-04"
+
+
+def test_trim_padding_preserves_a_later_zero_volume_holiday_bar():
+    # A legitimate mid-history zero-volume bar must NOT be trimmed (only leading
+    # rows are padding — we stop at the first real bar).
+    rows = [
+        _real_row("2021-01-04", 10),
+        {"date": "2021-01-05", "open": 11, "high": 12, "low": 10, "close": 11, "volume": 0},
+        _real_row("2021-01-06", 12),
+    ]
+    trimmed = trim_padding(rows)
+    assert len(trimmed) == 3
+    assert trimmed[1]["volume"] == 0  # the interior holiday bar survives
+
+
+def test_trim_padding_all_padding_returns_empty():
+    assert trim_padding([_pad_row("2015-01-01"), _pad_row("2015-01-02")]) == []
+    assert trim_padding([]) == []
+
+
+# ----------------------------------------------------------- merge_daily
+
+def test_merge_daily_unions_by_date_incoming_wins_no_history_loss():
+    existing = [
+        {"date": "2020-06-01", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 10},
+        {"date": "2020-06-02", "open": 2, "high": 2, "low": 2, "close": 2, "volume": 10},
+        {"date": "2020-06-03", "open": 3, "high": 3, "low": 3, "close": 3, "volume": 10},
+    ]
+    incoming = [
+        {"date": "2020-06-03", "open": 9, "high": 9, "low": 9, "close": 9, "volume": 99},  # correction
+        {"date": "2020-06-04", "open": 4, "high": 4, "low": 4, "close": 4, "volume": 10},  # new
+    ]
+    merged = merge_daily(existing, incoming)
+    assert [b["date"] for b in merged] == ["2020-06-01", "2020-06-02", "2020-06-03", "2020-06-04"]
+    # incoming wins the collision on 06-03
+    assert next(b for b in merged if b["date"] == "2020-06-03")["close"] == 9
+    # the deep tail (06-01/06-02) is retained
+    assert merged[0]["close"] == 1
+
+
+def test_merge_daily_handles_iso_timestamp_dates_and_sorts():
+    existing = [{"date": "2020-06-02T00:00:00Z", "open": 2, "high": 2, "low": 2,
+                 "close": 2, "volume": 10}]
+    incoming = [{"date": "2020-06-01T00:00:00Z", "open": 1, "high": 1, "low": 1,
+                 "close": 1, "volume": 10}]
+    merged = merge_daily(existing, incoming)
+    assert [b["date"][:10] for b in merged] == ["2020-06-01", "2020-06-02"]
+
+
+# ----------------------------------------------------------- backfill_bars
+
+def test_backfill_bars_trims_padding_and_derives_from_full_history():
+    pad = [_pad_row(f"2015-01-{i + 1:02d}") for i in range(10)]
+    real = [_real_row(f"2020-06-{i + 1:02d}", 100 + i) for i in range(20)]
+
+    seen = {}
+
+    def fake_fetch(symbol, *, start_time, interval="day"):
+        seen["start_time"] = start_time
+        return pad + real
+
+    out = backfill_bars(["pltr"], fetch=fake_fetch)
+    assert set(out) == {"PLTR"}
+    daily = out["PLTR"]["daily"]
+    assert len(daily) == 20                    # padding trimmed
+    assert daily[0]["date"].startswith("2020-")
+    # weekly/monthly derived from the trimmed daily
+    assert out["PLTR"]["weekly"] == resample(daily, "week")
+    assert out["PLTR"]["monthly"] == resample(daily, "month")
+    # requests from the deep 2015 floor
+    assert seen["start_time"].startswith("2015-")

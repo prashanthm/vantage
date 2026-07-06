@@ -19,6 +19,7 @@ EXPECTED_TOOLS = {
     "vantage.tlh_candidates",
     "vantage.lots",
     "vantage.quotes",
+    "vantage.bars",
     "vantage.signals",
     "vantage.history",
     "vantage.strategies",
@@ -381,3 +382,84 @@ def test_position_actions_is_compact(tmp_path, data_dir):
     assert "action_detail" in actions["PLTR"]
     assert "evidence" not in actions["PLTR"]
     assert actions["PLTR"]["conviction"]["label"] == "strong"
+
+
+# --- bars tool (deep OHLCV + computed levels) ---
+
+
+def _seed_bars_dir(tmp_path, data_dir, symbol="PLTR"):
+    """Fixture files + a bars/<SYMBOL>.json with enough bars for S/R pivots."""
+    from vantage_server import bars as bars_engine, snapshot_bars
+
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+
+    daily = []
+    for i in range(120):
+        px = 100 + (i % 20) - (i % 7) * 2
+        day = 1 + i
+        daily.append({
+            "date": f"2026-{(day // 28) + 1:02d}-{(day % 28) + 1:02d}",
+            "open": px, "high": px + 3, "low": px - 3, "close": px + 1,
+            "volume": 1_000_000 + i,
+        })
+    series = {"daily": daily, "weekly": bars_engine.resample(daily, "week"),
+              "monthly": bars_engine.resample(daily, "month")}
+    snapshot_bars.write_bars(tmp_path, symbol, series, as_of="2026-07-05",
+                             lookback_days=400, backfilled=True)
+    return tmp_path
+
+
+def test_bars_tool_returns_bars_and_serialized_levels(tmp_path, data_dir):
+    mcp = create_mcp(_seed_bars_dir(tmp_path, data_dir))
+
+    async def interact(client):
+        return await client.call_tool("vantage.bars", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["symbol"] == "PLTR"
+    assert payload["timeframe"] == "daily"
+    assert payload["no_bars"] is False
+    assert payload["bar_count"] == len(payload["bars"]) > 0
+    for side in ("support", "resistance"):
+        for lv in payload["levels"][side]:
+            assert set(lv) == {"price", "strength", "kind"}
+    # provenance block Mira grounds on
+    assert payload["provenance"]["source_id"].endswith("#bars")
+
+
+def test_bars_tool_weekly_timeframe(tmp_path, data_dir):
+    mcp = create_mcp(_seed_bars_dir(tmp_path, data_dir))
+
+    async def interact(client):
+        return await client.call_tool(
+            "vantage.bars", {"symbol": "PLTR", "timeframe": "weekly"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["timeframe"] == "weekly"
+    assert payload["bar_count"] > 0
+
+
+def test_bars_tool_no_bars_flag_for_unknown_symbol(tmp_path, data_dir):
+    mcp = create_mcp(_seed_bars_dir(tmp_path, data_dir))
+
+    async def interact(client):
+        return await client.call_tool("vantage.bars", {"symbol": "ZZZZ"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_bars"] is True
+    assert payload["bars"] == []
+
+
+def test_bars_tool_empty_state_on_fixture(data_dir):
+    """The fixture data dir has no bars/ dir — no_bars=true, never an error."""
+    mcp = create_mcp(data_dir)
+
+    async def interact(client):
+        return await client.call_tool("vantage.bars", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_bars"] is True
+    assert payload["provenance"]["source_type"] == "vantage"
