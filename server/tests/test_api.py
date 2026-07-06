@@ -29,6 +29,7 @@ ALL_GET_ROUTES = [
     "/api/history",
     "/api/strategies",
     "/api/analysis",
+    "/api/ml/roundtrips",
 ]
 
 
@@ -281,6 +282,63 @@ def test_strategies_bad_status_422(client):
 def test_strategies_bad_by_422(client):
     assert client.get("/api/strategies",
                       params={"by": "nope"}).status_code == 422
+
+
+# ------------------------------------------------- ml/roundtrips endpoint
+
+def test_roundtrips_empty_state_on_fixture(client):
+    """The fixture data dir has no ml/roundtrips.json — empty state, not 500."""
+    body = client.get("/api/ml/roundtrips").json()
+    assert body["roundtrips"] == []
+    assert body["summary"]["count"] == 0
+    assert body["roundtrips_as_of"] is None
+
+
+def test_roundtrips_round_trip_with_filters(tmp_path, data_dir):
+    import json as _json
+
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    (tmp_path / "ml").mkdir()
+    rows = [
+        {"account": "fid-taxable", "symbol": "AAPL", "kind": "equity",
+         "close_date": "2026-06-10", "realized_pnl": 100.0, "win": True,
+         "entry_unknown": False},
+        {"account": "fid-taxable", "symbol": "TSLA", "kind": "equity",
+         "close_date": "2026-06-11", "realized_pnl": -40.0, "win": False,
+         "entry_unknown": False},
+        {"account": "wf-robo", "symbol": "SPY", "kind": "option",
+         "close_date": "2026-06-12", "realized_pnl": 200.0, "win": True,
+         "entry_unknown": False},
+    ]
+    (tmp_path / "ml" / "roundtrips.json").write_text(
+        _json.dumps({"as_of": "2026-07-05", "account": "fid-taxable",
+                     "roundtrips": rows, "summary": {}}), encoding="utf-8")
+    c = TestClient(create_app(tmp_path))
+
+    body = c.get("/api/ml/roundtrips").json()
+    assert len(body["roundtrips"]) == 3
+    assert body["summary"]["count"] == 3
+    assert body["summary"]["wins"] == 2
+    assert body["roundtrips_as_of"] == "2026-07-05"
+
+    # account filter + recomputed summary over the subset
+    body = c.get("/api/ml/roundtrips", params={"account": "fid-taxable"}).json()
+    assert {r["symbol"] for r in body["roundtrips"]} == {"AAPL", "TSLA"}
+    assert body["summary"]["count"] == 2
+    assert body["summary"]["profit_factor"] == pytest.approx(2.5)  # 100 / 40
+
+    # symbol filter
+    body = c.get("/api/ml/roundtrips", params={"symbol": "spy"}).json()
+    assert [r["symbol"] for r in body["roundtrips"]] == ["SPY"]
+    assert body["summary"]["count"] == 1
+
+
+def test_roundtrips_unknown_account_404(client):
+    assert client.get("/api/ml/roundtrips",
+                      params={"account": "nope"}).status_code == 404
 
 
 # ------------------------------------------------- read-only guarantee

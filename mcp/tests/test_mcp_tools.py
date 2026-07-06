@@ -25,6 +25,7 @@ EXPECTED_TOOLS = {
     "vantage.strategies",
     "vantage.analysis",
     "vantage.position_actions",
+    "vantage.roundtrips",
 }
 
 
@@ -382,6 +383,73 @@ def test_position_actions_is_compact(tmp_path, data_dir):
     assert "action_detail" in actions["PLTR"]
     assert "evidence" not in actions["PLTR"]
     assert actions["PLTR"]["conviction"]["label"] == "strong"
+
+
+# --- roundtrips tool (labeled closed round-trips) ---
+
+
+def test_roundtrips_empty_state_on_fixture(mcp):
+    """Fixture data dir has no ml/roundtrips.json — empty state, provenance."""
+    async def interact(client):
+        return await client.call_tool("vantage.roundtrips", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["roundtrips"] == []
+    assert payload["summary"]["count"] == 0
+    assert payload["roundtrips_as_of"] is None
+    assert payload["provenance"]["source_type"] == "vantage"
+
+
+def test_roundtrips_round_trip_with_filters(tmp_path, data_dir):
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(),
+                                     encoding="utf-8")
+    (tmp_path / "ml").mkdir()
+    rows = [
+        {"account": "fid-taxable", "symbol": "AAPL", "kind": "equity",
+         "close_date": "2026-06-10", "realized_pnl": 100.0, "win": True,
+         "entry_unknown": False},
+        {"account": "fid-taxable", "symbol": "TSLA", "kind": "equity",
+         "close_date": "2026-06-11", "realized_pnl": -40.0, "win": False,
+         "entry_unknown": False},
+        {"account": "wf-robo", "symbol": "SPY", "kind": "option",
+         "close_date": "2026-06-12", "realized_pnl": 200.0, "win": True,
+         "entry_unknown": False},
+    ]
+    (tmp_path / "ml" / "roundtrips.json").write_text(
+        json.dumps({"as_of": "2026-07-05", "account": "fid-taxable",
+                    "roundtrips": rows, "summary": {}}), encoding="utf-8")
+    mcp = create_mcp(tmp_path)
+
+    async def all_rows(client):
+        return await client.call_tool("vantage.roundtrips", {})
+
+    payload = tool_payload(run_with_client(mcp, all_rows))
+    assert len(payload["roundtrips"]) == 3
+    assert payload["summary"]["count"] == 3
+    assert payload["summary"]["wins"] == 2
+    assert payload["roundtrips_as_of"] == "2026-07-05"
+    assert payload["provenance"] == {"source_type": "vantage",
+                                     "source_id": f"{tmp_path}#roundtrips"}
+
+    async def filtered(client):
+        return await client.call_tool(
+            "vantage.roundtrips", {"account": "fid-taxable"})
+
+    payload = tool_payload(run_with_client(mcp, filtered))
+    assert {r["symbol"] for r in payload["roundtrips"]} == {"AAPL", "TSLA"}
+    # summary recomputed over the subset
+    assert payload["summary"]["count"] == 2
+    assert payload["summary"]["profit_factor"] == pytest.approx(2.5)
+
+    async def by_symbol(client):
+        return await client.call_tool("vantage.roundtrips", {"symbol": "spy"})
+
+    payload = tool_payload(run_with_client(mcp, by_symbol))
+    assert [r["symbol"] for r in payload["roundtrips"]] == ["SPY"]
+    assert payload["summary"]["count"] == 1
 
 
 # --- bars tool (deep OHLCV + computed levels) ---

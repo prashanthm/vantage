@@ -222,6 +222,34 @@ class Store:
 
         return load_signals(self.data_dir)
 
+    def load_roundtrips(self) -> dict:
+        """Labeled closed round-trips (<data_dir>/ml/roundtrips.json — optional
+        file written by vantage_server.ml.build_roundtrips). TOLERANT of a
+        missing file: returns {"as_of": None, "roundtrips": [], "summary": {}}
+        so the API/MCP surface an empty state instead of erroring (fixture
+        datasets have none).
+
+        File shape: {as_of, account, roundtrips: [...], summary: {...}}; a
+        malformed file degrades to the empty state rather than raising — the
+        round-trips are derived, advisory data, not a load-time invariant."""
+        path = self.data_dir / "ml" / "roundtrips.json"
+        if not path.is_file():
+            return {"as_of": None, "roundtrips": [], "summary": {}}
+        try:
+            data = _read_json(path)
+        except StoreError:
+            return {"as_of": None, "roundtrips": [], "summary": {}}
+        if not isinstance(data, dict):
+            return {"as_of": None, "roundtrips": [], "summary": {}}
+        rows = data.get("roundtrips")
+        summary = data.get("summary")
+        return {
+            "as_of": data.get("as_of"),
+            "roundtrips": [r for r in rows if isinstance(r, dict)]
+            if isinstance(rows, list) else [],
+            "summary": summary if isinstance(summary, dict) else {},
+        }
+
     # -- the whole dataset --------------------------------------------------
 
     def load_dataset(self) -> Dataset:

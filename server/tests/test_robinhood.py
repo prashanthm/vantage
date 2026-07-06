@@ -38,7 +38,6 @@ AS_OF = "2026-07-05"
     "place_option_order",
     "cancel_option_order",
     "add_option_to_watchlist",   # even non-trading mutations are refused
-    "get_pnl_trade_history",     # read-only on the server, but not needed — not allowlisted
     "transfer_funds",
     "",
 ])
@@ -61,6 +60,9 @@ def test_allowlist_is_exactly_the_read_tools():
         "get_option_orders",
         # EOD OHLCV bars for the technical-analysis engine (read-only)
         "get_equity_historicals",
+        # per-close realized-gain history — the authoritative win/loss label
+        # for round-trip reconstruction (read-only)
+        "get_pnl_trade_history",
     })
     # frozenset: nobody can .add() a mutating tool at runtime
     with pytest.raises(AttributeError):

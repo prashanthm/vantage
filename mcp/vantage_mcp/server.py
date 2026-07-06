@@ -24,6 +24,7 @@ from mcp.types import ToolAnnotations
 from vantage_server import analyze
 from vantage_server import bars_view
 from vantage_server import engine
+from vantage_server.ml.roundtrips import summarize_rows as ml_summarize
 from vantage_server.models import QuoteSnapshot, to_jsonable
 from vantage_server.quotes import get_provider
 from vantage_server.signals import grade_signals
@@ -345,6 +346,42 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         ]
         return envelope("position_actions", snap, date=(day or {}).get("as_of"),
                         symbol=symbol, actions=actions)
+
+    @mcp.tool(
+        name="vantage.roundtrips",
+        annotations=_READ_ONLY,
+        description="Labeled CLOSED round-trips (written by "
+                    "vantage_server.ml.build_roundtrips). Each is a matched "
+                    "open->close trade carrying the AUTHORITATIVE signed "
+                    "realized P/L (from Robinhood's per-close realized_gain — "
+                    "never recomputed), win/loss flag, realized_pct vs entry "
+                    "cost basis, holding_days, and MFE/MAE excursion in $ and "
+                    "pct measured from the underlying's daily bars between open "
+                    "and close (for options MFE/MAE is a proxy: proxy=true, the "
+                    "underlying's bars, not the contract's marks) plus "
+                    "mfe_capture (realized/mfe — money left on the table). When "
+                    "a close could not be paired to an open, the round-trip is "
+                    "still returned with entry_unknown=true and null entry "
+                    "fields (never dropped, never fabricated). Optional account "
+                    "and symbol (underlying) filters; the returned summary "
+                    "(count, win_rate, avg_win/loss, profit_factor, "
+                    "avg_holding_days, avg_mfe_capture, by_kind) is recomputed "
+                    "over the filtered set. Empty when nothing has been built.",
+    )
+    def roundtrips(account: str = "all", symbol: str | None = None) -> dict:
+        snap = snapshot()
+        # Read per call: ml/roundtrips.json appears/changes on build.
+        data = store.load_roundtrips()
+        rows = data["roundtrips"]
+        if account != "all":
+            rows = [r for r in rows if r.get("account") == account]
+        if symbol:
+            want = symbol.upper()
+            rows = [r for r in rows if str(r.get("symbol", "")).upper() == want]
+        return envelope("roundtrips", snap, account=account, symbol=symbol,
+                        roundtrips_as_of=data["as_of"],
+                        roundtrips=to_jsonable(rows),
+                        summary=ml_summarize(rows))
 
     return mcp
 

@@ -49,6 +49,8 @@ READ_TOOLS = frozenset({
     "get_equity_orders",       # order HISTORY listing (read-only; never places)
     "get_option_orders",       # option order HISTORY listing (read-only)
     "get_equity_historicals",  # EOD OHLCV bars for technical analysis (read-only)
+    "get_pnl_trade_history",   # per-close realized-gain history — the authoritative
+                               # win/loss label for round-trip reconstruction (read-only)
 })
 
 
@@ -547,6 +549,72 @@ def fetch_history(account_number: str, *, limit: int = 200) -> list[dict]:
     return rows[:limit]
 
 
+# ------------------------------------------------------ realized P/L history
+
+def _normalize_pnl_row(row: dict) -> dict | None:
+    """One raw get_pnl_trade_history row -> the normalized realized-close
+    contract {timestamp (ISO), symbol (UNDERLYING, upper), side, quantity
+    (float), price (float), realized_gain (float, SIGNED $)}.
+
+    OBSERVED get_pnl_trade_history shape (live, 2026-07-05, post-_unwrap):
+    {"results": [{timestamp (ISO), symbol (UNDERLYING, e.g. "SPXW"),
+    side (often ""), quantity (str), price (str), realized_gain (str, SIGNED
+    $)}]}. Each row is a per-CLOSE realized gain — the authoritative win/loss
+    label. Numbers arrive as strings. Returns None for a row missing its
+    timestamp or symbol (never fabricates a level)."""
+    if not isinstance(row, dict):
+        return None
+    ts = row.get("timestamp") or row.get("date") or row.get("executed_at")
+    symbol = row.get("symbol") or row.get("chain_symbol") or row.get("ticker")
+    if not ts:
+        return None  # a close with no timestamp cannot be ordered — drop
+    # A symbol-less close (Robinhood emits a handful, e.g. assignment/exercise
+    # bookings) is KEPT with symbol "" so its authoritative realized_gain is
+    # never lost — the reconstructor emits it entry_unknown rather than drop the
+    # dollars.
+    return {
+        "timestamp": str(ts),
+        "symbol": str(symbol or "").upper(),
+        "side": str(row.get("side") or ""),
+        "quantity": _f(row.get("quantity")),
+        "price": _f(row.get("price")),
+        "realized_gain": _f(row.get("realized_gain")),
+    }
+
+
+def fetch_pnl_trade_history(account_number: str, *, limit: int = 500) -> list[dict]:
+    """Per-CLOSE realized-gain history, normalized to
+    [{timestamp (ISO), symbol (underlying), side, quantity, price,
+    realized_gain (signed $)}], newest first.
+
+    This is the AUTHORITATIVE win/loss label for round-trip reconstruction:
+    ``realized_gain`` is the signed dollar P/L Robinhood booked on that close.
+    Reads through the allowlisted get_pnl_trade_history tool — one network
+    path, no mutation. Rows missing a timestamp or symbol are dropped (never
+    fabricated).
+
+    OBSERVED envelope (live, 2026-07-05, post-_unwrap): {account_number, span,
+    trades: [{timestamp, symbol, side, quantity (str), price (str),
+    realized_gain (str, SIGNED $)}], next_cursor}. Rows live under ``trades``;
+    pagination follows ``next_cursor`` — distinct from the order tools' ``next``
+    URL + ``results`` shape, so this reads directly rather than via _paged."""
+    rows: list[dict] = []
+    cursor: str | None = None
+    for _ in range(25):
+        payload: dict = {"account_number": account_number}
+        if cursor:
+            payload["cursor"] = cursor
+        result = _call("get_pnl_trade_history", payload)
+        batch = result.get("trades") or result.get("results") or []
+        rows.extend(r for r in batch if isinstance(r, dict))
+        cursor = result.get("next_cursor") or _cursor_from_next(result.get("next"))
+        if not cursor or len(rows) >= limit:
+            break
+    out = [nr for r in rows[:limit] if (nr := _normalize_pnl_row(r))]
+    out.sort(key=lambda r: r["timestamp"], reverse=True)
+    return out
+
+
 # ------------------------------------------------------ OHLCV historicals
 
 def _historicals_bars(result: dict, symbol: str) -> list[dict]:
@@ -685,6 +753,9 @@ class RobinhoodConnection:
 
     def fetch_option_orders(self, account_number: str, *, limit: int = 200) -> list[dict]:
         return fetch_option_orders(account_number, limit=limit)
+
+    def fetch_pnl_trade_history(self, account_number: str, *, limit: int = 500) -> list[dict]:
+        return fetch_pnl_trade_history(account_number, limit=limit)
 
     def fetch_historicals(self, symbol: str, *, start_time: str,
                           end_time: str | None = None,

@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from . import analyze
 from . import bars_view
 from . import engine
+from .ml.roundtrips import summarize_rows as ml_summarize
 from .models import QuoteSnapshot, to_jsonable
 from .quotes import get_provider
 from .signals import grade_signals
@@ -270,6 +271,33 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     def quotes():
         snap = state.snapshot()
         return envelope(snap, quotes=to_jsonable(snap.quotes))
+
+    @app.get("/api/ml/roundtrips")
+    def ml_roundtrips(account: str = Query("all"),
+                      symbol: str | None = Query(None)):
+        """Labeled closed round-trips (win/loss + MFE/MAE excursion), written
+        by `python -m vantage_server.ml.build_roundtrips`, read PER REQUEST
+        from ml/roundtrips.json (appears/changes on build; no restart). A
+        missing file is an empty state ({roundtrips: [], summary: {}}).
+
+        ``account`` filters to one Vantage account id (round-trips carry the
+        account they were built for); ``symbol`` narrows to one underlying. The
+        returned ``summary`` is RECOMPUTED over the filtered set (via the pure
+        ml.roundtrips.summarize) so win-rate/profit-factor always describe what
+        was actually returned, never the whole-file roll-up."""
+        check_account(account)
+        snap = state.snapshot()
+        data = store.load_roundtrips()
+        rows = data["roundtrips"]
+        if account != "all":
+            rows = [r for r in rows if r.get("account") == account]
+        if symbol:
+            want = symbol.upper()
+            rows = [r for r in rows if str(r.get("symbol", "")).upper() == want]
+        summary = ml_summarize(rows)
+        return envelope(snap, account=account, symbol=symbol,
+                        roundtrips_as_of=data["as_of"], roundtrips=rows,
+                        summary=summary)
 
     signal_seed = store.load_signals()
 
