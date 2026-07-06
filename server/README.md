@@ -49,10 +49,35 @@ data they are looking at.
 
 ## Importing broker lots
 
-`lots.json` can be populated from a broker positions export with the importer
-CLI. This is operator-side **file management**, deliberately outside the
-read-only service surface (ADR-010) — the API and MCP tools never mutate
-anything; you do, from your own shell:
+`lots.json` can be populated from a broker positions export (CSV) or straight
+from a broker's API with the importer CLI. This is operator-side **file
+management**, deliberately outside the read-only service surface (ADR-010) —
+the API and MCP tools never mutate anything; you do, from your own shell.
+
+**Broker connections are modules.** Every API broker is one module in
+`vantage_server/brokers/` implementing the `BrokerConnection` protocol
+(`brokers/base.py`) and registered with `@register_connection`; the importer
+discovers them from the registry, so `--broker` choices are the CSV parsers
+plus every registered connection:
+
+| `--broker` | Kind | Status |
+|------------|------|--------|
+| `robinhood` | API connection (`brokers/robinhood.py`) | **live** — official Agentic Trading API, read-only allowlist |
+| `schwab-api` | API connection (`brokers/schwab.py`) | stub — TDA's API retired May 2024; TDA/Schwab accounts land on the Schwab Trader API (developer.schwab.com); module documents the OAuth + endpoint TODOs |
+| `fidelity-api` | API connection (`brokers/aggregator.py`) | stub — Fidelity has no retail API; the path is a SnapTrade/Plaid-style aggregator; module documents the TODOs |
+| `fidelity`, `schwab`, `vanguard`, `generic` | CSV importers (`importer.py`) | live — zero-dependency statement/positions parsing |
+
+**Adding a broker** (nothing in `importer.py` changes):
+
+1. Create one module `vantage_server/brokers/<broker>.py`.
+2. Implement `fetch_positions` / `fetch_portfolio` / `interactive_auth` /
+   `auth_status` per `brokers/base.py`, with a hard read-only allowlist at the
+   transport layer (raise `ReadOnlyViolation` before any network I/O — ADR-010).
+3. Decorate the class with `@register_connection` (`broker_id` = the `--broker` id).
+4. Import the module from `brokers/__init__.py`.
+5. Add tests proving the allowlist refusal path (see `tests/test_brokers_base.py`).
+
+CSV examples:
 
 ```sh
 # Fidelity positions export (no acquisition dates in the export → --as-of required)
@@ -98,15 +123,19 @@ return to demo mode.
 
 ## Robinhood (read-only)
 
-`--broker robinhood` syncs positions straight from Robinhood's official
-Agentic Trading API (MCP over streamable HTTP) instead of a CSV — same
-merge/replace/backup/dry-run semantics as the CSV brokers:
+`--broker robinhood` (the first live broker connection module) syncs
+positions straight from Robinhood's official Agentic Trading API (MCP over
+streamable HTTP) instead of a CSV — same merge/replace/backup/dry-run
+semantics as the CSV brokers:
 
 ```sh
 .venv/bin/pip install -e ".[robinhood]"   # one-time: the optional mcp extra
 .venv/bin/python -m vantage_server.importer \
-    --broker robinhood --account rh-main --rh-account <N> --dry-run
+    --broker robinhood --account rh-main --broker-account <N> --dry-run
 ```
+
+(`--broker-account` is the broker-side account number for any API connection;
+`--rh-account` still works as a deprecated alias.)
 
 Drop `--dry-run` to write; `--as-of YYYY-MM-DD` overrides the lot date
 (default: today). First-time users authorize once in the browser:

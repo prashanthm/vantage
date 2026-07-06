@@ -28,6 +28,8 @@ import json
 import logging
 import time
 
+from .base import BrokerConnectionError, register_connection
+from .base import ReadOnlyViolation  # noqa: F401 — canonical home is base.py; re-exported for back-compat
 from .robinhood_auth import AuthError, MCP_URL, get_access_token  # noqa: F401 (AuthError re-exported)
 
 log = logging.getLogger(__name__)
@@ -42,11 +44,7 @@ READ_TOOLS = frozenset({
 })
 
 
-class ReadOnlyViolation(Exception):
-    """An attempt was made to invoke a tool outside the read-only allowlist."""
-
-
-class RobinhoodError(Exception):
+class RobinhoodError(BrokerConnectionError):
     """The Robinhood MCP server returned an error or an unusable payload."""
 
 
@@ -196,3 +194,43 @@ def fetch_portfolio(account_number: str) -> dict:
     if not value:
         raise RobinhoodError(f"Account value missing from portfolio response: {result}")
     return result
+
+
+# ------------------------------------------------------------- connection
+
+@register_connection
+class RobinhoodConnection:
+    """The BrokerConnection wrapper around this module (see brokers/base.py).
+
+    Deliberately thin: it delegates to the module-level functions above at
+    call time (looked up through module globals, so tests that monkeypatch
+    ``robinhood.fetch_positions`` etc. keep working). Every remote call still
+    funnels through _call() and its READ_TOOLS allowlist — the class adds no
+    new network path.
+    """
+
+    broker_id = "robinhood"
+    display_name = "Robinhood"
+
+    def fetch_positions(self, account_number: str) -> list[dict]:
+        return fetch_positions(account_number)
+
+    def fetch_portfolio(self, account_number: str) -> dict:
+        return fetch_portfolio(account_number)
+
+    def interactive_auth(self) -> None:
+        from . import robinhood_auth
+        robinhood_auth.interactive_login()
+
+    def auth_status(self) -> str:
+        """Inspect the token store WITHOUT any network call (no refresh)."""
+        from . import robinhood_auth
+        store = robinhood_auth._load_store()
+        path = robinhood_auth.token_file()
+        if not store.get("access_token"):
+            return f"needs --auth (no token at {path})"
+        if time.time() < store.get("expires_at", 0) - 60:
+            return f"grant valid (token at {path})"
+        if store.get("refresh_token"):
+            return f"grant refreshable (access token expired, refresh token at {path})"
+        return "needs --auth (token expired, no refresh token)"

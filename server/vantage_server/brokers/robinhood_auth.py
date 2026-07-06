@@ -34,6 +34,8 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlencode, urlparse, parse_qs
 
+from .base import BrokerConnectionError
+
 log = logging.getLogger(__name__)
 
 MCP_URL = os.environ.get("ROBINHOOD_MCP_URL", "https://agent.robinhood.com/mcp/trading")
@@ -50,7 +52,7 @@ _REFRESH_MARGIN_SEC = 120
 _AUTH_HINT = "Run: python -m vantage_server.importer --broker robinhood --auth"
 
 
-class AuthError(Exception):
+class AuthError(BrokerConnectionError):
     """Raised when no valid token is available and one cannot be obtained."""
 
 

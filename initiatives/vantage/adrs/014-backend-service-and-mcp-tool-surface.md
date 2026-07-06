@@ -88,3 +88,24 @@ mcp-free. Known trade-off documented in the importer and README: Robinhood
 exposes AVERAGE cost basis, not tax lots, so the sync writes one synthetic lot
 per position dated `--as-of`; statement-CSV import remains the lot-accurate
 path.
+
+## Implemented (V8) — broker connector registry
+
+The importer's broker code was refactored into a pluggable connector-module
+interface (`server/vantage_server/brokers/base.py`): a `BrokerConnection`
+protocol (`broker_id`, `display_name`, `fetch_positions`, `fetch_portfolio`,
+`interactive_auth`, `auth_status`), a normalized `Position` shape, and a
+`CONNECTIONS` registry populated by `@register_connection`. The importer no
+longer special-cases Robinhood — it drives whatever connection the registry
+returns (`--broker-account` is the canonical broker-side account flag,
+`--rh-account` kept as a deprecated alias), so a new API broker is exactly one
+module in `brokers/` plus tests; nothing in `importer.py` changes.
+`RobinhoodConnection` wraps the existing V7 client unchanged (same
+`READ_TOOLS` allowlist), and two registered stubs document the next
+integrations with informative `NotImplementedError`s: `schwab-api` (TDA's API
+retired May 2024 → Schwab Trader API on developer.schwab.com) and
+`fidelity-api` (no retail API → SnapTrade/Plaid-style aggregator; the Fidelity
+CSV importer remains the zero-dependency path). The ADR-010 read-only doctrine
+is now codified in `base.py` as a hard requirement for every connector —
+transport-layer allowlist, `ReadOnlyViolation` before any network I/O, unit
+test proving the refusal path.

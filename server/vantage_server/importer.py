@@ -8,17 +8,25 @@ command-line tool (run by the operator, on the operator's machine) writes.
     python -m vantage_server.importer positions.csv \
         --broker fidelity --account fid-taxable --as-of 2026-07-05
 
-    # Robinhood: no CSV — read positions live from the official Agentic
-    # Trading API (READ-ONLY by hard allowlist, see brokers/robinhood.py)
+    # API broker connections: no CSV — read positions live from the broker's
+    # API (READ-ONLY by hard transport-layer allowlist, see brokers/base.py)
     python -m vantage_server.importer \
-        --broker robinhood --account rh-main --rh-account <N> [--as-of DATE]
+        --broker robinhood --account rh-main --broker-account <N> [--as-of DATE]
     python -m vantage_server.importer --broker robinhood --auth  # one-time grant
 
-ROBINHOOD LIMITATION — average cost basis, not tax lots: Robinhood's
-get_equity_positions returns one row per symbol with an AVERAGE buy price and
-no acquisition dates, so the sync writes ONE SYNTHETIC LOT per position dated
---as-of (default: today). Wash-sale and TLH math then runs on average basis;
-when you need lot-accurate numbers, import a statement CSV instead.
+ADDING A BROKER CONNECTION: one module in brokers/ implementing
+brokers.base.BrokerConnection (fetch_positions/fetch_portfolio/
+interactive_auth/auth_status), decorated with @register_connection and
+imported from brokers/__init__.py. Its broker_id shows up in --broker
+automatically; NOTHING in this file changes. Registered today: "robinhood"
+(live), "schwab-api" and "fidelity-api" (informative stubs).
+
+API LIMITATION — average cost basis, not tax lots: broker position APIs
+(Robinhood's get_equity_positions included) return one row per symbol with an
+AVERAGE buy price and no acquisition dates, so the sync writes ONE SYNTHETIC
+LOT per position dated --as-of (default: today). Wash-sale and TLH math then
+runs on average basis; when you need lot-accurate numbers, import a statement
+CSV instead.
 
 Broker parsers are tolerant of the messy realities of positions exports:
 preamble lines, quoted "$1,234.56" numbers, cash/sweep rows, pending-activity
@@ -67,9 +75,8 @@ import re
 import sys
 from pathlib import Path
 
+from .brokers import CONNECTIONS, BrokerConnectionError, get_connection
 from .store import StoreError, resolve_data_dir
-
-BROKERS = ("fidelity", "schwab", "vanguard", "generic", "robinhood")
 
 EXIT_OK = 0
 EXIT_USER_ERROR = 2
@@ -339,14 +346,18 @@ PARSERS = {
     "generic": parse_generic,
 }
 
+#: --broker choices: CSV parsers + every registered API connection.
+BROKERS = tuple(PARSERS) + tuple(sorted(CONNECTIONS))
 
-# -------------------------------------------------------------- robinhood
 
-def robinhood_positions_to_lots(positions: list[dict], account: str, as_of: str):
-    """Convert normalized Robinhood positions ({symbol, shares, avg_cost, ...})
-    into synthetic lots: ONE lot per position, dated as_of, at the AVERAGE
-    cost basis (Robinhood exposes no tax-lot detail — see module docstring).
-    Zero/negative-share rows are skipped with warnings."""
+# -------------------------------------------------- API broker connections
+
+def api_positions_to_lots(positions: list[dict], account: str, as_of: str):
+    """Convert normalized API positions ({symbol, shares, avg_cost, ...} —
+    brokers.base.Position) into synthetic lots: ONE lot per position, dated
+    as_of, at the AVERAGE cost basis (position APIs expose no tax-lot detail
+    — see module docstring). Zero/negative-share rows are skipped with
+    warnings."""
     lots, warnings = [], []
     for pos in positions:
         symbol = str(pos.get("symbol") or "").strip().upper()
@@ -374,13 +385,14 @@ def robinhood_positions_to_lots(positions: list[dict], account: str, as_of: str)
     return lots, warnings
 
 
-def robinhood_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: str):
+def api_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: str):
     """Represent the account's NON-EQUITY value as one synthetic CASH lot.
 
-    The Agentic Trading API is equities-only; value held in futures, crypto,
+    Position APIs are typically equities-only; value held in futures, crypto,
     sweep, or buying power never appears as a position. ``--include-cash``
     books ``total_value − Σ(equity position value)`` as CASH (the store's
     $1-priced cash symbol) so the account's real worth shows in Vantage.
+    Requires the connection's fetch_portfolio to include ``total_value``.
     Returns ``(lot | None, warnings)``.
     """
     warnings: list[str] = []
@@ -413,6 +425,11 @@ def robinhood_cash_lot(portfolio: dict, positions: list[dict], account: str, as_
         "shares": cash,
         "cost_per_share": 1,
     }, warnings
+
+
+# Back-compat aliases from when Robinhood was the only API broker.
+robinhood_positions_to_lots = api_positions_to_lots
+robinhood_cash_lot = api_cash_lot
 
 
 # ------------------------------------------------------------------ writer
@@ -479,21 +496,26 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Import a broker positions CSV into the Vantage lots.json "
                     "(operator-side file management — the API stays read-only).",
     )
+    api_brokers = ", ".join(sorted(CONNECTIONS))
     p.add_argument("csv_file", nargs="?",
-                   help="path to the broker positions export (omit for "
-                        "--broker robinhood, which reads the API)")
+                   help="path to the broker positions export (omit for API broker "
+                        f"connections — {api_brokers} — which read the broker's API)")
     p.add_argument("--broker", required=True, choices=BROKERS)
     p.add_argument("--account",
                    help="target internal account id (required unless the generic "
                         "CSV carries an account column)")
-    p.add_argument("--rh-account", metavar="N",
-                   help="Robinhood account number (required for --broker robinhood)")
+    p.add_argument("--broker-account", "--rh-account", dest="broker_account",
+                   metavar="N",
+                   help="broker-side account number (required for API broker "
+                        "connections; --rh-account is a deprecated alias)")
     p.add_argument("--include-cash", action="store_true",
-                   help="--broker robinhood only: book the account's non-equity value "
-                        "(futures/crypto/sweep/buying power) as a synthetic CASH lot")
+                   help="API broker connections only: book the account's non-equity "
+                        "value (futures/crypto/sweep/buying power) as a synthetic "
+                        "CASH lot")
     p.add_argument("--auth", action="store_true",
-                   help="--broker robinhood only: run the one-time browser "
-                        "authorization flow, save the token, and exit")
+                   help="API broker connections only: run the connection's one-time "
+                        "authorization flow (e.g. browser OAuth), save the token, "
+                        "and exit")
     p.add_argument("--data-dir", help="data directory (default: VANTAGE_DATA_DIR or server/data)")
     mode = p.add_mutually_exclusive_group()
     mode.add_argument("--merge", action="store_true",
@@ -519,12 +541,26 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USER_ERROR
 
 
+def _api(broker_id: str, fn, *fn_args):
+    """Run one connection call, converting a connection's failures (auth,
+    transport, stub NotImplementedError) into user-facing ImporterErrors."""
+    try:
+        return fn(*fn_args)
+    except NotImplementedError as e:
+        raise ImporterError(f"{broker_id}: {e}") from e
+    except BrokerConnectionError as e:
+        raise ImporterError(f"{broker_id}: {e}") from e
+
+
 def _run(args: argparse.Namespace) -> int:
     if args.auth:
-        if args.broker != "robinhood":
-            raise ImporterError("--auth is only valid with --broker robinhood")
-        from .brokers import robinhood_auth
-        robinhood_auth.interactive_login()
+        if args.broker not in CONNECTIONS:
+            raise ImporterError(
+                "--auth is only valid with an API broker connection "
+                f"({', '.join(sorted(CONNECTIONS))})"
+            )
+        conn = get_connection(args.broker)()
+        _api(args.broker, conn.interactive_auth)
         return EXIT_OK
 
     data_dir = resolve_data_dir(args.data_dir)
@@ -533,31 +569,27 @@ def _run(args: argparse.Namespace) -> int:
     if args.broker != "generic" and not args.account:
         raise ImporterError(f"--account is required for --broker {args.broker}")
 
-    if args.broker == "robinhood":
+    if args.broker in CONNECTIONS:
+        conn = get_connection(args.broker)()
         if args.csv_file:
             raise ImporterError(
-                "--broker robinhood reads positions from the API — do not pass a CSV file")
-        if not args.rh_account:
-            raise ImporterError("--rh-account is required for --broker robinhood")
+                f"--broker {args.broker} reads positions from the API — "
+                "do not pass a CSV file")
+        if not args.broker_account:
+            raise ImporterError(
+                f"--broker-account/--rh-account is required for --broker {args.broker}")
         as_of = args.as_of or _dt.date.today().isoformat()
-        from .brokers import robinhood
-        try:
-            positions = robinhood.fetch_positions(args.rh_account)
-        except (robinhood.AuthError, robinhood.RobinhoodError) as e:
-            raise ImporterError(f"robinhood: {e}") from e
-        lots, warnings = robinhood_positions_to_lots(positions, args.account, as_of)
+        positions = _api(args.broker, conn.fetch_positions, args.broker_account)
+        lots, warnings = api_positions_to_lots(positions, args.account, as_of)
         if args.include_cash:
-            try:
-                portfolio = robinhood.fetch_portfolio(args.rh_account)
-            except (robinhood.AuthError, robinhood.RobinhoodError) as e:
-                raise ImporterError(f"robinhood: {e}") from e
-            cash_lot, cash_warnings = robinhood_cash_lot(
+            portfolio = _api(args.broker, conn.fetch_portfolio, args.broker_account)
+            cash_lot, cash_warnings = api_cash_lot(
                 portfolio, positions, args.account, as_of
             )
             warnings.extend(cash_warnings)
             if cash_lot:
                 lots.append(cash_lot)
-        source = f"Robinhood account ...{args.rh_account[-4:]}"
+        source = f"{conn.display_name} account ...{args.broker_account[-4:]}"
     else:
         if not args.csv_file:
             raise ImporterError(f"a positions CSV file is required for --broker {args.broker}")
