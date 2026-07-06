@@ -172,7 +172,12 @@ def snapshot_bars(
     out: dict[str, dict[str, list[Bar]]] = {}
     for symbol in symbols:
         sym = symbol.upper()
-        daily = fetch(sym, start_time=start_time, interval="day")
+        # One un-fetchable ticker (delisted CUSIP, non-equity) must not sink the
+        # rest — skip it with empty bars; the caller reports "no bars".
+        try:
+            daily = fetch(sym, start_time=start_time, interval="day")
+        except Exception:  # noqa: BLE001 — per-symbol isolation, caller logs the skip
+            daily = []
         out[sym] = {
             "daily": daily,
             "weekly": resample(daily, "week"),
@@ -206,7 +211,10 @@ def backfill_bars(
     out: dict[str, dict[str, list[Bar]]] = {}
     for symbol in symbols:
         sym = symbol.upper()
-        raw = fetch(sym, start_time=start_time, interval="day")
+        try:
+            raw = fetch(sym, start_time=start_time, interval="day")
+        except Exception:  # noqa: BLE001 — per-symbol isolation, caller logs the skip
+            raw = []
         daily = trim_padding(raw)
         out[sym] = {
             "daily": daily,

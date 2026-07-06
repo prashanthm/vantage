@@ -90,13 +90,44 @@ def read_lots(workdir):
 
 def test_parse_fidelity_positions():
     lots, warnings = parse_fidelity(FIDELITY_CSV, "fid-taxable", AS_OF)
+    # Positions parse; the SPAXX** money-market core is captured as CASH (its
+    # Current Value), not dropped, so the account value isn't understated.
     assert [(l["symbol"], l["shares"], l["cost_per_share"]) for l in lots] == [
         ("VOO", 52.0, 802.42),
         ("NVDA", 60.0, 121.40),
+        ("CASH", 6400.0, 1),
     ]
     assert all(l["date"] == AS_OF and l["account"] == "fid-taxable" for l in lots)
     joined = " ".join(warnings)
-    assert "SPAXX**" in joined and "Pending" in joined  # cash + pending skipped
+    assert "core cash" in joined and "Pending" in joined  # cash captured, pending skipped
+
+
+def test_fidelity_non_money_market_double_star_still_skipped():
+    # A "**" symbol that is NOT money-market/sweep/cash stays skipped (no value
+    # misbooked as cash).
+    csv = (
+        "Account Number,Account Name,Symbol,Description,Quantity,Last Price,"
+        "Current Value,Cost Basis Total,Average Cost Basis,Type\n"
+        'Z1,Ind,FOO**,SOME RESTRICTED SECURITY,10,$5.00,"$50.00","$40.00",$4.00,Cash\n'
+    )
+    lots, warnings = parse_fidelity(csv, "fid-taxable", AS_OF)
+    assert lots == []
+    assert any("skipped cash/core position 'FOO**'" in w for w in warnings)
+
+
+def test_fidelity_cash_capture_sums_multiple_cores():
+    csv = (
+        "Account Number,Account Name,Symbol,Description,Quantity,Last Price,"
+        "Current Value,Cost Basis Total,Average Cost Basis,Type\n"
+        'Z1,Ind,FDRXX**,HELD IN MONEY MARKET,,,"$1,000.00",,,Cash\n'
+        'Z1,Ind,SPAXX**,FIDELITY GOVERNMENT MONEY MARKET,,,"$250.50",,,Cash\n'
+        'Z1,Ind,VOO,VANGUARD S&P 500 ETF,10,$683.20,"$6,832.00","$6,000.00",$600.00,Cash\n'
+    )
+    lots, warnings = parse_fidelity(csv, "fid-taxable", AS_OF)
+    cash = [l for l in lots if l["symbol"] == "CASH"]
+    assert len(cash) == 1
+    assert cash[0]["shares"] == 1250.50 and cash[0]["cost_per_share"] == 1
+    assert any("captured $1,250.50 core cash" in w for w in warnings)
 
 
 def test_parse_fidelity_cost_falls_back_to_total_over_qty():
@@ -159,7 +190,7 @@ def test_merge_replaces_only_target_account(workdir):
     lots = read_lots(workdir)
     fid = [l for l in lots if l["account"] == "fid-taxable"]
     others = [l for l in lots if l["account"] != "fid-taxable"]
-    assert {l["symbol"] for l in fid} == {"VOO", "NVDA"}  # replaced wholesale
+    assert {l["symbol"] for l in fid} == {"VOO", "NVDA", "CASH"}  # replaced wholesale (core cash captured)
     assert len(others) == 11  # every other account untouched (18 fixture - 7 fid)
     Store(workdir).load_dataset()  # the written file passes full store validation
 
@@ -248,7 +279,7 @@ def test_add_account_flow(workdir):
     new = next(a for a in accounts if a["id"] == "etrade-new")
     assert new["taxable"] is True and new["short"] == "E*Trade"
     assert {l["symbol"] for l in read_lots(workdir) if l["account"] == "etrade-new"} == {
-        "VOO", "NVDA"
+        "VOO", "NVDA", "CASH"
     }
     Store(workdir).load_dataset()  # accounts + lots still validate together
 

@@ -182,7 +182,10 @@ def parse_fidelity(text: str, account: str, as_of: str | None):
     i_avg = _first(cols, "average cost basis", "average cost")
     i_total = _first(cols, "cost basis total", "cost basis")
     i_date = _first(cols, "date acquired", "acquisition date")
+    i_val = _first(cols, "current value")
+    i_desc = _first(cols, "description")
     lots, warnings = [], []
+    cash_total = 0.0
     for row in rows[hi + 1:]:
         symbol = (_cell(row, i_sym) or "").strip().strip('"')
         if not symbol or len(row) <= i_qty:
@@ -191,7 +194,15 @@ def parse_fidelity(text: str, account: str, as_of: str | None):
             warnings.append(f"skipped pending-activity row '{symbol}'")
             continue
         if symbol.endswith("**"):
-            warnings.append(f"skipped cash/core position '{symbol}'")
+            # Fidelity core/sweep money market (FDRXX**/SPAXX**) is real cash —
+            # capture its Current Value as CASH so account totals aren't
+            # understated. No quantity/cost; the $1-priced CASH symbol carries it.
+            val = _to_float(_cell(row, i_val))
+            desc = (_cell(row, i_desc) or "").lower()
+            if val and ("money market" in desc or "sweep" in desc or "cash" in desc):
+                cash_total += val
+            else:
+                warnings.append(f"skipped cash/core position '{symbol}'")
             continue
         qty = _to_float(_cell(row, i_qty))
         if qty is None or qty <= 0:
@@ -211,7 +222,20 @@ def parse_fidelity(text: str, account: str, as_of: str | None):
             "shares": qty,
             "cost_per_share": round(cost, 6),
         })
+    if cash_total > 0:
+        lots.append({
+            "account": account,
+            "symbol": "CASH",
+            "date": as_of or _dt.date.today().isoformat(),
+            "shares": round(cash_total, 2),
+            "cost_per_share": 1,
+        })
+        warnings.append(f"captured {usd_note(cash_total)} core cash as CASH")
     return lots, warnings
+
+
+def usd_note(v: float) -> str:
+    return f"${v:,.2f}"
 
 
 def parse_schwab(text: str, account: str, as_of: str | None):
