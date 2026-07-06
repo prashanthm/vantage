@@ -555,16 +555,31 @@ export function streamTurn(prompt, thread, onEvent) {
 // Progressive enhancement: state starts as `fallback` (fixtures); the fetcher
 // fires on mount and whenever `deps` change; live data swaps in only when the
 // fetch produced a non-null payload. Views never see an error state.
-export function useLive(fetcher, fallback, deps = []) {
+// Live data with a demo fixture fallback. The fixture is shown until live data
+// resolves (so a normal load never flashes empty). But once this hook has
+// succeeded at least once, a later NULL result is a real outage — the fallback
+// then blanks (returns [] / null) so the outage surfaces as an empty state
+// rather than silently reverting to demo data that looks real. `blankOnOutage`
+// opts a surface into this (accounts/positions); pure-demo surfaces leave it off.
+export function useLive(fetcher, fallback, deps = [], { blankOnOutage = false } = {}) {
   const [liveData, setLiveData] = React.useState(null);
+  const [outage, setOutage] = React.useState(false);
+  const everLive = React.useRef(false);
   React.useEffect(() => {
     let alive = true;
     setLiveData(null);
     Promise.resolve()
       .then(fetcher)
-      .then((d) => { if (alive && d != null) setLiveData(d); })
-      .catch(() => { /* fixtures remain */ });
+      .then((d) => {
+        if (!alive) return;
+        if (d != null) { everLive.current = true; setLiveData(d); setOutage(false); }
+        else if (everLive.current) { setOutage(true); }
+      })
+      .catch(() => { if (alive && everLive.current) setOutage(true); });
     return () => { alive = false; };
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
-  return { data: liveData != null ? liveData : fallback, isLive: liveData != null };
+  if (liveData != null) return { data: liveData, isLive: true, outage: false };
+  const blanked = blankOnOutage && outage;
+  const fb = blanked ? (Array.isArray(fallback) ? [] : null) : fallback;
+  return { data: fb, isLive: false, outage: blanked };
 }

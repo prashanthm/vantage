@@ -1000,20 +1000,33 @@
       ctrl.abort();
     };
   }
-  function useLive(fetcher, fallback, deps = []) {
+  function useLive(fetcher, fallback, deps = [], { blankOnOutage = false } = {}) {
     const [liveData, setLiveData] = React.useState(null);
+    const [outage, setOutage] = React.useState(false);
+    const everLive = React.useRef(false);
     React.useEffect(() => {
       let alive = true;
       setLiveData(null);
       Promise.resolve().then(fetcher).then((d) => {
-        if (alive && d != null) setLiveData(d);
+        if (!alive) return;
+        if (d != null) {
+          everLive.current = true;
+          setLiveData(d);
+          setOutage(false);
+        } else if (everLive.current) {
+          setOutage(true);
+        }
       }).catch(() => {
+        if (alive && everLive.current) setOutage(true);
       });
       return () => {
         alive = false;
       };
     }, deps);
-    return { data: liveData != null ? liveData : fallback, isLive: liveData != null };
+    if (liveData != null) return { data: liveData, isLive: true, outage: false };
+    const blanked = blankOnOutage && outage;
+    const fb = blanked ? Array.isArray(fallback) ? [] : null : fallback;
+    return { data: fb, isLive: false, outage: blanked };
   }
 
   // src/charts.jsx
@@ -1732,15 +1745,18 @@
       () => ACCOUNTS.map((a) => ({ id: a.id, short: a.short, type: a.type, value: accountValue(a.id) })),
       []
     );
-    const scopeAccounts = useLive(
+    const scopeLive = useLive(
       () => accounts().then((p) => {
         if (!p || !p.accounts) return null;
         registerAccounts(p.accounts);
         return p.accounts.map((a) => ({ id: a.id, short: a.short, type: a.type, value: a.value }));
       }),
       acctFixture,
-      [settings]
-    ).data;
+      [settings],
+      { blankOnOutage: true }
+    );
+    const scopeAccounts = scopeLive.data;
+    const scopeOutage = scopeLive.outage;
     const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
     const saveSettings = (next) => {
       setSettings(next);
@@ -1751,7 +1767,7 @@
     };
     const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh: tlh2, go, setAnalysisSym, setNotifOpen };
     const hasChartRail = route === "charts";
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-app" }, /* @__PURE__ */ React.createElement("div", { className: "vg-compliance" }, "AI-generated analysis \xB7 Demo with simulated data \xB7 Educational purposes only \u2014 not financial, investment, or tax advice"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-app" }, /* @__PURE__ */ React.createElement("div", { className: "vg-compliance" }, "AI-generated analysis \xB7 Educational purposes only \u2014 not financial, investment, or tax advice"), /* @__PURE__ */ React.createElement(
       Navbar,
       {
         brand: "Vant",
@@ -1778,7 +1794,7 @@
       },
       /* @__PURE__ */ React.createElement("span", { className: "ic" }, it.icon),
       leftOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, it.label, it.id === "tax" && tlh2.some((c) => c.status === "clear") && /* @__PURE__ */ React.createElement("span", { className: "vg-navdot" }))
-    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation (demo). Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage prototype \xB7 built on the Lookey design system \xB7 simulated data \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
+    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-collapse",
@@ -1837,7 +1853,7 @@
   }
   function OverviewView({ accountId, settings, tlh: tlh2, go, notifs, setNotifOpen }) {
     const posFixture = useMemo3(() => positions(accountId), [accountId]);
-    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
+    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
     const allocFixture = useMemo3(() => allocation(accountId), [accountId]);
     const alloc = useLive(() => allocation2(accountId).then(mapAllocation), allocFixture, [accountId, settings]).data;
     const totalValue = alloc.total;
@@ -1921,7 +1937,7 @@
     const [kindFilter, setKindFilter] = useState3("all");
     const [query, setQuery] = useState3("");
     const posFixture = useMemo3(() => positions(accountId), [accountId]);
-    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
+    const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings]).data;
     const byUnderlying = useMemo3(() => {
       const m = {};

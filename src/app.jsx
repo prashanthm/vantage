@@ -90,11 +90,14 @@ function App() {
 
   // Account scope rail: live /api/accounts (includes imported accounts like
   // Robinhood) with the fixture registry as the offline fallback.
+  // Demo accounts show only until live data resolves (or on a cold start with
+  // no backend). Once the account fetch has succeeded once, a later failure is
+  // an outage and the rail blanks (useLive blankOnOutage) — no fake accounts.
   const acctFixture = useMemo(
     () => ACCOUNTS.map((a) => ({ id: a.id, short: a.short, type: a.type, value: accountValue(a.id) })),
     [],
   );
-  const scopeAccounts = useLive(
+  const scopeLive = useLive(
     () => live.accounts().then((p) => {
       if (!p || !p.accounts) return null;
       registerAccounts(p.accounts);
@@ -102,7 +105,10 @@ function App() {
     }),
     acctFixture,
     [settings],
-  ).data;
+    { blankOnOutage: true },
+  );
+  const scopeAccounts = scopeLive.data;
+  const scopeOutage = scopeLive.outage;
   const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
 
   const saveSettings = (next) => {
@@ -116,7 +122,7 @@ function App() {
   return (
     <div className="vg-app">
       <div className="vg-compliance">
-        AI-generated analysis · Demo with simulated data · Educational purposes only — not financial, investment, or tax advice
+        AI-generated analysis · Educational purposes only — not financial, investment, or tax advice
       </div>
 
       <Navbar
@@ -189,11 +195,16 @@ function App() {
                     <span className="bal">{usd(a.value)}</span>
                   </button>
                 ))}
+                {scopeAccounts.length === 0 && scopeOutage && (
+                  <p className="vg-note" style={{ marginTop: 8, padding: "0 4px" }}>
+                    Backend unreachable — no accounts to show. Start the Vantage server, or import a broker.
+                  </p>
+                )}
                 <p className="vg-note" style={{ marginTop: 10, padding: "0 4px" }}>
-                  Read-only aggregation (demo). Vantage never holds funds or places orders.
+                  Read-only aggregation. Vantage never holds funds or places orders.
                 </p>
                 <p className="vg-note" style={{ marginTop: 8, padding: "0 4px" }}>
-                  Vantage prototype · built on the Lookey design system · simulated data · AI analysis is educational
+                  Vantage · built on the Lookey design system · AI analysis is educational
                   only — not financial, investment, or tax advice.
                 </p>
               </div>
@@ -293,7 +304,7 @@ function LiveStatusDots({ settings }) {
 /* ================= Overview ================= */
 function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen }) {
   const posFixture = useMemo(() => positions(accountId), [accountId]);
-  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
   const allocFixture = useMemo(() => allocation(accountId), [accountId]);
   const alloc = useLive(() => live.allocation(accountId).then(mapAllocation), allocFixture, [accountId, settings]).data;
   const totalValue = alloc.total;
@@ -430,7 +441,7 @@ function HoldingsView({ accountId, settings, go, setSymbol }) {
   const [query, setQuery] = useState("");
 
   const posFixture = useMemo(() => positions(accountId), [accountId]);
-  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings], { blankOnOutage: true }).data;
   // Journal decisions indexed by underlying — an option contract inherits its
   // underlying's read; a plain ticker maps to its own decision.
   const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings]).data;
