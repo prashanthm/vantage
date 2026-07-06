@@ -454,6 +454,8 @@ def stub_connection(monkeypatch):
     monkeypatch.setattr(robinhood, "fetch_portfolio", lambda acct: dict(PORTFOLIO))
     monkeypatch.setattr(robinhood, "fetch_history",
                         lambda acct, limit=200: [dict(r, account="") for r in ROWS_A])
+    monkeypatch.setattr(robinhood, "fetch_option_orders",
+                        lambda acct, limit=200: [dict(o) for o in CANNED_OPTION_ORDERS["orders"]])
 
 
 def run_cli(workdir, *args):
@@ -543,6 +545,75 @@ def test_with_history_rejected_for_csv_brokers(tmp_path, capsys):
     csv = tmp_path / "x.csv"
     csv.write_text("account,symbol,date,shares,costPerShare\n")
     rc = importer.main([str(csv), "--broker", "generic", "--with-history",
+                        "--account", "a"])
+    assert rc == EXIT_USER_ERROR
+    assert "only valid with an API broker" in capsys.readouterr().err
+
+
+# ------------------------------------------- fetch_option_orders (broker)
+
+def test_fetch_option_orders_returns_raw_unwrapped_newest_first(monkeypatch):
+    monkeypatch.setattr(robinhood, "_call", _fake_history_call)
+    orders = robinhood.fetch_option_orders("532189024")
+    # raw order dicts (legs intact), NOT flattened history rows
+    assert all("legs" in o for o in orders)
+    assert [o["id"] for o in orders][:1] == ["oo-1"]  # newest first (2026-07-02)
+    spread = next(o for o in orders if o["id"] == "oo-1")
+    assert spread["chain_symbol"] == "SPXW"
+    assert len(spread["legs"]) == 2  # spread kept as ONE order, not split
+
+
+# ------------------------------------------------- --with-strategies (CLI)
+
+def test_cli_with_strategies_writes_rollup(workdir, stub_connection):
+    assert run_cli(workdir, "--with-strategies") == EXIT_OK
+    data = json.loads((workdir / "strategies.json").read_text())
+    assert set(data) == {"open", "closed", "as_of"}
+    assert data["as_of"] == AS_OF
+    # OPEN: shorts INCLUDED (contrast the lots view which skips them)
+    opens = {(s["underlying"], s["expiration"]): s for s in data["open"]}
+    assert ("SOXS", "2026-07-10") in opens  # the short IS here
+    assert opens[("SOXS", "2026-07-10")]["legs"][0]["position_type"] == "short"
+    assert all(s["account"] == "rh-margin" for s in data["open"])
+    # CLOSED: one row per order, tagged with the vantage account for merge
+    assert len(data["closed"]) == len(CANNED_OPTION_ORDERS["orders"])
+    assert all(r["_vantage_account"] == "rh-margin" for r in data["closed"])
+
+
+def test_breakout_implies_strategies(workdir, stub_connection):
+    assert run_cli(workdir, "--breakout") == EXIT_OK
+    assert (workdir / "strategies.json").exists()
+    data = json.loads((workdir / "strategies.json").read_text())
+    assert data["open"] and data["closed"]
+
+
+def test_cli_dry_run_strategies_writes_nothing(workdir, stub_connection, capsys):
+    assert run_cli(workdir, "--with-strategies", "--dry-run") == EXIT_OK
+    out = capsys.readouterr().out
+    assert "strateg" in out and "nothing written" in out
+    assert not (workdir / "strategies.json").exists()
+
+
+def test_strategies_merge_keeps_other_accounts(workdir, stub_connection):
+    # seed a strategies.json for a different account; the import must keep it
+    (workdir / "strategies.json").write_text(json.dumps({
+        "open": [{"underlying": "ZZZ", "expiration": "2026-09-18",
+                  "account": "other-acct", "kind": "single", "name": "long call"}],
+        "closed": [{"order_id": "old", "_vantage_account": "other-acct"}],
+        "as_of": "2026-01-01",
+    }), encoding="utf-8")
+    assert run_cli(workdir, "--with-strategies") == EXIT_OK
+    data = json.loads((workdir / "strategies.json").read_text())
+    accts = {s["account"] for s in data["open"]}
+    assert accts == {"rh-margin", "other-acct"}  # other kept, backup made
+    assert any(p.name.startswith("strategies.json.bak-")
+               for p in workdir.iterdir())
+
+
+def test_with_strategies_rejected_for_csv_brokers(tmp_path, capsys):
+    csv = tmp_path / "x.csv"
+    csv.write_text("account,symbol,date,shares,costPerShare\n")
+    rc = importer.main([str(csv), "--broker", "generic", "--with-strategies",
                         "--account", "a"])
     assert rc == EXIT_USER_ERROR
     assert "only valid with an API broker" in capsys.readouterr().err

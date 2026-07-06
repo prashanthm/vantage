@@ -182,6 +182,32 @@ class Store:
         out.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
         return out
 
+    def load_strategies(self) -> dict:
+        """Options strategy roll-up (<data_dir>/strategies.json — optional file
+        written by the importer's --with-strategies). TOLERANT of a missing
+        file: returns {"open": [], "closed": [], "as_of": None} so the API/MCP
+        surface an empty state instead of erroring (fixture datasets have none).
+
+        The file is {open: [...], closed: [...], as_of}; malformed sections
+        degrade to empty lists rather than raising — the roll-up is derived,
+        advisory data, not a load-time invariant like lots."""
+        path = self.data_dir / "strategies.json"
+        if not path.is_file():
+            return {"open": [], "closed": [], "as_of": None}
+        data = _read_json(path)
+        if not isinstance(data, dict):
+            raise StoreError(f"{path}: top level must be a JSON object with "
+                             "'open' and 'closed' keys")
+        open_rows = data.get("open")
+        closed_rows = data.get("closed")
+        return {
+            "open": [r for r in open_rows if isinstance(r, dict)]
+            if isinstance(open_rows, list) else [],
+            "closed": [r for r in closed_rows if isinstance(r, dict)]
+            if isinstance(closed_rows, list) else [],
+            "as_of": data.get("as_of"),
+        }
+
     def load_signals(self):
         """Authored trade signals (<data_dir>/signals.json — optional file).
         Returns tuple[Signal, ...]; statuses are computed, never stored."""

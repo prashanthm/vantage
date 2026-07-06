@@ -187,6 +187,52 @@ Read it back via `GET /api/history[?account=][&limit=]` or the
 `vantage.history` MCP tool — both read `history.json` per request (empty list
 when nothing has been imported) and answer newest first.
 
+### `--with-strategies`: options strategy roll-up
+
+`--with-strategies` (implied by `--breakout`) writes an options **strategy
+roll-up** to `<data-dir>/strategies.json` — `{open: [...], closed: [...],
+as_of}` — merged by account and backed up first (`strategies.json.bak-<ISO>`),
+exactly like the history writer. It layers strategy-level P&L on top of the
+per-leg option positions the lots view already imports.
+
+**Open vs. closed — two honest views of different things:**
+
+- **`open`** — your CURRENTLY-OPEN option positions grouped by
+  `(underlying, expiration)` and classified from **leg geometry** (never the
+  broker's label — Robinhood tags every 3+ leg custom order `"custom"`):
+  `single`, a named `vertical` (bull/bear × call/put × debit/credit),
+  `butterfly` (3 strikes, 1-2-1 ratio, wings vs. body), `iron` condor/butterfly
+  (4 legs, 2 puts + 2 calls), `multi-leg` (two same-side same-type legs — the
+  real FISV 50C + 60C both-long case), or a `complex (<n> legs)` fallback that
+  is still correctly priced and never dropped. Each carries `net_cost` (signed
+  debit: positive = you paid), `current_value` (Σ long marks − Σ short marks;
+  `null` when a leg is unmarked), `unrealized`, `max_profit`/`max_loss` for
+  classic verticals, `dte`, and the netted legs. **Short legs ARE included
+  here** — this is the whole point of the roll-up: it nets long against short.
+  Contrast the **lots view** (`--breakout`), which *skips* short legs because
+  the engine rejects negative-share lots; there a short is absorbed into the
+  CASH remainder, here it is a real leg of its strategy.
+- **`closed`** — one row **per option ORDER** from the order history (spreads
+  are a single order at Robinhood, so one order = one row — the honest realized
+  view). Each row carries the broker `name`, a geometry-derived `structure`/
+  `kind`, `direction` (credit/debit), signed `cash` moved (filled credit
+  positive, filled debit negative; cancelled/rejected = 0), `state`, `filled`,
+  and per-leg summaries with `ratio_quantity` and real `contracts` honored (the
+  live call-butterfly's 2× middle leg is weighted correctly). Realize P&L on
+  `filled` rows only; cancelled/rejected rows are kept **with their state** so
+  the UI can render them muted.
+
+Realized open→close **pairing** (`strategies.realized_pnl_pairs`) is offered as
+a best-effort helper only: it nets an opening order against its closing order
+when the match on `(chain, expiries, strikes)` is unambiguous, and leaves
+everything else *unpaired* rather than inventing a match. The importer/API
+surface the per-order `closed` view (not pairs) because it is unambiguous.
+
+Read it back via `GET /api/strategies[?account=][&status=open|closed]` or the
+`vantage.strategies` MCP tool — both read `strategies.json` per request (empty
+roll-up when nothing imported). An `account` filter narrows the `open` rows
+(closed rows carry no Vantage account — they are masked broker-order rows).
+
 
 `--broker robinhood` (the first live broker connection module) syncs
 positions straight from Robinhood's official Agentic Trading API (MCP over

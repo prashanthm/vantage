@@ -198,6 +198,37 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                         history=to_jsonable(rows[:max(int(limit), 0)]))
 
     @mcp.tool(
+        name="vantage.strategies",
+        annotations=_READ_ONLY,
+        description="Options STRATEGY roll-up (importer --with-strategies): "
+                    "OPEN strategies grouped from current option positions "
+                    "(single/vertical/butterfly/iron/calendar/multi-leg/complex, "
+                    "with net_cost, current_value, unrealized, max_profit/loss, "
+                    "dte) — SHORT LEGS INCLUDED and netted, unlike the lots view "
+                    "— plus CLOSED per-order rows from option order history "
+                    "(one row per spread order: direction, signed cash moved, "
+                    "state; realize only 'filled'). Optional account filter "
+                    "(open rows only; closed rows carry no vantage account) and "
+                    "status open|closed|all. Empty when nothing imported.",
+    )
+    def strategies(account: str = "all", status: str = "all") -> dict:
+        snap = snapshot()
+        # Read per call: strategies.json appears/changes on import.
+        rollup = store.load_strategies()
+        open_rows = rollup["open"]
+        closed_rows = rollup["closed"]
+        if account != "all":
+            open_rows = [r for r in open_rows if r.get("account") == account]
+            closed_rows = []  # closed rows have no vantage account id
+        if status == "open":
+            closed_rows = []
+        elif status == "closed":
+            open_rows = []
+        return envelope("strategies", snap, account=account, status=status,
+                        strategies_as_of=rollup["as_of"],
+                        open=to_jsonable(open_rows), closed=to_jsonable(closed_rows))
+
+    @mcp.tool(
         name="vantage.quotes",
         annotations=_READ_ONLY,
         description="Current quote snapshot (price, day %, asset class) for every "

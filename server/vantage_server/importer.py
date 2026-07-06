@@ -75,6 +75,7 @@ import re
 import sys
 from pathlib import Path
 
+from . import strategies as strategies_engine
 from .brokers import CONNECTIONS, BrokerConnectionError, get_connection
 from .store import StoreError, resolve_data_dir
 
@@ -647,6 +648,48 @@ def write_history(
     return path, backup
 
 
+def write_strategies(
+    data_dir: str | Path, account: str, open_rows: list[dict],
+    closed_rows: list[dict], as_of: str, *, now: _dt.datetime | None = None,
+) -> tuple[Path, Path | None]:
+    """Snapshot the options strategy roll-up to <data_dir>/strategies.json.
+
+    File shape: {"open": [...], "closed": [...], "as_of": <iso>}. Merge-by-
+    account like history: THIS account's previous open rows (tagged with an
+    ``account`` field) are replaced and its closed rows (tagged
+    ``_vantage_account``) are replaced, every other account's rows are kept; the
+    previous file is ALWAYS backed up first (strategies.json.bak-<ISO>).
+    Returns (path, backup | None)."""
+    now = now or _dt.datetime.now()
+    path = Path(data_dir) / "strategies.json"
+    existing_open: list[dict] = []
+    existing_closed: list[dict] = []
+    backup: Path | None = None
+    if path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            raise ImporterError(f"{path}: invalid JSON ({e})") from e
+        if isinstance(data, dict):
+            existing_open = [r for r in (data.get("open") or []) if isinstance(r, dict)]
+            existing_closed = [r for r in (data.get("closed") or []) if isinstance(r, dict)]
+        stamp = now.isoformat(timespec="seconds").replace(":", "-")
+        backup = path.with_name(f"strategies.json.bak-{stamp}")
+        backup.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    # tag the freshly-built rows with the account so re-imports merge cleanly
+    tagged_open = [dict(r, account=account) for r in open_rows]
+    tagged_closed = [dict(r, _vantage_account=account) for r in closed_rows]
+    kept_open = [r for r in existing_open if r.get("account") != account]
+    kept_closed = [r for r in existing_closed if r.get("_vantage_account") != account]
+    merged = {
+        "open": tagged_open + kept_open,
+        "closed": tagged_closed + kept_closed,
+        "as_of": as_of,
+    }
+    path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    return path, backup
+
+
 # ----------------------------------------------------------------- account
 
 def _parse_add_account(spec: str) -> dict:
@@ -717,6 +760,13 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="API broker connections only: also snapshot the account's "
                         "equity+option order history to <data-dir>/history.json "
                         "(merge by account, backed up like lots.json)")
+    p.add_argument("--with-strategies", action="store_true",
+                   help="API broker connections only: also write the options "
+                        "STRATEGY roll-up to <data-dir>/strategies.json — open "
+                        "strategies (short legs INCLUDED, netted) from current "
+                        "positions + closed per-order rows from option order "
+                        "history (implied by --breakout; merge by account, "
+                        "backed up like lots.json)")
     p.add_argument("--auth", action="store_true",
                    help="API broker connections only: run the connection's one-time "
                         "authorization flow (e.g. browser OAuth), save the token, "
@@ -796,6 +846,9 @@ def _run(args: argparse.Namespace) -> int:
 
     quote_entries: dict[str, dict] = {}
     history_rows: list[dict] | None = None
+    strategy_rollup: dict | None = None
+    option_positions: list[dict] | None = None  # reused by breakout + strategies
+    want_strategies = args.with_strategies or args.breakout
 
     if args.broker in CONNECTIONS:
         conn = get_connection(args.broker)()
@@ -815,9 +868,9 @@ def _run(args: argparse.Namespace) -> int:
                 raise ImporterError(
                     f"{args.broker}: --breakout is not supported (no option-"
                     "positions capability on this connection)")
-            options = _api(args.broker, fetch_opts, args.broker_account)
+            option_positions = _api(args.broker, fetch_opts, args.broker_account)
             opt_lots, opt_quotes, opt_warnings, options_value = \
-                option_lots_and_quotes(options, args.account, as_of)
+                option_lots_and_quotes(option_positions, args.account, as_of)
             lots.extend(opt_lots)
             quote_entries.update(opt_quotes)
             warnings.extend(opt_warnings)
@@ -853,12 +906,32 @@ def _run(args: argparse.Namespace) -> int:
             history_rows = _api(args.broker, fetch_hist, args.broker_account)
             for row in history_rows:
                 row["account"] = args.account
+        if want_strategies:
+            fetch_opts = getattr(conn, "fetch_option_positions", None)
+            fetch_orders = getattr(conn, "fetch_option_orders", None)
+            if fetch_opts is None or fetch_orders is None:
+                raise ImporterError(
+                    f"{args.broker}: --with-strategies is not supported (needs "
+                    "option-positions and option-orders capabilities)")
+            # Reuse the breakout fetch when it already ran; otherwise fetch now.
+            if option_positions is None:
+                option_positions = _api(args.broker, fetch_opts, args.broker_account)
+            option_orders = _api(args.broker, fetch_orders, args.broker_account)
+            open_strats = strategies_engine.group_open_strategies(
+                option_positions, as_of=as_of)
+            closed_strats = strategies_engine.closed_strategies_from_orders(
+                option_orders)
+            strategy_rollup = {
+                "open": open_strats,
+                "closed": closed_strats,
+                "as_of": as_of,
+            }
         source = f"{conn.display_name} account ...{args.broker_account[-4:]}"
     else:
-        if args.breakout or args.with_history:
+        if args.breakout or args.with_history or args.with_strategies:
             raise ImporterError(
-                "--breakout/--with-history are only valid with an API broker "
-                f"connection ({', '.join(sorted(CONNECTIONS))})")
+                "--breakout/--with-history/--with-strategies are only valid with "
+                f"an API broker connection ({', '.join(sorted(CONNECTIONS))})")
         if not args.csv_file:
             raise ImporterError(f"a positions CSV file is required for --broker {args.broker}")
         csv_path = Path(args.csv_file)
@@ -919,6 +992,10 @@ def _run(args: argparse.Namespace) -> int:
         if history_rows is not None:
             print(f"would write {len(history_rows)} history row(s) to "
                   f"{data_dir / 'history.json'}; nothing written")
+        if strategy_rollup is not None:
+            print(f"would write {len(strategy_rollup['open'])} open + "
+                  f"{len(strategy_rollup['closed'])} closed strateg(ies) to "
+                  f"{data_dir / 'strategies.json'}; nothing written")
         return EXIT_OK
 
     backup = write_lots(data_dir, final)
@@ -933,6 +1010,14 @@ def _run(args: argparse.Namespace) -> int:
             data_dir, args.account, history_rows)
         print(f"wrote {len(history_rows)} history row(s) to {history_path}"
               + (f" (backup: {history_backup})" if history_backup
+                 else " (no previous file to back up)"))
+    if strategy_rollup is not None:
+        strat_path, strat_backup = write_strategies(
+            data_dir, args.account, strategy_rollup["open"],
+            strategy_rollup["closed"], strategy_rollup["as_of"])
+        print(f"wrote {len(strategy_rollup['open'])} open + "
+              f"{len(strategy_rollup['closed'])} closed strateg(ies) to {strat_path}"
+              + (f" (backup: {strat_backup})" if strat_backup
                  else " (no previous file to back up)"))
     return EXIT_OK
 

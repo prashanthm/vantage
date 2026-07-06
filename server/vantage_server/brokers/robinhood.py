@@ -506,6 +506,30 @@ def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
         )]
 
 
+def _option_orders(account_number: str, *, limit: int = 200) -> list[dict]:
+    """RAW-but-unwrapped get_option_orders rows (the shape documented in
+    _normalize_option_order), newest first. The single network path for option
+    orders — both fetch_history and fetch_option_orders read through it."""
+    orders = _paged("get_option_orders", {"account_number": account_number},
+                    "orders", max_rows=limit)[:limit]
+    orders.sort(key=lambda o: str(o.get("created_at") or "") if isinstance(o, dict) else "",
+                reverse=True)
+    return orders
+
+
+def fetch_option_orders(account_number: str, *, limit: int = 200) -> list[dict]:
+    """Option order HISTORY as RAW-but-unwrapped order dicts (the live
+    get_option_orders shape — chain_symbol, opening_strategy/closing_strategy,
+    direction, price, state, legs[], ...), newest first.
+
+    Deliberately NOT normalized to history rows: the strategy roll-up
+    (strategies.closed_strategies_from_orders) needs the intact per-order,
+    per-leg structure that _normalize_option_order flattens to one row per leg.
+    Reuses the same allowlisted get_option_orders read as fetch_history — no new
+    network path."""
+    return _option_orders(account_number, limit=limit)
+
+
 def fetch_history(account_number: str, *, limit: int = 200) -> list[dict]:
     """Combined equity + option order history, newest first, normalized to
     the history-row contract (see _history_row). ``account`` is left empty —
@@ -516,8 +540,7 @@ def fetch_history(account_number: str, *, limit: int = 200) -> list[dict]:
     for order in _paged("get_equity_orders", {"account_number": account_number},
                         "orders", max_rows=limit)[:limit]:
         rows.append(_normalize_equity_order(order, masked))
-    for order in _paged("get_option_orders", {"account_number": account_number},
-                        "orders", max_rows=limit)[:limit]:
+    for order in _option_orders(account_number, limit=limit):
         rows.extend(_normalize_option_order(order, masked))
     rows.sort(key=lambda r: r.get("date") or "", reverse=True)
     return rows[:limit]
@@ -550,6 +573,9 @@ class RobinhoodConnection:
 
     def fetch_history(self, account_number: str, *, limit: int = 200) -> list[dict]:
         return fetch_history(account_number, limit=limit)
+
+    def fetch_option_orders(self, account_number: str, *, limit: int = 200) -> list[dict]:
+        return fetch_option_orders(account_number, limit=limit)
 
     def list_accounts(self) -> list[dict]:
         return list_accounts()

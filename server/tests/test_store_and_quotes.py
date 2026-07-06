@@ -87,6 +87,36 @@ def test_load_history_rejects_non_array(tmp_path):
         Store(tmp_path).load_history()
 
 
+def test_load_strategies_missing_file_is_empty_rollup(data_dir):
+    # the fixture data dir never has a strategies.json — empty state, no error
+    assert Store(data_dir).load_strategies() == {
+        "open": [], "closed": [], "as_of": None}
+
+
+def test_load_strategies_reads_open_closed_and_as_of(tmp_path):
+    _write(tmp_path, "strategies.json", {
+        "open": [{"underlying": "PLTR", "kind": "vertical"}, "junk"],
+        "closed": [{"order_id": "oo-1"}],
+        "as_of": "2026-07-05",
+    })
+    rollup = Store(tmp_path).load_strategies()
+    assert [s["underlying"] for s in rollup["open"]] == ["PLTR"]  # non-dict dropped
+    assert rollup["closed"][0]["order_id"] == "oo-1"
+    assert rollup["as_of"] == "2026-07-05"
+
+
+def test_load_strategies_tolerates_missing_sections(tmp_path):
+    _write(tmp_path, "strategies.json", {"as_of": "2026-07-05"})
+    rollup = Store(tmp_path).load_strategies()
+    assert rollup["open"] == [] and rollup["closed"] == []
+
+
+def test_load_strategies_rejects_non_object(tmp_path):
+    _write(tmp_path, "strategies.json", ["not", "an", "object"])
+    with pytest.raises(StoreError, match="must be a JSON object"):
+        Store(tmp_path).load_strategies()
+
+
 def test_partner_map_shape_enforced(tmp_path):
     _write(tmp_path, "partner_map.json", ["VOO", "VTI"])
     with pytest.raises(StoreError, match="partner_map"):

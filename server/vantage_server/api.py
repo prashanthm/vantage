@@ -157,6 +157,34 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             rows = [r for r in rows if r.get("account") == account]
         return envelope(snap, account=account, history=rows[:limit])
 
+    @app.get("/api/strategies")
+    def strategies(account: str = Query("all"),
+                   status: str = Query("all")):
+        """Options strategy roll-up (importer --with-strategies), read PER
+        REQUEST from strategies.json (appears/changes on import; no restart).
+        A missing file is an empty roll-up. ``status`` filters open|closed|all;
+        ``account`` filters open rows by their account id (closed rows carry no
+        vantage account — they are masked broker-order rows — so an account
+        filter narrows to open only)."""
+        check_account(account)
+        if status not in {"all", "open", "closed"}:
+            raise HTTPException(status_code=422,
+                                detail="status must be one of all|open|closed")
+        snap = state.snapshot()
+        rollup = store.load_strategies()
+        open_rows = rollup["open"]
+        closed_rows = rollup["closed"]
+        if account != "all":
+            open_rows = [r for r in open_rows if r.get("account") == account]
+            closed_rows = []  # closed rows have no vantage account id
+        if status == "open":
+            closed_rows = []
+        elif status == "closed":
+            open_rows = []
+        return envelope(snap, account=account, status=status,
+                        strategies_as_of=rollup["as_of"],
+                        open=open_rows, closed=closed_rows)
+
     @app.get("/api/quotes")
     def quotes():
         snap = state.snapshot()

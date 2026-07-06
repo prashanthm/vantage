@@ -21,6 +21,7 @@ EXPECTED_TOOLS = {
     "vantage.quotes",
     "vantage.signals",
     "vantage.history",
+    "vantage.strategies",
 }
 
 
@@ -191,6 +192,63 @@ def test_history_round_trip_with_imported_rows(tmp_path, data_dir):
 
     payload = tool_payload(run_with_client(mcp, filtered))
     assert [r["kind"] for r in payload["history"]] == ["option"]
+
+
+# --- strategies tool ---
+
+
+def test_strategies_empty_state_on_fixture_dataset(mcp):
+    """The fixture data dir carries no strategies.json — the tool answers an
+    empty roll-up with provenance, never an error."""
+    async def interact(client):
+        return await client.call_tool("vantage.strategies", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["open"] == [] and payload["closed"] == []
+    assert payload["account"] == "all" and payload["status"] == "all"
+    assert payload["provenance"]["source_type"] == "vantage"
+
+
+def test_strategies_round_trip_with_filters(tmp_path, data_dir):
+    rollup = {
+        "open": [
+            {"underlying": "PLTR", "expiration": "2026-08-21",
+             "account": "fid-taxable", "kind": "vertical",
+             "name": "bull call (debit) spread", "status": "open"},
+            {"underlying": "FISV", "expiration": "2026-08-21",
+             "account": "wf-robo", "kind": "multi-leg", "status": "open"},
+        ],
+        "closed": [
+            {"order_id": "oo-1", "_vantage_account": "fid-taxable",
+             "underlying": "SPXW", "direction": "credit", "cash": 300.0,
+             "state": "filled", "filled": True},
+        ],
+        "as_of": "2026-07-05",
+    }
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(),
+                                     encoding="utf-8")
+    (tmp_path / "strategies.json").write_text(json.dumps(rollup), encoding="utf-8")
+    mcp = create_mcp(tmp_path)
+
+    async def all_rows(client):
+        return await client.call_tool("vantage.strategies", {})
+
+    payload = tool_payload(run_with_client(mcp, all_rows))
+    assert len(payload["open"]) == 2 and len(payload["closed"]) == 1
+    assert payload["strategies_as_of"] == "2026-07-05"
+    assert payload["provenance"] == {"source_type": "vantage",
+                                     "source_id": f"{tmp_path}#strategies"}
+
+    async def filtered(client):
+        return await client.call_tool(
+            "vantage.strategies", {"account": "fid-taxable", "status": "open"})
+
+    payload = tool_payload(run_with_client(mcp, filtered))
+    assert [s["underlying"] for s in payload["open"]] == ["PLTR"]
+    assert payload["closed"] == []  # account filter drops account-less closed rows
 
 
 # --- signals tool round-trips (moved with the vantage-mcp split) ---

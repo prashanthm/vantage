@@ -26,6 +26,7 @@ ALL_GET_ROUTES = [
     "/api/quotes",
     "/api/signals",
     "/api/history",
+    "/api/strategies",
 ]
 
 
@@ -181,6 +182,68 @@ def test_history_reads_per_request_no_restart_needed(tmp_path, data_dir):
     assert client.get("/api/history").json()["history"] == []
     (tmp_path / "history.json").write_text(json.dumps(HISTORY_ROWS), encoding="utf-8")
     assert len(client.get("/api/history").json()["history"]) == 3
+
+
+# ----------------------------------------------------------- strategies
+
+STRATEGY_ROLLUP = {
+    "open": [
+        {"underlying": "PLTR", "expiration": "2026-08-21", "account": "fid-taxable",
+         "kind": "vertical", "name": "bull call (debit) spread", "net_cost": 400.0,
+         "current_value": 450.0, "unrealized": 50.0, "status": "open"},
+        {"underlying": "FISV", "expiration": "2026-08-21", "account": "wf-robo",
+         "kind": "multi-leg", "name": "multi-leg (call)", "status": "open"},
+    ],
+    "closed": [
+        {"order_id": "oo-1", "_vantage_account": "fid-taxable", "underlying": "SPXW",
+         "direction": "credit", "cash": 300.0, "state": "filled", "filled": True},
+        {"order_id": "oo-2", "_vantage_account": "fid-taxable", "underlying": "SNK",
+         "direction": "credit", "cash": 0.0, "state": "cancelled", "filled": False},
+    ],
+    "as_of": "2026-07-05",
+}
+
+
+def test_strategies_empty_state_on_fixture_dataset(client):
+    body = client.get("/api/strategies").json()
+    assert body["open"] == [] and body["closed"] == []
+    assert body["strategies_as_of"] is None
+    assert body["account"] == "all" and body["status"] == "all"
+
+
+def test_strategies_contract_filters_and_per_request(tmp_path, data_dir):
+    import json
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    client = TestClient(create_app(tmp_path))
+    assert client.get("/api/strategies").json()["open"] == []  # no file yet
+    (tmp_path / "strategies.json").write_text(json.dumps(STRATEGY_ROLLUP),
+                                              encoding="utf-8")
+    body = client.get("/api/strategies").json()  # read per request, no restart
+    assert len(body["open"]) == 2 and len(body["closed"]) == 2
+    assert body["strategies_as_of"] == "2026-07-05"
+
+    # status filter
+    only_open = client.get("/api/strategies", params={"status": "open"}).json()
+    assert only_open["open"] and only_open["closed"] == []
+    only_closed = client.get("/api/strategies", params={"status": "closed"}).json()
+    assert only_closed["closed"] and only_closed["open"] == []
+
+    # account filter narrows open rows; closed rows (no vantage account) dropped
+    fid = client.get("/api/strategies", params={"account": "fid-taxable"}).json()
+    assert [s["underlying"] for s in fid["open"]] == ["PLTR"]
+    assert fid["closed"] == []
+
+
+def test_strategies_unknown_account_404(client):
+    assert client.get("/api/strategies",
+                      params={"account": "etrade"}).status_code == 404
+
+
+def test_strategies_bad_status_422(client):
+    assert client.get("/api/strategies",
+                      params={"status": "nope"}).status_code == 422
 
 
 # ------------------------------------------------- read-only guarantee

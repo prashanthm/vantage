@@ -5,9 +5,14 @@ The **AI-facing MCP tool surface** for Vantage — its own project, depending on
 Mira (the AI layer) consumes these tools; it performs no portfolio math of its own.
 
 Serves `vantage.*` read-only tools (positions, allocation, wash_status,
-tlh_candidates, lots, quotes, signals, history) over MCP streamable HTTP on
-`127.0.0.1:8640/mcp`. Every result carries a provenance block so AI answers can
-attribute every number.
+tlh_candidates, lots, quotes, signals, history, strategies) over MCP streamable
+HTTP on `127.0.0.1:8640/mcp`. Every result carries a provenance block so AI
+answers can attribute every number.
+
+`vantage.strategies` returns the options strategy roll-up (importer
+`--with-strategies`): `open` strategies netted from current positions (short
+legs INCLUDED, unlike the lots view) and `closed` per-order rows from option
+order history. Filter by `account` (open rows) and `status` (open|closed|all).
 
 ```bash
 make setup     # venv + editable install of ../server and this package
