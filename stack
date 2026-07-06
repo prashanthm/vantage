@@ -103,11 +103,55 @@ cmd_logs() {
   if [ -n "$which" ]; then tail -f "$LOG_DIR/$which.log"; else tail -f "$LOG_DIR"/*.log; fi
 }
 
+# --- nightly EOD pipeline schedule (launchd) ---------------------------------
+CRON_LABEL="com.pmuniraju.vantage.nightly"
+CRON_PLIST="$HOME/Library/LaunchAgents/$CRON_LABEL.plist"
+
+cmd_cron_install() {
+  local repo; repo="$(pwd)"
+  cat > "$CRON_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$CRON_LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>$repo/nightly.sh</string></array>
+  <key>WorkingDirectory</key><string>$repo</string>
+  <key>EnvironmentVariables</key>
+  <dict><key>TZ</key><string>America/New_York</string><key>PYTHONUNBUFFERED</key><string>1</string></dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>5</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>$repo/$LOG_DIR/nightly.log</string>
+  <key>StandardErrorPath</key><string>$repo/$LOG_DIR/nightly.log</string>
+</dict>
+</plist>
+PLIST
+  launchctl bootout "gui/$(id -u)/$CRON_LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$CRON_PLIST"
+  echo "installed $CRON_LABEL — weeknights 17:45 ET → nightly.sh (bars + analyze). Logs: $LOG_DIR/nightly.log"
+}
+
+cmd_cron_uninstall() {
+  launchctl bootout "gui/$(id -u)/$CRON_LABEL" 2>/dev/null || true
+  rm -f "$CRON_PLIST"
+  echo "uninstalled $CRON_LABEL"
+}
+
 case "${1:-}" in
   setup)  cmd_setup ;;
   start)  shift; cmd_start "${1:-}" ;;
   stop)   cmd_stop ;;
   status) cmd_status ;;
   logs)   shift; cmd_logs "${1:-}" ;;
-  *) sed -n '2,12p' "$0"; exit 1 ;;
+  nightly) shift; ./nightly.sh "${1:-}" ;;
+  cron-install)   cmd_cron_install ;;
+  cron-uninstall) cmd_cron_uninstall ;;
+  *) sed -n '2,14p' "$0"; exit 1 ;;
 esac
