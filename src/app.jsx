@@ -207,7 +207,7 @@ function App() {
           {route === "tax" && <TaxView {...viewProps} />}
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "markets" && <MarketsView {...viewProps} />}
-          {route === "options" && <OptionsView setSymbol={setSymbol} go={go} />}
+          {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
         </main>
 

@@ -714,28 +714,6 @@
     return /* @__PURE__ */ React.createElement(FAQItem, { question: "What are the AI markers?", open, onToggle: () => setOpen(!open) }, "Blue triangles mark AI-detected accumulation/entry zones, red triangles distribution/exit pressure, and gold dots contextual notes (bias flips, TLH windows on lots you own). In this prototype both the candles and the markers are simulated \u2014 educational only, never trading advice.");
   }
 
-  // src/options.jsx
-  var { useState: useState2 } = React;
-  var { SecurityCard, FAQItem: FAQItem2 } = window.LookeyDS;
-  function OptionsView({ setSymbol, go }) {
-    const [faq, setFaq] = useState2(false);
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Options Intelligence"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Volatility context, income ideas generated against your holdings, and unusual flow \xB7 educational only"), /* @__PURE__ */ React.createElement("div", { className: "vg-ivgrid" }, Object.entries(OPTIONS_CONTEXT).map(([sym, c]) => /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        key: sym,
-        className: "vg-ivtile",
-        onClick: () => {
-          setSymbol(sym);
-          go("charts");
-        },
-        title: `Open ${sym} on AI Charts`
-      },
-      /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("b", null, sym), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", c.ivRank >= 60 ? "warn" : c.ivRank >= 40 ? "info" : "plain") }, "IV rank ", c.ivRank)),
-      /* @__PURE__ */ React.createElement("div", { className: "vg-meter", style: { margin: "8px 0 6px" } }, /* @__PURE__ */ React.createElement("span", { style: { width: `${c.ivRank}%`, background: c.ivRank >= 60 ? "#ca8a04" : "var(--color-primary)" } })),
-      /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "exp. move ", c.expMove, " \xB7 P/C ", c.pcr.toFixed(2))
-    ))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 20px" } }, "High IV rank = rich premium (favor selling); low = cheap optionality (favor buying). Click a tile to open the chart."), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Income ideas on your book"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "screened across all 4 accounts \xB7 premiums are mock")), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginBottom: 20 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Idea"), /* @__PURE__ */ React.createElement("th", null, "Backing"), /* @__PURE__ */ React.createElement("th", null, "Contract"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "\u0394"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Premium"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Ann. yield"), /* @__PURE__ */ React.createElement("th", null, "Note"))), /* @__PURE__ */ React.createElement("tbody", null, INCOME_IDEAS.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.kind === "Not yet eligible" ? "plain" : "good") }, r.kind), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, r.sym))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-chip" }, acctOf(r.acct).short), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, r.basis)), /* @__PURE__ */ React.createElement("td", null, r.contract), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.delta != null ? r.delta.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.premium != null ? `$${r.premium.toFixed(2)}` : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.yieldAnn != null ? `${r.yieldAnn.toFixed(1)}%` : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "vg-note", style: { maxWidth: 260 } }, r.note)))))), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Unusual options activity"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "large prints & sweeps \xB7 mock feed")), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginBottom: 20 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Ticker"), /* @__PURE__ */ React.createElement("th", null, "Flow"), /* @__PURE__ */ React.createElement("th", null, "Contract"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Premium"), /* @__PURE__ */ React.createElement("th", null, "Read"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Conf"))), /* @__PURE__ */ React.createElement("tbody", null, OPTIONS_FLOW.map((f, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, f.sym), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, f.time)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", f.side === "CALL" ? "good" : "bad") }, f.side, " ", f.kind)), /* @__PURE__ */ React.createElement("td", null, f.detail), /* @__PURE__ */ React.createElement("td", { className: "num" }, f.premium), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-bias", f.sentiment), style: { fontSize: 12 } }, f.sentiment)), /* @__PURE__ */ React.createElement("td", { className: "num" }, f.conf, "%")))))), /* @__PURE__ */ React.createElement("div", { className: "vg-grid2", style: { marginBottom: 20 } }, /* @__PURE__ */ React.createElement(SecurityCard, { accent: "teal", title: "Premium pairs well with your TLH calendar" }, "Selling calls against a lot you plan to harvest can wash the loss if assigned early. Vantage cross-checks every income idea against your Tax Center before suggesting it."), /* @__PURE__ */ React.createElement(SecurityCard, { accent: "orange", title: "Approval levels differ per account" }, "Roth allows covered calls and CSPs at most brokers; 401(k)s rarely allow options at all. Ideas are tagged with the account they're actually executable in.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(FAQItem2, { question: "How are income ideas generated?", open: faq, onToggle: () => setFaq(!faq) }, "The screener looks for positions of 100+ shares (covered calls) and idle cash (cash-secured puts) in each linked account, targets ~0.20\u20130.30 delta at the next monthly expiry, and ranks by annualized premium yield adjusted for IV rank. In this prototype the chains are simulated \u2014 educational only, not advice.")));
-  }
-
   // src/live.js
   async function getJson(url, { timeoutMs = 2500 } = {}) {
     const ctrl = new AbortController();
@@ -770,6 +748,13 @@
     if (limit != null) q.set("limit", String(limit));
     const qs = q.toString();
     return getJson(`${backendBase()}/api/history${qs ? `?${qs}` : ""}`);
+  };
+  var getStrategies = (account = "all", status) => {
+    const q = new URLSearchParams();
+    if (account && account !== "all") q.set("account", account);
+    if (status) q.set("status", status);
+    const qs = q.toString();
+    return getJson(`${backendBase()}/api/strategies${qs ? `?${qs}` : ""}`);
   };
   var mapLot = (l) => ({
     account: l.account,
@@ -872,6 +857,64 @@
       // "filled" | "cancelled" | "open" | ...
     }));
   }
+  var mapStrategyLeg = (l) => ({
+    side: l.side,
+    // "buy" | "sell"
+    optionType: l.option_type,
+    // "call" | "put"
+    strike: l.strike,
+    contracts: l.contracts,
+    positionType: l.position_type,
+    // "long" | "short" (open legs)
+    ratio: l.ratio,
+    // closed legs
+    avgPrice: l.avg_price,
+    mark: l.mark
+  });
+  function mapStrategies(payload) {
+    if (!payload || typeof payload !== "object") return null;
+    const open = payload.open;
+    const closed = payload.closed;
+    if (open != null && !Array.isArray(open)) return null;
+    if (closed != null && !Array.isArray(closed)) return null;
+    return {
+      open: (open || []).map((s) => ({
+        kind: s.kind,
+        name: s.name,
+        structure: s.structure,
+        underlying: s.underlying,
+        expiration: s.expiration,
+        dte: s.dte,
+        netCost: s.net_cost,
+        // signed debit: positive = you paid
+        currentValue: s.current_value,
+        // may be null if a leg is unmarked
+        unrealized: s.unrealized,
+        // null if currentValue null
+        account: s._vantage_account,
+        legs: (s.legs || []).map(mapStrategyLeg)
+      })),
+      closed: (closed || []).map((s) => ({
+        kind: s.kind,
+        name: s.name,
+        structure: s.structure,
+        underlying: s.underlying,
+        direction: s.direction,
+        // "credit" | "debit"
+        price: s.price,
+        multiplier: s.multiplier,
+        cash: s.cash,
+        // signed $ moved: buys negative
+        state: s.state,
+        // "filled" | "cancelled" | "rejected"
+        quantity: s.quantity,
+        timestamp: s.timestamp,
+        orderId: s.order_id,
+        account: s._vantage_account,
+        legs: (s.legs || []).map(mapStrategyLeg)
+      }))
+    };
+  }
   var miraHealth = () => getJson(`${miraBase()}/health`);
   var getExplanation = (correlationId) => getJson(`${miraBase()}/explain?correlation_id=${encodeURIComponent(correlationId)}`);
   var getInsights = () => getJson(`${miraBase()}/insights?domain=advisor`);
@@ -969,8 +1012,93 @@
     return { data: liveData != null ? liveData : fallback, isLive: liveData != null };
   }
 
+  // src/options.jsx
+  var { useState: useState2, useEffect: useEffect2 } = React;
+  var { SecurityCard, FAQItem: FAQItem2 } = window.LookeyDS;
+  var STRAT_PAGE = 40;
+  var stratLabel = (s) => s.structure || s.name || "strategy";
+  var KIND_CHIP = {
+    single: "SINGLE",
+    vertical: "SPREAD",
+    butterfly: "BUTTERFLY",
+    iron_condor: "CONDOR",
+    "multi-leg": "COMPLEX",
+    complex: "COMPLEX"
+  };
+  var kindChip = (kind) => KIND_CHIP[kind] || (kind ? String(kind).toUpperCase() : "STRATEGY");
+  var kindChipCls = (kind) => kind === "butterfly" || kind === "iron_condor" ? "info" : "plain";
+  var shortExp = (iso) => {
+    const d = /* @__PURE__ */ new Date((iso || "") + "T12:00:00");
+    return isNaN(d) ? String(iso || "\u2014") : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
+  var stratWhen = (iso) => {
+    const d = new Date(iso);
+    if (!iso || isNaN(d)) return { day: iso ? String(iso) : "\u2014", time: "" };
+    return {
+      day: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      time: d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    };
+  };
+  function StrategyLeg({ leg, underlying, expiration }) {
+    const n = leg.contracts != null ? leg.contracts : leg.ratio != null ? leg.ratio : 1;
+    const dir = leg.side === "sell" ? "\u2212" : "+";
+    const oc = leg.optionType === "put" ? "P" : "C";
+    const isShort = leg.positionType === "short" || leg.side === "sell";
+    const parts = [];
+    if (underlying) parts.push(underlying);
+    if (expiration) parts.push(shortExp(expiration));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { display: "flex", alignItems: "center", gap: 8, padding: "2px 0" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", isShort ? "bad" : "good"), style: { minWidth: 44, textAlign: "center" } }, isShort ? "short" : "long"), /* @__PURE__ */ React.createElement("span", { style: { fontVariantNumeric: "tabular-nums" } }, dir, Math.abs(n), " ", parts.join(" "), " ", leg.strike != null ? leg.strike : "?", oc), (leg.avgPrice != null || leg.mark != null) && /* @__PURE__ */ React.createElement("span", { style: { marginLeft: "auto", fontVariantNumeric: "tabular-nums" } }, leg.avgPrice != null ? usd(leg.avgPrice, 2) : "\u2014", " \u2192 ", leg.mark != null ? usd(leg.mark, 2) : "\u2014"));
+  }
+  function OpenStrategyRow({ s, expanded, onToggle }) {
+    const legs = s.legs || [];
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { onClick: onToggle, style: { cursor: "pointer" }, title: "Show legs" }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { style: { marginRight: 6, color: "var(--color-grey)" } }, expanded ? "\u25BE" : "\u25B8"), /* @__PURE__ */ React.createElement("b", null, stratLabel(s)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", kindChipCls(s.kind)), style: { marginLeft: 6 } }, kindChip(s.kind))), /* @__PURE__ */ React.createElement("td", null, s.underlying || "\u2014"), /* @__PURE__ */ React.createElement("td", null, shortExp(s.expiration), s.dte != null && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.dte, "d")), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.netCost != null ? usd(s.netCost) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.currentValue != null ? usd(s.currentValue) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: cls("num", s.unrealized == null ? "" : s.unrealized >= 0 ? "up" : "down") }, s.unrealized != null ? signUsd(s.unrealized) : "\u2014")), expanded && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { background: "var(--color-light)", padding: "6px 12px" } }, legs.length ? legs.map((leg, i) => /* @__PURE__ */ React.createElement(StrategyLeg, { key: i, leg, underlying: s.underlying, expiration: s.expiration })) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "no leg detail"))));
+  }
+  function ClosedStrategyRow({ s, expanded, onToggle }) {
+    const legs = s.legs || [];
+    const w = stratWhen(s.timestamp);
+    const dimmed = s.state === "cancelled";
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { onClick: onToggle, style: { cursor: "pointer", opacity: dimmed ? 0.55 : 1 }, title: "Show legs" }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { style: { marginRight: 6, color: "var(--color-grey)" } }, expanded ? "\u25BE" : "\u25B8"), /* @__PURE__ */ React.createElement("b", null, stratLabel(s)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", kindChipCls(s.kind)), style: { marginLeft: 6 } }, kindChip(s.kind))), /* @__PURE__ */ React.createElement("td", null, s.underlying || "\u2014"), /* @__PURE__ */ React.createElement("td", null, s.direction === "credit" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "credit"), s.direction === "debit" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "debit"), s.direction !== "credit" && s.direction !== "debit" && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: cls("num", s.cash == null ? "" : s.cash >= 0 ? "up" : "down") }, s.cash != null ? signUsd(s.cash) : "\u2014"), /* @__PURE__ */ React.createElement("td", null, s.state === "filled" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 12.5 } }, "filled"), s.state === "cancelled" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "cancelled"), s.state === "rejected" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "rejected"), s.state && !["filled", "cancelled", "rejected"].includes(s.state) && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, s.state), !s.state && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", null, w.day, w.time && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, w.time))), expanded && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { background: "var(--color-light)", padding: "6px 12px" } }, legs.length ? legs.map((leg, i) => /* @__PURE__ */ React.createElement(StrategyLeg, { key: i, leg, underlying: s.underlying })) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "no leg detail"))));
+  }
+  function StrategiesSection({ accountId }) {
+    const [tab, setTab] = useState2("open");
+    const [shown, setShown] = useState2(STRAT_PAGE);
+    const [open, setOpen] = useState2({});
+    const strat = useLive(
+      () => getStrategies(accountId).then(mapStrategies),
+      null,
+      [accountId]
+    ).data;
+    useEffect2(() => {
+      setShown(STRAT_PAGE);
+      setOpen({});
+    }, [accountId, tab]);
+    const openRows = strat && strat.open || [];
+    const closedRows = strat && strat.closed || [];
+    const hasAny = openRows.length > 0 || closedRows.length > 0;
+    const toggle = (k) => setOpen((o) => ({ ...o, [k]: !o[k] }));
+    return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 24 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 2 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Strategies"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "grouped option legs \xB7 net of shorts \xB7 marks live")), !hasAny ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No option strategies"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0", maxWidth: 560 } }, "Multi-leg option positions and closed spread orders arrive with a broker import \u2014 run the importer with ", /* @__PURE__ */ React.createElement("b", null, "--breakout"), " to group individual legs into strategies. There is no demo fixture, so this stays empty offline.")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { padding: "6px 4px 8px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", tab === "open" && "sel"), onClick: () => setTab("open") }, "Open", openRows.length ? ` \xB7 ${openRows.length}` : ""), /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", tab === "history" && "sel"), onClick: () => setTab("history") }, "History", closedRows.length ? ` \xB7 ${closedRows.length}` : ""))), tab === "open" ? openRows.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px" } }, "No open strategies.") : /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Strategy"), /* @__PURE__ */ React.createElement("th", null, "Underlying"), /* @__PURE__ */ React.createElement("th", null, "Exp"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Net cost"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Current"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"))), /* @__PURE__ */ React.createElement("tbody", null, openRows.map((s, i) => /* @__PURE__ */ React.createElement(OpenStrategyRow, { key: i, s, expanded: !!open[`o${i}`], onToggle: () => toggle(`o${i}`) })))) : closedRows.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px" } }, "No closed strategies.") : /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Strategy"), /* @__PURE__ */ React.createElement("th", null, "Underlying"), /* @__PURE__ */ React.createElement("th", null, "Direction"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Net"), /* @__PURE__ */ React.createElement("th", null, "State"), /* @__PURE__ */ React.createElement("th", null, "Date"))), /* @__PURE__ */ React.createElement("tbody", null, closedRows.slice(0, shown).map((s, i) => /* @__PURE__ */ React.createElement(ClosedStrategyRow, { key: i, s, expanded: !!open[`c${i}`], onToggle: () => toggle(`c${i}`) }))))), tab === "history" && closedRows.length > shown && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: 10 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => setShown(shown + STRAT_PAGE) }, "Show ", Math.min(STRAT_PAGE, closedRows.length - shown), " more \xB7 ", closedRows.length - shown, " remaining"))));
+  }
+  function OptionsView({ accountId = "all", setSymbol, go }) {
+    const [faq, setFaq] = useState2(false);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Options Intelligence"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Volatility context, income ideas generated against your holdings, and unusual flow \xB7 educational only"), /* @__PURE__ */ React.createElement(StrategiesSection, { accountId }), /* @__PURE__ */ React.createElement("div", { className: "vg-ivgrid" }, Object.entries(OPTIONS_CONTEXT).map(([sym, c]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: sym,
+        className: "vg-ivtile",
+        onClick: () => {
+          setSymbol(sym);
+          go("charts");
+        },
+        title: `Open ${sym} on AI Charts`
+      },
+      /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("b", null, sym), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", c.ivRank >= 60 ? "warn" : c.ivRank >= 40 ? "info" : "plain") }, "IV rank ", c.ivRank)),
+      /* @__PURE__ */ React.createElement("div", { className: "vg-meter", style: { margin: "8px 0 6px" } }, /* @__PURE__ */ React.createElement("span", { style: { width: `${c.ivRank}%`, background: c.ivRank >= 60 ? "#ca8a04" : "var(--color-primary)" } })),
+      /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "exp. move ", c.expMove, " \xB7 P/C ", c.pcr.toFixed(2))
+    ))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 20px" } }, "High IV rank = rich premium (favor selling); low = cheap optionality (favor buying). Click a tile to open the chart."), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Income ideas on your book"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "screened across all 4 accounts \xB7 premiums are mock")), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginBottom: 20 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Idea"), /* @__PURE__ */ React.createElement("th", null, "Backing"), /* @__PURE__ */ React.createElement("th", null, "Contract"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "\u0394"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Premium"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Ann. yield"), /* @__PURE__ */ React.createElement("th", null, "Note"))), /* @__PURE__ */ React.createElement("tbody", null, INCOME_IDEAS.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.kind === "Not yet eligible" ? "plain" : "good") }, r.kind), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, r.sym))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-chip" }, acctOf(r.acct).short), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, r.basis)), /* @__PURE__ */ React.createElement("td", null, r.contract), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.delta != null ? r.delta.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.premium != null ? `$${r.premium.toFixed(2)}` : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.yieldAnn != null ? `${r.yieldAnn.toFixed(1)}%` : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "vg-note", style: { maxWidth: 260 } }, r.note)))))), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Unusual options activity"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "large prints & sweeps \xB7 mock feed")), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginBottom: 20 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Ticker"), /* @__PURE__ */ React.createElement("th", null, "Flow"), /* @__PURE__ */ React.createElement("th", null, "Contract"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Premium"), /* @__PURE__ */ React.createElement("th", null, "Read"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Conf"))), /* @__PURE__ */ React.createElement("tbody", null, OPTIONS_FLOW.map((f, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, f.sym), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, f.time)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", f.side === "CALL" ? "good" : "bad") }, f.side, " ", f.kind)), /* @__PURE__ */ React.createElement("td", null, f.detail), /* @__PURE__ */ React.createElement("td", { className: "num" }, f.premium), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-bias", f.sentiment), style: { fontSize: 12 } }, f.sentiment)), /* @__PURE__ */ React.createElement("td", { className: "num" }, f.conf, "%")))))), /* @__PURE__ */ React.createElement("div", { className: "vg-grid2", style: { marginBottom: 20 } }, /* @__PURE__ */ React.createElement(SecurityCard, { accent: "teal", title: "Premium pairs well with your TLH calendar" }, "Selling calls against a lot you plan to harvest can wash the loss if assigned early. Vantage cross-checks every income idea against your Tax Center before suggesting it."), /* @__PURE__ */ React.createElement(SecurityCard, { accent: "orange", title: "Approval levels differ per account" }, "Roth allows covered calls and CSPs at most brokers; 401(k)s rarely allow options at all. Ideas are tagged with the account they're actually executable in.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(FAQItem2, { question: "How are income ideas generated?", open: faq, onToggle: () => setFaq(!faq) }, "The screener looks for positions of 100+ shares (covered calls) and idle cash (cash-secured puts) in each linked account, targets ~0.20\u20130.30 delta at the next monthly expiry, and ranks by annualized premium yield adjusted for IV rank. In this prototype the chains are simulated \u2014 educational only, not advice.")));
+  }
+
   // src/app.jsx
-  var { useState: useState3, useMemo: useMemo2, useEffect: useEffect2, useRef: useRef2 } = React;
+  var { useState: useState3, useMemo: useMemo2, useEffect: useEffect3, useRef: useRef2 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var NAV = [
     { group: "Portfolio", items: [
@@ -993,7 +1121,7 @@
       return ROUTES.includes(h) ? h : "overview";
     };
     const [route, setRoute] = useState3(initial);
-    useEffect2(() => {
+    useEffect3(() => {
       const onHash = () => setRoute(initial());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
@@ -1017,7 +1145,7 @@
     const [analysisSym, setAnalysisSym] = useState3(null);
     const [leftOpen, setLeftOpen] = useState3(() => window.innerWidth >= 860);
     const [rightOpen, setRightOpen] = useState3(() => window.innerWidth >= 1100);
-    useEffect2(() => {
+    useEffect3(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
       const mqLeft = window.matchMedia("(max-width: 859px)");
@@ -1087,7 +1215,7 @@
       },
       /* @__PURE__ */ React.createElement("span", { className: "ic" }, it.icon),
       leftOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, it.label, it.id === "tax" && tlh2.some((c) => c.status === "clear") && /* @__PURE__ */ React.createElement("span", { className: "vg-navdot" }))
-    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation (demo). Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage prototype \xB7 built on the Lookey design system \xB7 simulated data \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { setSymbol, go }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
+    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation (demo). Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage prototype \xB7 built on the Lookey design system \xB7 simulated data \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-collapse",
@@ -1119,7 +1247,7 @@
   }
   function LiveStatusDots({ settings }) {
     const [st, setSt] = useState3({ backend: null, mira: null });
-    useEffect2(() => {
+    useEffect3(() => {
       let alive = true;
       health().then((h) => {
         if (alive) setSt((s) => ({ ...s, backend: h }));
@@ -1223,7 +1351,7 @@
       null,
       [accountId, settings]
     ).data;
-    useEffect2(() => {
+    useEffect3(() => {
       setShown(ACTIVITY_PAGE);
     }, [accountId, kind]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -1333,10 +1461,10 @@
     const [busy, setBusy] = useState3(false);
     const bodyRef = useRef2(null);
     const abortRef = useRef2(null);
-    useEffect2(() => {
+    useEffect3(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect2(() => () => {
+    useEffect3(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));

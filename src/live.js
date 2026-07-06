@@ -59,6 +59,18 @@ export const getHistory = (account = "all", limit) => {
   return getJson(`${backendBase()}/api/history${qs ? `?${qs}` : ""}`);
 };
 
+// GET /api/strategies[?account=..][&status=open|closed] -> payload or null.
+// "all" means unscoped (no account param); omit status to get both open and
+// closed. 404 (endpoint not deployed), non-200 and network failures resolve to
+// null via getJson — the Strategies section then shows its empty state.
+export const getStrategies = (account = "all", status) => {
+  const q = new URLSearchParams();
+  if (account && account !== "all") q.set("account", account);
+  if (status) q.set("status", status);
+  const qs = q.toString();
+  return getJson(`${backendBase()}/api/strategies${qs ? `?${qs}` : ""}`);
+};
+
 /* ---------------- payload -> view-shape mappers ---------------- */
 
 const mapLot = (l) => ({
@@ -187,6 +199,60 @@ export function mapHistory(payload) {
     amount: h.amount,          // signed: buys negative, sells positive
     state: h.state,            // "filled" | "cancelled" | "open" | ...
   }));
+}
+
+// /api/strategies -> { open: [...], closed: [...] } of camelCase view rows.
+// Backend order is preserved (closed already sorted newest-first). Both arrays
+// default to [] when absent, so a payload with only "open" still maps cleanly.
+// null (malformed payload / endpoint unavailable) drives the empty state.
+const mapStrategyLeg = (l) => ({
+  side: l.side,                 // "buy" | "sell"
+  optionType: l.option_type,    // "call" | "put"
+  strike: l.strike,
+  contracts: l.contracts,
+  positionType: l.position_type, // "long" | "short" (open legs)
+  ratio: l.ratio,               // closed legs
+  avgPrice: l.avg_price,
+  mark: l.mark,
+});
+
+export function mapStrategies(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const open = payload.open;
+  const closed = payload.closed;
+  if (open != null && !Array.isArray(open)) return null;
+  if (closed != null && !Array.isArray(closed)) return null;
+  return {
+    open: (open || []).map((s) => ({
+      kind: s.kind,
+      name: s.name,
+      structure: s.structure,
+      underlying: s.underlying,
+      expiration: s.expiration,
+      dte: s.dte,
+      netCost: s.net_cost,           // signed debit: positive = you paid
+      currentValue: s.current_value, // may be null if a leg is unmarked
+      unrealized: s.unrealized,      // null if currentValue null
+      account: s._vantage_account,
+      legs: (s.legs || []).map(mapStrategyLeg),
+    })),
+    closed: (closed || []).map((s) => ({
+      kind: s.kind,
+      name: s.name,
+      structure: s.structure,
+      underlying: s.underlying,
+      direction: s.direction,        // "credit" | "debit"
+      price: s.price,
+      multiplier: s.multiplier,
+      cash: s.cash,                  // signed $ moved: buys negative
+      state: s.state,                // "filled" | "cancelled" | "rejected"
+      quantity: s.quantity,
+      timestamp: s.timestamp,
+      orderId: s.order_id,
+      account: s._vantage_account,
+      legs: (s.legs || []).map(mapStrategyLeg),
+    })),
+  };
 }
 
 /* ---------------- Mira client (:8080) ---------------- */
