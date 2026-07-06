@@ -299,6 +299,40 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         roundtrips_as_of=data["as_of"], roundtrips=rows,
                         summary=summary)
 
+    @app.get("/api/ml/trade_stats")
+    def ml_trade_stats(account: str = Query("all"),
+                       dimension: str | None = Query(None)):
+        """Entry-condition Bayesian condition buckets + notable edges/leaks,
+        written by `python -m vantage_server.ml.build_features`, read PER REQUEST
+        from ml/trade_stats.json (appears/changes on build; no restart). A
+        missing file is an empty state (baseline null, buckets/notable []).
+
+        ``account`` selects one account's blocks (round-trip stats are built per
+        account); 'all' returns the top-level (last-built) account's blocks.
+        ``dimension`` narrows ``buckets`` to one feature dimension (daily_trend,
+        vol_percentile_band, dte_band, moneyness, ...); the baseline row (kept
+        under dimension '__baseline__') and ``notable`` are always returned in
+        full so the client keeps its comparison point. Returns
+        {baseline_win_rate, buckets, notable, trade_stats_as_of}."""
+        check_account(account)
+        snap = state.snapshot()
+        data = store.load_trade_stats()
+        block = data
+        if account != "all":
+            per = data.get("by_account", {}).get(account)
+            block = per if isinstance(per, dict) else {
+                "baseline_win_rate": None, "buckets": [], "notable": []}
+        buckets = list(block.get("buckets") or [])
+        if dimension:
+            want = dimension.strip()
+            buckets = [b for b in buckets
+                       if b.get("dimension") in (want, "__baseline__")]
+        return envelope(snap, account=account, dimension=dimension,
+                        trade_stats_as_of=data["as_of"],
+                        baseline_win_rate=block.get("baseline_win_rate"),
+                        buckets=buckets,
+                        notable=list(block.get("notable") or []))
+
     signal_seed = store.load_signals()
 
     @app.get("/api/signals")

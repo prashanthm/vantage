@@ -250,6 +250,48 @@ class Store:
             "summary": summary if isinstance(summary, dict) else {},
         }
 
+    def load_trade_stats(self) -> dict:
+        """Entry-condition features + Bayesian condition buckets (<data_dir>/ml/
+        trade_stats.json — optional file written by
+        vantage_server.ml.build_features). TOLERANT of a missing/malformed file:
+        returns an empty state so the API/MCP surface it instead of erroring
+        (fixture datasets have none).
+
+        File shape: {as_of, account, baseline_win_rate, featured, buckets,
+        notable, by_account: {<acct>: {baseline_win_rate, featured, buckets,
+        notable}}}. Empty state:
+        {as_of: None, baseline_win_rate: None, featured/buckets/notable: [],
+        by_account: {}}."""
+        empty = {
+            "as_of": None,
+            "baseline_win_rate": None,
+            "featured": [],
+            "buckets": [],
+            "notable": [],
+            "by_account": {},
+        }
+        path = self.data_dir / "ml" / "trade_stats.json"
+        if not path.is_file():
+            return empty
+        try:
+            data = _read_json(path)
+        except StoreError:
+            return empty
+        if not isinstance(data, dict):
+            return empty
+        by_account = data.get("by_account")
+        return {
+            "as_of": data.get("as_of"),
+            "baseline_win_rate": data.get("baseline_win_rate"),
+            "featured": [r for r in (data.get("featured") or [])
+                         if isinstance(r, dict)],
+            "buckets": [r for r in (data.get("buckets") or [])
+                        if isinstance(r, dict)],
+            "notable": [r for r in (data.get("notable") or [])
+                        if isinstance(r, dict)],
+            "by_account": by_account if isinstance(by_account, dict) else {},
+        }
+
     # -- the whole dataset --------------------------------------------------
 
     def load_dataset(self) -> Dataset:

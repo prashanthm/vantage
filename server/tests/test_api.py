@@ -30,6 +30,7 @@ ALL_GET_ROUTES = [
     "/api/strategies",
     "/api/analysis",
     "/api/ml/roundtrips",
+    "/api/ml/trade_stats",
 ]
 
 
@@ -338,6 +339,91 @@ def test_roundtrips_round_trip_with_filters(tmp_path, data_dir):
 
 def test_roundtrips_unknown_account_404(client):
     assert client.get("/api/ml/roundtrips",
+                      params={"account": "nope"}).status_code == 404
+
+
+# ------------------------------------------------- ml/trade_stats endpoint
+
+def test_trade_stats_empty_state_on_fixture(client):
+    """The fixture data dir has no ml/trade_stats.json — empty state, not 500."""
+    body = client.get("/api/ml/trade_stats").json()
+    assert body["buckets"] == []
+    assert body["notable"] == []
+    assert body["baseline_win_rate"] is None
+    assert body["trade_stats_as_of"] is None
+
+
+def _seed_fixture_dir(tmp_path, data_dir):
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    (tmp_path / "ml").mkdir()
+
+
+def test_trade_stats_round_trip_with_filters(tmp_path, data_dir):
+    import json as _json
+
+    _seed_fixture_dir(tmp_path, data_dir)
+    buckets = [
+        {"dimension": "__baseline__", "value": "all_trades", "n": 20,
+         "win_rate": 0.5, "ci_low": 0.3, "ci_high": 0.7},
+        {"dimension": "daily_trend", "value": "up", "n": 10, "win_rate": 0.9,
+         "ci_low": 0.6, "ci_high": 0.99},
+        {"dimension": "dte_band", "value": "0dte", "n": 8, "win_rate": 0.1,
+         "ci_low": 0.01, "ci_high": 0.3},
+    ]
+    notable = [
+        {"dimension": "daily_trend", "value": "up", "n": 10, "win_rate": 0.9,
+         "ci_low": 0.6, "ci_high": 0.99, "kind": "edge", "edge": 0.4,
+         "significant": True},
+    ]
+    block = {"baseline_win_rate": 0.5, "featured": [], "buckets": buckets,
+             "notable": notable}
+    payload = {"as_of": "2026-07-05", "account": "fid-taxable",
+               "baseline_win_rate": 0.5, "featured": [], "buckets": buckets,
+               "notable": notable, "by_account": {"fid-taxable": block}}
+    (tmp_path / "ml" / "trade_stats.json").write_text(
+        _json.dumps(payload), encoding="utf-8")
+    c = TestClient(create_app(tmp_path))
+
+    body = c.get("/api/ml/trade_stats").json()
+    assert body["baseline_win_rate"] == pytest.approx(0.5)
+    assert len(body["buckets"]) == 3
+    assert len(body["notable"]) == 1
+    assert body["trade_stats_as_of"] == "2026-07-05"
+
+    # account selection
+    body = c.get("/api/ml/trade_stats", params={"account": "fid-taxable"}).json()
+    assert body["baseline_win_rate"] == pytest.approx(0.5)
+
+    # dimension filter keeps the baseline row + the requested dimension only
+    body = c.get("/api/ml/trade_stats",
+                 params={"dimension": "dte_band"}).json()
+    dims = {b["dimension"] for b in body["buckets"]}
+    assert dims == {"__baseline__", "dte_band"}
+    # notable is always returned in full
+    assert len(body["notable"]) == 1
+
+
+def test_trade_stats_unknown_account_from_by_account_is_empty(tmp_path, data_dir):
+    import json as _json
+
+    _seed_fixture_dir(tmp_path, data_dir)
+    payload = {"as_of": "2026-07-05", "account": "fid-taxable",
+               "baseline_win_rate": 0.5, "featured": [], "buckets": [],
+               "notable": [], "by_account": {"fid-taxable": {
+                   "baseline_win_rate": 0.5, "buckets": [], "notable": []}}}
+    (tmp_path / "ml" / "trade_stats.json").write_text(
+        _json.dumps(payload), encoding="utf-8")
+    c = TestClient(create_app(tmp_path))
+    # a KNOWN account with no block -> empty, not error
+    body = c.get("/api/ml/trade_stats", params={"account": "wf-robo"}).json()
+    assert body["baseline_win_rate"] is None and body["buckets"] == []
+
+
+def test_trade_stats_unknown_account_404(client):
+    assert client.get("/api/ml/trade_stats",
                       params={"account": "nope"}).status_code == 404
 
 

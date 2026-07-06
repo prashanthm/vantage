@@ -383,6 +383,42 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                         roundtrips=to_jsonable(rows),
                         summary=ml_summarize(rows))
 
+    @mcp.tool(
+        name="vantage.trade_stats",
+        annotations=_READ_ONLY,
+        description="Entry-condition trade statistics (written by "
+                    "vantage_server.ml.build_features): under what conditions "
+                    "the account wins vs loses, with Bayesian credible "
+                    "intervals. COMPACT for the advisor — returns the overall "
+                    "baseline_win_rate and only the NOTABLE buckets: conditions "
+                    "whose 90% credible interval clearly separates from the "
+                    "baseline AND have enough trips (n>=min_n) to be "
+                    "statistically defensible. Each notable bucket carries "
+                    "{dimension (e.g. dte_band, moneyness, daily_trend, "
+                    "near_support), value, n, wins, losses, win_rate, mean, "
+                    "ci_low, ci_high (the posterior win-rate + interval), "
+                    "avg_pnl, total_pnl, kind ('edge' good | 'leak' bad), edge "
+                    "(win_rate - baseline), significant}. Buckets that separate "
+                    "but are too thin are returned with significant=false. "
+                    "Everything NOT notable is 'not enough data' — with a few "
+                    "dozen trades most conditions are too thin to trust, and "
+                    "that is the point. Optional account filter ('all' = the "
+                    "last-built account). Empty when nothing has been built.",
+    )
+    def trade_stats(account: str = "all") -> dict:
+        snap = snapshot()
+        # Read per call: ml/trade_stats.json appears/changes on build.
+        data = store.load_trade_stats()
+        block = data
+        if account != "all":
+            per = data.get("by_account", {}).get(account)
+            block = per if isinstance(per, dict) else {
+                "baseline_win_rate": None, "notable": []}
+        return envelope("trade_stats", snap, account=account,
+                        trade_stats_as_of=data["as_of"],
+                        baseline_win_rate=block.get("baseline_win_rate"),
+                        notable=to_jsonable(list(block.get("notable") or [])))
+
     return mcp
 
 

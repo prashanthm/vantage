@@ -8,6 +8,12 @@ the read-only service surface (ADR-010).
 """
 from __future__ import annotations
 
+from .buckets import beta_binomial, condition_buckets, notable_buckets
+from .features import entry_features, features_for_all
 from .roundtrips import RoundTrip, reconstruct, summarize
 
-__all__ = ["RoundTrip", "reconstruct", "summarize"]
+__all__ = [
+    "RoundTrip", "reconstruct", "summarize",
+    "entry_features", "features_for_all",
+    "beta_binomial", "condition_buckets", "notable_buckets",
+]

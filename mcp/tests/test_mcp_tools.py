@@ -26,6 +26,7 @@ EXPECTED_TOOLS = {
     "vantage.analysis",
     "vantage.position_actions",
     "vantage.roundtrips",
+    "vantage.trade_stats",
 }
 
 
@@ -450,6 +451,63 @@ def test_roundtrips_round_trip_with_filters(tmp_path, data_dir):
     payload = tool_payload(run_with_client(mcp, by_symbol))
     assert [r["symbol"] for r in payload["roundtrips"]] == ["SPY"]
     assert payload["summary"]["count"] == 1
+
+
+# --- trade_stats tool (entry-condition Bayesian buckets) ---
+
+
+def test_trade_stats_empty_state_on_fixture(mcp):
+    """Fixture data dir has no ml/trade_stats.json — empty state, provenance."""
+    async def interact(client):
+        return await client.call_tool("vantage.trade_stats", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["notable"] == []
+    assert payload["baseline_win_rate"] is None
+    assert payload["trade_stats_as_of"] is None
+    assert payload["provenance"] == {
+        "source_type": "vantage",
+        "source_id": f"{payload['provenance']['source_id'].split('#')[0]}#trade_stats"}
+
+
+def test_trade_stats_compact_returns_baseline_and_notable(tmp_path, data_dir):
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json",
+                 "signals.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(),
+                                     encoding="utf-8")
+    (tmp_path / "ml").mkdir()
+    notable = [
+        {"dimension": "dte_band", "value": "0dte", "n": 8, "win_rate": 0.12,
+         "ci_low": 0.02, "ci_high": 0.35, "kind": "leak", "edge": -0.38,
+         "significant": True},
+    ]
+    block = {"baseline_win_rate": 0.5, "featured": [], "buckets": [],
+             "notable": notable}
+    payload_json = {"as_of": "2026-07-05", "account": "fid-taxable",
+                    "baseline_win_rate": 0.5, "featured": [], "buckets": [],
+                    "notable": notable, "by_account": {"fid-taxable": block}}
+    (tmp_path / "ml" / "trade_stats.json").write_text(
+        json.dumps(payload_json), encoding="utf-8")
+    mcp = create_mcp(tmp_path)
+
+    async def call_all(client):
+        return await client.call_tool("vantage.trade_stats", {})
+
+    payload = tool_payload(run_with_client(mcp, call_all))
+    assert payload["baseline_win_rate"] == pytest.approx(0.5)
+    assert len(payload["notable"]) == 1
+    assert payload["notable"][0]["kind"] == "leak"
+    assert payload["trade_stats_as_of"] == "2026-07-05"
+    # compact: the tool surfaces baseline + notable only (no full buckets dump)
+    assert "buckets" not in payload
+
+    async def call_account(client):
+        return await client.call_tool(
+            "vantage.trade_stats", {"account": "fid-taxable"})
+
+    payload = tool_payload(run_with_client(mcp, call_account))
+    assert payload["baseline_win_rate"] == pytest.approx(0.5)
 
 
 # --- bars tool (deep OHLCV + computed levels) ---
