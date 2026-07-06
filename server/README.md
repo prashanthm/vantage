@@ -87,6 +87,15 @@ Semantics:
 - `--data-dir` targets another data directory (default: `VANTAGE_DATA_DIR`
   or `server/data`).
 
+## Real vs demo data
+
+`server/data/` is the pristine fixture dataset (a test oracle — never import
+into it). Real portfolios live in `server/data-local/` (gitignored), which is
+preferred automatically when present: resolution is `VANTAGE_DATA_DIR` env >
+`data-local/` > fixtures. The importer and both servers all follow this rule,
+so imports land in `data-local/` once it exists. Delete `data-local/` to
+return to demo mode.
+
 ## Robinhood (read-only)
 
 `--broker robinhood` syncs positions straight from Robinhood's official

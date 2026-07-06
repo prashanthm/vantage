@@ -374,6 +374,47 @@ def robinhood_positions_to_lots(positions: list[dict], account: str, as_of: str)
     return lots, warnings
 
 
+def robinhood_cash_lot(portfolio: dict, positions: list[dict], account: str, as_of: str):
+    """Represent the account's NON-EQUITY value as one synthetic CASH lot.
+
+    The Agentic Trading API is equities-only; value held in futures, crypto,
+    sweep, or buying power never appears as a position. ``--include-cash``
+    books ``total_value − Σ(equity position value)`` as CASH (the store's
+    $1-priced cash symbol) so the account's real worth shows in Vantage.
+    Returns ``(lot | None, warnings)``.
+    """
+    warnings: list[str] = []
+    total = _to_float(portfolio.get("total_value"))
+    if total is None:
+        return None, ["portfolio total_value missing — cannot compute CASH balance"]
+    equity_value = 0.0
+    for pos in positions:
+        shares = _to_float(pos.get("shares")) or 0.0
+        price = _to_float(pos.get("current_price"))
+        if price is None:
+            price = _to_float(pos.get("avg_cost")) or 0.0
+            if shares > 0:
+                warnings.append(
+                    f"{pos.get('symbol', '?')}: no current price — valued at cost "
+                    "for the CASH remainder calculation"
+                )
+        equity_value += shares * price
+    cash = round(total - equity_value, 2)
+    if cash <= 0:
+        return None, warnings
+    warnings.append(
+        f"CASH {cash:,.2f} = portfolio total {total:,.2f} minus equity value "
+        f"{equity_value:,.2f} (futures/crypto/sweep are not importable as positions)"
+    )
+    return {
+        "account": account,
+        "symbol": "CASH",
+        "date": as_of,
+        "shares": cash,
+        "cost_per_share": 1,
+    }, warnings
+
+
 # ------------------------------------------------------------------ writer
 
 def write_lots(
@@ -447,6 +488,9 @@ def _build_parser() -> argparse.ArgumentParser:
                         "CSV carries an account column)")
     p.add_argument("--rh-account", metavar="N",
                    help="Robinhood account number (required for --broker robinhood)")
+    p.add_argument("--include-cash", action="store_true",
+                   help="--broker robinhood only: book the account's non-equity value "
+                        "(futures/crypto/sweep/buying power) as a synthetic CASH lot")
     p.add_argument("--auth", action="store_true",
                    help="--broker robinhood only: run the one-time browser "
                         "authorization flow, save the token, and exit")
@@ -502,6 +546,17 @@ def _run(args: argparse.Namespace) -> int:
         except (robinhood.AuthError, robinhood.RobinhoodError) as e:
             raise ImporterError(f"robinhood: {e}") from e
         lots, warnings = robinhood_positions_to_lots(positions, args.account, as_of)
+        if args.include_cash:
+            try:
+                portfolio = robinhood.fetch_portfolio(args.rh_account)
+            except (robinhood.AuthError, robinhood.RobinhoodError) as e:
+                raise ImporterError(f"robinhood: {e}") from e
+            cash_lot, cash_warnings = robinhood_cash_lot(
+                portfolio, positions, args.account, as_of
+            )
+            warnings.extend(cash_warnings)
+            if cash_lot:
+                lots.append(cash_lot)
         source = f"Robinhood account ...{args.rh_account[-4:]}"
     else:
         if not args.csv_file:

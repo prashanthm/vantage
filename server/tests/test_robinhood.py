@@ -391,3 +391,43 @@ def test_failed_refresh_raises_autherror_with_auth_hint(token_path, monkeypatch)
 def test_missing_token_file_raises_autherror(token_path):
     with pytest.raises(robinhood_auth.AuthError, match="--auth"):
         robinhood_auth.get_access_token()
+
+
+# ---------------------------------------------------------------- cash lot
+
+from vantage_server.importer import robinhood_cash_lot
+
+
+def test_cash_lot_books_non_equity_value():
+    portfolio = {"total_value": 5205.71, "buying_power": 9.63}
+    lot, warnings = robinhood_cash_lot(portfolio, [], "rh-main", "2026-07-05")
+    assert lot == {
+        "account": "rh-main", "symbol": "CASH", "date": "2026-07-05",
+        "shares": 5205.71, "cost_per_share": 1,
+    }
+    assert any("CASH 5,205.71" in w for w in warnings)
+
+
+def test_cash_lot_subtracts_equity_value():
+    portfolio = {"total_value": 10000.0}
+    positions = [{"symbol": "SPY", "shares": 10, "avg_cost": 700.0, "current_price": 750.0}]
+    lot, _ = robinhood_cash_lot(portfolio, positions, "rh-main", "2026-07-05")
+    assert lot["shares"] == 2500.0  # 10000 - 10*750
+
+
+def test_cash_lot_values_at_cost_when_no_price():
+    portfolio = {"total_value": 10000.0}
+    positions = [{"symbol": "SPY", "shares": 10, "avg_cost": 700.0}]
+    lot, warnings = robinhood_cash_lot(portfolio, positions, "rh-main", "2026-07-05")
+    assert lot["shares"] == 3000.0  # 10000 - 10*700
+    assert any("no current price" in w for w in warnings)
+
+
+def test_cash_lot_none_when_fully_invested_or_missing_total():
+    assert robinhood_cash_lot({"total_value": 7500.0},
+                              [{"symbol": "SPY", "shares": 10, "avg_cost": 700.0,
+                                "current_price": 750.0}],
+                              "rh-main", "2026-07-05")[0] is None
+    lot, warnings = robinhood_cash_lot({}, [], "rh-main", "2026-07-05")
+    assert lot is None
+    assert any("total_value missing" in w for w in warnings)

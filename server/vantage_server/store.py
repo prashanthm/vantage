@@ -19,6 +19,10 @@ from typing import Any
 from .models import Account, AutoBuy, Lot, RecentBuy
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+# Real (imported) data lives beside the fixtures, gitignored, and wins by
+# default so demo fixtures and personal portfolios never share a directory —
+# the fixture dataset is a test oracle (parity goldens) and must stay pristine.
+LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / "data-local"
 ENV_DATA_DIR = "VANTAGE_DATA_DIR"
 
 
@@ -27,11 +31,16 @@ class StoreError(ValueError):
 
 
 def resolve_data_dir(data_dir: str | os.PathLike[str] | None = None) -> Path:
-    """Explicit arg > VANTAGE_DATA_DIR env > packaged fixture directory."""
+    """Explicit arg > VANTAGE_DATA_DIR env > data-local (real data, when
+    present) > packaged fixture directory."""
     if data_dir is not None:
         return Path(data_dir)
     env = os.environ.get(ENV_DATA_DIR)
-    return Path(env) if env else DEFAULT_DATA_DIR
+    if env:
+        return Path(env)
+    if LOCAL_DATA_DIR.is_dir():
+        return LOCAL_DATA_DIR
+    return DEFAULT_DATA_DIR
 
 
 @dataclass(frozen=True)

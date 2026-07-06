@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 data/quotes_cache.json
 data/lots.json.bak-*
+data-local/

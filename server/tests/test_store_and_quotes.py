@@ -253,3 +253,18 @@ def test_corrupt_cache_is_ignored(live_dir):
                               clock=lambda: T0).snapshot()
     assert len(urlopen.calls) == 1  # fell through to a real fetch
     assert snap.quotes["VOO"].price == pytest.approx(697.00)
+
+
+def test_resolve_data_dir_prefers_local_over_fixtures(monkeypatch, tmp_path):
+    """env > data-local (when present) > fixtures — real data never mixes with the oracle."""
+    from vantage_server import store as store_mod
+
+    monkeypatch.delenv(store_mod.ENV_DATA_DIR, raising=False)
+    local = tmp_path / "data-local"
+    monkeypatch.setattr(store_mod, "LOCAL_DATA_DIR", local)
+    assert store_mod.resolve_data_dir() == store_mod.DEFAULT_DATA_DIR  # absent → fixtures
+    local.mkdir()
+    assert store_mod.resolve_data_dir() == local  # present → real data wins
+    monkeypatch.setenv(store_mod.ENV_DATA_DIR, str(tmp_path / "explicit"))
+    assert store_mod.resolve_data_dir() == tmp_path / "explicit"  # env wins over both
+    assert store_mod.resolve_data_dir(tmp_path / "arg") == tmp_path / "arg"  # arg wins
