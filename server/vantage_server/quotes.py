@@ -74,16 +74,24 @@ class FixtureQuoteProvider:
     def snapshot(self) -> QuoteSnapshot:
         import json
 
-        path = Path(self.data_dir) / "quotes.json"
-        if not path.is_file():
-            raise StoreError(f"{path}: file not found")
-        try:
-            with path.open(encoding="utf-8") as f:
-                data = json.load(f)
-        except json.JSONDecodeError as e:
-            raise StoreError(f"{path}: invalid JSON ({e})") from e
-        if not isinstance(data, dict) or "quotes" not in data or "as_of" not in data:
-            raise StoreError(f"{path}: must be an object with 'as_of' and 'quotes' keys")
+        from .store import Store
+
+        store = Store(self.data_dir)
+        if store.uses_sqlite:
+            data = store.load_quotes()
+            if not data or not data.get("quotes"):
+                raise StoreError(f"{self.data_dir}: no quotes in vantage.db")
+        else:
+            path = Path(self.data_dir) / "quotes.json"
+            if not path.is_file():
+                raise StoreError(f"{path}: file not found")
+            try:
+                with path.open(encoding="utf-8") as f:
+                    data = json.load(f)
+            except json.JSONDecodeError as e:
+                raise StoreError(f"{path}: invalid JSON ({e})") from e
+            if not isinstance(data, dict) or "quotes" not in data or "as_of" not in data:
+                raise StoreError(f"{path}: must be an object with 'as_of' and 'quotes' keys")
         quotes: dict[str, Quote] = {}
         for sym, q in data["quotes"].items():
             if not isinstance(q, dict) or "price" not in q or "asset_class" not in q:

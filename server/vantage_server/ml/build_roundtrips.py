@@ -81,6 +81,13 @@ def write_roundtrips(
     backed up (roundtrips.json.bak-<ISO>). ``now`` is injectable for
     deterministic backup names. Returns (path, backup | None)."""
     now = now or _dt.datetime.now()
+
+    store = Store(data_dir)
+    if store.uses_sqlite:
+        trip_rows = [asdict(t) for t in trips]
+        store.put_roundtrips(account, trip_rows, summary, as_of=as_of)
+        return Path(data_dir) / "vantage.db", None
+
     ml_dir = Path(data_dir) / "ml"
     ml_dir.mkdir(parents=True, exist_ok=True)
     path = ml_dir / "roundtrips.json"

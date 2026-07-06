@@ -199,7 +199,7 @@ def _merge_into_existing(
     merges keep the flag. When no existing file (or it's degenerate/empty), the
     fetched series passes through unchanged with backfilled=False.
     """
-    existing = load_existing(data_dir, symbol)
+    existing = Store(data_dir).load_bars(symbol)
     existing_daily = (existing or {}).get("daily") or []
     if not existing_daily:
         return fetched, False
@@ -214,6 +214,7 @@ def _merge_into_existing(
 
 def _run(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args.data_dir)
+    store = Store(data_dir)
     today = (_dt.date.fromisoformat(args.as_of) if args.as_of else _dt.date.today())
 
     # Drop blank/whitespace positionals defensively — a caller forwarding an
@@ -277,12 +278,13 @@ def _run(args: argparse.Namespace) -> int:
         if args.dry_run:
             print(f"[dry-run] {summary}")
             continue
-        path, backup = write_bars(data_dir, symbol, series, as_of=as_of,
-                                  lookback_days=args.lookback_days,
-                                  backfilled=backfilled)
+        path, backup = store.put_bars(symbol, series, as_of=as_of,
+                                      lookback_days=args.lookback_days,
+                                      backfilled=backfilled)
         wrote += 1
-        print(f"wrote {path} ({summary})"
-              + (f" (backup: {backup})" if backup else " (no previous file to back up)"))
+        dest = path if path else f"vantage.db[bars/{symbol.upper()}]"
+        print(f"wrote {dest} ({summary})"
+              + (f" (backup: {backup})" if backup else ""))
 
     if not args.dry_run and wrote == 0:
         raise SnapshotError("no symbols produced bars — nothing written")

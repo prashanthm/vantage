@@ -288,6 +288,14 @@ def write_trade_stats(
         {as_of, account, baseline_win_rate, featured, buckets, notable,
          by_account: {<acct>: {baseline_win_rate, featured, buckets, notable}}}"""
     now = now or _dt.datetime.now()
+
+    store = Store(data_dir)
+    if store.uses_sqlite:
+        store.put_trade_stats(
+            account, baseline_win_rate=baseline_win_rate, featured=featured,
+            buckets=buckets, notable=notable, as_of=as_of)
+        return Path(data_dir) / "vantage.db", None
+
     ml_dir = Path(data_dir) / "ml"
     ml_dir.mkdir(parents=True, exist_ok=True)
     path = ml_dir / "trade_stats.json"

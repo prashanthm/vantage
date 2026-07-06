@@ -192,6 +192,20 @@ def write_journal(
     (day_path, backup | None, latest_path).
     """
     now = now or _dt.datetime.now()
+
+    from .store import Store
+    store = Store(data_dir)
+    if store.uses_sqlite:
+        payload = {
+            "as_of": as_of,
+            "generated_at": now.isoformat(timespec="seconds"),
+            "decisions": [income.decision_to_dict(d) for d in decisions],
+        }
+        store.put_analysis(as_of, payload)
+        # No filesystem day/latest files under SQLite; report symbolic paths.
+        db_path = Path(data_dir) / "vantage.db"
+        return db_path, None, db_path
+
     analysis_dir = Path(data_dir) / ANALYSIS_DIRNAME
     analysis_dir.mkdir(parents=True, exist_ok=True)
 

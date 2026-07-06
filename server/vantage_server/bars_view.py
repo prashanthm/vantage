@@ -37,15 +37,13 @@ def _bars_path(data_dir: str | Path, symbol: str) -> Path:
 
 
 def load_bars_file(data_dir: str | Path, symbol: str) -> dict:
-    """Load one bars file, or raise BarsNotFound. Malformed JSON also raises
-    BarsNotFound (the SPA fallback path — never a 500)."""
-    path = _bars_path(data_dir, symbol)
-    if not path.is_file():
-        raise BarsNotFound(symbol.upper())
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
-        raise BarsNotFound(symbol.upper()) from e
+    """Load one symbol's bars, or raise BarsNotFound. Reads through the Store
+    backend, so a SQLite-backed data dir serves bars from vantage.db while a
+    JSON dir reads bars/<SYMBOL>.json. Malformed/absent data raises BarsNotFound
+    (the SPA fallback path — never a 500)."""
+    from .store import Store
+
+    data = Store(data_dir).load_bars(symbol)
     if not isinstance(data, dict):
         raise BarsNotFound(symbol.upper())
     return data
@@ -130,7 +128,9 @@ def _cost_basis(data_dir: str | Path, underlying: str) -> dict | None:
 
 def _latest_decision(data_dir: str | Path, symbol: str) -> dict | None:
     """The latest journaled PositionDecision for ``symbol`` (or None)."""
-    day = analyze.load_day(data_dir, None)
+    from .store import Store
+
+    day = Store(data_dir).load_analysis_day(None)
     want = symbol.upper()
     for dec in (day or {}).get("decisions", []):
         if str(dec.get("symbol", "")).upper() == want:

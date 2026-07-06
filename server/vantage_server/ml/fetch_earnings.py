@@ -27,8 +27,13 @@ def earnings_file(data_dir: str | Path, symbol: str) -> Path:
 
 def load_cached(data_dir: str | Path, symbol: str) -> dict | None:
     """The cached earnings record for ``symbol`` ({symbol, as_of, earnings:
-    [...], dates: [...]}), or None when there is no cache file / it's
-    unreadable."""
+    [...], dates: [...]}), or None when there is no cache / it's unreadable.
+    Reads through the Store backend (SQLite earnings table or JSON file)."""
+    from ..store import Store
+
+    store = Store(data_dir)
+    if store.uses_sqlite:
+        return store.load_earnings(symbol)
     path = earnings_file(data_dir, symbol)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
@@ -48,6 +53,13 @@ def write_cache(
 ) -> Path:
     """Persist a symbol's earnings (dates + est/actual EPS) to
     ml/earnings/<UND>.json. Returns the path written."""
+    from ..store import Store
+
+    store = Store(data_dir)
+    dates = _dates_from(earnings)
+    if store.uses_sqlite:
+        store.put_earnings(symbol, earnings, dates, as_of=as_of)
+        return Path(data_dir) / "vantage.db"
     d = earnings_dir(data_dir)
     d.mkdir(parents=True, exist_ok=True)
     path = earnings_file(data_dir, symbol)
@@ -55,7 +67,7 @@ def write_cache(
         "symbol": symbol.upper(),
         "as_of": as_of,
         "earnings": earnings,
-        "dates": _dates_from(earnings),
+        "dates": dates,
     }
     path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return path

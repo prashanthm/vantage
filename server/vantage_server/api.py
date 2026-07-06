@@ -215,7 +215,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         day; ``symbol`` narrows to that underlying. A missing journal is an
         empty state (decisions: [])."""
         snap = state.snapshot()
-        day = analyze.load_day(store.data_dir, date)
+        day = store.load_analysis_day(date)
         decisions = (day or {}).get("decisions", [])
         if symbol:
             want = symbol.upper()
@@ -230,7 +230,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         newest first — the record Mira reads to explain how a position's
         recommendation evolved. Empty when the symbol has never been journaled."""
         snap = state.snapshot()
-        trail = analyze.load_symbol_history(store.data_dir, symbol)
+        trail = store.load_analysis_symbol_history(symbol)
         return envelope(snap, symbol=symbol.upper(), history=trail)
 
     @app.get("/api/bars")

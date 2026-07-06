@@ -77,7 +77,7 @@ from pathlib import Path
 
 from . import strategies as strategies_engine
 from .brokers import CONNECTIONS, BrokerConnectionError, get_connection
-from .store import StoreError, resolve_data_dir
+from .store import Store, StoreError, resolve_data_dir
 
 EXIT_OK = 0
 EXIT_USER_ERROR = 2
@@ -981,37 +981,32 @@ def _run(args: argparse.Namespace) -> int:
     if not lots:
         raise ImporterError(f"{source}: no position rows found — nothing to import")
 
-    # -- accounts: optional convenience append, then hard existence check
+    # -- accounts: optional convenience append, then hard existence check.
+    # Read/write through the Store so a SQLite-backed data dir works too; the
+    # JSON backend behaves exactly as before (accounts.json + backup).
+    store = Store(data_dir)
     accounts_path = data_dir / "accounts.json"
-    accounts = _load_json_list(accounts_path, "accounts")
-    known = {a.get("id") for a in accounts}
+    known = {a.id for a in store.load_accounts()} if _accounts_present(store, data_dir) else set()
     if args.add_account:
         new_acct = _parse_add_account(args.add_account)
         if new_acct["id"] in known:
             print(f"warning: account '{new_acct['id']}' already exists — --add-account ignored",
                   file=sys.stderr)
-        else:
-            accounts.append(new_acct)
+        elif not args.dry_run:
+            store.add_account(new_acct)
             known.add(new_acct["id"])
-            if not args.dry_run:
-                accounts_path.write_text(json.dumps(accounts, indent=2) + "\n", encoding="utf-8")
-                print(f"added account '{new_acct['id']}' to {accounts_path}")
+            print(f"added account '{new_acct['id']}' to "
+                  f"{'vantage.db' if store.uses_sqlite else accounts_path}")
+        else:
+            known.add(new_acct["id"])
     imported_accounts = sorted({l["account"] for l in lots})
     for acct in imported_accounts:
         if acct not in known:
             raise ImporterError(
-                f"account '{acct}' is not in {accounts_path} — add the account first "
+                f"account '{acct}' is not known — add the account first "
                 f'(e.g. --add-account "{acct},Full Name,Short,Taxable,true")'
             )
 
-    # -- merge/replace against the current file
-    lots_path = data_dir / "lots.json"
-    existing = _load_json_list(lots_path, "lots") if lots_path.is_file() else []
-    if args.replace:
-        final, kept = list(lots), 0
-    else:
-        keep = [l for l in existing if l.get("account") not in imported_accounts]
-        final, kept = keep + lots, len(keep)
     mode = "replace" if args.replace else "merge"
 
     if args.dry_run:
@@ -1019,45 +1014,66 @@ def _run(args: argparse.Namespace) -> int:
         for l in lots:
             print(f"  {l['account']:<14} {l['symbol']:<24} {l['date']}  "
                   f"{l['shares']:>12g} sh @ {l['cost_per_share']:.2f}")
-        print(f"would write {len(final)} lot(s) to {lots_path} "
-              f"({mode}; {kept} lot(s) from other accounts kept); nothing written")
+        print(f"would write {len(lots)} imported lot(s) ({mode}) — nothing written")
         if quote_entries:
-            print(f"would upsert {len(quote_entries)} quote entrie(s) into "
-                  f"{data_dir / 'quotes.json'}; nothing written")
+            print(f"would upsert {len(quote_entries)} quote entrie(s); nothing written")
         if history_rows is not None:
-            print(f"would write {len(history_rows)} history row(s) to "
-                  f"{data_dir / 'history.json'}; nothing written")
+            print(f"would write {len(history_rows)} history row(s); nothing written")
         if strategy_rollup is not None:
             print(f"would write {len(strategy_rollup['open'])} open + "
                   f"{len(strategy_rollup['closed'])} closed + "
-                  f"{len(strategy_rollup['by_ticker'])} by-ticker strateg(ies) to "
-                  f"{data_dir / 'strategies.json'}; nothing written")
+                  f"{len(strategy_rollup['by_ticker'])} by-ticker strateg(ies); "
+                  "nothing written")
         return EXIT_OK
 
-    backup = write_lots(data_dir, final)
+    backup = store.upsert_lots(imported_accounts, lots, mode=mode)
     print(f"imported {len(lots)} lot(s) into {', '.join(imported_accounts)} ({mode})")
-    print(f"wrote {len(final)} lot(s) to {lots_path}"
-          + (f" (backup: {backup})" if backup else " (no previous file to back up)"))
+    dest = "vantage.db" if store.uses_sqlite else str(data_dir / "lots.json")
+    print(f"wrote {len(lots)} imported lot(s) to {dest}"
+          + (f" (backup: {backup})" if backup else ""))
     if quote_entries:
-        quotes_path = update_quotes_file(data_dir, quote_entries)
-        print(f"upserted {len(quote_entries)} quote entrie(s) into {quotes_path}")
+        store.set_quotes(quote_entries)
+        print(f"upserted {len(quote_entries)} quote entrie(s)")
     if history_rows is not None:
-        history_path, history_backup = write_history(
-            data_dir, args.account, history_rows)
-        print(f"wrote {len(history_rows)} history row(s) to {history_path}"
-              + (f" (backup: {history_backup})" if history_backup
-                 else " (no previous file to back up)"))
+        _, history_backup = store.upsert_history(args.account, history_rows)
+        print(f"wrote {len(history_rows)} history row(s)"
+              + (f" (backup: {history_backup})" if history_backup else ""))
     if strategy_rollup is not None:
-        strat_path, strat_backup = write_strategies(
-            data_dir, args.account, strategy_rollup["open"],
-            strategy_rollup["closed"], strategy_rollup["as_of"],
-            by_ticker_rows=strategy_rollup["by_ticker"])
+        _write_strategies_via_store(store, args.account, strategy_rollup)
         print(f"wrote {len(strategy_rollup['open'])} open + "
               f"{len(strategy_rollup['closed'])} closed + "
-              f"{len(strategy_rollup['by_ticker'])} by-ticker strateg(ies) to {strat_path}"
-              + (f" (backup: {strat_backup})" if strat_backup
-                 else " (no previous file to back up)"))
+              f"{len(strategy_rollup['by_ticker'])} by-ticker strateg(ies)")
     return EXIT_OK
+
+
+def _accounts_present(store, data_dir) -> bool:
+    if store.uses_sqlite:
+        return True
+    return (data_dir / "accounts.json").is_file()
+
+
+def _write_strategies_via_store(store, account: str, rollup: dict) -> None:
+    """Persist the strategy roll-up merged-by-account. On JSON this uses the
+    original write_strategies (tag + merge + backup); on SQLite it merges here
+    then stores the single snapshot."""
+    if not store.uses_sqlite:
+        write_strategies(store.data_dir, account, rollup["open"],
+                         rollup["closed"], rollup["as_of"],
+                         by_ticker_rows=rollup["by_ticker"])
+        return
+    current = store.load_strategies()
+    tagged_open = [dict(r, account=account) for r in rollup["open"]]
+    tagged_closed = [dict(r, _vantage_account=account) for r in rollup["closed"]]
+    tagged_by_ticker = [dict(r, account=account) for r in rollup["by_ticker"]]
+    kept_open = [r for r in current["open"] if r.get("account") != account]
+    kept_closed = [r for r in current["closed"] if r.get("_vantage_account") != account]
+    kept_by_ticker = [r for r in current["by_ticker"] if r.get("account") != account]
+    store.put_strategies({
+        "open": tagged_open + kept_open,
+        "closed": tagged_closed + kept_closed,
+        "by_ticker": tagged_by_ticker + kept_by_ticker,
+        "as_of": rollup["as_of"],
+    })
 
 
 if __name__ == "__main__":

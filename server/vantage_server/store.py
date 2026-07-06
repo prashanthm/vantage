@@ -1,12 +1,26 @@
-"""JSON-file store — the only place portfolio data is read from disk.
+"""Real-data store — the only place portfolio data is read from disk.
 
-Loads accounts / lots / recent_buys / auto_buys / partner_map (and, via
-quotes.py, quotes) from a data directory: env VANTAGE_DATA_DIR, defaulting to
-server/data (the fixture dataset that mirrors the SPA's src/data.js exactly).
+Historically a JSON-file reader; it now delegates to one of two backends behind
+an identical ``load_*`` API:
+
+  * ``_JsonBackend`` — the original behaviour: reads/writes the JSON files under
+    the data directory (accounts.json, lots.json, bars/<SYM>.json, ...). The
+    FIXTURE dataset (server/data, the parity-golden oracle) always uses this
+    backend, so every contract/parity test is byte-identical.
+  * ``_SqliteBackend`` — reads/writes a single ``vantage.db`` (stdlib sqlite3,
+    WAL). Selected when the data dir contains a ``vantage.db`` (or ``VANTAGE_DB``
+    / an explicit db path points at one). ACCUMULATING data (accounts, lots,
+    history) upserts by natural key; snapshot data (bars, strategies, analysis,
+    roundtrips, trade_stats, earnings) round-trips its dict payload.
+
+Both backends return the SAME frozen dataclasses / dict shapes, so nothing
+downstream (engine, API, MCP) knows which one is in play. Write methods exist on
+Store but are only ever called by the operator CLIs (importer, snapshot_bars,
+analyze, ml builders) — the read-only doctrine (ADR-010) is preserved: the REST
+API and MCP surface only read.
 
 Shapes are validated eagerly with explicit errors — a malformed file fails at
-load time with the file and field named, never as a KeyError deep in the
-engine.
+load time with the file and field named, never as a KeyError deep in the engine.
 """
 from __future__ import annotations
 
@@ -16,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from . import db as _db
 from .models import Account, AutoBuy, Lot, RecentBuy
 
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -24,6 +39,7 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 # the fixture dataset is a test oracle (parity goldens) and must stay pristine.
 LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / "data-local"
 ENV_DATA_DIR = "VANTAGE_DATA_DIR"
+ENV_DB = "VANTAGE_DB"
 
 
 class StoreError(ValueError):
@@ -41,6 +57,28 @@ def resolve_data_dir(data_dir: str | os.PathLike[str] | None = None) -> Path:
     if LOCAL_DATA_DIR.is_dir():
         return LOCAL_DATA_DIR
     return DEFAULT_DATA_DIR
+
+
+def resolve_db_path(data_dir: Path) -> Path | None:
+    """The SQLite db backing ``data_dir``, or None when JSON should be used.
+
+    Selection: an explicit ``VANTAGE_DB`` env (a file path, or a directory to
+    look for vantage.db in) wins; otherwise a ``vantage.db`` inside ``data_dir``
+    opts that directory into SQLite. Absent both, None → the JSON backend. The
+    fixture dir carries no vantage.db, so it always stays JSON."""
+    env = os.environ.get(ENV_DB, "").strip()
+    if env:
+        p = Path(env)
+        if p.is_dir():
+            candidate = p / _db.DB_FILENAME
+            return candidate if candidate.is_file() else None
+        # An explicit file path: use it whether or not it exists yet (the
+        # migration CLI creates it; a running store points at a live one).
+        if p.suffix or p.name == _db.DB_FILENAME:
+            return p
+        return p
+    candidate = Path(data_dir) / _db.DB_FILENAME
+    return candidate if candidate.is_file() else None
 
 
 @dataclass(frozen=True)
@@ -81,13 +119,23 @@ def _require_list(data: Any, where: str) -> list:
 _NUM = (int, float)
 
 
-class Store:
-    """Reads and validates the portfolio dataset from a data directory."""
+# =====================================================================
+# JSON backend — the original file reader/writer, refactored out of Store.
+# =====================================================================
 
-    def __init__(self, data_dir: str | os.PathLike[str] | None = None):
-        self.data_dir = resolve_data_dir(data_dir)
 
-    # -- individual files ---------------------------------------------------
+class _JsonBackend:
+    """Reads and validates the portfolio dataset from JSON files in a dir.
+
+    Write methods delegate to the module-level writer functions the CLIs and
+    tests already use (importer.write_lots, snapshot_bars.write_bars, ...), so
+    the existing file-management behaviour — merge-by-account, .bak backups — is
+    unchanged and every tmp_path JSON test keeps passing."""
+
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+
+    # -- reads --------------------------------------------------------------
 
     def load_accounts(self) -> tuple[Account, ...]:
         path = self.data_dir / "accounts.json"
@@ -117,11 +165,7 @@ class Store:
             )
             for r in rows
         )
-        for lot in lots:
-            if lot.shares <= 0:
-                raise StoreError(f"{path}: lot {lot.symbol} {lot.date} has non-positive shares")
-            if lot.cost_per_share < 0:
-                raise StoreError(f"{path}: lot {lot.symbol} {lot.date} has negative cost_per_share")
+        _validate_lots(lots, str(path))
         return lots
 
     def load_recent_buys(self) -> tuple[RecentBuy, ...]:
@@ -169,11 +213,6 @@ class Store:
         return data
 
     def load_history(self) -> list[dict]:
-        """Imported transaction history (<data_dir>/history.json — optional
-        file written by the importer's --with-history). TOLERANT of a missing
-        file: returns an empty list so the API/MCP surface an empty state
-        instead of erroring (fixture datasets have no history). Rows are the
-        importer's history contract dicts, returned newest first."""
         path = self.data_dir / "history.json"
         if not path.is_file():
             return []
@@ -183,18 +222,6 @@ class Store:
         return out
 
     def load_strategies(self) -> dict:
-        """Options strategy roll-up (<data_dir>/strategies.json — optional file
-        written by the importer's --with-strategies). TOLERANT of a missing
-        file: returns {"open": [], "closed": [], "by_ticker": [], "as_of": None}
-        so the API/MCP surface an empty state instead of erroring (fixture
-        datasets have none).
-
-        The file is {open: [...], closed: [...], by_ticker: [...], as_of};
-        malformed sections degrade to empty lists rather than raising — the
-        roll-up is derived, advisory data, not a load-time invariant like lots.
-        ``by_ticker`` is the per-underlying position book (all legs of a ticker
-        combined regardless of expiry — netting a diagonal's short into one
-        row); it defaults to [] for files written before it existed."""
         path = self.data_dir / "strategies.json"
         if not path.is_file():
             return {"open": [], "closed": [], "by_ticker": [], "as_of": None}
@@ -202,36 +229,9 @@ class Store:
         if not isinstance(data, dict):
             raise StoreError(f"{path}: top level must be a JSON object with "
                              "'open' and 'closed' keys")
-        open_rows = data.get("open")
-        closed_rows = data.get("closed")
-        by_ticker_rows = data.get("by_ticker")
-        return {
-            "open": [r for r in open_rows if isinstance(r, dict)]
-            if isinstance(open_rows, list) else [],
-            "closed": [r for r in closed_rows if isinstance(r, dict)]
-            if isinstance(closed_rows, list) else [],
-            "by_ticker": [r for r in by_ticker_rows if isinstance(r, dict)]
-            if isinstance(by_ticker_rows, list) else [],
-            "as_of": data.get("as_of"),
-        }
-
-    def load_signals(self):
-        """Authored trade signals (<data_dir>/signals.json — optional file).
-        Returns tuple[Signal, ...]; statuses are computed, never stored."""
-        from .signals import load_signals  # local import: signals.py imports store helpers
-
-        return load_signals(self.data_dir)
+        return _normalize_strategies(data)
 
     def load_roundtrips(self) -> dict:
-        """Labeled closed round-trips (<data_dir>/ml/roundtrips.json — optional
-        file written by vantage_server.ml.build_roundtrips). TOLERANT of a
-        missing file: returns {"as_of": None, "roundtrips": [], "summary": {}}
-        so the API/MCP surface an empty state instead of erroring (fixture
-        datasets have none).
-
-        File shape: {as_of, account, roundtrips: [...], summary: {...}}; a
-        malformed file degrades to the empty state rather than raising — the
-        round-trips are derived, advisory data, not a load-time invariant."""
         path = self.data_dir / "ml" / "roundtrips.json"
         if not path.is_file():
             return {"as_of": None, "roundtrips": [], "summary": {}}
@@ -241,56 +241,358 @@ class Store:
             return {"as_of": None, "roundtrips": [], "summary": {}}
         if not isinstance(data, dict):
             return {"as_of": None, "roundtrips": [], "summary": {}}
-        rows = data.get("roundtrips")
-        summary = data.get("summary")
-        return {
-            "as_of": data.get("as_of"),
-            "roundtrips": [r for r in rows if isinstance(r, dict)]
-            if isinstance(rows, list) else [],
-            "summary": summary if isinstance(summary, dict) else {},
-        }
+        return _normalize_roundtrips(data)
 
     def load_trade_stats(self) -> dict:
-        """Entry-condition features + Bayesian condition buckets (<data_dir>/ml/
-        trade_stats.json — optional file written by
-        vantage_server.ml.build_features). TOLERANT of a missing/malformed file:
-        returns an empty state so the API/MCP surface it instead of erroring
-        (fixture datasets have none).
-
-        File shape: {as_of, account, baseline_win_rate, featured, buckets,
-        notable, by_account: {<acct>: {baseline_win_rate, featured, buckets,
-        notable}}}. Empty state:
-        {as_of: None, baseline_win_rate: None, featured/buckets/notable: [],
-        by_account: {}}."""
-        empty = {
-            "as_of": None,
-            "baseline_win_rate": None,
-            "featured": [],
-            "buckets": [],
-            "notable": [],
-            "by_account": {},
-        }
         path = self.data_dir / "ml" / "trade_stats.json"
         if not path.is_file():
-            return empty
+            return _empty_trade_stats()
         try:
             data = _read_json(path)
         except StoreError:
-            return empty
+            return _empty_trade_stats()
         if not isinstance(data, dict):
-            return empty
-        by_account = data.get("by_account")
-        return {
-            "as_of": data.get("as_of"),
-            "baseline_win_rate": data.get("baseline_win_rate"),
-            "featured": [r for r in (data.get("featured") or [])
-                         if isinstance(r, dict)],
-            "buckets": [r for r in (data.get("buckets") or [])
-                        if isinstance(r, dict)],
-            "notable": [r for r in (data.get("notable") or [])
-                        if isinstance(r, dict)],
-            "by_account": by_account if isinstance(by_account, dict) else {},
-        }
+            return _empty_trade_stats()
+        return _normalize_trade_stats(data)
+
+
+# =====================================================================
+# SQLite backend — reads/writes a single vantage.db.
+# =====================================================================
+
+
+class _SqliteBackend:
+    """Reads and validates the dataset from a SQLite db. Returns the SAME types
+    as the JSON backend. Schema is ensured on first connect (idempotent)."""
+
+    def __init__(self, data_dir: Path, db_path: Path):
+        self.data_dir = data_dir
+        self.db = _db.Database(db_path)
+        self._ensured = False
+
+    def _conn(self):
+        conn = self.db.connect()
+        if not self._ensured:
+            self.db.init_schema(conn)
+            self._ensured = True
+        return conn
+
+    # -- reads --------------------------------------------------------------
+
+    def load_accounts(self) -> tuple[Account, ...]:
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, name, short, type, taxable, last_sync FROM accounts "
+                "ORDER BY seq, id"
+            ).fetchall()
+        finally:
+            conn.close()
+        return tuple(
+            Account(
+                id=r["id"], name=r["name"], short=r["short"], type=r["type"],
+                taxable=bool(r["taxable"]), last_sync=r["last_sync"],
+            )
+            for r in rows
+        )
+
+    def load_lots(self) -> tuple[Lot, ...]:
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT account, symbol, date, shares, cost_per_share FROM lots "
+                "ORDER BY seq, account, symbol, date"
+            ).fetchall()
+        finally:
+            conn.close()
+        lots = tuple(
+            Lot(account=r["account"], symbol=r["symbol"], date=r["date"],
+                shares=float(r["shares"]), cost_per_share=float(r["cost_per_share"]))
+            for r in rows
+        )
+        _validate_lots(lots, "lots (sqlite)")
+        return lots
+
+    def load_recent_buys(self) -> tuple[RecentBuy, ...]:
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT account, symbol, date, note FROM recent_buys "
+                "ORDER BY seq, account, symbol, date"
+            ).fetchall()
+        finally:
+            conn.close()
+        return tuple(
+            RecentBuy(account=r["account"], symbol=r["symbol"], date=r["date"],
+                      note=r["note"])
+            for r in rows
+        )
+
+    def load_auto_buys(self) -> tuple[AutoBuy, ...]:
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT account, symbol, day_of_month, amount, cadence FROM auto_buys "
+                "ORDER BY seq, account, symbol"
+            ).fetchall()
+        finally:
+            conn.close()
+        return tuple(
+            AutoBuy(
+                account=r["account"], symbol=r["symbol"],
+                day_of_month=r["day_of_month"],
+                amount=float(r["amount"]) if r["amount"] is not None else None,
+                cadence=r["cadence"],
+            )
+            for r in rows
+        )
+
+    def load_partner_map(self) -> dict[str, str]:
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT symbol, replacement FROM partner_map ORDER BY symbol"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {r["symbol"]: r["replacement"] for r in rows}
+
+    def load_history(self) -> list[dict]:
+        conn = self._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM history ORDER BY date DESC"
+            ).fetchall()
+        finally:
+            conn.close()
+        out = [_history_row_to_dict(r) for r in rows]
+        out.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
+        return out
+
+    def load_strategies(self) -> dict:
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT as_of, open, closed, by_ticker FROM strategies WHERE id=1"
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return {"open": [], "closed": [], "by_ticker": [], "as_of": None}
+        return _normalize_strategies({
+            "as_of": row["as_of"],
+            "open": _db.loads(row["open"], []),
+            "closed": _db.loads(row["closed"], []),
+            "by_ticker": _db.loads(row["by_ticker"], []),
+        })
+
+    def load_roundtrips(self) -> dict:
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT as_of, roundtrips, summary FROM roundtrips WHERE id=1"
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return {"as_of": None, "roundtrips": [], "summary": {}}
+        return _normalize_roundtrips({
+            "as_of": row["as_of"],
+            "roundtrips": _db.loads(row["roundtrips"], []),
+            "summary": _db.loads(row["summary"], {}),
+        })
+
+    def load_trade_stats(self) -> dict:
+        conn = self._conn()
+        try:
+            row = conn.execute(
+                "SELECT as_of, baseline_win_rate, featured, buckets, notable, "
+                "by_account FROM trade_stats WHERE id=1"
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return _empty_trade_stats()
+        return _normalize_trade_stats({
+            "as_of": row["as_of"],
+            "baseline_win_rate": row["baseline_win_rate"],
+            "featured": _db.loads(row["featured"], []),
+            "buckets": _db.loads(row["buckets"], []),
+            "notable": _db.loads(row["notable"], []),
+            "by_account": _db.loads(row["by_account"], {}),
+        })
+
+
+# =====================================================================
+# Shared normalization / validation (identical results across backends).
+# =====================================================================
+
+
+def _validate_lots(lots, where: str) -> None:
+    for lot in lots:
+        if lot.shares <= 0:
+            raise StoreError(f"{where}: lot {lot.symbol} {lot.date} has non-positive shares")
+        if lot.cost_per_share < 0:
+            raise StoreError(f"{where}: lot {lot.symbol} {lot.date} has negative cost_per_share")
+
+
+def _normalize_strategies(data: dict) -> dict:
+    open_rows = data.get("open")
+    closed_rows = data.get("closed")
+    by_ticker_rows = data.get("by_ticker")
+    return {
+        "open": [r for r in open_rows if isinstance(r, dict)]
+        if isinstance(open_rows, list) else [],
+        "closed": [r for r in closed_rows if isinstance(r, dict)]
+        if isinstance(closed_rows, list) else [],
+        "by_ticker": [r for r in by_ticker_rows if isinstance(r, dict)]
+        if isinstance(by_ticker_rows, list) else [],
+        "as_of": data.get("as_of"),
+    }
+
+
+def _normalize_roundtrips(data: dict) -> dict:
+    rows = data.get("roundtrips")
+    summary = data.get("summary")
+    return {
+        "as_of": data.get("as_of"),
+        "roundtrips": [r for r in rows if isinstance(r, dict)]
+        if isinstance(rows, list) else [],
+        "summary": summary if isinstance(summary, dict) else {},
+    }
+
+
+def _empty_trade_stats() -> dict:
+    return {
+        "as_of": None,
+        "baseline_win_rate": None,
+        "featured": [],
+        "buckets": [],
+        "notable": [],
+        "by_account": {},
+    }
+
+
+def _normalize_trade_stats(data: dict) -> dict:
+    by_account = data.get("by_account")
+    return {
+        "as_of": data.get("as_of"),
+        "baseline_win_rate": data.get("baseline_win_rate"),
+        "featured": [r for r in (data.get("featured") or []) if isinstance(r, dict)],
+        "buckets": [r for r in (data.get("buckets") or []) if isinstance(r, dict)],
+        "notable": [r for r in (data.get("notable") or []) if isinstance(r, dict)],
+        "by_account": by_account if isinstance(by_account, dict) else {},
+    }
+
+
+def _history_row_to_dict(row) -> dict:
+    """Reconstitute a history dict from a sqlite row: exactly the known columns
+    that were present in the source (preserving explicit nulls) plus any
+    ``extra`` keys. Falls back to 'non-null columns' for rows written before the
+    present_cols marker existed."""
+    keys = row.keys()
+    present = _db.loads(row["present_cols"], None) if "present_cols" in keys else None
+    out: dict = {}
+    if isinstance(present, list):
+        for col in _db.HISTORY_COLUMNS:
+            if col in present:
+                out[col] = row[col]
+    else:
+        for col in _db.HISTORY_COLUMNS:
+            if row[col] is not None:
+                out[col] = row[col]
+    extra = _db.loads(row["extra"], {})
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            out.setdefault(k, v)
+    return out
+
+
+# =====================================================================
+# Store — the delegating facade the whole app talks to.
+# =====================================================================
+
+
+class Store:
+    """Reads and validates the portfolio dataset, delegating to a JSON or
+    SQLite backend chosen from the data dir / VANTAGE_DB (see resolve_db_path).
+
+    Backend selection is lazy and cheap: nothing touches disk in ``__init__``,
+    so ``Store(nonexistent_dir)`` still constructs and only a ``load_*`` call
+    raises. Write methods are operator-only (the API/MCP surface never calls
+    them) and route to the active backend."""
+
+    def __init__(self, data_dir: str | os.PathLike[str] | None = None):
+        self.data_dir = resolve_data_dir(data_dir)
+        self._db_path = resolve_db_path(self.data_dir)
+        if self._db_path is not None:
+            self._backend: _JsonBackend | _SqliteBackend = _SqliteBackend(
+                self.data_dir, self._db_path)
+        else:
+            self._backend = _JsonBackend(self.data_dir)
+
+    @property
+    def uses_sqlite(self) -> bool:
+        return isinstance(self._backend, _SqliteBackend)
+
+    # -- reads (delegated) --------------------------------------------------
+
+    def load_accounts(self) -> tuple[Account, ...]:
+        return self._backend.load_accounts()
+
+    def load_lots(self) -> tuple[Lot, ...]:
+        return self._backend.load_lots()
+
+    def load_recent_buys(self) -> tuple[RecentBuy, ...]:
+        return self._backend.load_recent_buys()
+
+    def load_auto_buys(self) -> tuple[AutoBuy, ...]:
+        return self._backend.load_auto_buys()
+
+    def load_partner_map(self) -> dict[str, str]:
+        return self._backend.load_partner_map()
+
+    def load_history(self) -> list[dict]:
+        return self._backend.load_history()
+
+    def load_strategies(self) -> dict:
+        return self._backend.load_strategies()
+
+    def load_roundtrips(self) -> dict:
+        return self._backend.load_roundtrips()
+
+    def load_trade_stats(self) -> dict:
+        return self._backend.load_trade_stats()
+
+    def load_signals(self):
+        """Authored trade signals. On SQLite, read from the signals table; on
+        JSON, from signals.json (signals.py). Returns tuple[Signal, ...]."""
+        if self.uses_sqlite:
+            return self._load_signals_sqlite()
+        from .signals import load_signals  # local import: avoids a cycle
+        return load_signals(self.data_dir)
+
+    def _load_signals_sqlite(self):
+        from .signals import Signal
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT id, sym, pattern, entry, target, stop, move_pct, conf, time "
+                "FROM signals ORDER BY seq, id"
+            ).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            out.append(Signal(
+                id=r["id"], sym=str(r["sym"]).upper(), pattern=r["pattern"],
+                entry=float(r["entry"]), target=float(r["target"]),
+                stop=float(r["stop"]),
+                move_pct=float(r["move_pct"]) if r["move_pct"] is not None else None,
+                conf=float(r["conf"]) if r["conf"] is not None else None,
+                created_at=str(r["time"] or ""),
+            ))
+        return tuple(out)
 
     # -- the whole dataset --------------------------------------------------
 
@@ -316,3 +618,488 @@ class Store:
             auto_buys=auto_buys,
             partner_map=self.load_partner_map(),
         )
+
+    # ==================================================================
+    # WRITE methods — operator-only. On JSON they perform the existing file
+    # writes (merge-by-account + .bak backup); on SQLite they upsert in a
+    # transaction. The API/MCP surface NEVER calls these.
+    # ==================================================================
+
+    def upsert_lots(self, imported_accounts, lots: list[dict], *, mode: str = "merge",
+                    now=None):
+        """Persist lots for the imported accounts. mode='merge' replaces only
+        those accounts' lots (keeping others); mode='replace' swaps the whole
+        set. ``imported_accounts`` is the set of account ids the ``lots`` cover.
+        Returns a backup path (JSON) or None (SQLite)."""
+        if not self.uses_sqlite:
+            from .importer import write_lots
+            existing = _json_list(self.data_dir / "lots.json")
+            if mode == "replace":
+                final = list(lots)
+            else:
+                acct_set = set(imported_accounts)
+                keep = [l for l in existing if l.get("account") not in acct_set]
+                final = keep + lots
+            return write_lots(self.data_dir, final, now=now)
+        with self._sqlite_txn() as conn:
+            if mode == "replace":
+                conn.execute("DELETE FROM lots")
+            else:
+                for acct in set(imported_accounts):
+                    conn.execute("DELETE FROM lots WHERE account=?", (acct,))
+            self._insert_lots(conn, lots)
+        return None
+
+    def _insert_lots(self, conn, lots: list[dict]) -> None:
+        for i, l in enumerate(lots):
+            conn.execute(
+                "INSERT OR REPLACE INTO lots"
+                "(account, symbol, date, shares, cost_per_share, seq) "
+                "VALUES(?,?,?,?,?,?)",
+                (str(l["account"]), str(l["symbol"]), str(l["date"]),
+                 float(l["shares"]), float(l["cost_per_share"]), i),
+            )
+
+    def upsert_accounts(self, accounts: list[dict]) -> None:
+        """Replace the accounts table/file with ``accounts`` (full list)."""
+        if not self.uses_sqlite:
+            path = self.data_dir / "accounts.json"
+            path.write_text(json.dumps(accounts, indent=2) + "\n", encoding="utf-8")
+            return
+        with self._sqlite_txn() as conn:
+            conn.execute("DELETE FROM accounts")
+            self._insert_accounts(conn, accounts)
+
+    def _insert_accounts(self, conn, accounts: list[dict]) -> None:
+        for i, a in enumerate(accounts):
+            conn.execute(
+                "INSERT OR REPLACE INTO accounts"
+                "(id, name, short, type, taxable, last_sync, seq) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (str(a["id"]), str(a["name"]), str(a["short"]), str(a["type"]),
+                 1 if a.get("taxable") else 0, str(a.get("last_sync", "never")), i),
+            )
+
+    def add_account(self, account: dict) -> bool:
+        """Append one account if its id is new. Returns True when added, False
+        when the id already existed."""
+        existing = {a.id for a in self.load_accounts()} if self._accounts_exist() else set()
+        if account["id"] in existing:
+            return False
+        if not self.uses_sqlite:
+            path = self.data_dir / "accounts.json"
+            rows = _json_list(path)
+            rows.append(account)
+            path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+            return True
+        with self._sqlite_txn() as conn:
+            n = conn.execute("SELECT COUNT(*) AS c FROM accounts").fetchone()["c"]
+            conn.execute(
+                "INSERT OR REPLACE INTO accounts"
+                "(id, name, short, type, taxable, last_sync, seq) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (str(account["id"]), str(account["name"]), str(account["short"]),
+                 str(account["type"]), 1 if account.get("taxable") else 0,
+                 str(account.get("last_sync", "never")), n),
+            )
+        return True
+
+    def _accounts_exist(self) -> bool:
+        if self.uses_sqlite:
+            return True  # table exists after schema init
+        return (self.data_dir / "accounts.json").is_file()
+
+    def upsert_recent_buys(self, rows: list[dict]) -> None:
+        if not self.uses_sqlite:
+            path = self.data_dir / "recent_buys.json"
+            path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+            return
+        with self._sqlite_txn() as conn:
+            conn.execute("DELETE FROM recent_buys")
+            for i, r in enumerate(rows):
+                conn.execute(
+                    "INSERT OR REPLACE INTO recent_buys"
+                    "(account, symbol, date, note, seq) VALUES(?,?,?,?,?)",
+                    (str(r["account"]), str(r["symbol"]), str(r["date"]),
+                     str(r.get("note", "")), i),
+                )
+
+    def upsert_auto_buys(self, rows: list[dict]) -> None:
+        if not self.uses_sqlite:
+            path = self.data_dir / "auto_buys.json"
+            path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+            return
+        with self._sqlite_txn() as conn:
+            conn.execute("DELETE FROM auto_buys")
+            for i, r in enumerate(rows):
+                amount = r.get("amount")
+                conn.execute(
+                    "INSERT INTO auto_buys"
+                    "(account, symbol, day_of_month, amount, cadence, seq) "
+                    "VALUES(?,?,?,?,?,?)",
+                    (str(r["account"]), str(r["symbol"]), r.get("day_of_month"),
+                     float(amount) if amount is not None else None,
+                     r.get("cadence"), i),
+                )
+
+    def set_partner_map(self, mapping: dict[str, str]) -> None:
+        if not self.uses_sqlite:
+            path = self.data_dir / "partner_map.json"
+            path.write_text(json.dumps(mapping, indent=2) + "\n", encoding="utf-8")
+            return
+        with self._sqlite_txn() as conn:
+            conn.execute("DELETE FROM partner_map")
+            for sym, repl in mapping.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO partner_map(symbol, replacement) "
+                    "VALUES(?,?)", (str(sym), str(repl)),
+                )
+
+    def upsert_history(self, account: str, rows: list[dict], *, now=None):
+        """Accumulate history rows. On JSON, merge-by-account (this account's
+        rows replaced, others kept) + backup — the importer's contract. On
+        SQLite, INSERT OR REPLACE by row_key (dedupe): new rows added, existing
+        rows kept/refreshed, so a refresh never drops prior history. Returns
+        (path, backup) on JSON, (None, None) on SQLite."""
+        if not self.uses_sqlite:
+            from .importer import write_history
+            return write_history(self.data_dir, account, rows, now=now)
+        with self._sqlite_txn() as conn:
+            self._insert_history(conn, rows)
+        return None, None
+
+    def _insert_history(self, conn, rows: list[dict]) -> None:
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            key = _db.history_row_key(r)
+            known = {c: r.get(c) for c in _db.HISTORY_COLUMNS}
+            # Track which known columns were EXPLICITLY present (even if null) so
+            # a round-trip restores exactly the source keys — a row carrying an
+            # explicit ``price: None`` must not lose the key on read.
+            present = [c for c in _db.HISTORY_COLUMNS if c in r]
+            extra = {k: v for k, v in r.items()
+                     if k not in _db.HISTORY_COLUMNS and k != "order_id"}
+            conn.execute(
+                "INSERT OR REPLACE INTO history"
+                "(row_key, account, broker_account, date, kind, symbol, description, "
+                " side, quantity, price, amount, state, extra, present_cols) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (key, known["account"], known["broker_account"], known["date"],
+                 known["kind"], known["symbol"], known["description"], known["side"],
+                 known["quantity"], known["price"], known["amount"], known["state"],
+                 _db.dumps(extra) if extra else None, _db.dumps(present)),
+            )
+
+    def put_bars(self, symbol: str, series: dict, *, as_of: str,
+                 lookback_days: int = 0, backfilled: bool = False, now=None):
+        """Persist one symbol's bars. On JSON, snapshot_bars.write_bars (backup +
+        provenance markers). On SQLite, upsert the row (daily/weekly/monthly as
+        JSON). Returns (path, backup) on JSON, (None, None) on SQLite."""
+        if not self.uses_sqlite:
+            from .snapshot_bars import write_bars
+            return write_bars(self.data_dir, symbol, series, as_of=as_of,
+                              lookback_days=lookback_days, backfilled=backfilled,
+                              now=now)
+        daily = series.get("daily") or []
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO bars"
+                "(symbol, as_of, lookback_days, backfilled, first_bar, last_bar, "
+                " bar_count, daily, weekly, monthly) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (symbol.upper(), as_of, lookback_days, 1 if backfilled else 0,
+                 str(daily[0].get("date"))[:10] if daily else None,
+                 str(daily[-1].get("date"))[:10] if daily else None,
+                 len(daily), _db.dumps(daily),
+                 _db.dumps(series.get("weekly") or []),
+                 _db.dumps(series.get("monthly") or [])),
+            )
+        return None, None
+
+    def load_bars(self, symbol: str) -> dict | None:
+        """Read one symbol's bars payload ({symbol, as_of, daily, weekly,
+        monthly, ...}) or None. On JSON, reads bars/<SYM>.json; on SQLite, the
+        bars table."""
+        if not self.uses_sqlite:
+            path = self.data_dir / "bars" / f"{symbol.upper()}.json"
+            if not path.is_file():
+                return None
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return None
+            return data if isinstance(data, dict) else None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM bars WHERE symbol=?", (symbol.upper(),)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {
+            "symbol": row["symbol"],
+            "as_of": row["as_of"],
+            "lookback_days": row["lookback_days"],
+            "backfilled": bool(row["backfilled"]),
+            "first_bar": row["first_bar"],
+            "last_bar": row["last_bar"],
+            "bar_count": row["bar_count"],
+            "daily": _db.loads(row["daily"], []),
+            "weekly": _db.loads(row["weekly"], []),
+            "monthly": _db.loads(row["monthly"], []),
+        }
+
+    def put_strategies(self, rollup: dict) -> None:
+        """Persist the whole strategy roll-up snapshot {open, closed, by_ticker,
+        as_of}. (The importer already merges by account before calling; on JSON
+        this writes the file directly, on SQLite the single snapshot row.)"""
+        norm = _normalize_strategies(rollup)
+        if not self.uses_sqlite:
+            path = self.data_dir / "strategies.json"
+            path.write_text(json.dumps({
+                "open": rollup.get("open", []),
+                "closed": rollup.get("closed", []),
+                "by_ticker": rollup.get("by_ticker", []),
+                "as_of": rollup.get("as_of"),
+            }, indent=2) + "\n", encoding="utf-8")
+            return
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO strategies(id, as_of, open, closed, by_ticker) "
+                "VALUES(1,?,?,?,?)",
+                (norm["as_of"], _db.dumps(norm["open"]), _db.dumps(norm["closed"]),
+                 _db.dumps(norm["by_ticker"])),
+            )
+
+    def put_analysis(self, date: str, payload: dict) -> None:
+        """Persist one day's analysis journal {as_of, generated_at, decisions}."""
+        if not self.uses_sqlite:
+            raise RuntimeError("put_analysis on JSON backend is handled by analyze.write_journal")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO analysis(date, as_of, generated_at, decisions) "
+                "VALUES(?,?,?,?)",
+                (date, payload.get("as_of", date), payload.get("generated_at"),
+                 _db.dumps(payload.get("decisions") or [])),
+            )
+
+    def load_analysis_day(self, day: str | None = None) -> dict | None:
+        """One day's journal (latest when ``day`` is None), or None. On JSON,
+        delegates to analyze.load_day; on SQLite, reads the analysis table."""
+        if not self.uses_sqlite:
+            from . import analyze
+            return analyze.load_day(self.data_dir, day)
+        conn = self._backend._conn()
+        try:
+            if day is None:
+                row = conn.execute(
+                    "SELECT * FROM analysis ORDER BY date DESC LIMIT 1"
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM analysis WHERE date=?", (day,)
+                ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {
+            "as_of": row["as_of"],
+            "generated_at": row["generated_at"],
+            "decisions": _db.loads(row["decisions"], []),
+        }
+
+    def load_analysis_symbol_history(self, symbol: str) -> list[dict]:
+        """Every journaled decision for ``symbol`` across days, newest first."""
+        if not self.uses_sqlite:
+            from . import analyze
+            return analyze.load_symbol_history(self.data_dir, symbol)
+        want = symbol.upper()
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT date, as_of, decisions FROM analysis ORDER BY date"
+            ).fetchall()
+        finally:
+            conn.close()
+        trail: list[dict] = []
+        for r in rows:
+            for dec in _db.loads(r["decisions"], []):
+                if str(dec.get("symbol", "")).upper() == want:
+                    trail.append({"as_of": r["as_of"] or r["date"], "decision": dec})
+        trail.sort(key=lambda x: str(x.get("as_of") or ""), reverse=True)
+        return trail
+
+    def put_roundtrips(self, account: str, roundtrips: list[dict], summary: dict,
+                       *, as_of: str, now=None):
+        """Persist the round-trips snapshot. On JSON, build_roundtrips.write_roundtrips
+        (merge-by-account + backup). On SQLite, replace this account's rows and
+        keep others, then store the merged snapshot. Returns (path, backup) on
+        JSON, (None, None) on SQLite."""
+        if not self.uses_sqlite:
+            raise RuntimeError("put_roundtrips on JSON backend is handled by "
+                               "build_roundtrips.write_roundtrips")
+        current = self.load_roundtrips()
+        kept = [r for r in current["roundtrips"] if r.get("account") != account]
+        tagged = [{**r, "account": account} for r in roundtrips]
+        all_rows = tagged + kept
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO roundtrips(id, as_of, account, roundtrips, summary) "
+                "VALUES(1,?,?,?,?)",
+                (as_of, account, _db.dumps(all_rows), _db.dumps(summary)),
+            )
+        return None, None
+
+    def put_trade_stats(self, account: str, *, baseline_win_rate, featured, buckets,
+                        notable, as_of: str, now=None):
+        """Persist trade_stats. On SQLite, merge by-account like the JSON writer:
+        this account's block replaces the prior one under by_account, top-level
+        reflects the last built account."""
+        if not self.uses_sqlite:
+            raise RuntimeError("put_trade_stats on JSON backend is handled by "
+                               "build_features.write_trade_stats")
+        current = self.load_trade_stats()
+        by_account = dict(current.get("by_account") or {})
+        tagged_featured = [{**f, "account": account} for f in featured]
+        by_account[account] = {
+            "baseline_win_rate": baseline_win_rate,
+            "featured": tagged_featured,
+            "buckets": buckets,
+            "notable": notable,
+        }
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO trade_stats"
+                "(id, as_of, account, baseline_win_rate, featured, buckets, notable, by_account) "
+                "VALUES(1,?,?,?,?,?,?,?)",
+                (as_of, account, baseline_win_rate, _db.dumps(tagged_featured),
+                 _db.dumps(buckets), _db.dumps(notable), _db.dumps(by_account)),
+            )
+        return None, None
+
+    def put_earnings(self, symbol: str, earnings: list[dict], dates: list[str],
+                     *, as_of: str) -> None:
+        if not self.uses_sqlite:
+            raise RuntimeError("put_earnings on JSON backend is handled by "
+                               "fetch_earnings.write_cache")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO earnings(symbol, as_of, earnings, dates) "
+                "VALUES(?,?,?,?)",
+                (symbol.upper(), as_of, _db.dumps(earnings), _db.dumps(dates)),
+            )
+
+    def load_earnings(self, symbol: str) -> dict | None:
+        if not self.uses_sqlite:
+            from .ml.fetch_earnings import load_cached
+            return load_cached(self.data_dir, symbol)
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM earnings WHERE symbol=?", (symbol.upper(),)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {
+            "symbol": row["symbol"], "as_of": row["as_of"],
+            "earnings": _db.loads(row["earnings"], []),
+            "dates": _db.loads(row["dates"], []),
+        }
+
+    def put_signals(self, rows: list[dict]) -> None:
+        if not self.uses_sqlite:
+            path = self.data_dir / "signals.json"
+            path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+            return
+        with self._sqlite_txn() as conn:
+            conn.execute("DELETE FROM signals")
+            for i, r in enumerate(rows):
+                conn.execute(
+                    "INSERT OR REPLACE INTO signals"
+                    "(id, sym, pattern, entry, target, stop, move_pct, conf, time, seq) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (r["id"], str(r["sym"]).upper(), str(r["pattern"]),
+                     float(r["entry"]), float(r["target"]), float(r["stop"]),
+                     float(r["move_pct"]) if r.get("move_pct") is not None else None,
+                     float(r["conf"]) if r.get("conf") is not None else None,
+                     str(r.get("time", "")), i),
+                )
+
+    def set_quotes(self, entries: dict[str, dict], *, as_of: str | None = None) -> None:
+        """Upsert quote records (symbol -> {name, price, day_pct, asset_class})."""
+        if not self.uses_sqlite:
+            from .importer import update_quotes_file
+            update_quotes_file(self.data_dir, entries)
+            return
+        with self._sqlite_txn() as conn:
+            for sym, q in entries.items():
+                conn.execute(
+                    "INSERT OR REPLACE INTO quotes"
+                    "(symbol, name, price, day_pct, asset_class) VALUES(?,?,?,?,?)",
+                    (str(sym), str(q.get("name", sym)),
+                     float(q["price"]) if q.get("price") is not None else None,
+                     float(q.get("day_pct", 0)), str(q.get("asset_class", ""))),
+                )
+            if as_of is not None:
+                self.set_meta("quotes_as_of", as_of, conn=conn)
+
+    def load_quotes(self) -> dict | None:
+        """{as_of, quotes: {sym: {...}}} from SQLite, or None on JSON (quotes
+        stay in quotes.json read by FixtureQuoteProvider)."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute("SELECT * FROM quotes").fetchall()
+        finally:
+            conn.close()
+        quotes = {
+            r["symbol"]: {"name": r["name"], "price": r["price"],
+                          "day_pct": r["day_pct"], "asset_class": r["asset_class"]}
+            for r in rows
+        }
+        return {"as_of": self.get_meta("quotes_as_of"), "quotes": quotes}
+
+    def set_meta(self, key: str, value: str, *, conn=None) -> None:
+        if not self.uses_sqlite:
+            return  # meta is a SQLite convenience; JSON has no equivalent
+        if conn is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES(?,?)", (key, value))
+            return
+        with self._sqlite_txn() as c:
+            c.execute("INSERT OR REPLACE INTO meta(key, value) VALUES(?,?)", (key, value))
+
+    def get_meta(self, key: str) -> str | None:
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        finally:
+            conn.close()
+        return row["value"] if row else None
+
+    # -- sqlite txn helper --------------------------------------------------
+
+    def _sqlite_txn(self):
+        assert isinstance(self._backend, _SqliteBackend)
+        self._backend._conn().close()  # ensure schema exists
+        return self._backend.db.transaction()
+
+
+def _json_list(path: Path) -> list:
+    """Read a JSON array file, or [] when absent. Used by the JSON write paths
+    that merge against the current file."""
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
