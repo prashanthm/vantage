@@ -43,6 +43,11 @@ from .. import bars as bars_engine
 from ..bars_view import BarsNotFound, load_bars_file
 from ..brokers import CONNECTIONS, BrokerConnectionError, get_connection
 from ..snapshot_bars import _underlying as _chartable_underlying, write_bars
+
+# Cash-settled index roots have no fetchable equity historical instrument at the
+# broker — their options trade (SPXW etc.) but there's no chart to backfill.
+# Skip them silently up front instead of failing a backfill every run.
+_NO_HISTORY_SYMBOLS = frozenset({"SPX", "SPXW", "NDX", "NDXP", "RUT", "VIX", "XSP"})
 from ..store import Store, StoreError, resolve_data_dir
 
 EXIT_OK = 0
@@ -124,7 +129,7 @@ def ensure_bars(
     missing: list[str] = []
     for sym in sorted(underlyings):
         chartable = _chartable_underlying(sym)
-        if chartable is None:
+        if chartable is None or chartable in _NO_HISTORY_SYMBOLS:
             continue
         try:
             load_bars_file(data_dir, chartable)

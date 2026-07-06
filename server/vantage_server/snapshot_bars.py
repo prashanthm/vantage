@@ -216,10 +216,12 @@ def _run(args: argparse.Namespace) -> int:
     data_dir = resolve_data_dir(args.data_dir)
     today = (_dt.date.fromisoformat(args.as_of) if args.as_of else _dt.date.today())
 
-    symbols: list[str] = [s.upper() for s in args.symbols]
+    # Drop blank/whitespace positionals defensively — a caller forwarding an
+    # unset "$1" would otherwise send an empty symbol the broker rejects.
+    symbols: list[str] = [s.upper() for s in args.symbols if s and s.strip()]
     for s in (args.extra_symbols or []):
-        u = s.upper()
-        if u not in symbols:
+        u = s.strip().upper()
+        if u and u not in symbols:
             symbols.append(u)
     if args.from_lots:
         for s in _symbols_from_lots(data_dir):

@@ -173,6 +173,18 @@ def _run(args: argparse.Namespace) -> int:
     try:
         pnl_history = fetch_pnl(args.broker_account, limit=args.limit)
     except BrokerConnectionError as e:
+        # Robinhood's realized-P/L endpoint transiently returns NotFound / empty.
+        # Don't fail the (nightly) build: keep the last good roundtrips.json and
+        # log a notice. A hard config error (bad account) still surfaces below as
+        # zero round-trips from empty history, not here.
+        existing = store.load_roundtrips().get("roundtrips")
+        if existing:
+            print(
+                f"notice: {args.broker} realized-P/L history unavailable this run "
+                f"({e}); keeping the existing {len(existing)} round-trip(s)",
+                file=sys.stderr,
+            )
+            return EXIT_OK
         raise BuildError(f"{args.broker}: {e}") from e
 
     underlyings = {engine._underlying(r.get("symbol", "")) for r in orders}

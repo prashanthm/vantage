@@ -11,6 +11,7 @@ import {
 } from "./util.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
 import { OptionsView } from "./options.jsx";
+import { TradeAnalyticsView } from "./trades.jsx";
 import * as live from "./live.js";
 import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, mapAnalysis } from "./live.js";
 
@@ -29,6 +30,7 @@ const NAV = [
   { group: "Intelligence", items: [
     { id: "markets", label: "Market Intel", icon: "📈" },
     { id: "options", label: "Options Intel", icon: "◎" },
+    { id: "trades", label: "Trade Analytics", icon: "🧮" },
     { id: "charts", label: "AI Charts", icon: "📊" },
   ]},
 ];
@@ -208,6 +210,7 @@ function App() {
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
+          {route === "trades" && <TradeAnalyticsView {...viewProps} />}
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
         </main>
 

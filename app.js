@@ -527,10 +527,10 @@
   function StatTile({ label, value, delta, deltaDir, note }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, label), /* @__PURE__ */ React.createElement("div", { className: "val" }, value), delta != null && /* @__PURE__ */ React.createElement("div", { className: cls("delta", deltaDir) }, delta), note && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, note));
   }
-  function heatTint(pct) {
-    if (Math.abs(pct) < 0.15) return "#f1f5f9";
-    const a = Math.min(0.08 + Math.abs(pct) / 5 * 0.3, 0.38);
-    return pct > 0 ? `rgba(5,150,105,${a.toFixed(3)})` : `rgba(220,38,38,${a.toFixed(3)})`;
+  function heatTint(pct2) {
+    if (Math.abs(pct2) < 0.15) return "#f1f5f9";
+    const a = Math.min(0.08 + Math.abs(pct2) / 5 * 0.3, 0.38);
+    return pct2 > 0 ? `rgba(5,150,105,${a.toFixed(3)})` : `rgba(220,38,38,${a.toFixed(3)})`;
   }
 
   // src/ohlc.js
@@ -625,6 +625,20 @@
     if (symbol) q.set("symbol", symbol);
     const qs = q.toString();
     return getJson(`${backendBase()}/api/analysis${qs ? `?${qs}` : ""}`);
+  };
+  var getRoundtrips = (account = "all", symbol) => {
+    const q = new URLSearchParams();
+    if (account && account !== "all") q.set("account", account);
+    if (symbol) q.set("symbol", symbol);
+    const qs = q.toString();
+    return getJson(`${backendBase()}/api/ml/roundtrips${qs ? `?${qs}` : ""}`);
+  };
+  var getTradeStats = (account = "all", dimension) => {
+    const q = new URLSearchParams();
+    if (account && account !== "all") q.set("account", account);
+    if (dimension) q.set("dimension", dimension);
+    const qs = q.toString();
+    return getJson(`${backendBase()}/api/ml/trade_stats${qs ? `?${qs}` : ""}`);
   };
   var mapLot = (l) => ({
     account: l.account,
@@ -1509,8 +1523,142 @@
     ))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 20px" } }, "High IV rank = rich premium (favor selling); low = cheap optionality (favor buying). Click a tile to open the chart."), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Income ideas on your book"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "screened across all 4 accounts \xB7 premiums are mock")), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginBottom: 20 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Idea"), /* @__PURE__ */ React.createElement("th", null, "Backing"), /* @__PURE__ */ React.createElement("th", null, "Contract"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "\u0394"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Premium"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Ann. yield"), /* @__PURE__ */ React.createElement("th", null, "Note"))), /* @__PURE__ */ React.createElement("tbody", null, INCOME_IDEAS.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.kind === "Not yet eligible" ? "plain" : "good") }, r.kind), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, r.sym))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-chip" }, acctOf(r.acct).short), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, r.basis)), /* @__PURE__ */ React.createElement("td", null, r.contract), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.delta != null ? r.delta.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.premium != null ? `$${r.premium.toFixed(2)}` : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, r.yieldAnn != null ? `${r.yieldAnn.toFixed(1)}%` : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "vg-note", style: { maxWidth: 260 } }, r.note)))))), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 4 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Unusual options activity"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "large prints & sweeps \xB7 mock feed")), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginBottom: 20 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Ticker"), /* @__PURE__ */ React.createElement("th", null, "Flow"), /* @__PURE__ */ React.createElement("th", null, "Contract"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Premium"), /* @__PURE__ */ React.createElement("th", null, "Read"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Conf"))), /* @__PURE__ */ React.createElement("tbody", null, OPTIONS_FLOW.map((f, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, f.sym), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, f.time)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", f.side === "CALL" ? "good" : "bad") }, f.side, " ", f.kind)), /* @__PURE__ */ React.createElement("td", null, f.detail), /* @__PURE__ */ React.createElement("td", { className: "num" }, f.premium), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-bias", f.sentiment), style: { fontSize: 12 } }, f.sentiment)), /* @__PURE__ */ React.createElement("td", { className: "num" }, f.conf, "%")))))), /* @__PURE__ */ React.createElement("div", { className: "vg-grid2", style: { marginBottom: 20 } }, /* @__PURE__ */ React.createElement(SecurityCard, { accent: "teal", title: "Premium pairs well with your TLH calendar" }, "Selling calls against a lot you plan to harvest can wash the loss if assigned early. Vantage cross-checks every income idea against your Tax Center before suggesting it."), /* @__PURE__ */ React.createElement(SecurityCard, { accent: "orange", title: "Approval levels differ per account" }, "Roth allows covered calls and CSPs at most brokers; 401(k)s rarely allow options at all. Ideas are tagged with the account they're actually executable in.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(FAQItem2, { question: "How are income ideas generated?", open: faq, onToggle: () => setFaq(!faq) }, "The screener looks for positions of 100+ shares (covered calls) and idle cash (cash-secured puts) in each linked account, targets ~0.20\u20130.30 delta at the next monthly expiry, and ranks by annualized premium yield adjusted for IV rank. In this prototype the chains are simulated \u2014 educational only, not advice.")));
   }
 
+  // src/trades.jsx
+  var { useMemo: useMemo2 } = React;
+  var pct = (v) => v == null ? "\u2014" : `${Math.round(v * 100)}%`;
+  var pct1 = (v) => v == null ? "\u2014" : `${(v * 100).toFixed(1)}%`;
+  var num = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
+  function CiBar({ ciLow, ciHigh, winRate, baseline, kind }) {
+    if (ciLow == null || ciHigh == null) return null;
+    const clamp = (x) => Math.max(0, Math.min(1, x));
+    const lo = clamp(ciLow) * 100;
+    const hi = clamp(ciHigh) * 100;
+    const wr = winRate == null ? null : clamp(winRate) * 100;
+    const base = baseline == null ? null : clamp(baseline) * 100;
+    const color = kind === "leak" ? "var(--vg-danger)" : "var(--vg-success-deep)";
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        role: "img",
+        "aria-label": `Credible interval ${pct1(ciLow)} to ${pct1(ciHigh)}, baseline ${pct1(baseline)}`,
+        style: { position: "relative", height: 14, background: "var(--color-light)", borderRadius: 999 }
+      },
+      /* @__PURE__ */ React.createElement("div", { style: {
+        position: "absolute",
+        left: `${lo}%`,
+        width: `${Math.max(hi - lo, 1.5)}%`,
+        top: 3,
+        height: 8,
+        borderRadius: 999,
+        background: color,
+        opacity: 0.85
+      } }),
+      wr != null && /* @__PURE__ */ React.createElement("div", { style: {
+        position: "absolute",
+        left: `${wr}%`,
+        top: 1,
+        width: 2,
+        height: 12,
+        background: color,
+        transform: "translateX(-1px)"
+      } }),
+      base != null && /* @__PURE__ */ React.createElement("div", { title: `baseline ${pct1(baseline)}`, style: {
+        position: "absolute",
+        left: `${base}%`,
+        top: 0,
+        width: 2,
+        height: 14,
+        background: "var(--color-grey)",
+        transform: "translateX(-1px)"
+      } })
+    ), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4, fontSize: 11.5 } }, "CI ", pct1(ciLow), "\u2013", pct1(ciHigh), " \xB7 baseline ", pct1(baseline)));
+  }
+  function Scorecard({ summary }) {
+    const s = summary || {};
+    const pf = s.profit_factor;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-stats" }, /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Win rate"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct1(s.win_rate)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.wins ?? 0, "W / ", s.losses ?? 0, "L")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Profit factor"), /* @__PURE__ */ React.createElement("div", { className: "val" }, num(pf)), /* @__PURE__ */ React.createElement("div", { className: cls("delta", pf != null && (pf >= 1 ? "up" : "down")) }, pf == null ? "" : pf >= 1 ? "profitable" : "below breakeven")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg hold"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.avg_holding_days == null ? "\u2014" : `${num(s.avg_holding_days, 1)}d`)), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg MFE capture"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct(s.avg_mfe_capture)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "share of peak move captured")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Closed trades"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.count ?? 0), s.entry_unknown ? /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.entry_unknown, " est. entry") : null));
+  }
+  function NotableCards({ notable, baseline }) {
+    const significant = (notable || []).filter((b) => b.significant === true);
+    if (significant.length === 0) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No defensible edges yet"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0", maxWidth: 620 } }, "No condition's win-rate separates from your ", pct1(baseline), " baseline with enough trades to be credible. Differences seen so far are within noise for the current sample \u2014 more closed round-trips are needed before a real edge or leak can be claimed."));
+    }
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-cardgrid", style: {
+      display: "grid",
+      gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+      gap: 14,
+      marginTop: 8
+    } }, significant.map((b) => /* @__PURE__ */ React.createElement("div", { key: `${b.dimension}:${b.value}`, className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 14.5 } }, b.value), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", b.kind === "leak" ? "bad" : "good") }, b.kind === "leak" ? "\u25BC leak" : "\u25B2 edge")), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 2 } }, b.dimension.replace(/_/g, " ")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", alignItems: "baseline", gap: 8, marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 24, fontWeight: 700 } }, pct1(b.win_rate)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-note", b.kind === "leak" ? "down" : "up") }, signPct((b.win_rate - (baseline || 0)) * 100), " vs baseline")), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "n = ", b.n, " trades"), /* @__PURE__ */ React.createElement(
+      CiBar,
+      {
+        ciLow: b.ci_low,
+        ciHigh: b.ci_high,
+        winRate: b.win_rate,
+        baseline,
+        kind: b.kind
+      }
+    ))));
+  }
+  function ConditionTable({ buckets, baseline }) {
+    const rows = (buckets || []).filter((b) => b.dimension !== "__baseline__");
+    if (rows.length === 0) return null;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 8, padding: "8px 12px" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px" } }, "Condition"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px", textAlign: "right" } }, "n"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px", textAlign: "right" } }, "Win rate"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px" } }, "Credible interval (90%)"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px", textAlign: "right" } }, "Avg P/L"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px" } }))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((b) => {
+      const thin = b.n < 3;
+      return /* @__PURE__ */ React.createElement("tr", { key: `${b.dimension}:${b.value}`, style: { opacity: thin ? 0.5 : 1 } }, /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px" } }, /* @__PURE__ */ React.createElement("b", null, b.value), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: 6 } }, b.dimension.replace(/_/g, " "))), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: "num" }, b.n), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: "num" }, pct1(b.win_rate)), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", minWidth: 180 } }, /* @__PURE__ */ React.createElement(CiBar, { ciLow: b.ci_low, ciHigh: b.ci_high, winRate: b.win_rate, baseline })), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: "num" }, b.avg_pnl == null ? "\u2014" : signUsd(b.avg_pnl)), /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px" } }, thin ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", title: "Too few trades to be statistically defensible" }, "n too small") : null));
+    }))));
+  }
+  function RoundtripsTable({ roundtrips, setSymbol, go }) {
+    const rows = useMemo2(() => {
+      const rs = [...roundtrips || []];
+      rs.sort((a, b) => String(b.close_date || "").localeCompare(String(a.close_date || "")));
+      return rs.slice(0, 50);
+    }, [roundtrips]);
+    if (rows.length === 0) return null;
+    const jump = (sym) => {
+      if (setSymbol && go) {
+        setSymbol(sym);
+        go("charts");
+      }
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 8, padding: "8px 12px" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px" } }, "Kind"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px" } }, "Open \u2192 Close"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px", textAlign: "right" } }, "Held"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px", textAlign: "right" } }, "Realized $"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px", textAlign: "right" } }, "%"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px" } }, "Result"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 12px", textAlign: "right" } }, "MFE capture"))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((r, i) => /* @__PURE__ */ React.createElement(
+      "tr",
+      {
+        key: `${r.symbol}:${r.close_date}:${i}`,
+        className: setSymbol ? "click" : "",
+        onClick: setSymbol ? () => jump(r.symbol) : void 0,
+        style: setSymbol ? { cursor: "pointer" } : void 0
+      },
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px" } }, /* @__PURE__ */ React.createElement("b", null, r.symbol), r.entry_unknown ? /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: 6 } }, "est.") : null),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px" } }, /* @__PURE__ */ React.createElement("span", { className: "vg-chip" }, r.kind)),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px" }, className: "vg-note" }, fmtDate(r.open_date), " \u2192 ", fmtDate(r.close_date)),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: "num" }, r.holding_days, "d"),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: cls("num", r.realized_pnl >= 0 ? "up" : "down") }, signUsd(r.realized_pnl)),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: cls("num", r.realized_pct >= 0 ? "up" : "down") }, signPct(r.realized_pct)),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.win ? "good" : "bad") }, r.win ? "\u2713 Win" : "\u2715 Loss")),
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: "num" }, pct(r.mfe_capture))
+    )))));
+  }
+  function TradeAnalyticsView({ accountId, settings, setSymbol, go }) {
+    const rt = useLive(() => getRoundtrips(accountId), null, [accountId, settings]).data;
+    const ts = useLive(() => getTradeStats(accountId), null, [accountId, settings]).data;
+    const summary = rt && rt.summary;
+    const hasTrades = summary && summary.count > 0;
+    const asOf = rt && rt.roundtrips_as_of || ts && ts.trade_stats_as_of || null;
+    const baseline = ts && ts.baseline_win_rate;
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Trade Analytics"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Round-trip record + statistically-defensible edges", asOf ? ` \xB7 as of ${asOf}` : "", " \xB7 educational only, not advice"))), !hasTrades ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No trade analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0", maxWidth: 620 } }, "The round-trip journal and condition stats haven't been built yet, or the backend is unreachable. Run the trade-analysis build (it also runs nightly), then confirm the backend URL in Settings."), /* @__PURE__ */ React.createElement("pre", { style: {
+      background: "var(--color-light)",
+      border: "1px solid var(--color-border)",
+      borderRadius: 8,
+      padding: "10px 12px",
+      margin: "10px 0 0",
+      fontSize: 12,
+      lineHeight: 1.5,
+      overflowX: "auto"
+    } }, /* @__PURE__ */ React.createElement("code", null, "cd server\n.venv/bin/python -m vantage_server.ml.build_roundtrips --account rh-margin --broker-account <N>\n.venv/bin/python -m vantage_server.ml.build_features --account rh-margin --from-roundtrips"))) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement(Scorecard, { summary })), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 20 } }, "Defensible edges & leaks"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "2px 0 0", maxWidth: 620 } }, "Only conditions whose 90% credible interval clears your ", pct1(baseline), " baseline with enough trades to matter. Anything thinner is held back below."), /* @__PURE__ */ React.createElement(NotableCards, { notable: ts && ts.notable, baseline }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 20 } }, "All conditions"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "2px 0 0", maxWidth: 620 } }, "Every entry condition by win-rate and credible interval. Rows with too few trades to be defensible are muted and marked \u201Cn too small\u201D \u2014 don't read them as signal."), /* @__PURE__ */ React.createElement(ConditionTable, { buckets: ts && ts.buckets, baseline }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 20 } }, "Recent round-trips"), /* @__PURE__ */ React.createElement(RoundtripsTable, { roundtrips: rt && rt.roundtrips, setSymbol, go })));
+  }
+
   // src/app.jsx
-  var { useState: useState3, useMemo: useMemo2, useEffect: useEffect3, useRef: useRef2 } = React;
+  var { useState: useState3, useMemo: useMemo3, useEffect: useEffect3, useRef: useRef2 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var NAV = [
     { group: "Portfolio", items: [
@@ -1523,6 +1671,7 @@
     { group: "Intelligence", items: [
       { id: "markets", label: "Market Intel", icon: "\u{1F4C8}" },
       { id: "options", label: "Options Intel", icon: "\u25CE" },
+      { id: "trades", label: "Trade Analytics", icon: "\u{1F9EE}" },
       { id: "charts", label: "AI Charts", icon: "\u{1F4CA}" }
     ] }
   ];
@@ -1575,9 +1724,9 @@
         mqLeft.removeEventListener("change", onLeft);
       };
     }, []);
-    const tlhFixture = useMemo2(() => tlhCandidates(settings), [settings]);
+    const tlhFixture = useMemo3(() => tlhCandidates(settings), [settings]);
     const tlh2 = useLive(() => tlh(settings).then(mapTlh), tlhFixture, [settings]).data;
-    const acctFixture = useMemo2(
+    const acctFixture = useMemo3(
       () => ACCOUNTS.map((a) => ({ id: a.id, short: a.short, type: a.type, value: accountValue(a.id) })),
       []
     );
@@ -1627,7 +1776,7 @@
       },
       /* @__PURE__ */ React.createElement("span", { className: "ic" }, it.icon),
       leftOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, it.label, it.id === "tax" && tlh2.some((c) => c.status === "clear") && /* @__PURE__ */ React.createElement("span", { className: "vg-navdot" }))
-    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation (demo). Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage prototype \xB7 built on the Lookey design system \xB7 simulated data \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
+    ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 8px 4px" } }, "Account scope"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-acct", accountId === "all" && "sel"), onClick: () => setAccountId("all") }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, "All accounts"), /* @__PURE__ */ React.createElement("div", { className: "meta" }, scopeAccounts.length, " linked")), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(scopeAccounts.reduce((s, a) => s + a.value, 0)))), scopeAccounts.map((a) => /* @__PURE__ */ React.createElement("button", { key: a.id, className: cls("vg-acct", accountId === a.id && "sel"), onClick: () => setAccountId(a.id) }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", null, a.short), /* @__PURE__ */ React.createElement("div", { className: "meta" }, a.type)), /* @__PURE__ */ React.createElement("span", { className: "bal" }, usd(a.value)))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation (demo). Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage prototype \xB7 built on the Lookey design system \xB7 simulated data \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "overview" && /* @__PURE__ */ React.createElement(OverviewView, { ...viewProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-collapse",
@@ -1685,9 +1834,9 @@
     return /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { display: "inline-flex", gap: 14, alignItems: "center", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("span", { title: st.backend ? `Backend live at ${settings.backendUrl} \u2014 quotes: ${st.backend.source}${st.backend.stale ? " (stale)" : ""}, as of ${st.backend.as_of}` : `Backend unreachable at ${settings.backendUrl} \u2014 showing demo fixtures` }, /* @__PURE__ */ React.createElement("span", { style: dot(st.backend) }), "data ", st.backend ? "live" : "demo"), /* @__PURE__ */ React.createElement("span", { title: aiOff ? "AI backend set to Off in Settings \u2014 canned demo replies" : st.mira ? `Mira reachable at ${settings.miraUrl}` : `Mira unreachable at ${settings.miraUrl} \u2014 canned demo replies` }, /* @__PURE__ */ React.createElement("span", { style: dot(!aiOff && st.mira) }), "AI ", aiOff ? "off" : st.mira ? "live" : "demo"));
   }
   function OverviewView({ accountId, settings, tlh: tlh2, go, notifs, setNotifOpen }) {
-    const posFixture = useMemo2(() => positions(accountId), [accountId]);
+    const posFixture = useMemo3(() => positions(accountId), [accountId]);
     const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
-    const allocFixture = useMemo2(() => allocation(accountId), [accountId]);
+    const allocFixture = useMemo3(() => allocation(accountId), [accountId]);
     const alloc = useLive(() => allocation2(accountId).then(mapAllocation), allocFixture, [accountId, settings]).data;
     const totalValue = alloc.total;
     const dayPl = pos.reduce((s, p) => s + p.dayPl, 0);
@@ -1721,17 +1870,17 @@
         note: `\u2248 ${usd(estBenefit)} est. benefit at ${settings.taxRate}%`
       }
     )), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 14.5 } }, "Allocation by asset class"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "target 70 / 10 / 15 / 5")), /* @__PURE__ */ React.createElement("div", { className: "vg-allocbar", style: { marginTop: 12 }, role: "img", "aria-label": "Asset allocation" }, Object.entries(ASSET_CLASSES).map(([k, m]) => {
-      const pct = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
-      return pct > 0 && /* @__PURE__ */ React.createElement("span", { key: k, style: { width: `${pct}%`, background: m.color }, title: `${m.label} ${pct.toFixed(1)}%` });
+      const pct2 = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
+      return pct2 > 0 && /* @__PURE__ */ React.createElement("span", { key: k, style: { width: `${pct2}%`, background: m.color }, title: `${m.label} ${pct2.toFixed(1)}%` });
     })), /* @__PURE__ */ React.createElement("div", { className: "vg-legend" }, Object.entries(ASSET_CLASSES).map(([k, m]) => {
-      const pct = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
-      const drift = pct - ALLOCATION_TARGETS[k];
-      return /* @__PURE__ */ React.createElement("span", { key: k }, /* @__PURE__ */ React.createElement("span", { className: "sw", style: { background: m.color } }), m.label, " ", /* @__PURE__ */ React.createElement("span", { className: "num" }, pct.toFixed(1), "%"), " ", accountId === "all" && Math.abs(drift) >= 3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", drift > 0 ? "warn" : "info") }, signPct(drift, 1), " vs target"));
+      const pct2 = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
+      const drift = pct2 - ALLOCATION_TARGETS[k];
+      return /* @__PURE__ */ React.createElement("span", { key: k }, /* @__PURE__ */ React.createElement("span", { className: "sw", style: { background: m.color } }), m.label, " ", /* @__PURE__ */ React.createElement("span", { className: "num" }, pct2.toFixed(1), "%"), " ", accountId === "all" && Math.abs(drift) >= 3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", drift > 0 ? "warn" : "info") }, signPct(drift, 1), " vs target"));
     }))), /* @__PURE__ */ React.createElement("div", { className: "vg-grid2", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Top actions"), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("recs") }, "All recommendations \u2192")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, display: "grid", gap: 10 } }, /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "teal", title: `Harvest IWM \u2192 \u2248 ${usd(1513 * settings.taxRate / 100)} benefit` }, "Clear in all 4 accounts. Replace with IJR to keep exposure."), /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "orange", title: "Pause Jul VOO auto-buy" }, "Wealthfront's auto-invest is washing the Fidelity VOO loss."))), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Latest alerts"), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => setNotifOpen(true) }, "Open inbox \u2192")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, recent.map((n) => /* @__PURE__ */ React.createElement("div", { key: n.id, className: cls("vg-notif", !n.read && "unread"), style: { cursor: "default" } }, !n.read && /* @__PURE__ */ React.createElement("span", { className: "vg-dot" }), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "t" }, NOTIF_TYPES[n.type].icon, " ", n.title), /* @__PURE__ */ React.createElement("div", { className: "when" }, n.time, " \xB7 ", NOTIF_TYPES[n.type].label))))))));
   }
   function HoldingsView({ accountId, settings, setAnalysisSym }) {
     const [expanded, setExpanded] = useState3({});
-    const posFixture = useMemo2(() => positions(accountId), [accountId]);
+    const posFixture = useMemo3(() => positions(accountId), [accountId]);
     const pos = useLive(() => positions2(accountId).then(mapPositions), posFixture, [accountId, settings]).data;
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Holdings"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, acctLabel, " \xB7 ", pos.filter((p) => p.symbol !== "CASH").length, " positions \xB7 click a row for per-lot detail"), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Symbol"), /* @__PURE__ */ React.createElement("th", null, "Accounts"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Value"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Day"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Weight"), /* @__PURE__ */ React.createElement("th", null, "Flags"))), /* @__PURE__ */ React.createElement("tbody", null, pos.map((p) => {

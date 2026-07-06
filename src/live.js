@@ -101,6 +101,32 @@ export const getAnalysis = (date, symbol) => {
   return getJson(`${backendBase()}/api/analysis${qs ? `?${qs}` : ""}`);
 };
 
+// GET /api/ml/roundtrips[?account][?symbol] -> the labeled closed round-trips
+// journal + recomputed summary, or null. "all" means unscoped (no account
+// param). A missing ML build is a valid empty payload ({roundtrips: [],
+// summary: {}}); 404/non-200/network failures resolve to null via getJson — the
+// Trade Analytics view then shows its "run the trade-analysis build" empty state.
+export const getRoundtrips = (account = "all", symbol) => {
+  const q = new URLSearchParams();
+  if (account && account !== "all") q.set("account", account);
+  if (symbol) q.set("symbol", symbol);
+  const qs = q.toString();
+  return getJson(`${backendBase()}/api/ml/roundtrips${qs ? `?${qs}` : ""}`);
+};
+
+// GET /api/ml/trade_stats[?account][?dimension] -> the Bayesian condition
+// buckets + notable edges/leaks + baseline win-rate, or null. "all" means
+// unscoped. A missing ML build is a valid empty payload (baseline null,
+// buckets/notable []). This is a real-data-only surface (no fixture): null and
+// empty payloads both drive the empty state.
+export const getTradeStats = (account = "all", dimension) => {
+  const q = new URLSearchParams();
+  if (account && account !== "all") q.set("account", account);
+  if (dimension) q.set("dimension", dimension);
+  const qs = q.toString();
+  return getJson(`${backendBase()}/api/ml/trade_stats${qs ? `?${qs}` : ""}`);
+};
+
 /* ---------------- payload -> view-shape mappers ---------------- */
 
 const mapLot = (l) => ({
