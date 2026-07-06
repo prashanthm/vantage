@@ -74,6 +74,33 @@ export const getStrategies = (account = "all", status, by) => {
   return getJson(`${backendBase()}/api/strategies${qs ? `?${qs}` : ""}`);
 };
 
+// GET /api/bars?symbol=..&timeframe=daily|weekly|monthly -> payload or null.
+// 404 {"error":"no_bars_for_symbol"} (ticker has no bars file), non-200 and
+// network failures all resolve to null via getJson — the chart then falls back
+// to its simulated SVG series.
+export const getBars = (symbol, timeframe = "daily") =>
+  getJson(`${backendBase()}/api/bars?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`);
+
+// GET /api/bars/overlay?symbol=.. -> the full overlay bundle (current price,
+// cost basis, S/R levels per timeframe, latest journal decision) or null. 404
+// when no bars file exists. The single call the live chart makes to draw its
+// support/resistance lines, the suggested-strike line, cost basis and the
+// conviction/recommendation badge.
+export const getBarsOverlay = (symbol) =>
+  getJson(`${backendBase()}/api/bars/overlay?symbol=${encodeURIComponent(symbol)}`);
+
+// GET /api/analysis[?date][?symbol] -> the nightly decision journal or null.
+// Omit both to read the latest journal for every held underlying. 404/non-200/
+// network failures resolve to null — the Recommendations view then shows its
+// empty state.
+export const getAnalysis = (date, symbol) => {
+  const q = new URLSearchParams();
+  if (date) q.set("date", date);
+  if (symbol) q.set("symbol", symbol);
+  const qs = q.toString();
+  return getJson(`${backendBase()}/api/analysis${qs ? `?${qs}` : ""}`);
+};
+
 /* ---------------- payload -> view-shape mappers ---------------- */
 
 const mapLot = (l) => ({
@@ -281,6 +308,127 @@ export function mapStrategies(payload) {
       account: s._vantage_account,
       legs: (s.legs || []).map(mapStrategyLeg),
     })),
+  };
+}
+
+/* ---------------- bars / overlay / analysis mappers ---------------- */
+
+// A backend bar date is ISO ("2026-07-02T00:00:00Z"); Lightweight Charts wants
+// a business-day string "yyyy-mm-dd" (or a UTC unix ts). Slice the date part.
+const barTime = (d) => String(d).slice(0, 10);
+
+// /api/bars -> { symbol, asOf, timeframe, bars:[{time,open,high,low,close,volume}],
+// levels:{support:[{price,strength,kind}], resistance:[...]}, barCount } or null.
+// `time` is the yyyy-mm-dd string Lightweight Charts' candlestick/volume series
+// consume directly; open/high/low/close/volume ride through unchanged.
+export function mapBars(payload) {
+  if (!payload || !Array.isArray(payload.bars)) return null;
+  const lv = payload.levels || {};
+  return {
+    symbol: payload.symbol,
+    asOf: payload.as_of,
+    timeframe: payload.timeframe,
+    bars: payload.bars.map((b) => ({
+      time: barTime(b.date),
+      open: b.open,
+      high: b.high,
+      low: b.low,
+      close: b.close,
+      volume: b.volume,
+    })),
+    levels: {
+      support: Array.isArray(lv.support) ? lv.support : [],
+      resistance: Array.isArray(lv.resistance) ? lv.resistance : [],
+    },
+    firstBar: payload.first_bar,
+    lastBar: payload.last_bar,
+    barCount: payload.bar_count,
+  };
+}
+
+// /api/bars/overlay -> the camelCase overlay the chart draws from. `analysis`
+// (the latest journal decision) is passed through mapDecision so the badge and
+// the strike/cost-basis price lines can read a single stable shape; null when
+// the symbol was never journaled. cost_basis / levels ride through structurally.
+export function mapBarsOverlay(payload) {
+  if (!payload || typeof payload !== "object" || !payload.symbol) return null;
+  const cb = payload.cost_basis || null;
+  return {
+    symbol: payload.symbol,
+    asOf: payload.as_of,
+    currentPrice: payload.current_price,
+    costBasis: cb
+      ? {
+          equity: cb.equity ? { shares: cb.equity.shares, avgCost: cb.equity.avg_cost } : null,
+          options: cb.options ? { contracts: cb.options.contracts, avgCost: cb.options.avg_cost } : null,
+        }
+      : null,
+    levels: payload.levels || { daily: {}, weekly: {}, monthly: {} },
+    analysis: payload.analysis ? mapDecision(payload.analysis) : null,
+  };
+}
+
+// One journaled PositionDecision -> the camelCase shape the Recommendations
+// table and the chart badge consume. action_detail is a discriminated union
+// keyed by `kind` ("sell_call" for HOLD_AND_SELL_CALL, "close" for
+// CLOSE_AND_BOOK_LOSS / HOLD_WASH_BLOCKED); we surface every field either view
+// needs but keep the raw object too so nothing is lost.
+export function mapDecision(d) {
+  if (!d || typeof d !== "object") return null;
+  const ad = d.action_detail || null;
+  const ev = d.evidence || {};
+  return {
+    symbol: d.symbol,
+    asOf: d.as_of,
+    currentPrice: d.current_price,
+    recommendation: d.recommendation,
+    rule: d.rule,
+    rationale: d.rationale,
+    conviction: d.conviction
+      ? { label: d.conviction.label, score: d.conviction.score }
+      : { label: "neutral", score: 0 },
+    action: ad
+      ? {
+          kind: ad.kind,
+          // sell_call
+          suggestedStrike: ad.suggested_strike,
+          strikeBasis: ad.strike_basis,
+          expiryDte: ad.expiry_dte,
+          estCredit: ad.est_credit,
+          contracts: ad.contracts,
+          currentNetCost: ad.current_net_cost,
+          projectedNetCost: ad.projected_net_cost,
+          basisReduction: ad.basis_reduction,
+          collateral: ad.collateral,
+          // close
+          unrealizedLoss: ad.unrealized_loss,
+          washBlocked: ad.wash_blocked,
+          washReason: ad.wash_reason,
+          washClearsOn: ad.wash_clears_on,
+          estWeeklyCredit: ad.est_weekly_credit,
+          weeksToOffset: ad.weeks_to_offset_at_est_credit,
+        }
+      : null,
+    evidence: {
+      perTf: ev.per_tf || {},
+      nearestSupport: ev.nearest_support || null,
+      nearestResistance: ev.nearest_resistance || null,
+      brokeSupportWithMomentum: !!ev.broke_support_with_momentum,
+      atSupport: ev.at_support,
+      factors: ev.factors || null,
+    },
+  };
+}
+
+// /api/analysis -> { asOf, generatedAt, decisions:[mapDecision...] } or null.
+// null (malformed payload / journal missing / endpoint down) drives the
+// Recommendations view's empty state.
+export function mapAnalysis(payload) {
+  if (!payload || !Array.isArray(payload.decisions)) return null;
+  return {
+    asOf: payload.date || payload.as_of,
+    generatedAt: payload.generated_at,
+    decisions: payload.decisions.map(mapDecision).filter(Boolean),
   };
 }
 

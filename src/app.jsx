@@ -12,7 +12,7 @@ import {
 import { ChartsView, ChartsRail } from "./charts.jsx";
 import { OptionsView } from "./options.jsx";
 import * as live from "./live.js";
-import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory } from "./live.js";
+import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, mapAnalysis } from "./live.js";
 
 const { useState, useMemo, useEffect, useRef } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
@@ -656,42 +656,142 @@ function TaxView({ settings, tlh }) {
 }
 
 /* ================= Recommendations ================= */
-function RecsView({ settings, go }) {
+
+// conviction.label -> chip class/text; recommendation -> chip class/text.
+const CONVICTION_CHIP = {
+  strong:   { cls: "good",  text: "STRONG" },
+  neutral:  { cls: "plain", text: "NEUTRAL" },
+  weak:     { cls: "warn",  text: "WEAK" },
+  freefall: { cls: "bad",   text: "FREEFALL" },
+};
+const REC_CHIP = {
+  HOLD_AND_SELL_CALL:  { cls: "info", text: "HOLD & SELL CALL" },
+  CLOSE_AND_BOOK_LOSS: { cls: "bad",  text: "CLOSE & BOOK LOSS" },
+  HOLD_WASH_BLOCKED:   { cls: "warn", text: "HOLD — WASH BLOCKED" },
+  MONITOR:             { cls: "plain", text: "MONITOR" },
+};
+// actionable-first sort weight.
+const REC_ORDER = { CLOSE_AND_BOOK_LOSS: 0, HOLD_AND_SELL_CALL: 1, HOLD_WASH_BLOCKED: 2, MONITOR: 3 };
+
+// The one-line "key detail" per recommendation, read from the persisted action.
+function recDetail(d) {
+  const a = d.action;
+  if (!a) return d.rationale || "";
+  if (a.kind === "sell_call" && a.suggestedStrike != null) {
+    const strike = Number(a.suggestedStrike).toFixed(2);
+    const credit = a.estCredit != null ? `~$${Math.round(a.estCredit)}` : "";
+    const basis = (a.currentNetCost != null && a.projectedNetCost != null)
+      ? `, basis $${Math.round(a.currentNetCost)}→$${Math.round(a.projectedNetCost)}` : "";
+    return `sell ${strike}C ${credit}${basis}`;
+  }
+  if (a.kind === "close") {
+    const loss = a.unrealizedLoss != null ? `book $${Math.round(Math.abs(a.unrealizedLoss))}` : "book loss";
+    const weeks = a.weeksToOffset != null ? `, ${a.weeksToOffset}wk to offset` : "";
+    const wash = a.washBlocked ? " · WASH BLOCKED" : "";
+    return `${loss}${weeks}${wash}`;
+  }
+  return d.rationale || "";
+}
+
+function tfTrend(perTf, name) {
+  const tf = perTf && perTf[name];
+  if (!tf || !tf.trend) return `${name}: —`;
+  return `${name}: ${tf.trend.direction} (${tf.trend.structure})`;
+}
+
+function RecRow({ d, onJump }) {
+  const [open, setOpen] = useState(false);
+  const conv = CONVICTION_CHIP[d.conviction.label] || CONVICTION_CHIP.neutral;
+  const rec = REC_CHIP[d.recommendation] || { cls: "plain", text: d.recommendation };
+  const ev = d.evidence || {};
+  return (
+    <>
+      <tr className="vg-recrow" style={{ cursor: "pointer" }}>
+        <td onClick={() => onJump(d.symbol)}><b>{d.symbol}</b></td>
+        <td><span className={cls("vg-badge", conv.cls)}>{conv.text}</span></td>
+        <td><span className={cls("vg-badge", rec.cls)}>{rec.text}</span></td>
+        <td style={{ fontSize: 13 }}>{recDetail(d)}</td>
+        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+          <button className="vg-linkbtn" onClick={() => setOpen(!open)}>{open ? "hide" : "evidence"}</button>
+          {" · "}
+          <button className="vg-linkbtn" onClick={() => onJump(d.symbol)}>chart →</button>
+        </td>
+      </tr>
+      {open && (
+        <tr>
+          <td colSpan={5} style={{ background: "var(--color-light)", padding: "12px 14px" }}>
+            <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+              <p style={{ margin: "0 0 8px" }}>{d.rationale}</p>
+              <div className="vg-row" style={{ gap: 18, flexWrap: "wrap", color: "var(--color-grey)" }}>
+                <span>{tfTrend(ev.perTf, "daily")}</span>
+                <span>{tfTrend(ev.perTf, "weekly")}</span>
+                <span>{tfTrend(ev.perTf, "monthly")}</span>
+              </div>
+              <div className="vg-row" style={{ gap: 18, flexWrap: "wrap", marginTop: 6, color: "var(--color-grey)" }}>
+                {ev.nearestSupport && <span>nearest support {Number(ev.nearestSupport.price).toFixed(2)} (str {ev.nearestSupport.strength})</span>}
+                {ev.nearestResistance && <span>nearest resistance {Number(ev.nearestResistance.price).toFixed(2)} (str {ev.nearestResistance.strength})</span>}
+                <span>broke support w/ momentum: {ev.brokeSupportWithMomentum ? "yes" : "no"}</span>
+                <span>rule: {d.rule}</span>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function RecsView({ settings, setSymbol, go }) {
+  const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings]);
+  const data = analysis.data;
+  const decisions = (data && data.decisions) || [];
+  // Actionable first (CLOSE, HOLD_AND_SELL_CALL), then wash-blocked, then MONITOR.
+  const sorted = [...decisions].sort((a, b) => {
+    const wa = REC_ORDER[a.recommendation] ?? 9, wb = REC_ORDER[b.recommendation] ?? 9;
+    if (wa !== wb) return wa - wb;
+    return a.symbol.localeCompare(b.symbol);
+  });
+  const jump = (sym) => { setSymbol(sym); go("charts"); };
+
   return (
     <div>
       <h2 style={{ margin: 0, fontSize: 19 }}>Recommendations</h2>
-      <p className="vg-sub">Ranked by estimated annual impact · generated from cross-account analysis</p>
-      <div className="vg-grid2">
-        <SecurityCard accent="teal" title={`Harvest IWM loss → ≈ ${usd(1513 * settings.taxRate / 100)} benefit`}>
-          Fidelity IWM lot is −$1,513. No conflicting buys in any account. Sell IWM, buy IJR to keep small-cap
-          exposure with a different index.
-        </SecurityCard>
-        <SecurityCard accent="orange" title="Pause Jul VOO auto-buy before harvesting">
-          The VOO loss in Fidelity (−$268) is washed by Wealthfront's monthly auto-invest. Pausing one cycle
-          opens a clean 31-day window.
-        </SecurityCard>
-        <SecurityCard accent="red" title="Concentration: NVDA is 7.9% of portfolio">
-          Largest single-stock risk. Gain goes long-term Aug 15 — trimming after that date cuts the tax cost of
-          de-risking roughly in half.
-        </SecurityCard>
-        <SecurityCard accent="purple" title="Same exposure held 3 ways">
-          VOO, SPY and VTI overlap (US large blend, 54% combined). Standardize one fund per account to simplify
-          rebalancing and future TLH pairs.
-        </SecurityCard>
-        <SecurityCard accent="blue" title="Rebalance with contributions, not sales">
-          US equity is +8 pts over target. Redirect 401(k) payroll buys to BND — drift closes in ~5 months with
-          zero tax cost.
-        </SecurityCard>
-        <SecurityCard accent="cyan" title={`Cash drag: ${usd(10500)} idle`}>
-          Combined sweep cash earns ~0.4%. A money-market fund adds ≈ $430/yr at current rates without losing
-          liquidity.
-        </SecurityCard>
-      </div>
+      <p className="vg-sub">
+        Persisted decision journal{data && data.asOf ? ` · as of ${data.asOf}` : ""} · actionable first · educational only, not advice
+      </p>
+
+      {sorted.length === 0 ? (
+        <div className="vg-card" style={{ marginTop: 8 }}>
+          <div className="vg-kicker">No analysis available</div>
+          <p className="vg-note" style={{ margin: "6px 0 0" }}>
+            The decision journal is empty or the backend is unreachable. Run the nightly analysis
+            (<code>python -m vantage_server.analyze</code>) and confirm the backend URL in Settings.
+          </p>
+        </div>
+      ) : (
+        <div className="vg-card" style={{ marginTop: 8, padding: 0, overflowX: "auto" }}>
+          <table className="vg-table" style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ textAlign: "left", fontSize: 12, color: "var(--color-grey)" }}>
+                <th style={{ padding: "10px 14px" }}>Symbol</th>
+                <th style={{ padding: "10px 14px" }}>Conviction</th>
+                <th style={{ padding: "10px 14px" }}>Recommendation</th>
+                <th style={{ padding: "10px 14px" }}>Detail</th>
+                <th style={{ padding: "10px 14px", textAlign: "right" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((d) => <RecRow key={d.symbol} d={d} onJump={jump} />)}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="vg-card" style={{ marginTop: 14 }}>
         <div className="vg-spread">
           <div>
             <div className="vg-kicker" style={{ marginBottom: 2 }}>Options income</div>
-            <span className="vg-note">3 executable ideas on your book (≈ 4–11% annualized) — see Options Intelligence.</span>
+            <span className="vg-note">Executable covered-call ideas on your book — see Options Intelligence.</span>
           </div>
           <button className="vg-linkbtn" onClick={() => go("options")}>Open Options Intel →</button>
         </div>

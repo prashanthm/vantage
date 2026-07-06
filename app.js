@@ -574,146 +574,6 @@
     });
   }
 
-  // src/charts.jsx
-  var { useState, useMemo, useRef, useEffect } = React;
-  var { FAQItem } = window.LookeyDS;
-  var TIMEFRAMES = [{ key: "1M", bars: 22 }, { key: "3M", bars: 66 }, { key: "6M", bars: 120 }];
-  var UP = "#059669";
-  var DOWN = "#dc2626";
-  var fmtD = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  function useSize(ref, fallback) {
-    const [size, setSize] = useState(fallback);
-    useEffect(() => {
-      const el = ref.current;
-      if (!el || typeof ResizeObserver === "undefined") return void 0;
-      const ro = new ResizeObserver((entries) => {
-        const r = entries[0].contentRect;
-        if (r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height });
-      });
-      ro.observe(el);
-      return () => ro.disconnect();
-    }, [ref]);
-    return size;
-  }
-  function ChartsView({ symbol, setSymbol }) {
-    const [tf, setTf] = useState("3M");
-    const [hover, setHover] = useState(null);
-    const wrapRef = useRef(null);
-    const size = useSize(wrapRef, { w: 960, h: 450 });
-    const all = useMemo(
-      () => genOHLC(symbol, MARKET[symbol].price, CHART_PARAMS[symbol], TODAY, CHART_MARKERS[symbol] || []),
-      [symbol]
-    );
-    const bars = useMemo(() => all.slice(-TIMEFRAMES.find((t) => t.key === tf).bars), [all, tf]);
-    const held = LOTS.filter((l) => l.symbol === symbol);
-    const heldShares = held.reduce((s, l) => s + l.shares, 0);
-    const avgCost = heldShares ? held.reduce((s, l) => s + lotCost(l), 0) / heldShares : null;
-    const W = Math.max(320, size.w), VH = 70, PADR = 56, PADT = 10;
-    const H = Math.max(240, size.h - VH);
-    const plotW = W - PADR, n = bars.length;
-    const levels = CHART_LEVELS[symbol];
-    let lo = Math.min(...bars.map((b) => b.l)), hi = Math.max(...bars.map((b) => b.h));
-    if (levels) {
-      lo = Math.min(lo, levels.support);
-      hi = Math.max(hi, levels.resistance);
-    }
-    if (avgCost != null) {
-      lo = Math.min(lo, avgCost);
-      hi = Math.max(hi, avgCost);
-    }
-    const pad = (hi - lo) * 0.06;
-    lo -= pad;
-    hi += pad;
-    const y = (p) => PADT + (hi - p) / (hi - lo) * (H - PADT - 6);
-    const x = (i) => (i + 0.5) * (plotW / n);
-    const cw = Math.max(2, plotW / n * 0.62);
-    const maxV = Math.max(...bars.map((b) => b.v));
-    const insight = AI_INSIGHTS[symbol];
-    const onMove = (e) => {
-      const rect = wrapRef.current.getBoundingClientRect();
-      const px = (e.clientX - rect.left) / rect.width * W;
-      const i = Math.min(n - 1, Math.max(0, Math.floor(px / (plotW / n))));
-      setHover(px <= plotW ? i : null);
-    };
-    const gridLines = 4;
-    const hb = hover != null ? bars[hover] : null;
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "AI Charts"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "Simulated candles \xB7 AI markers & levels are illustrative \xB7 educational only")), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, Object.keys(CHART_PARAMS).map((s) => /* @__PURE__ */ React.createElement("button", { key: s, className: cls("vg-pill", symbol === s && "sel"), onClick: () => {
-      setSymbol(s);
-      setHover(null);
-    } }, s)))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row" }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 17 } }, symbol), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, MARKET[symbol].name), /* @__PURE__ */ React.createElement("b", { style: { fontSize: 16 } }, usd(MARKET[symbol].price, 2)), /* @__PURE__ */ React.createElement("span", { className: dirCls(MARKET[symbol].dayPct), style: { color: MARKET[symbol].dayPct >= 0 ? UP : DOWN, fontWeight: 600 } }, signPct(MARKET[symbol].dayPct)), insight && /* @__PURE__ */ React.createElement("span", { className: cls("vg-bias", insight.bias), style: { fontSize: 12 } }, insight.bias)), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, className: cls("vg-pill", tf === t.key && "sel"), onClick: () => {
-      setTf(t.key);
-      setHover(null);
-    } }, t.key)))), /* @__PURE__ */ React.createElement("div", { ref: wrapRef, className: "vg-chartwrap", onMouseMove: onMove, onMouseLeave: () => setHover(null) }, /* @__PURE__ */ React.createElement(
-      "svg",
-      {
-        viewBox: `0 0 ${W} ${H + VH}`,
-        preserveAspectRatio: "none",
-        role: "img",
-        "aria-label": `${symbol} candlestick chart, ${tf}`
-      },
-      Array.from({ length: gridLines + 1 }, (_, g) => {
-        const p = lo + (hi - lo) * g / gridLines;
-        return /* @__PURE__ */ React.createElement("g", { key: g }, /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(p), y2: y(p), stroke: "#eef1f6" }), /* @__PURE__ */ React.createElement("text", { x: plotW + 8, y: y(p) + 4, fontSize: "11", fill: "#94a3b8" }, p >= 100 ? p.toFixed(0) : p.toFixed(1)));
-      }),
-      levels && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(levels.resistance), y2: y(levels.resistance), stroke: DOWN, strokeDasharray: "6 4", strokeOpacity: "0.55" }), /* @__PURE__ */ React.createElement("text", { x: 6, y: y(levels.resistance) - 5, fontSize: "10.5", fill: DOWN }, "resistance ", levels.resistance), /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(levels.support), y2: y(levels.support), stroke: UP, strokeDasharray: "6 4", strokeOpacity: "0.55" }), /* @__PURE__ */ React.createElement("text", { x: 6, y: y(levels.support) + 13, fontSize: "10.5", fill: UP }, "support ", levels.support)),
-      avgCost != null && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(avgCost), y2: y(avgCost), stroke: "#932cfa", strokeDasharray: "2 4", strokeWidth: "1.6" }), /* @__PURE__ */ React.createElement("text", { x: plotW - 4, y: y(avgCost) - 5, fontSize: "10.5", fill: "#932cfa", textAnchor: "end" }, "your avg cost ", usd(avgCost, 2))),
-      bars.map((b, i) => {
-        const up = b.c >= b.o;
-        return /* @__PURE__ */ React.createElement("g", { key: i }, /* @__PURE__ */ React.createElement("line", { x1: x(i), x2: x(i), y1: y(b.h), y2: y(b.l), stroke: up ? UP : DOWN, strokeWidth: "1" }), /* @__PURE__ */ React.createElement(
-          "rect",
-          {
-            x: x(i) - cw / 2,
-            y: y(Math.max(b.o, b.c)),
-            width: cw,
-            height: Math.max(1.5, Math.abs(y(b.o) - y(b.c))),
-            rx: "1",
-            fill: up ? UP : DOWN
-          }
-        ));
-      }),
-      bars.map((b, i) => b.marker && /* @__PURE__ */ React.createElement("g", { key: `m${i}`, className: "vg-marker" }, b.marker.type === "buy" && /* @__PURE__ */ React.createElement("path", { d: `M ${x(i)} ${y(b.l) + 8} l 6 10 l -12 0 z`, fill: "#2e68fd" }), b.marker.type === "sell" && /* @__PURE__ */ React.createElement("path", { d: `M ${x(i)} ${y(b.h) - 18} l 6 -10 l -12 0 z`, fill: "#dc2626" }), b.marker.type === "note" && /* @__PURE__ */ React.createElement("circle", { cx: x(i), cy: y(b.h) - 14, r: "5", fill: "#ca8a04" }), /* @__PURE__ */ React.createElement(
-        "text",
-        {
-          x: x(i),
-          y: b.marker.type === "buy" ? y(b.l) + 30 : y(b.h) - 26,
-          fontSize: "9.5",
-          fill: "#4d525f",
-          textAnchor: "middle"
-        },
-        "AI"
-      ))),
-      bars.map((b, i) => /* @__PURE__ */ React.createElement(
-        "rect",
-        {
-          key: `v${i}`,
-          x: x(i) - cw / 2,
-          y: H + VH - b.v / maxV * (VH - 12),
-          width: cw,
-          height: b.v / maxV * (VH - 12),
-          rx: "1",
-          fill: b.c >= b.o ? UP : DOWN,
-          opacity: "0.35"
-        }
-      )),
-      /* @__PURE__ */ React.createElement("text", { x: 0, y: H + 12, fontSize: "10", fill: "#94a3b8" }, "volume"),
-      hb && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: x(hover), x2: x(hover), y1: PADT, y2: H + VH, stroke: "#01081b", strokeOpacity: "0.25", strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(hb.c), y2: y(hb.c), stroke: "#01081b", strokeOpacity: "0.18", strokeDasharray: "3 3" }))
-    ), hb && /* @__PURE__ */ React.createElement("div", { className: "vg-charttip", style: { left: `${Math.min(92, x(hover) / W * 100)}%` } }, /* @__PURE__ */ React.createElement("b", null, fmtD(hb.date)), " \xB7 O ", hb.o.toFixed(2), " \xB7 H ", hb.h.toFixed(2), " \xB7 L ", hb.l.toFixed(2), " \xB7 C ", hb.c.toFixed(2), hb.marker && /* @__PURE__ */ React.createElement("div", { className: "mk" }, hb.marker.label))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { marginTop: 10, fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#2e68fd" } }), " AI buy/accumulation"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#dc2626" } }), " AI sell/distribution"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#ca8a04", borderRadius: 99 } }), " AI note"), avgCost != null && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#932cfa" } }), " your avg cost")), /* @__PURE__ */ React.createElement("div", { className: "vg-markerlist" }, (CHART_MARKERS[symbol] || []).map((m, i) => {
-      const bar = all[all.length - 1 - m.ago];
-      return /* @__PURE__ */ React.createElement("span", { key: i, className: cls("vg-badge", m.type === "buy" ? "info" : m.type === "sell" ? "bad" : "warn") }, fmtD(bar.date), " \u2014 ", m.label);
-    }))));
-  }
-  function ChartsRail({ symbol }) {
-    const insight = AI_INSIGHTS[symbol], rec = CHART_RECS[symbol];
-    const held = LOTS.filter((l) => l.symbol === symbol);
-    const heldShares = held.reduce((s, l) => s + l.shares, 0);
-    const heldUnrl = held.reduce((s, l) => s + lotValue(l) - lotCost(l), 0);
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "AI read"), insight && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, lineHeight: 1.5, margin: "0 0 10px" } }, insight.summary), insight && /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("span", null, "Momentum"), /* @__PURE__ */ React.createElement("span", null, insight.momentum)), /* @__PURE__ */ React.createElement("div", { className: "vg-meter" }, /* @__PURE__ */ React.createElement("span", { style: { width: `${insight.momentum}%` } }))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("span", null, "Sentiment"), /* @__PURE__ */ React.createElement("span", null, insight.sentiment)), /* @__PURE__ */ React.createElement("div", { className: "vg-meter" }, /* @__PURE__ */ React.createElement("span", { style: { width: `${insight.sentiment}%`, background: "var(--color-secondary)" } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Your position"), heldShares > 0 ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { fontSize: 14 } }, /* @__PURE__ */ React.createElement("b", null, heldShares, " sh \xB7 ", usd(heldShares * MARKET[symbol].price)), /* @__PURE__ */ React.createElement("span", { className: dirCls(heldUnrl), style: { color: heldUnrl >= 0 ? UP : DOWN, fontWeight: 600 } }, signUsd(heldUnrl))), held.map((l, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-note", style: { marginTop: 6 } }, acctOf(l.account).short, ": ", l.shares, " sh @ ", usd(l.costPerShare, 2), " (", fmtDate(l.date), ")"))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "Not held in any linked account.")), rec && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-reccard" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "AI recommendation"), /* @__PURE__ */ React.createElement("div", { className: "vg-recaction" }, rec.action), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, lineHeight: 1.5, margin: "8px 0" } }, rec.detail), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "\u26A0 Risk: ", rec.risk)), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(ChartFaq, null)));
-  }
-  function ChartFaq() {
-    const [open, setOpen] = useState(false);
-    return /* @__PURE__ */ React.createElement(FAQItem, { question: "What are the AI markers?", open, onToggle: () => setOpen(!open) }, "Blue triangles mark AI-detected accumulation/entry zones, red triangles distribution/exit pressure, and gold dots contextual notes (bias flips, TLH windows on lots you own). In this prototype both the candles and the markers are simulated \u2014 educational only, never trading advice.");
-  }
-
   // src/live.js
   async function getJson(url, { timeoutMs = 2500 } = {}) {
     const ctrl = new AbortController();
@@ -756,6 +616,15 @@
     if (by) q.set("by", by);
     const qs = q.toString();
     return getJson(`${backendBase()}/api/strategies${qs ? `?${qs}` : ""}`);
+  };
+  var getBars = (symbol, timeframe = "daily") => getJson(`${backendBase()}/api/bars?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`);
+  var getBarsOverlay = (symbol) => getJson(`${backendBase()}/api/bars/overlay?symbol=${encodeURIComponent(symbol)}`);
+  var getAnalysis = (date, symbol) => {
+    const q = new URLSearchParams();
+    if (date) q.set("date", date);
+    if (symbol) q.set("symbol", symbol);
+    const qs = q.toString();
+    return getJson(`${backendBase()}/api/analysis${qs ? `?${qs}` : ""}`);
   };
   var mapLot = (l) => ({
     account: l.account,
@@ -944,6 +813,96 @@
       }))
     };
   }
+  var barTime = (d) => String(d).slice(0, 10);
+  function mapBars(payload) {
+    if (!payload || !Array.isArray(payload.bars)) return null;
+    const lv = payload.levels || {};
+    return {
+      symbol: payload.symbol,
+      asOf: payload.as_of,
+      timeframe: payload.timeframe,
+      bars: payload.bars.map((b) => ({
+        time: barTime(b.date),
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume
+      })),
+      levels: {
+        support: Array.isArray(lv.support) ? lv.support : [],
+        resistance: Array.isArray(lv.resistance) ? lv.resistance : []
+      },
+      firstBar: payload.first_bar,
+      lastBar: payload.last_bar,
+      barCount: payload.bar_count
+    };
+  }
+  function mapBarsOverlay(payload) {
+    if (!payload || typeof payload !== "object" || !payload.symbol) return null;
+    const cb = payload.cost_basis || null;
+    return {
+      symbol: payload.symbol,
+      asOf: payload.as_of,
+      currentPrice: payload.current_price,
+      costBasis: cb ? {
+        equity: cb.equity ? { shares: cb.equity.shares, avgCost: cb.equity.avg_cost } : null,
+        options: cb.options ? { contracts: cb.options.contracts, avgCost: cb.options.avg_cost } : null
+      } : null,
+      levels: payload.levels || { daily: {}, weekly: {}, monthly: {} },
+      analysis: payload.analysis ? mapDecision(payload.analysis) : null
+    };
+  }
+  function mapDecision(d) {
+    if (!d || typeof d !== "object") return null;
+    const ad = d.action_detail || null;
+    const ev = d.evidence || {};
+    return {
+      symbol: d.symbol,
+      asOf: d.as_of,
+      currentPrice: d.current_price,
+      recommendation: d.recommendation,
+      rule: d.rule,
+      rationale: d.rationale,
+      conviction: d.conviction ? { label: d.conviction.label, score: d.conviction.score } : { label: "neutral", score: 0 },
+      action: ad ? {
+        kind: ad.kind,
+        // sell_call
+        suggestedStrike: ad.suggested_strike,
+        strikeBasis: ad.strike_basis,
+        expiryDte: ad.expiry_dte,
+        estCredit: ad.est_credit,
+        contracts: ad.contracts,
+        currentNetCost: ad.current_net_cost,
+        projectedNetCost: ad.projected_net_cost,
+        basisReduction: ad.basis_reduction,
+        collateral: ad.collateral,
+        // close
+        unrealizedLoss: ad.unrealized_loss,
+        washBlocked: ad.wash_blocked,
+        washReason: ad.wash_reason,
+        washClearsOn: ad.wash_clears_on,
+        estWeeklyCredit: ad.est_weekly_credit,
+        weeksToOffset: ad.weeks_to_offset_at_est_credit
+      } : null,
+      evidence: {
+        perTf: ev.per_tf || {},
+        nearestSupport: ev.nearest_support || null,
+        nearestResistance: ev.nearest_resistance || null,
+        brokeSupportWithMomentum: !!ev.broke_support_with_momentum,
+        atSupport: ev.at_support,
+        factors: ev.factors || null
+      }
+    };
+  }
+  function mapAnalysis(payload) {
+    if (!payload || !Array.isArray(payload.decisions)) return null;
+    return {
+      asOf: payload.date || payload.as_of,
+      generatedAt: payload.generated_at,
+      decisions: payload.decisions.map(mapDecision).filter(Boolean)
+    };
+  }
   var miraHealth = () => getJson(`${miraBase()}/health`);
   var getExplanation = (correlationId) => getJson(`${miraBase()}/explain?correlation_id=${encodeURIComponent(correlationId)}`);
   var getInsights = () => getJson(`${miraBase()}/insights?domain=advisor`);
@@ -1039,6 +998,411 @@
       };
     }, deps);
     return { data: liveData != null ? liveData : fallback, isLive: liveData != null };
+  }
+
+  // src/charts.jsx
+  var { useState, useMemo, useRef, useEffect } = React;
+  var { FAQItem } = window.LookeyDS;
+  var TF_LIVE = [
+    { key: "daily", label: "Daily" },
+    { key: "weekly", label: "Weekly" },
+    { key: "monthly", label: "Monthly" }
+  ];
+  var TIMEFRAMES = [{ key: "1M", bars: 22 }, { key: "3M", bars: 66 }, { key: "6M", bars: 120 }];
+  var UP = "#059669";
+  var DOWN = "#dc2626";
+  var STRIKE_COLOR = "#7c3aed";
+  var COST_COLOR = "#932cfa";
+  var PRICE_COLOR = "#0f172a";
+  var MAX_LEVELS_PER_SIDE = 6;
+  var fmtD = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  var hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+  var CONVICTION = {
+    strong: { text: "STRONG", fg: "#056645", bg: "#e7f6ef" },
+    neutral: { text: "NEUTRAL", fg: "#475569", bg: "#eef1f6" },
+    weak: { text: "WEAK", fg: "#92600a", bg: "#fdf0d9" },
+    freefall: { text: "FREEFALL", fg: "#a01818", bg: "#fdeaea" }
+  };
+  var REC_LABEL = {
+    HOLD_AND_SELL_CALL: "HOLD & SELL CALL",
+    CLOSE_AND_BOOK_LOSS: "CLOSE & BOOK LOSS",
+    HOLD_WASH_BLOCKED: "HOLD \u2014 WASH BLOCKED",
+    MONITOR: "MONITOR"
+  };
+  function ConvictionBadge({ analysis }) {
+    if (!analysis) return null;
+    const c = CONVICTION[analysis.conviction.label] || CONVICTION.neutral;
+    const rec = REC_LABEL[analysis.recommendation] || analysis.recommendation;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { style: {
+      fontSize: 12,
+      fontWeight: 700,
+      letterSpacing: 0.3,
+      padding: "3px 10px",
+      borderRadius: 999,
+      color: c.fg,
+      background: c.bg
+    } }, c.text), /* @__PURE__ */ React.createElement("span", { style: {
+      fontSize: 12,
+      fontWeight: 700,
+      padding: "3px 10px",
+      borderRadius: 999,
+      color: "#0f172a",
+      background: "#eef1f6",
+      border: "1px solid #dfe4ec"
+    } }, rec));
+  }
+  function badgeRationale(analysis) {
+    if (!analysis) return null;
+    return analysis.rationale || null;
+  }
+  function strikeLabel(action) {
+    if (!action || action.kind !== "sell_call" || action.suggestedStrike == null) return null;
+    const strike = Number(action.suggestedStrike).toFixed(2);
+    const credit = action.estCredit != null ? ` ~$${Math.round(action.estCredit)}` : "";
+    return `sell ${strike}C${credit}`;
+  }
+  function levelLine(level, isSupport) {
+    const strength = Math.max(1, Math.min(5, Number(level.strength) || 1));
+    const width = Math.max(1, Math.round(strength / 1.5));
+    const base = isSupport ? [5, 150, 105] : [220, 38, 38];
+    const opacity = 0.35 + strength / 5 * 0.5;
+    const price = Number(level.price);
+    return {
+      price,
+      color: `rgba(${base[0]},${base[1]},${base[2]},${opacity.toFixed(2)})`,
+      lineWidth: width,
+      lineStyle: window.LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: `${isSupport ? "S" : "R"} ${price.toFixed(2)}`
+    };
+  }
+  function LiveCandleChart({ symbol, setSymbol }) {
+    const [tf, setTf] = useState("daily");
+    const containerRef = useRef(null);
+    const chartRef = useRef(null);
+    const candleRef = useRef(null);
+    const volumeRef = useRef(null);
+    const priceLinesRef = useRef([]);
+    const [bars, setBars] = useState(null);
+    const [overlay, setOverlay] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [noData, setNoData] = useState(false);
+    useEffect(() => {
+      let alive = true;
+      setLoading(true);
+      setNoData(false);
+      getBars(symbol, tf).then((raw) => {
+        if (!alive) return;
+        const mapped = mapBars(raw);
+        setBars(mapped);
+        setLoading(false);
+        if (!mapped || !mapped.bars.length) setNoData(true);
+      });
+      return () => {
+        alive = false;
+      };
+    }, [symbol, tf]);
+    useEffect(() => {
+      let alive = true;
+      getBarsOverlay(symbol).then((raw) => {
+        if (alive) setOverlay(mapBarsOverlay(raw));
+      });
+      return () => {
+        alive = false;
+      };
+    }, [symbol]);
+    useEffect(() => {
+      const el = containerRef.current;
+      if (!el || !hasLW()) return void 0;
+      const LW = window.LightweightCharts;
+      const chart = LW.createChart(el, {
+        autoSize: true,
+        layout: { background: { color: "transparent" }, textColor: "#64748b", fontSize: 11 },
+        grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
+        rightPriceScale: { borderColor: "#e2e8f0" },
+        timeScale: { borderColor: "#e2e8f0", timeVisible: false },
+        crosshair: { mode: LW.CrosshairMode.Normal }
+      });
+      const candle = chart.addCandlestickSeries({
+        upColor: UP,
+        downColor: DOWN,
+        wickUpColor: UP,
+        wickDownColor: DOWN,
+        borderUpColor: UP,
+        borderDownColor: DOWN
+      });
+      const volume = chart.addHistogramSeries({
+        priceFormat: { type: "volume" },
+        priceScaleId: "vol",
+        color: "rgba(100,116,139,0.4)"
+      });
+      chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+      chartRef.current = chart;
+      candleRef.current = candle;
+      volumeRef.current = volume;
+      return () => {
+        chart.remove();
+        chartRef.current = candleRef.current = volumeRef.current = null;
+        priceLinesRef.current = [];
+      };
+    }, []);
+    useEffect(() => {
+      const candle = candleRef.current, volume = volumeRef.current;
+      if (!candle || !volume || !bars || !bars.bars.length) return;
+      candle.setData(bars.bars.map((b) => ({
+        time: b.time,
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close
+      })));
+      volume.setData(bars.bars.map((b) => ({
+        time: b.time,
+        value: b.volume,
+        color: b.close >= b.open ? "rgba(5,150,105,0.35)" : "rgba(220,38,38,0.35)"
+      })));
+      if (chartRef.current) chartRef.current.timeScale().fitContent();
+    }, [bars]);
+    useEffect(() => {
+      const candle = candleRef.current;
+      if (!candle) return;
+      for (const pl of priceLinesRef.current) {
+        try {
+          candle.removePriceLine(pl);
+        } catch (e) {
+        }
+      }
+      priceLinesRef.current = [];
+      if (!overlay) return;
+      const add = (opts) => {
+        priceLinesRef.current.push(candle.createPriceLine(opts));
+      };
+      const levels = bars && bars.levels || overlay.levels && overlay.levels[tf] || { support: [], resistance: [] };
+      const topBy = (arr) => [...arr || []].sort((a, b) => (b.strength || 0) - (a.strength || 0)).slice(0, MAX_LEVELS_PER_SIDE);
+      topBy(levels.support).forEach((lv) => add(levelLine(lv, true)));
+      topBy(levels.resistance).forEach((lv) => add(levelLine(lv, false)));
+      const label = strikeLabel(overlay.analysis && overlay.analysis.action);
+      if (label && overlay.analysis.action.suggestedStrike != null) {
+        add({
+          price: Number(overlay.analysis.action.suggestedStrike),
+          color: STRIKE_COLOR,
+          lineWidth: 2,
+          lineStyle: window.LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: label
+        });
+      }
+      const cb = overlay.costBasis;
+      const cost = cb && (cb.equity ? cb.equity.avgCost : cb.options ? cb.options.avgCost : null);
+      if (cost != null) {
+        add({
+          price: Number(cost),
+          color: COST_COLOR,
+          lineWidth: 1,
+          lineStyle: window.LightweightCharts.LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: `cost ${Number(cost).toFixed(2)}`
+        });
+      }
+      if (overlay.currentPrice != null) {
+        add({
+          price: Number(overlay.currentPrice),
+          color: PRICE_COLOR,
+          lineWidth: 1,
+          lineStyle: window.LightweightCharts.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: "price"
+        });
+      }
+    }, [overlay, bars, tf]);
+    const analysis = overlay && overlay.analysis;
+    const rationale = badgeRationale(analysis);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "AI Charts"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "Live candles from your bars snapshot \xB7 S/R, strike & cost overlays \xB7 educational only")), /* @__PURE__ */ React.createElement(SymbolPills, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 8, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 17 } }, symbol), overlay && overlay.currentPrice != null && /* @__PURE__ */ React.createElement("b", { style: { fontSize: 16 } }, usd(overlay.currentPrice, 2)), /* @__PURE__ */ React.createElement(ConvictionBadge, { analysis })), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, TF_LIVE.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, className: cls("vg-pill", tf === t.key && "sel"), onClick: () => setTf(t.key) }, t.label)))), rationale && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "0 0 10px", lineHeight: 1.5 } }, rationale), /* @__PURE__ */ React.createElement("div", { className: "vg-chartwrap", style: { position: "relative" } }, /* @__PURE__ */ React.createElement("div", { ref: containerRef, style: { width: "100%", height: "100%" } }), loading && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { position: "absolute", top: 8, left: 8 } }, "loading\u2026")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { marginTop: 10, fontSize: 12, color: "var(--color-grey)", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: UP } }), " support (by strength)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: DOWN } }), " resistance (by strength)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: STRIKE_COLOR } }), " suggested call strike"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: COST_COLOR } }), " your cost basis"))));
+  }
+  var NON_TICKER = /* @__PURE__ */ new Set(["CASH", "CRYPTO", "FUTURES", "SWEEP"]);
+  var underlyingOf = (sym) => String(sym).split(" ")[0].toUpperCase();
+  function useSymbolChoices() {
+    const live_ = useLive(() => positions2().then((p) => mapPositions(p)), null, []);
+    const rawHeld = (live_.data || []).map((p) => p.symbol);
+    const rawFixture = [...new Set(LOTS.map((l) => l.symbol))];
+    const normalize = (arr) => {
+      const seen = /* @__PURE__ */ new Set();
+      const out2 = [];
+      for (const s of arr) {
+        const u = underlyingOf(s);
+        if (NON_TICKER.has(u) || seen.has(u)) continue;
+        seen.add(u);
+        out2.push(u);
+      }
+      return out2;
+    };
+    const source = rawHeld.length ? normalize(rawHeld) : normalize(rawFixture);
+    const out = [...source];
+    for (const s of Object.keys(CHART_PARAMS)) if (!out.includes(s)) out.push(s);
+    return out;
+  }
+  function SymbolPills({ symbol, setSymbol }) {
+    const choices = useSymbolChoices();
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, choices.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, className: cls("vg-pill", symbol === s && "sel"), onClick: () => setSymbol(s) }, s)));
+  }
+  function ChartsView({ symbol, setSymbol }) {
+    const [mode, setMode] = useState(hasLW() ? "probing" : "svg");
+    useEffect(() => {
+      if (!hasLW()) {
+        setMode("svg");
+        return void 0;
+      }
+      let alive = true;
+      setMode("probing");
+      getBars(symbol, "daily").then((raw) => {
+        if (!alive) return;
+        const mapped = mapBars(raw);
+        setMode(mapped && mapped.bars.length ? "live" : "svg");
+      });
+      return () => {
+        alive = false;
+      };
+    }, [symbol]);
+    if (mode === "live") return /* @__PURE__ */ React.createElement(LiveCandleChart, { key: symbol, symbol, setSymbol });
+    if (mode === "probing") {
+      return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "AI Charts"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "loading live candles\u2026")), /* @__PURE__ */ React.createElement(SymbolPills, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-chartwrap" })));
+    }
+    return /* @__PURE__ */ React.createElement(SvgChart, { symbol, setSymbol });
+  }
+  function useSize(ref, fallback) {
+    const [size, setSize] = useState(fallback);
+    useEffect(() => {
+      const el = ref.current;
+      if (!el || typeof ResizeObserver === "undefined") return void 0;
+      const ro = new ResizeObserver((entries) => {
+        const r = entries[0].contentRect;
+        if (r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height });
+      });
+      ro.observe(el);
+      return () => ro.disconnect();
+    }, [ref]);
+    return size;
+  }
+  function SvgChart({ symbol, setSymbol }) {
+    const [tf, setTf] = useState("3M");
+    const [hover, setHover] = useState(null);
+    const wrapRef = useRef(null);
+    const size = useSize(wrapRef, { w: 960, h: 450 });
+    const params = CHART_PARAMS[symbol] || CHART_PARAMS.SPY;
+    const price = MARKET[symbol] && MARKET[symbol].price || 100;
+    const all = useMemo(
+      () => genOHLC(symbol, price, params, TODAY, CHART_MARKERS[symbol] || []),
+      [symbol]
+      // eslint-disable-line react-hooks/exhaustive-deps
+    );
+    const bars = useMemo(() => all.slice(-TIMEFRAMES.find((t) => t.key === tf).bars), [all, tf]);
+    const held = LOTS.filter((l) => l.symbol === symbol);
+    const heldShares = held.reduce((s, l) => s + l.shares, 0);
+    const avgCost = heldShares ? held.reduce((s, l) => s + lotCost(l), 0) / heldShares : null;
+    const W = Math.max(320, size.w), VH = 70, PADR = 56, PADT = 10;
+    const H = Math.max(240, size.h - VH);
+    const plotW = W - PADR, n = bars.length;
+    const levels = CHART_LEVELS[symbol];
+    let lo = Math.min(...bars.map((b) => b.l)), hi = Math.max(...bars.map((b) => b.h));
+    if (levels) {
+      lo = Math.min(lo, levels.support);
+      hi = Math.max(hi, levels.resistance);
+    }
+    if (avgCost != null) {
+      lo = Math.min(lo, avgCost);
+      hi = Math.max(hi, avgCost);
+    }
+    const pad = (hi - lo) * 0.06;
+    lo -= pad;
+    hi += pad;
+    const y = (p) => PADT + (hi - p) / (hi - lo) * (H - PADT - 6);
+    const x = (i) => (i + 0.5) * (plotW / n);
+    const cw = Math.max(2, plotW / n * 0.62);
+    const maxV = Math.max(...bars.map((b) => b.v));
+    const insight = AI_INSIGHTS[symbol];
+    const onMove = (e) => {
+      const rect = wrapRef.current.getBoundingClientRect();
+      const px = (e.clientX - rect.left) / rect.width * W;
+      const i = Math.min(n - 1, Math.max(0, Math.floor(px / (plotW / n))));
+      setHover(px <= plotW ? i : null);
+    };
+    const gridLines = 4;
+    const hb = hover != null ? bars[hover] : null;
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "AI Charts"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "Simulated candles \xB7 AI markers & levels are illustrative \xB7 educational only")), /* @__PURE__ */ React.createElement(SymbolPills, { symbol, setSymbol: (s) => {
+      setSymbol(s);
+      setHover(null);
+    } })), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row" }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 17 } }, symbol), MARKET[symbol] && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, MARKET[symbol].name), MARKET[symbol] && /* @__PURE__ */ React.createElement("b", { style: { fontSize: 16 } }, usd(MARKET[symbol].price, 2)), MARKET[symbol] && /* @__PURE__ */ React.createElement("span", { className: dirCls(MARKET[symbol].dayPct), style: { color: MARKET[symbol].dayPct >= 0 ? UP : DOWN, fontWeight: 600 } }, signPct(MARKET[symbol].dayPct)), insight && /* @__PURE__ */ React.createElement("span", { className: cls("vg-bias", insight.bias), style: { fontSize: 12 } }, insight.bias)), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, className: cls("vg-pill", tf === t.key && "sel"), onClick: () => {
+      setTf(t.key);
+      setHover(null);
+    } }, t.key)))), /* @__PURE__ */ React.createElement("div", { ref: wrapRef, className: "vg-chartwrap", onMouseMove: onMove, onMouseLeave: () => setHover(null) }, /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        viewBox: `0 0 ${W} ${H + VH}`,
+        preserveAspectRatio: "none",
+        role: "img",
+        "aria-label": `${symbol} candlestick chart, ${tf}`
+      },
+      Array.from({ length: gridLines + 1 }, (_, g) => {
+        const p = lo + (hi - lo) * g / gridLines;
+        return /* @__PURE__ */ React.createElement("g", { key: g }, /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(p), y2: y(p), stroke: "#eef1f6" }), /* @__PURE__ */ React.createElement("text", { x: plotW + 8, y: y(p) + 4, fontSize: "11", fill: "#94a3b8" }, p >= 100 ? p.toFixed(0) : p.toFixed(1)));
+      }),
+      levels && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(levels.resistance), y2: y(levels.resistance), stroke: DOWN, strokeDasharray: "6 4", strokeOpacity: "0.55" }), /* @__PURE__ */ React.createElement("text", { x: 6, y: y(levels.resistance) - 5, fontSize: "10.5", fill: DOWN }, "resistance ", levels.resistance), /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(levels.support), y2: y(levels.support), stroke: UP, strokeDasharray: "6 4", strokeOpacity: "0.55" }), /* @__PURE__ */ React.createElement("text", { x: 6, y: y(levels.support) + 13, fontSize: "10.5", fill: UP }, "support ", levels.support)),
+      avgCost != null && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(avgCost), y2: y(avgCost), stroke: "#932cfa", strokeDasharray: "2 4", strokeWidth: "1.6" }), /* @__PURE__ */ React.createElement("text", { x: plotW - 4, y: y(avgCost) - 5, fontSize: "10.5", fill: "#932cfa", textAnchor: "end" }, "your avg cost ", usd(avgCost, 2))),
+      bars.map((b, i) => {
+        const up = b.c >= b.o;
+        return /* @__PURE__ */ React.createElement("g", { key: i }, /* @__PURE__ */ React.createElement("line", { x1: x(i), x2: x(i), y1: y(b.h), y2: y(b.l), stroke: up ? UP : DOWN, strokeWidth: "1" }), /* @__PURE__ */ React.createElement(
+          "rect",
+          {
+            x: x(i) - cw / 2,
+            y: y(Math.max(b.o, b.c)),
+            width: cw,
+            height: Math.max(1.5, Math.abs(y(b.o) - y(b.c))),
+            rx: "1",
+            fill: up ? UP : DOWN
+          }
+        ));
+      }),
+      bars.map((b, i) => b.marker && /* @__PURE__ */ React.createElement("g", { key: `m${i}`, className: "vg-marker" }, b.marker.type === "buy" && /* @__PURE__ */ React.createElement("path", { d: `M ${x(i)} ${y(b.l) + 8} l 6 10 l -12 0 z`, fill: "#2e68fd" }), b.marker.type === "sell" && /* @__PURE__ */ React.createElement("path", { d: `M ${x(i)} ${y(b.h) - 18} l 6 -10 l -12 0 z`, fill: "#dc2626" }), b.marker.type === "note" && /* @__PURE__ */ React.createElement("circle", { cx: x(i), cy: y(b.h) - 14, r: "5", fill: "#ca8a04" }), /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: x(i),
+          y: b.marker.type === "buy" ? y(b.l) + 30 : y(b.h) - 26,
+          fontSize: "9.5",
+          fill: "#4d525f",
+          textAnchor: "middle"
+        },
+        "AI"
+      ))),
+      bars.map((b, i) => /* @__PURE__ */ React.createElement(
+        "rect",
+        {
+          key: `v${i}`,
+          x: x(i) - cw / 2,
+          y: H + VH - b.v / maxV * (VH - 12),
+          width: cw,
+          height: b.v / maxV * (VH - 12),
+          rx: "1",
+          fill: b.c >= b.o ? UP : DOWN,
+          opacity: "0.35"
+        }
+      )),
+      /* @__PURE__ */ React.createElement("text", { x: 0, y: H + 12, fontSize: "10", fill: "#94a3b8" }, "volume"),
+      hb && /* @__PURE__ */ React.createElement("g", null, /* @__PURE__ */ React.createElement("line", { x1: x(hover), x2: x(hover), y1: PADT, y2: H + VH, stroke: "#01081b", strokeOpacity: "0.25", strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("line", { x1: 0, x2: plotW, y1: y(hb.c), y2: y(hb.c), stroke: "#01081b", strokeOpacity: "0.18", strokeDasharray: "3 3" }))
+    ), hb && /* @__PURE__ */ React.createElement("div", { className: "vg-charttip", style: { left: `${Math.min(92, x(hover) / W * 100)}%` } }, /* @__PURE__ */ React.createElement("b", null, fmtD(hb.date)), " \xB7 O ", hb.o.toFixed(2), " \xB7 H ", hb.h.toFixed(2), " \xB7 L ", hb.l.toFixed(2), " \xB7 C ", hb.c.toFixed(2), hb.marker && /* @__PURE__ */ React.createElement("div", { className: "mk" }, hb.marker.label))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { marginTop: 10, fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#2e68fd" } }), " AI buy/accumulation"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#dc2626" } }), " AI sell/distribution"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#ca8a04", borderRadius: 99 } }), " AI note"), avgCost != null && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#932cfa" } }), " your avg cost")), /* @__PURE__ */ React.createElement("div", { className: "vg-markerlist" }, (CHART_MARKERS[symbol] || []).map((m, i) => {
+      const bar = all[all.length - 1 - m.ago];
+      return /* @__PURE__ */ React.createElement("span", { key: i, className: cls("vg-badge", m.type === "buy" ? "info" : m.type === "sell" ? "bad" : "warn") }, bar ? fmtD(bar.date) : "", " \u2014 ", m.label);
+    }))));
+  }
+  function ChartsRail({ symbol }) {
+    const insight = AI_INSIGHTS[symbol], rec = CHART_RECS[symbol];
+    const held = LOTS.filter((l) => l.symbol === symbol);
+    const heldShares = held.reduce((s, l) => s + l.shares, 0);
+    const heldUnrl = held.reduce((s, l) => s + lotValue(l) - lotCost(l), 0);
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "AI read"), insight && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, lineHeight: 1.5, margin: "0 0 10px" } }, insight.summary), insight && /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 16 } }, /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("span", null, "Momentum"), /* @__PURE__ */ React.createElement("span", null, insight.momentum)), /* @__PURE__ */ React.createElement("div", { className: "vg-meter" }, /* @__PURE__ */ React.createElement("span", { style: { width: `${insight.momentum}%` } }))), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("span", null, "Sentiment"), /* @__PURE__ */ React.createElement("span", null, insight.sentiment)), /* @__PURE__ */ React.createElement("div", { className: "vg-meter" }, /* @__PURE__ */ React.createElement("span", { style: { width: `${insight.sentiment}%`, background: "var(--color-secondary)" } })))), !insight && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No AI read for ", symbol, ".")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Your position"), heldShares > 0 ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { fontSize: 14 } }, /* @__PURE__ */ React.createElement("b", null, heldShares, " sh \xB7 ", usd(heldShares * (MARKET[symbol] && MARKET[symbol].price || 0))), /* @__PURE__ */ React.createElement("span", { className: dirCls(heldUnrl), style: { color: heldUnrl >= 0 ? UP : DOWN, fontWeight: 600 } }, signUsd(heldUnrl))), held.map((l, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-note", style: { marginTop: 6 } }, acctOf(l.account).short, ": ", l.shares, " sh @ ", usd(l.costPerShare, 2), " (", fmtDate(l.date), ")"))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "Not held in any linked account.")), rec && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-reccard" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "AI recommendation"), /* @__PURE__ */ React.createElement("div", { className: "vg-recaction" }, rec.action), /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, lineHeight: 1.5, margin: "8px 0" } }, rec.detail), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "\u26A0 Risk: ", rec.risk)), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(ChartFaq, null)));
+  }
+  function ChartFaq() {
+    const [open, setOpen] = useState(false);
+    return /* @__PURE__ */ React.createElement(FAQItem, { question: "What are the AI markers?", open, onToggle: () => setOpen(!open) }, "Blue triangles mark AI-detected accumulation/entry zones, red triangles distribution/exit pressure, and gold dots contextual notes (bias flips, TLH windows on lots you own). In this prototype both the candles and the markers are simulated \u2014 educational only, never trading advice.");
   }
 
   // src/options.jsx
@@ -1443,8 +1807,62 @@
       "% marginal rate \u2014 change it in Settings."
     )));
   }
-  function RecsView({ settings, go }) {
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Ranked by estimated annual impact \xB7 generated from cross-account analysis"), /* @__PURE__ */ React.createElement("div", { className: "vg-grid2" }, /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "teal", title: `Harvest IWM loss \u2192 \u2248 ${usd(1513 * settings.taxRate / 100)} benefit` }, "Fidelity IWM lot is \u2212$1,513. No conflicting buys in any account. Sell IWM, buy IJR to keep small-cap exposure with a different index."), /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "orange", title: "Pause Jul VOO auto-buy before harvesting" }, "The VOO loss in Fidelity (\u2212$268) is washed by Wealthfront's monthly auto-invest. Pausing one cycle opens a clean 31-day window."), /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "red", title: "Concentration: NVDA is 7.9% of portfolio" }, "Largest single-stock risk. Gain goes long-term Aug 15 \u2014 trimming after that date cuts the tax cost of de-risking roughly in half."), /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "purple", title: "Same exposure held 3 ways" }, "VOO, SPY and VTI overlap (US large blend, 54% combined). Standardize one fund per account to simplify rebalancing and future TLH pairs."), /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "blue", title: "Rebalance with contributions, not sales" }, "US equity is +8 pts over target. Redirect 401(k) payroll buys to BND \u2014 drift closes in ~5 months with zero tax cost."), /* @__PURE__ */ React.createElement(SecurityCard2, { accent: "cyan", title: `Cash drag: ${usd(10500)} idle` }, "Combined sweep cash earns ~0.4%. A money-market fund adds \u2248 $430/yr at current rates without losing liquidity.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "3 executable ideas on your book (\u2248 4\u201311% annualized) \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
+  var CONVICTION_CHIP = {
+    strong: { cls: "good", text: "STRONG" },
+    neutral: { cls: "plain", text: "NEUTRAL" },
+    weak: { cls: "warn", text: "WEAK" },
+    freefall: { cls: "bad", text: "FREEFALL" }
+  };
+  var REC_CHIP = {
+    HOLD_AND_SELL_CALL: { cls: "info", text: "HOLD & SELL CALL" },
+    CLOSE_AND_BOOK_LOSS: { cls: "bad", text: "CLOSE & BOOK LOSS" },
+    HOLD_WASH_BLOCKED: { cls: "warn", text: "HOLD \u2014 WASH BLOCKED" },
+    MONITOR: { cls: "plain", text: "MONITOR" }
+  };
+  var REC_ORDER = { CLOSE_AND_BOOK_LOSS: 0, HOLD_AND_SELL_CALL: 1, HOLD_WASH_BLOCKED: 2, MONITOR: 3 };
+  function recDetail(d) {
+    const a = d.action;
+    if (!a) return d.rationale || "";
+    if (a.kind === "sell_call" && a.suggestedStrike != null) {
+      const strike = Number(a.suggestedStrike).toFixed(2);
+      const credit = a.estCredit != null ? `~$${Math.round(a.estCredit)}` : "";
+      const basis = a.currentNetCost != null && a.projectedNetCost != null ? `, basis $${Math.round(a.currentNetCost)}\u2192$${Math.round(a.projectedNetCost)}` : "";
+      return `sell ${strike}C ${credit}${basis}`;
+    }
+    if (a.kind === "close") {
+      const loss = a.unrealizedLoss != null ? `book $${Math.round(Math.abs(a.unrealizedLoss))}` : "book loss";
+      const weeks = a.weeksToOffset != null ? `, ${a.weeksToOffset}wk to offset` : "";
+      const wash = a.washBlocked ? " \xB7 WASH BLOCKED" : "";
+      return `${loss}${weeks}${wash}`;
+    }
+    return d.rationale || "";
+  }
+  function tfTrend(perTf, name) {
+    const tf = perTf && perTf[name];
+    if (!tf || !tf.trend) return `${name}: \u2014`;
+    return `${name}: ${tf.trend.direction} (${tf.trend.structure})`;
+  }
+  function RecRow({ d, onJump }) {
+    const [open, setOpen] = useState3(false);
+    const conv = CONVICTION_CHIP[d.conviction.label] || CONVICTION_CHIP.neutral;
+    const rec = REC_CHIP[d.recommendation] || { cls: "plain", text: d.recommendation };
+    const ev = d.evidence || {};
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { className: "vg-recrow", style: { cursor: "pointer" } }, /* @__PURE__ */ React.createElement("td", { onClick: () => onJump(d.symbol) }, /* @__PURE__ */ React.createElement("b", null, d.symbol)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", conv.cls) }, conv.text)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", rec.cls) }, rec.text)), /* @__PURE__ */ React.createElement("td", { style: { fontSize: 13 } }, recDetail(d)), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", whiteSpace: "nowrap" } }, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => setOpen(!open) }, open ? "hide" : "evidence"), " \xB7 ", /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => onJump(d.symbol) }, "chart \u2192"))), open && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, style: { background: "var(--color-light)", padding: "12px 14px" } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.6 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: "0 0 8px" } }, d.rationale), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 18, flexWrap: "wrap", color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("span", null, tfTrend(ev.perTf, "daily")), /* @__PURE__ */ React.createElement("span", null, tfTrend(ev.perTf, "weekly")), /* @__PURE__ */ React.createElement("span", null, tfTrend(ev.perTf, "monthly"))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 18, flexWrap: "wrap", marginTop: 6, color: "var(--color-grey)" } }, ev.nearestSupport && /* @__PURE__ */ React.createElement("span", null, "nearest support ", Number(ev.nearestSupport.price).toFixed(2), " (str ", ev.nearestSupport.strength, ")"), ev.nearestResistance && /* @__PURE__ */ React.createElement("span", null, "nearest resistance ", Number(ev.nearestResistance.price).toFixed(2), " (str ", ev.nearestResistance.strength, ")"), /* @__PURE__ */ React.createElement("span", null, "broke support w/ momentum: ", ev.brokeSupportWithMomentum ? "yes" : "no"), /* @__PURE__ */ React.createElement("span", null, "rule: ", d.rule))))));
+  }
+  function RecsView({ settings, setSymbol, go }) {
+    const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings]);
+    const data = analysis.data;
+    const decisions = data && data.decisions || [];
+    const sorted = [...decisions].sort((a, b) => {
+      const wa = REC_ORDER[a.recommendation] ?? 9, wb = REC_ORDER[b.recommendation] ?? 9;
+      if (wa !== wb) return wa - wb;
+      return a.symbol.localeCompare(b.symbol);
+    });
+    const jump = (sym) => {
+      setSymbol(sym);
+      go("charts");
+    };
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Persisted decision journal", data && data.asOf ? ` \xB7 as of ${data.asOf}` : "", " \xB7 actionable first \xB7 educational only, not advice"), sorted.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "The decision journal is empty or the backend is unreachable. Run the nightly analysis (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.analyze"), ") and confirm the backend URL in Settings.")) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 0, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Conviction"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Recommendation"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Detail"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px", textAlign: "right" } }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(RecRow, { key: d.symbol, d, onJump: jump }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Executable covered-call ideas on your book \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
   }
   function MarketsView({ symbol, setSymbol, setAnalysisSym, go, settings }) {
     const [signalsTab, setSignalsTab] = useState3("active");
