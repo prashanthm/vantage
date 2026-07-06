@@ -48,6 +48,7 @@ READ_TOOLS = frozenset({
     "get_option_quotes",       # option marks by instrument UUID (read-only)
     "get_equity_orders",       # order HISTORY listing (read-only; never places)
     "get_option_orders",       # option order HISTORY listing (read-only)
+    "get_equity_historicals",  # EOD OHLCV bars for technical analysis (read-only)
 })
 
 
@@ -546,6 +547,114 @@ def fetch_history(account_number: str, *, limit: int = 200) -> list[dict]:
     return rows[:limit]
 
 
+# ------------------------------------------------------ OHLCV historicals
+
+def _historicals_bars(result: dict, symbol: str) -> list[dict]:
+    """Pull the raw bar list for ``symbol`` from an unwrapped
+    get_equity_historicals payload.
+
+    OBSERVED shape (live, 2026-07-05, post-_unwrap): {"results": [{"symbol",
+    "interval", "bounds", "bars": [{begins_at, open_price, close_price,
+    high_price, low_price (STRINGS), volume (int), session ("reg")}]}]}. A
+    single-symbol call still nests under 'results'; the bar block is matched by
+    symbol (case-insensitive), falling back to the sole result when only one is
+    present."""
+    results = result.get("results")
+    if not isinstance(results, list):
+        # tolerate a bare {symbol, bars} or {bars} envelope
+        if isinstance(result.get("bars"), list):
+            return result["bars"]
+        return []
+    want = symbol.upper()
+    match = None
+    for r in results:
+        if not isinstance(r, dict):
+            continue
+        if str(r.get("symbol") or "").upper() == want:
+            match = r
+            break
+    if match is None and len(results) == 1 and isinstance(results[0], dict):
+        match = results[0]
+    if not isinstance(match, dict):
+        return []
+    bars = match.get("bars")
+    return bars if isinstance(bars, list) else []
+
+
+def _normalize_bar(bar: dict) -> dict | None:
+    """One raw historical bar -> the normalized OHLCV contract
+    {date (ISO), open, high, low, close (floats), volume (int)}. Returns None
+    for a bar missing its timestamp or any price (never fabricates a level)."""
+    begins = bar.get("begins_at")
+    if not begins:
+        return None
+    o = bar.get("open_price")
+    h = bar.get("high_price")
+    low = bar.get("low_price")
+    c = bar.get("close_price")
+    if any(v in (None, "") for v in (o, h, low, c)):
+        return None
+    try:
+        return {
+            "date": str(begins),
+            "open": float(o),
+            "high": float(h),
+            "low": float(low),
+            "close": float(c),
+            "volume": int(_f(bar.get("volume"))),
+        }
+    except (TypeError, ValueError):
+        return None
+
+
+def fetch_historicals(
+    symbol: str, *, start_time: str, end_time: str | None = None,
+    interval: str = "day",
+) -> list[dict]:
+    """Daily (or interval) OHLCV bars for one symbol, normalized to
+    [{date (ISO), open, high, low, close (floats), volume (int)}], oldest ->
+    newest.
+
+    ``start_time`` is REQUIRED and must be RFC3339 UTC (e.g.
+    "2025-06-01T00:00:00Z") — the server rejects the call without it.
+    ``end_time`` is optional. ``interval`` defaults to "day"; weekly/monthly
+    aggregation is done by resampling daily bars (see bars.resample), which is
+    safer than trusting server interval names. Reads through the allowlisted
+    get_equity_historicals tool — one network path, no mutation."""
+    payload: dict = {"symbols": [symbol.upper()], "start_time": start_time,
+                     "interval": interval}
+    if end_time:
+        payload["end_time"] = end_time
+    result = _call("get_equity_historicals", payload)
+    raw = _historicals_bars(result, symbol)
+    bars = [nb for b in raw if isinstance(b, dict) and (nb := _normalize_bar(b))]
+    bars.sort(key=lambda r: r["date"])
+    return bars
+
+
+def fetch_historicals_batch(
+    symbols: list[str], *, start_time: str, end_time: str | None = None,
+    interval: str = "day",
+) -> dict[str, list[dict]]:
+    """Batch variant: fetch daily bars for up to 10 symbols per API call
+    (the get_equity_historicals ``symbols`` limit), returning
+    {symbol: [normalized bars]}. Symbols the server omitted map to []."""
+    out: dict[str, list[dict]] = {}
+    uppers = [s.upper() for s in symbols]
+    for chunk in _chunks(uppers, 10):
+        payload: dict = {"symbols": list(chunk), "start_time": start_time,
+                         "interval": interval}
+        if end_time:
+            payload["end_time"] = end_time
+        result = _call("get_equity_historicals", payload)
+        for sym in chunk:
+            raw = _historicals_bars(result, sym)
+            bars = [nb for b in raw if isinstance(b, dict) and (nb := _normalize_bar(b))]
+            bars.sort(key=lambda r: r["date"])
+            out[sym] = bars
+    return out
+
+
 # ------------------------------------------------------------- connection
 
 @register_connection
@@ -576,6 +685,12 @@ class RobinhoodConnection:
 
     def fetch_option_orders(self, account_number: str, *, limit: int = 200) -> list[dict]:
         return fetch_option_orders(account_number, limit=limit)
+
+    def fetch_historicals(self, symbol: str, *, start_time: str,
+                          end_time: str | None = None,
+                          interval: str = "day") -> list[dict]:
+        return fetch_historicals(symbol, start_time=start_time,
+                                 end_time=end_time, interval=interval)
 
     def list_accounts(self) -> list[dict]:
         return list_accounts()

@@ -59,6 +59,8 @@ def test_allowlist_is_exactly_the_read_tools():
         "get_option_quotes",
         "get_equity_orders",
         "get_option_orders",
+        # EOD OHLCV bars for the technical-analysis engine (read-only)
+        "get_equity_historicals",
     })
     # frozenset: nobody can .add() a mutating tool at runtime
     with pytest.raises(AttributeError):
@@ -152,6 +154,85 @@ def test_fetch_portfolio_requires_an_account_value(monkeypatch):
     monkeypatch.setattr(robinhood, "_call", lambda t, p: {"buying_power": "1.00"})
     with pytest.raises(RobinhoodError, match="Account value missing"):
         robinhood.fetch_portfolio("X")
+
+
+# -------------------------------------------------- historicals (OHLCV bars)
+
+# Realistic get_equity_historicals shape (post-_unwrap), out of chronological
+# order to prove the normalizer sorts oldest->newest.
+CANNED_HISTORICALS = {
+    "results": [
+        {
+            "symbol": "PLTR",
+            "interval": "day",
+            "bounds": "regular",
+            "bars": [
+                {"begins_at": "2026-06-10T00:00:00Z", "open_price": "129.325000",
+                 "high_price": "133.185000", "low_price": "128.800000",
+                 "close_price": "130.210000", "volume": 30612640, "session": "reg"},
+                {"begins_at": "2026-06-08T00:00:00Z", "open_price": "135.680000",
+                 "high_price": "137.760000", "low_price": "135.280000",
+                 "close_price": "136.470000", "volume": 26978870, "session": "reg"},
+                {"begins_at": "2026-06-09T00:00:00Z", "open_price": "134.870000",
+                 "high_price": "136.990000", "low_price": "127.350000",
+                 "close_price": "132.070000", "volume": 38679990, "session": "reg"},
+                {"begins_at": "", "open_price": "1", "high_price": "1",
+                 "low_price": "1", "close_price": "1", "volume": 0},  # no date -> dropped
+                {"begins_at": "2026-06-11T00:00:00Z", "open_price": "128.780000",
+                 "high_price": "131.520000", "low_price": "127.170000",
+                 "close_price": None, "volume": 27554474},  # missing close -> dropped
+            ],
+        }
+    ]
+}
+
+
+def test_fetch_historicals_normalizes_and_sorts(monkeypatch):
+    calls = []
+
+    def fake_call(tool, payload):
+        calls.append((tool, payload))
+        return CANNED_HISTORICALS
+
+    monkeypatch.setattr(robinhood, "_call", fake_call)
+    bars = robinhood.fetch_historicals("pltr", start_time="2026-06-01T00:00:00Z")
+    assert calls == [("get_equity_historicals",
+                      {"symbols": ["PLTR"], "start_time": "2026-06-01T00:00:00Z",
+                       "interval": "day"})]
+    # oldest -> newest; the empty-date and missing-close bars are dropped
+    assert [b["date"] for b in bars] == [
+        "2026-06-08T00:00:00Z", "2026-06-09T00:00:00Z", "2026-06-10T00:00:00Z"]
+    assert bars[0] == {"date": "2026-06-08T00:00:00Z", "open": 135.68,
+                       "high": 137.76, "low": 135.28, "close": 136.47,
+                       "volume": 26978870}
+    assert all(isinstance(b["volume"], int) for b in bars)
+
+
+def test_fetch_historicals_passes_end_time_and_interval(monkeypatch):
+    calls = []
+    monkeypatch.setattr(robinhood, "_call",
+                        lambda t, p: calls.append(p) or {"results": []})
+    robinhood.fetch_historicals("SNK", start_time="2026-01-01T00:00:00Z",
+                                end_time="2026-06-01T00:00:00Z", interval="week")
+    assert calls[0] == {"symbols": ["SNK"], "start_time": "2026-01-01T00:00:00Z",
+                        "interval": "week", "end_time": "2026-06-01T00:00:00Z"}
+
+
+def test_fetch_historicals_batch_matches_by_symbol(monkeypatch):
+    payload = {"results": [
+        {"symbol": "AAA", "bars": [
+            {"begins_at": "2026-06-08T00:00:00Z", "open_price": "1", "high_price": "2",
+             "low_price": "1", "close_price": "1.5", "volume": 10}]},
+        {"symbol": "BBB", "bars": [
+            {"begins_at": "2026-06-08T00:00:00Z", "open_price": "5", "high_price": "6",
+             "low_price": "4", "close_price": "5.5", "volume": 20}]},
+    ]}
+    monkeypatch.setattr(robinhood, "_call", lambda t, p: payload)
+    out = robinhood.fetch_historicals_batch(["aaa", "bbb"],
+                                            start_time="2026-06-01T00:00:00Z")
+    assert set(out) == {"AAA", "BBB"}
+    assert out["AAA"][0]["close"] == 1.5
+    assert out["BBB"][0]["close"] == 5.5
 
 
 # ------------------------------------------------- synthetic-lot conversion
