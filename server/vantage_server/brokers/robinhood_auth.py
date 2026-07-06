@@ -109,10 +109,16 @@ def _http_post(
 
 def _load_store() -> dict:
     path = token_file()
+    # Not a regular file (absent, or a /dev/null placeholder mount when the
+    # operator runs read-only) → no token; get_access_token raises a clean
+    # AuthError the refresh endpoint catches per-account.
     if not path.is_file():
         return {}
-    with path.open(encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+        return json.loads(text) if text else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
 
 
 def _save_store(store: dict) -> None:
