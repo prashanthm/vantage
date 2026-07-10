@@ -1167,6 +1167,56 @@ class Store:
         """The last-imported balances+positions snapshot (or {})."""
         return _db.loads(self.get_meta("futures_reconcile"), {}) or {}
 
+    # ── native GEX snapshot + history (SQLite-only) ──────────────────────────
+
+    def put_gex_snapshot(self, snap: dict) -> None:
+        """Store the latest GEX snapshot (full computed dict as JSON)."""
+        if not self.uses_sqlite:
+            raise RuntimeError("put_gex_snapshot requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO gex_snapshot(id, date, symbol, snapshot) "
+                "VALUES(1,?,?,?)",
+                (snap.get("date"), snap.get("symbol"), _db.dumps(snap)))
+
+    def load_gex_snapshot(self) -> dict | None:
+        """The latest GEX snapshot dict, or None."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute("SELECT snapshot FROM gex_snapshot WHERE id=1").fetchone()
+        finally:
+            conn.close()
+        return _db.loads(row["snapshot"], None) if row else None
+
+    def record_gex_history(self, snap: dict) -> None:
+        """Append one nightly GEX row (idempotent per session date) so the
+        regime→next-day-range edge keeps working."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_gex_history requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO gex_history"
+                "(date, symbol, spot, net_gex_bn, regime, gamma_flip, call_wall,"
+                " put_wall, max_pain, call_share_pct) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (snap.get("date"), snap.get("symbol"), snap.get("spot"),
+                 snap.get("net_gex_bn"), snap.get("regime"), snap.get("gamma_flip"),
+                 snap.get("call_wall"), snap.get("put_wall"), snap.get("max_pain"),
+                 snap.get("call_share_pct")))
+
+    def load_gex_history(self) -> list[dict]:
+        """Every recorded nightly GEX row, oldest first."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM gex_history ORDER BY date ASC").fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
     def put_roundtrips(self, account: str, roundtrips: list[dict], summary: dict,
                        *, as_of: str, now=None):
         """Persist the round-trips snapshot. On JSON, build_roundtrips.write_roundtrips

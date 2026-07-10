@@ -5,8 +5,9 @@
 # stack reads the `vantage_vantage-data` volume mounted at /data inside the
 # backend container (which also has the Robinhood token mounted). So the nightly
 # refresh MUST run inside that container to land in the DB the UI actually reads.
-# This wrapper does exactly that, in the same order host nightly.sh uses:
-#   bars snapshot -> position analysis -> notebook journal snapshot.
+# This wrapper does exactly that, in order:
+#   bars -> position analysis -> notebook journal -> GEX (native) ->
+#   0DTE SPX playbook -> futures re-import.
 #
 #   ./nightly-docker.sh            run the pipeline now
 #   ./nightly-docker.sh --backfill deep-refresh all held tickers first (one-off)
@@ -56,11 +57,25 @@ run "position analysis" vantage_server.analyze
 # 3) Per-ticker journal snapshot so each notebook timeline accrues nightly.
 run "notebook journal snapshot" vantage_server.snapshot_journal
 
-# 4) Daily 0DTE SPX playbook — fuses Sentinel's GEX/zones/breadth/macro (mounted
-#    read-only at /sentinel) with SPX 15m chart structure. Runs LAST so it reads
-#    the freshest bars. DEPENDENCY: Sentinel's own nightly must have written its
-#    17:20 GEX snapshot + 17:26 zones BEFORE this runs — schedule this job after
-#    ~17:30 ET, or the playbook reports a thinner (stale-artifact) read.
+# 4) Dealer-gamma (GEX) snapshot — computed NATIVELY in Vantage from the yfinance
+#    option chain (no longer depends on Sentinel writing its file first). Runs
+#    BEFORE the playbook so the playbook bakes fresh GEX. OI-based, blind to 0DTE.
+run "GEX snapshot (native)" vantage_server.gex
+
+# 5) Daily 0DTE SPX playbook — fuses Vantage's own GEX (step 4) with SPX 15m chart
+#    structure + Sentinel's zones/breadth/macro (mounted read-only at /sentinel).
+#    Runs after GEX + bars so it reads the freshest of both.
 run "0DTE SPX playbook" vantage_server.spx_playbook
+
+# 6) Futures analysis — re-import the AMP CSV export in /data/ampfutures (if any)
+#    so stored fills stay current. Idempotent (Order-ID dedupe); a no-op when the
+#    export is unchanged. AMP is not API-connected, so this refreshes from whatever
+#    CSVs you've dropped in — it can't pull new fills on its own.
+if docker exec "$CID" sh -c 'ls /data/ampfutures/*.csv >/dev/null 2>&1'; then
+  run "futures re-import (ampfutures)" \
+    vantage_server.futures --data-dir /data --import ampfutures --no-alignment
+else
+  echo "[$STAMP] nightly-docker: futures re-import skipped — no CSVs in /data/ampfutures"
+fi
 
 echo "[$STAMP] nightly-docker: done"

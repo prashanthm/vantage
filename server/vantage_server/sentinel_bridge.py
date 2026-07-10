@@ -62,21 +62,40 @@ def _missing(name: str) -> dict:
 
 # --------------------------------------------------------------- GEX snapshot
 
-def gex_snapshot() -> dict:
+def gex_snapshot(store: Any = None) -> dict:
     """Latest dealer-gamma snapshot: flip / walls / max_pain / regime / ladder.
 
-    Shape (Sentinel gex_intel.py): ``{spot, net_gex_bn, regime, regime_text,
-    gamma_flip, call_wall, put_wall, max_pain, call_share_pct, put_share_pct,
-    ladder[], curve[], narrative[], note, date, generated_at, n_contracts}``.
+    GEX is now computed NATIVELY in Vantage (``vantage_server.gex``). When a
+    ``store`` is given, its own GEX snapshot is preferred; the Sentinel file is
+    only a legacy fallback when Vantage hasn't computed one yet.
+
+    Shape: ``{spot, net_gex_bn, regime, regime_text, gamma_flip, call_wall,
+    put_wall, max_pain, call_share_pct, put_share_pct, ladder[], curve[],
+    narrative[], note, date, generated_at, n_contracts}``.
     """
+    if store is not None and getattr(store, "uses_sqlite", False):
+        try:
+            d = store.load_gex_snapshot()
+            if isinstance(d, dict) and d.get("spot") is not None:
+                return {"available": True, **d}
+        except Exception:  # noqa: BLE001 — fall back to the legacy file
+            pass
     d = _read_json(_logs_dir() / "gex_snapshot.json")
     if not isinstance(d, dict) or d.get("spot") is None:
         return _missing("gex")
     return {"available": True, **d}
 
 
-def gex_history() -> list[dict]:
-    """Nightly GEX rows (for the regime→next-day-vol edge). May be empty."""
+def gex_history(store: Any = None) -> list[dict]:
+    """Nightly GEX rows (for the regime→next-day-vol edge). Prefers Vantage's
+    own history; falls back to Sentinel's jsonl. May be empty."""
+    if store is not None and getattr(store, "uses_sqlite", False):
+        try:
+            rows = store.load_gex_history()
+            if rows:
+                return rows
+        except Exception:  # noqa: BLE001
+            pass
     return _read_jsonl(_logs_dir() / "gex_history.jsonl")
 
 
@@ -156,14 +175,16 @@ def zone_scorecard() -> dict:
 
 # --------------------------------------------------------------- bundle
 
-def pull_all(day: str, next_day: str | None = None) -> dict:
-    """Everything the playbook needs from Sentinel, each independently graceful.
+def pull_all(day: str, next_day: str | None = None, store: Any = None) -> dict:
+    """Everything the playbook needs, each independently graceful. GEX comes from
+    Vantage's own store (native) when ``store`` is given; zones/breadth/macro
+    still come from Sentinel's read-only artifacts.
 
     ``missing`` lists the sources that were unavailable so the playbook can note
     a thinner read rather than silently dropping a dimension."""
     parts = {
-        "gex": gex_snapshot(),
-        "gex_history": gex_history(),
+        "gex": gex_snapshot(store),
+        "gex_history": gex_history(store),
         "zones": zones("sentinel"),
         "market_context": market_context(),
         "catalysts": catalysts_for(day, next_day),

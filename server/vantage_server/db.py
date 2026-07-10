@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 4  # v4: futures ingest (AMP executions + order log)
+SCHEMA_VERSION = 5  # v5: native GEX (gex_snapshot + gex_history)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -274,6 +274,30 @@ CREATE TABLE IF NOT EXISTS futures_orders (
     seq            INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_futures_orders_status ON futures_orders(contract, status);
+
+-- Native dealer-gamma (GEX) snapshot, computed IN Vantage from the yfinance
+-- option chain (no longer dependent on Sentinel's file). Single latest snapshot;
+-- the full computed dict lives in `snapshot` JSON. `gex_history` accrues one row
+-- per session so the playbook's regime→next-day-range edge keeps working.
+CREATE TABLE IF NOT EXISTS gex_snapshot (
+    id        INTEGER PRIMARY KEY CHECK (id = 1),  -- single latest
+    date      TEXT,                                -- YYYY-MM-DD (ET)
+    symbol    TEXT,
+    snapshot  TEXT                                 -- JSON: full compute_gex dict
+);
+
+CREATE TABLE IF NOT EXISTS gex_history (
+    date            TEXT PRIMARY KEY,   -- one row per session (ET date)
+    symbol          TEXT,
+    spot            REAL,
+    net_gex_bn      REAL,
+    regime          TEXT,
+    gamma_flip      REAL,
+    call_wall       REAL,
+    put_wall        REAL,
+    max_pain        REAL,
+    call_share_pct  REAL
+);
 """
 
 

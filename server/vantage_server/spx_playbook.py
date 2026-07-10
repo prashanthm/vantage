@@ -758,7 +758,7 @@ def build_playbook(today: _dt.date | None = None, store: Any = None) -> dict:
     read back from history and folded into the scaffold."""
     today = today or _dt.date.today()
     nxt = _next_session(today)
-    bundle = sb.pull_all(today.isoformat(), nxt.isoformat())
+    bundle = sb.pull_all(today.isoformat(), nxt.isoformat(), store=store)
 
     spx15 = _fetch_15m("^GSPC")
     spy15 = _fetch_15m("SPY")
