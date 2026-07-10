@@ -1217,6 +1217,51 @@ class Store:
             conn.close()
         return [dict(r) for r in rows]
 
+    # ── paper trades (SPY paper-trading tracker, SQLite-only) ────────────────
+
+    def record_paper_trade(self, trade: dict) -> int:
+        """Insert one open paper trade. Returns the new row id."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_paper_trade requires the SQLite backend")
+        cols = ("opened_at", "session", "signal", "side", "symbol", "spx_level",
+                "spy_entry", "spy_target", "spy_stop", "shares", "ref_strike",
+                "source", "status", "opened_price_src")
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                f"INSERT INTO paper_trades({','.join(cols)}) "
+                f"VALUES({','.join('?' for _ in cols)})",
+                tuple(trade.get(c) for c in cols))
+            return int(cur.lastrowid)
+
+    def load_paper_trades(self, status: str | None = None) -> list[dict]:
+        """Paper trades (optionally filtered by status), newest first."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            sql = "SELECT * FROM paper_trades"
+            params: list = []
+            if status:
+                sql += " WHERE status=?"; params.append(status)
+            sql += " ORDER BY opened_at DESC, id DESC"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
+    def close_paper_trade(self, trade_id: int, *, spy_exit: float,
+                          exit_reason: str, pnl: float, pnl_pct: float,
+                          closed_at: str) -> bool:
+        """Mark a paper trade closed with its exit + P&L. Returns True if updated."""
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "UPDATE paper_trades SET status='closed', spy_exit=?, exit_reason=?, "
+                "pnl=?, pnl_pct=?, closed_at=? WHERE id=? AND status='open'",
+                (spy_exit, exit_reason, pnl, pnl_pct, closed_at, trade_id))
+            return cur.rowcount > 0
+
     def put_roundtrips(self, account: str, roundtrips: list[dict], summary: dict,
                        *, as_of: str, now=None):
         """Persist the round-trips snapshot. On JSON, build_roundtrips.write_roundtrips

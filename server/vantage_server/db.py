@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 5  # v5: native GEX (gex_snapshot + gex_history)
+SCHEMA_VERSION = 6  # v6: paper_trades (SPY paper-trading tracker)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -298,6 +298,37 @@ CREATE TABLE IF NOT EXISTS gex_history (
     max_pain        REAL,
     call_share_pct  REAL
 );
+
+-- Paper trades: a NO-MONEY track record of the 0DTE playbook's signals traded on
+-- SPY (the SPX proxy). Each row is one simulated trade — opened at a signal's SPY
+-- entry with a target (the next playbook level) and stop (just beyond the signal
+-- level), then auto-closed by checking SPY intraday bars for the first touch of
+-- target or stop. P&L is on SPY SHARES (the honest, simple proxy); `ref_strike`
+-- records the nearest 0DTE option strike for reference only. This is a simulation
+-- for learning + strategy validation — it places NO real orders (ADR-010).
+CREATE TABLE IF NOT EXISTS paper_trades (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at    TEXT NOT NULL,      -- ISO timestamp the paper trade was logged
+    session      TEXT,               -- playbook session date it came from
+    signal       TEXT NOT NULL,      -- human label ('fade resistance 754.95', ...)
+    side         TEXT NOT NULL,      -- 'long' (buy dip) | 'short' (fade rally)
+    symbol       TEXT NOT NULL,      -- 'SPY'
+    spx_level    REAL,               -- the SPX level the signal keyed off
+    spy_entry    REAL NOT NULL,      -- SPY price at open
+    spy_target   REAL,               -- next playbook level (SPY terms)
+    spy_stop     REAL,               -- just beyond the signal level (SPY terms)
+    shares       REAL,               -- notional share count for the P&L calc
+    ref_strike   REAL,               -- nearest 0DTE strike (reference only)
+    source       TEXT,               -- 'auto' (signal) | 'manual'
+    status       TEXT NOT NULL,      -- 'open' | 'closed'
+    opened_price_src TEXT,           -- where the entry price came from
+    closed_at    TEXT,               -- ISO close time
+    spy_exit     REAL,               -- SPY price at close
+    exit_reason  TEXT,               -- 'target' | 'stop' | 'manual' | 'expired'
+    pnl          REAL,               -- (exit-entry)*shares signed by side
+    pnl_pct      REAL                -- % move on SPY
+);
+CREATE INDEX IF NOT EXISTS ix_paper_status ON paper_trades(status, opened_at);
 """
 
 

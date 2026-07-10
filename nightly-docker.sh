@@ -78,4 +78,8 @@ else
   echo "[$STAMP] nightly-docker: futures re-import skipped — no CSVs in /data/ampfutures"
 fi
 
+# 7) Settle open PAPER trades — check SPY bars for target/stop touches and close
+#    the ones that filled. No-money simulation; writes only our store (ADR-010).
+run "paper-trade settle" vantage_server.paper --data-dir /data --settle
+
 echo "[$STAMP] nightly-docker: done"

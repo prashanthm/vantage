@@ -936,6 +936,36 @@ export function mapFuturesAnalysis(p) {
   };
 }
 
+// ── paper trading (SPY proxy, no money) ──────────────────────────────────────
+
+export async function getPaper() {
+  const v = await getJson(`${backendBase()}/api/paper`, { timeoutMs: 30000 });
+  return v && v.available ? v : { available: false, note: v && v.note };
+}
+
+async function _paperPost(path, body) {
+  const base = backendBase();
+  if (!base) return { available: false };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch(`${base}/api/paper/${path}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}), signal: ctrl.signal,
+    });
+    if (!res.ok) return { available: false };
+    return await res.json();
+  } catch (e) {
+    return { available: false };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+export const openPaperTrade = (ticket) => _paperPost("open", ticket);
+export const settlePaper = () => _paperPost("settle", {});
+export const closePaperTrade = (id, spyExit) => _paperPost("close", { id, spy_exit: spyExit });
+
 // Normalize the /analyze payload to what the notebook renders: the synthesized
 // prose plus a compact per-facet map (so the UI can show which facets grounded
 // the answer). `correlationId` is surfaced when present for the sources toggle.

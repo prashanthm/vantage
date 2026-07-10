@@ -452,6 +452,11 @@ ALLOWED_WRITE_ROUTES = {
     # Imports the user's own AMP futures CSV export into our SQLite — reads local
     # files, writes only our store; no broker contact / order path (ADR-010 holds).
     "/api/futures/import",
+    # Paper-trading simulation — logs/settles/closes NO-MONEY paper trades in our
+    # own SQLite. Explicitly not a real order path (ADR-010 read-only doctrine).
+    "/api/paper/open",
+    "/api/paper/settle",
+    "/api/paper/close",
 }
 
 
