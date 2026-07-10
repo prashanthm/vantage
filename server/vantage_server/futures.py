@@ -404,21 +404,102 @@ def feature_roundtrip(rt: dict, align: dict | None = None) -> dict:
 
 
 def _overall(roundtrips: list[dict]) -> dict:
+    """Headline trader metrics: win rate, expectancy per trade, reward:risk (in
+    POINTS so a micro and a mini aren't conflated), profit factor, and dollar
+    totals. Expectancy = win% * avgWinPts − loss% * |avgLossPts| — the number
+    that actually says whether the system prints money."""
     n = len(roundtrips)
+    if not n:
+        return {"n": 0}
     wins = [t for t in roundtrips if t["win"]]
     losses = [t for t in roundtrips if not t["win"]]
     gw = sum(t["pnl_dollars"] for t in wins)
     gl = sum(t["pnl_dollars"] for t in losses)
+    wr = len(wins) / n
+    avg_win_pts = (sum(t["points"] for t in wins) / len(wins)) if wins else 0.0
+    avg_loss_pts = (sum(t["points"] for t in losses) / len(losses)) if losses else 0.0
+    rr = round(avg_win_pts / abs(avg_loss_pts), 2) if avg_loss_pts else None
+    expectancy_pts = round(wr * avg_win_pts + (1 - wr) * avg_loss_pts, 2)
+    expectancy_usd = round(sum(t["pnl_dollars"] for t in roundtrips) / n, 2)
     return {
         "n": n, "wins": len(wins), "losses": len(losses),
-        "win_rate": round(len(wins) / n, 4) if n else None,
+        "win_rate": round(wr, 4),
         "avg_win": round(gw / len(wins), 2) if wins else None,
         "avg_loss": round(gl / len(losses), 2) if losses else None,
+        "avg_win_pts": round(avg_win_pts, 1),
+        "avg_loss_pts": round(avg_loss_pts, 1),
+        "reward_risk": rr,                    # avg win / avg loss, in points
+        "expectancy_pts": expectancy_pts,     # avg points per trade
+        "expectancy_usd": expectancy_usd,     # avg $ per trade
         "gross_win": round(gw, 2), "gross_loss": round(gl, 2),
         "profit_factor": round(gw / abs(gl), 2) if gl else None,
         "total_pnl_dollars": round(gw + gl, 2),
         "total_points": round(sum(t["points"] for t in roundtrips), 2),
         "fees": "not in export (gross P&L)",
+    }
+
+
+def _equity_curve(roundtrips: list[dict]) -> list[dict]:
+    """Cumulative $ P&L after each closed trade, in exit order — the equity curve.
+    Each point: ``{i, exit_time, pnl, cum}``. Also the running peak so the UI can
+    shade drawdown."""
+    ordered = sorted(roundtrips, key=lambda t: (t.get("exit_time") or "", ))
+    out, cum, peak = [], 0.0, 0.0
+    for i, t in enumerate(ordered):
+        cum += t["pnl_dollars"]
+        peak = max(peak, cum)
+        out.append({"i": i, "exit_time": t.get("exit_time"),
+                    "pnl": round(t["pnl_dollars"], 2), "cum": round(cum, 2),
+                    "peak": round(peak, 2)})
+    return out
+
+
+def _max_drawdown(curve: list[dict]) -> dict:
+    """Largest peak-to-trough drop in the cumulative equity ($ and % of peak)."""
+    peak = 0.0; max_dd = 0.0; dd_peak = 0.0
+    for p in curve:
+        peak = max(peak, p["cum"])
+        dd = peak - p["cum"]
+        if dd > max_dd:
+            max_dd = dd; dd_peak = peak
+    return {"max_drawdown": round(max_dd, 2),
+            "max_drawdown_pct": round(100 * max_dd / dd_peak, 1) if dd_peak else None}
+
+
+def _risk_stats(roundtrips: list[dict]) -> dict:
+    """The discipline read: the biggest single loss, how it compares to the
+    average loser and to total P&L (a blowup that exceeds total profit is the
+    red flag), the worst losing streak, and hold-time outliers (losers held far
+    longer than the median = letting losers run)."""
+    if not roundtrips:
+        return {"available": False}
+    losses = [t for t in roundtrips if not t["win"]]
+    total = sum(t["pnl_dollars"] for t in roundtrips)
+    worst = min(roundtrips, key=lambda t: t["pnl_dollars"])
+    avg_loss = (sum(t["pnl_dollars"] for t in losses) / len(losses)) if losses else 0.0
+    # worst losing streak (consecutive losers in exit order)
+    ordered = sorted(roundtrips, key=lambda t: (t.get("exit_time") or "",))
+    streak = worst_streak = 0
+    for t in ordered:
+        streak = streak + 1 if not t["win"] else 0
+        worst_streak = max(worst_streak, streak)
+    # hold-time: median vs the longest-held loser
+    holds = [t["held_minutes"] for t in roundtrips if t.get("held_minutes") is not None]
+    med_hold = sorted(holds)[len(holds) // 2] if holds else None
+    loser_holds = [t for t in losses if t.get("held_minutes") is not None]
+    longest_loser = max(loser_holds, key=lambda t: t["held_minutes"]) if loser_holds else None
+    return {
+        "available": True,
+        "worst_loss_usd": round(worst["pnl_dollars"], 2),
+        "worst_loss_pts": round(worst["points"], 1),
+        "worst_loss_contract": worst["contract"],
+        "worst_vs_avg_loss": (round(abs(worst["pnl_dollars"] / avg_loss), 1)
+                              if avg_loss else None),
+        "worst_exceeds_total_profit": bool(total > 0 and abs(worst["pnl_dollars"]) > total),
+        "worst_losing_streak": worst_streak,
+        "median_hold_min": round(med_hold, 1) if med_hold is not None else None,
+        "longest_loser_hold_min": (round(longest_loser["held_minutes"], 1)
+                                   if longest_loser else None),
     }
 
 
@@ -445,21 +526,185 @@ def _order_behavior(orders: list[dict]) -> dict:
     }
 
 
+#: label bucket dimension VALUES for human-readable recommendations.
+_DIM_HUMAN = {
+    "exit_type": "exits", "hold_bucket": "holds", "entry_hour_et": "the {}:00 ET hour",
+    "playbook_align": "entries {} the playbook", "direction": "{} trades",
+    "contract": "{} trades",
+}
+
+
+def generate_recommendations(overall: dict, risk: dict, notable: list[dict],
+                             order_behavior: dict, align: dict | None,
+                             roundtrips: list[dict], *, with_watch: bool = True) -> dict:
+    """Concrete, evidence-backed guidance in three buckets — all derived from the
+    trader's OWN history, honest about sample size. Returns
+    ``{rules, coaching, watch}`` lists of ``{text, evidence}``."""
+    rules: list[dict] = []
+    coaching: list[dict] = []
+    watch: list[dict] = []
+    n = overall.get("n", 0)
+
+    # ---- rules from the numbers ----
+    rr = overall.get("reward_risk")
+    if rr is not None and rr < 1.5:
+        need = round(abs(overall["avg_loss_pts"]) * 1.5)
+        rules.append({
+            "text": f"Aim for bigger winners. Your reward:risk is {rr} — winners "
+                    f"({overall['avg_win_pts']}pt) barely beat losers "
+                    f"({abs(overall['avg_loss_pts']):.0f}pt). Target ~{need}pt+ on "
+                    "winners (1.5R) so a ~50% hit rate clearly pays.",
+            "evidence": f"avg win {overall['avg_win_pts']}pt vs avg loss "
+                        f"{abs(overall['avg_loss_pts']):.0f}pt (n={n})",
+        })
+    exp = overall.get("expectancy_pts")
+    if exp is not None:
+        rules.append({
+            "text": (f"Every trade is worth about {exp:+.1f}pt / "
+                     f"${overall['expectancy_usd']:+,.0f} on average. "
+                     + ("Positive but thin — protect it by cutting the leaks below."
+                        if exp > 0 else
+                        "NEGATIVE expectancy — the system loses over time as-is; "
+                        "fix the biggest leak before sizing up.")),
+            "evidence": f"expectancy over {n} trades",
+        })
+    if risk.get("available"):
+        if risk.get("worst_exceeds_total_profit"):
+            rules.append({
+                "text": f"Cap your max loss. One trade lost "
+                        f"${abs(risk['worst_loss_usd']):,.0f} ({abs(risk['worst_loss_pts']):.0f}pt) "
+                        "— MORE than your total profit. A hard stop that size "
+                        "(e.g. 1.5-2x your average loss) turns your worst day into a "
+                        "normal one.",
+                "evidence": f"worst loss {risk['worst_loss_pts']}pt vs avg loss; "
+                            f"{risk.get('worst_vs_avg_loss')}x a normal loser",
+            })
+        if (risk.get("longest_loser_hold_min") and risk.get("median_hold_min")
+                and risk["longest_loser_hold_min"] > 4 * max(risk["median_hold_min"], 1)):
+            rules.append({
+                "text": f"Don't let losers run. Your typical trade lasts "
+                        f"{risk['median_hold_min']:.0f} min, but a loser was held "
+                        f"{risk['longest_loser_hold_min']:.0f} min — hoping it comes "
+                        "back. Time-stop trades that aren't working.",
+                "evidence": f"median hold {risk['median_hold_min']:.0f}m vs longest "
+                            f"loser {risk['longest_loser_hold_min']:.0f}m",
+            })
+        if risk.get("worst_losing_streak", 0) >= 4:
+            rules.append({
+                "text": f"Set a daily stop. Your worst streak was "
+                        f"{risk['worst_losing_streak']} losers in a row — that's when "
+                        "revenge-trading compounds. Walk after 3 straight losses.",
+                "evidence": f"{risk['worst_losing_streak']} consecutive losers",
+            })
+    if order_behavior.get("available") and (order_behavior.get("cancel_rate") or 0) > 0.35:
+        coaching.append({
+            "text": f"High order-churn ({round(100*order_behavior['cancel_rate'])}% "
+                    "of orders cancelled). Lots of placing-and-pulling signals "
+                    "hesitation or over-managing — decide the level, place the order, "
+                    "let it work.",
+            "evidence": f"{order_behavior['cancelled']} of "
+                        f"{order_behavior['total_orders']} orders cancelled",
+        })
+
+    # ---- coaching from the notable edges/leaks (take the edges, cut the leaks) ----
+    for b in notable[:8]:
+        dim, val = b["dimension"], b["value"]
+        human = _DIM_HUMAN.get(dim, dim)
+        label = human.format(val) if "{}" in human else f"{val} {human}"
+        if b.get("kind") == "leak":
+            coaching.append({
+                "text": f"Cut back on {label}: {round(100*b['win_rate'])}% win, "
+                        f"net ${b['total_pnl']:,.0f} — a clear drag on your results.",
+                "evidence": f"n={b['n']}, well below your "
+                            f"{round(100*(overall.get('win_rate') or 0))}% average",
+            })
+        else:
+            coaching.append({
+                "text": f"Do MORE of {label}: {round(100*b['win_rate'])}% win, "
+                        f"net ${b['total_pnl']:,.0f} — your strongest edge.",
+                "evidence": f"n={b['n']}, clearly above average",
+            })
+
+    # ---- forward-looking level watch (from the generic NQ playbook) ----
+    if with_watch:
+        try:
+            watch = _forward_watch()
+        except Exception:  # noqa: BLE001 — prospective context is optional
+            watch = []
+
+    return {"rules": rules, "coaching": coaching, "watch": watch}
+
+
+def _forward_watch() -> list[dict]:
+    """A prospective 'levels to watch next session' read for NQ, computed the same
+    way the generic playbook does (VWAP regime + fractal S/R + fib). Best-effort;
+    empty if bars aren't fetchable. This is FORWARD context, not from trade
+    history."""
+    from . import spx_playbook as sp
+    df = sp._fetch_15m("NQ=F")
+    if df is None or getattr(df, "empty", True):
+        return []
+    H = list(df["High"]); L = list(df["Low"]); C = list(df["Close"])
+    last = C[-1]
+    vol = list(df["Volume"]) if "Volume" in df else [1.0] * len(C)
+    tp = [(H[i] + L[i] + C[i]) / 3 for i in range(len(C))]
+    cum_pv = sum(tp[i] * (vol[i] or 0.0) for i in range(len(C)))
+    cum_v = sum(vol[i] or 0.0 for i in range(len(C)))
+    vwap = cum_pv / cum_v if cum_v else last
+    ph, pl = sp._fractal_pivots(H, L, n=2)
+    res = sorted({round(z[0]) for z in sp._cluster([H[i] for i in ph]) if z[1] >= 2}, reverse=True)
+    sup = sorted({round(z[0]) for z in sp._cluster([L[i] for i in pl]) if z[1] >= 2}, reverse=True)
+    near_res = [r for r in res if r > last][:2]
+    near_sup = [s for s in sup if s < last][:2]
+    out = []
+    regime = "above the line — expect a range" if last > vwap else "below the line — moves can run"
+    out.append({"text": f"NQ ~{round(last)}, {regime} (VWAP {round(vwap)}).",
+                "evidence": "NQ=F 15m, generic playbook"})
+    if near_sup:
+        out.append({"text": f"Watch support near {'/'.join(str(s) for s in near_sup)} — "
+                            "good spots to buy dips if they hold.",
+                    "evidence": "fractal S/R"})
+    if near_res:
+        out.append({"text": f"Watch resistance near {'/'.join(str(r) for r in near_res)} — "
+                            "good spots to sell rallies into.",
+                    "evidence": "fractal S/R"})
+    out.append({"text": "This is a prospective read from the generic playbook, "
+                        "not from your trade history.", "evidence": ""})
+    return out
+
+
 def analyze(fills: list[dict], orders: list[dict], balances: dict,
-            positions: list[dict], *, align: dict | None = None) -> dict:
-    """The full derived analysis: overall stats, win-rate-by-condition buckets,
-    order behavior, and the reconciliation verdict. Pure over its inputs."""
+            positions: list[dict], *, align: dict | None = None,
+            with_watch: bool = True) -> dict:
+    """The full derived analysis: headline metrics, equity curve + drawdown, risk/
+    discipline read, win-rate-by-condition buckets, order behavior, evidence-based
+    recommendations, and the reconciliation verdict. Pure over its inputs (except
+    the optional forward watch, which fetches NQ bars)."""
     roundtrips, leftover = pair_roundtrips(fills)
     featured = [feature_roundtrip(rt, align) for rt in roundtrips]
     baseline = _buckets.baseline_win_rate(featured)
     bkts = _buckets.condition_buckets(featured, dimensions=FUTURES_DIMENSIONS)
-    notable = _buckets.notable_buckets(bkts, baseline=baseline, min_n=3)
+    # n>=5 AND a hard floor: with only ~68 trips a "0% win over 3 trades" leak is
+    # noise, not insight. notable_buckets' min_n gates the credible-interval test
+    # but can still admit tiny-n extremes, so we post-filter to a real sample.
+    notable = [b for b in _buckets.notable_buckets(bkts, baseline=baseline, min_n=5)
+               if b["n"] >= 5]
+    overall = _overall(roundtrips)
+    curve = _equity_curve(roundtrips)
+    risk = _risk_stats(roundtrips)
+    order_behavior = _order_behavior(orders)
+    recs = generate_recommendations(overall, risk, notable, order_behavior,
+                                    align, roundtrips, with_watch=with_watch)
     return {
-        "overall": _overall(roundtrips),
+        "overall": overall,
         "baseline_win_rate": baseline,
+        "equity_curve": curve,
+        "drawdown": _max_drawdown(curve),
+        "risk": risk,
         "buckets": bkts,
         "notable": notable,
-        "order_behavior": _order_behavior(orders),
+        "order_behavior": order_behavior,
+        "recommendations": recs,
         "reconciliation": reconcile(roundtrips, leftover, balances, positions),
         "roundtrips": roundtrips,
         "tz_note": "entry-hour buckets are ET wall-clock (broker export had no tz).",
@@ -599,7 +844,8 @@ def analysis_from_store(store: Store, *, contract: str | None = None,
     balances = meta.get("balances") or {}
     positions = meta.get("positions") or []
     align = playbook_alignment(fills) if (with_alignment and fills) else {}
-    return analyze(fills, orders, balances, positions, align=align)
+    return analyze(fills, orders, balances, positions, align=align,
+                   with_watch=with_alignment)
 
 
 # ============================================================ CLI

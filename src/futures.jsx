@@ -1,10 +1,10 @@
-// FuturesView — AMP futures win-rate analysis (Intelligence nav).
-// Reads imported order executions (a separate broker export, not a Vantage
-// holding), pairs them into round-trips, and shows: a reconciliation banner
-// (loud when the export is a partial window), overall win-rate/PF/P&L tiles,
-// win-rate-by-condition tables (exit type, hold time, entry hour ET, playbook
-// alignment) with credible intervals, order behavior (cancel rate), and plain
-// recommendations. Decision-support (ADR-008) — reads the user's CSVs, no orders.
+// FuturesView — a futures trader's performance dashboard (Intelligence nav).
+// Reads imported AMP executions, pairs round-trips, and shows what a trader
+// actually wants: an equity curve, expectancy / reward:risk / drawdown, a
+// risk-and-discipline read (biggest loss, losing streaks, letting losers run),
+// the statistically-meaningful edges/leaks (in points, not conflated $), and
+// evidence-based recommendations (rules from your history + coaching + a forward
+// level watch). Decision-support (ADR-010) — reads your CSVs, places no orders.
 import { cls } from "./util.jsx";
 import { useLive, getFuturesAnalysis, importFutures } from "./live.js";
 
@@ -12,15 +12,12 @@ const { useState } = React;
 
 const pct = (v) => (v == null ? "—" : `${Math.round(100 * v)}%`);
 const usd = (v) => (v == null ? "—" : `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`);
+const pts = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v}pt`);
 
-// a bucket dimension → a friendly heading + value relabeler (plain language).
 const DIM_LABEL = {
-  exit_type: "How you exited",
-  hold_bucket: "How long you held",
-  entry_hour_et: "Entry hour (ET)",
-  playbook_align: "Vs the playbook",
-  direction: "Direction",
-  contract: "Contract",
+  exit_type: "How you exited", hold_bucket: "How long you held",
+  entry_hour_et: "Entry hour (ET)", playbook_align: "Vs the playbook",
+  direction: "Direction", contract: "Contract",
 };
 const VALUE_LABEL = {
   Market: "Discretionary (market)", Stop: "Stop", StopLoss: "Stop-loss", Limit: "Limit (target)",
@@ -30,13 +27,38 @@ const VALUE_LABEL = {
 };
 const relabel = (v) => VALUE_LABEL[v] || v;
 
+// Inline SVG equity curve — cumulative $ with a peak line so drawdown is visible.
+function EquityCurve({ curve }) {
+  if (!curve || curve.length < 2) return null;
+  const W = 640, H = 130, pad = 6;
+  const xs = curve.map((p) => p.cum);
+  const peaks = curve.map((p) => p.peak);
+  const lo = Math.min(0, ...xs), hi = Math.max(...peaks, ...xs);
+  const range = hi - lo || 1;
+  const x = (i) => pad + (i / (curve.length - 1)) * (W - 2 * pad);
+  const y = (v) => H - pad - ((v - lo) / range) * (H - 2 * pad);
+  const line = (arr) => arr.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const zeroY = y(0);
+  const final = xs[xs.length - 1];
+  const up = final >= 0;
+  const areaCol = up ? "#26A69A" : "#EF5350";
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none"
+      style={{ display: "block" }}>
+      {/* zero line */}
+      <line x1={pad} y1={zeroY} x2={W - pad} y2={zeroY} stroke="currentColor" strokeOpacity="0.2" strokeWidth="1" />
+      {/* running peak (drawdown reference) */}
+      <path d={line(peaks)} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="3 3" />
+      {/* equity */}
+      <path d={line(xs)} fill="none" stroke={areaCol} strokeWidth="1.75" />
+    </svg>
+  );
+}
+
 export function FuturesView({ refreshNonce }) {
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState(false);
-  // playbook-alignment fetches NQ bars (slower); default on but let the user skip.
-  const [alignment] = useState(true);
-
-  const fa = useLive(() => getFuturesAnalysis({ alignment }), null, [refreshNonce, nonce, alignment]);
+  const fa = useLive(() => getFuturesAnalysis({ alignment: true }), null, [refreshNonce, nonce]);
   const a = fa.data;
 
   const reimport = async () => {
@@ -53,9 +75,7 @@ export function FuturesView({ refreshNonce }) {
         <h2 style={{ margin: "0 0 6px", fontSize: 19 }}>Futures</h2>
         <p className="vg-note">
           {a.note || "No AMP futures fills imported yet."} Put the AMP CSV export in{" "}
-          <code>data/ampfutures/</code> and run{" "}
-          <code>python -m vantage_server.futures --import ampfutures</code>{" "}
-          (or click Import below).
+          <code>data/ampfutures/</code> and click Import.
         </p>
         <button className="vg-btn-sm" disabled={busy} onClick={reimport}>
           {busy ? "Importing…" : "Import from data/ampfutures"}
@@ -66,14 +86,14 @@ export function FuturesView({ refreshNonce }) {
 
   const ov = (a && a.overall) || {};
   const rec = (a && a.reconciliation) || {};
+  const dd = (a && a.drawdown) || {};
+  const risk = (a && a.risk) || {};
+  const recs = (a && a.recommendations) || { rules: [], coaching: [], watch: [] };
   const ob = (a && a.orderBehavior) || {};
-  const notable = (a && a.notable) || [];
-  const buckets = (a && a.buckets) || [];
   const baseline = a && a.baselineWinRate;
 
-  // group the full buckets by dimension for the per-lens tables (skip baseline row)
   const byDim = {};
-  for (const b of buckets) {
+  for (const b of (a && a.buckets) || []) {
     if (b.dimension === "__baseline__") continue;
     (byDim[b.dimension] = byDim[b.dimension] || []).push(b);
   }
@@ -81,13 +101,13 @@ export function FuturesView({ refreshNonce }) {
 
   return (
     <div className="vg-pane-body vg-playbook">
-      {/* pinned header + tiles */}
+      {/* header + the metrics that matter */}
       <div className="vg-pb-head">
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Futures win-rate analysis</h2>
+          <h2 style={{ margin: 0, fontSize: 19 }}>Futures performance</h2>
           <div className="vg-note">
-            {a ? `${ov.n || 0} round-trips paired in-window` : "loading…"}
-            {a && a.tzNote ? ` · ${a.tzNote}` : ""}
+            {a ? `${ov.n || 0} round-trips` : "loading…"}
+            {a && a.tzNote ? " · times ET" : ""}
           </div>
           <div className="vg-row" style={{ gap: 6, marginTop: 8 }}>
             <button className="vg-btn-sm" disabled={busy} onClick={reimport}>
@@ -96,67 +116,102 @@ export function FuturesView({ refreshNonce }) {
           </div>
         </div>
         <div className="vg-pb-levels">
+          <SummaryTile label="Expectancy / trade" value={usd(ov.expectancy_usd)}
+            sub={pts(ov.expectancy_pts)} tone={ov.expectancy_pts >= 0 ? "good" : "bad"} />
+          <SummaryTile label="Reward : Risk" value={ov.reward_risk ?? "—"}
+            sub={`${ov.avg_win_pts ?? "—"} / ${Math.abs(ov.avg_loss_pts ?? 0)}pt`}
+            tone={ov.reward_risk >= 1.5 ? "good" : "warn"} />
           <SummaryTile label="Win rate" value={pct(ov.win_rate)} tone={ov.win_rate >= 0.5 ? "good" : "bad"} />
-          <SummaryTile label="Profit factor" value={ov.profit_factor ?? "—"} tone={ov.profit_factor >= 1 ? "good" : "bad"} />
-          <SummaryTile label="Net P&L*" value={usd(ov.total_pnl_dollars)} tone={ov.total_pnl_dollars >= 0 ? "good" : "bad"} />
-          <SummaryTile label="Trades" value={ov.n ?? "—"} />
+          <SummaryTile label="Profit factor" value={ov.profit_factor ?? "—"} tone={ov.profit_factor >= 1.3 ? "good" : "warn"} />
+          <SummaryTile label="Max drawdown" value={usd(dd.max_drawdown)}
+            sub={dd.max_drawdown_pct != null ? `${dd.max_drawdown_pct}%` : ""} tone="bad" />
         </div>
       </div>
 
-      {/* reconciliation banner — loud when the data is a partial window */}
+      {/* partial-data banner */}
       {a && rec.reconciled === false && (
         <div className="vg-pb-catalyst">
           ⚠️ <b>Partial data:</b> {rec.caveat}
-          {rec.broker_realized_pnl != null && (
-            <div className="vg-note" style={{ marginTop: 4 }}>
-              Computed {usd(rec.computed_realized_pnl)} vs broker realized {usd(rec.broker_realized_pnl)}.
-              *Win-rate/P&L below are the fully-paired in-window trades only.
+        </div>
+      )}
+
+      {/* equity curve */}
+      {a && a.equityCurve && a.equityCurve.length > 1 && (
+        <div className="vg-card">
+          <div className="vg-kicker">Equity curve — cumulative P&L{" "}
+            <span className="vg-note" style={{ fontWeight: 400 }}>
+              (final {usd(ov.total_pnl_dollars)}; dashed = running peak)
+            </span>
+          </div>
+          <div style={{ marginTop: 6, color: "var(--color-text, #888)" }}>
+            <EquityCurve curve={a.equityCurve} />
+          </div>
+        </div>
+      )}
+
+      {/* RECOMMENDATIONS — the headline for a trader */}
+      {(recs.rules.length > 0 || recs.coaching.length > 0) && (
+        <div className="vg-card">
+          <div className="vg-kicker">Recommendations to improve your win rate</div>
+          {recs.rules.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <div className="vg-note" style={{ fontSize: 11, marginBottom: 4 }}>RULES (from your numbers)</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {recs.rules.map((r, i) => <RecRow key={i} r={r} icon="→" />)}
+              </div>
+            </div>
+          )}
+          {recs.coaching.length > 0 && (
+            <div style={{ marginTop: 12 }}>
+              <div className="vg-note" style={{ fontSize: 11, marginBottom: 4 }}>DO MORE / DO LESS</div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {recs.coaching.map((r, i) => <RecRow key={i} r={r} icon="•" />)}
+              </div>
             </div>
           )}
         </div>
       )}
-      {a && rec.reconciled === true && (
-        <div className="vg-note" style={{ margin: "4px 0" }}>
-          ✓ Reconciled to the broker's realized P&L.
+
+      {/* risk & discipline */}
+      {risk.available && (
+        <div className="vg-card">
+          <div className="vg-kicker">Risk & discipline</div>
+          <div className="vg-pb-ladder" style={{ marginTop: 6 }}>
+            <RiskRow label="Biggest single loss"
+              value={`${usd(risk.worst_loss_usd)} (${Math.abs(risk.worst_loss_pts)}pt)`}
+              note={risk.worst_vs_avg_loss ? `${risk.worst_vs_avg_loss}× a normal loser` : ""} bad />
+            <RiskRow label="Worst losing streak" value={`${risk.worst_losing_streak} in a row`}
+              note={risk.worst_losing_streak >= 4 ? "revenge-trade risk" : ""} bad={risk.worst_losing_streak >= 4} />
+            <RiskRow label="Typical hold" value={`${risk.median_hold_min}m`}
+              note={risk.longest_loser_hold_min ? `longest loser held ${Math.round(risk.longest_loser_hold_min)}m` : ""} />
+          </div>
         </div>
       )}
 
-      {/* the headline takeaways */}
-      {notable.length > 0 && (
+      {/* forward level watch */}
+      {recs.watch && recs.watch.length > 0 && (
         <div className="vg-card">
-          <div className="vg-kicker">What's moving your win rate (vs your {pct(baseline)} average)</div>
-          <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-            {notable.slice(0, 10).map((b, i) => (
-              <div key={i} className="vg-row" style={{ gap: 8, alignItems: "baseline" }}>
-                <span className={cls("vg-badge", b.kind === "edge" ? "good" : "bad")} style={{ minWidth: 48, textAlign: "center" }}>
-                  {b.kind === "edge" ? "EDGE" : "LEAK"}
-                </span>
-                <span style={{ fontSize: 13, flex: 1 }}>
-                  <b>{DIM_LABEL[b.dimension] || b.dimension}: {relabel(b.value)}</b>
-                  {" — "}{pct(b.win_rate)} win over {b.n} trades, net {usd(b.total_pnl)}
-                </span>
-              </div>
+          <div className="vg-kicker">Next-session watch (generic NQ playbook)</div>
+          <div style={{ display: "grid", gap: 4, marginTop: 6, fontSize: 13, lineHeight: 1.5 }}>
+            {recs.watch.map((w, i) => (
+              <div key={i} className={i === recs.watch.length - 1 ? "vg-note" : ""}>{w.text}</div>
             ))}
           </div>
         </div>
       )}
 
-      {/* per-lens win-rate tables */}
+      {/* meaningful edges/leaks + per-lens tables */}
       {DIM_ORDER.filter((d) => byDim[d] && byDim[d].length).map((d) => (
-        <details key={d} className="vg-card" open={d === "exit_type" || d === "hold_bucket"}>
-          <summary className="vg-kicker" style={{ cursor: "pointer" }}>
-            {DIM_LABEL[d] || d}
-          </summary>
+        <details key={d} className="vg-card" open={d === "exit_type"}>
+          <summary className="vg-kicker" style={{ cursor: "pointer" }}>{DIM_LABEL[d] || d}</summary>
           <div className="vg-pb-ladder" style={{ marginTop: 6 }}>
             {byDim[d].sort((x, y) => y.n - x.n).map((b, i) => (
               <div key={i} className="vg-pb-lvl">
                 <span className={cls("vg-badge", b.win_rate >= (baseline || 0.5) ? "good" : "bad")}
-                  style={{ minWidth: 46, textAlign: "center" }}>
-                  {pct(b.win_rate)}
-                </span>
+                  style={{ minWidth: 46, textAlign: "center" }}>{pct(b.win_rate)}</span>
                 <span style={{ fontSize: 13 }}>{relabel(b.value)}</span>
                 <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
-                  n={b.n} · net {usd(b.total_pnl)} · CI {pct(b.ci_low)}–{pct(b.ci_high)}
+                  n={b.n} · net {usd(b.total_pnl)}{b.n < 5 ? " · thin" : ""}
                 </span>
               </div>
             ))}
@@ -169,28 +224,48 @@ export function FuturesView({ refreshNonce }) {
         <div className="vg-card">
           <div className="vg-kicker">Order behavior</div>
           <div style={{ fontSize: 13, lineHeight: 1.6, marginTop: 4 }}>
-            <div><b>Cancel rate:</b> {pct(ob.cancel_rate)} ({ob.cancelled} of {ob.total_orders} orders cancelled)</div>
-            <div><b>Filled:</b> {ob.filled} · <b>Stop orders placed:</b> {ob.stop_orders}</div>
-            <div className="vg-note" style={{ marginTop: 4 }}>
-              A high cancel rate often signals hesitation or over-managing orders — worth reviewing.
-            </div>
+            <div><b>Cancel rate:</b> {pct(ob.cancel_rate)} ({ob.cancelled} of {ob.total_orders} orders)</div>
+            <div><b>Filled:</b> {ob.filled} · <b>Stop orders:</b> {ob.stop_orders}</div>
           </div>
         </div>
       )}
 
       <div className="vg-pb-caveats">
-        <div>*P&L is gross of commissions (not in the AMP export). Entry-hour buckets are ET wall-clock.</div>
-        <div>Context for reviewing your trading, not a signal (ADR-008). Reads your own CSV export; places no orders.</div>
+        <div>P&L is gross of commissions (not in the AMP export). Times are ET. Reward:risk and edges use points so micro/mini aren't conflated.</div>
+        <div>Context for reviewing your trading, not a signal (ADR-010). Reads your CSV export; places no orders.</div>
       </div>
     </div>
   );
 }
 
-function SummaryTile({ label, value, tone }) {
+function RecRow({ r, icon }) {
+  return (
+    <div className="vg-row" style={{ gap: 8, alignItems: "baseline" }}>
+      <span style={{ opacity: 0.6, fontSize: 13 }}>{icon}</span>
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: 13, lineHeight: 1.45 }}>{r.text}</div>
+        {r.evidence && <div className="vg-note" style={{ fontSize: 11 }}>{r.evidence}</div>}
+      </div>
+    </div>
+  );
+}
+
+function RiskRow({ label, value, note, bad }) {
+  return (
+    <div className="vg-pb-lvl">
+      <span style={{ fontSize: 13, minWidth: 150 }}>{label}</span>
+      <span className={cls("vg-badge", bad ? "bad" : "plain")} style={{ textAlign: "center" }}>{value}</span>
+      {note && <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>{note}</span>}
+    </div>
+  );
+}
+
+function SummaryTile({ label, value, sub, tone }) {
   return (
     <div className="vg-pb-tile">
       <div className="vg-note" style={{ fontSize: 11 }}>{label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
+      {sub && <div className="vg-note" style={{ fontSize: 10 }}>{sub}</div>}
     </div>
   );
 }

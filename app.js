@@ -795,9 +795,13 @@
       contract: p.contract || null,
       overall: p.overall || {},
       baselineWinRate: p.baseline_win_rate ?? null,
+      equityCurve: Array.isArray(p.equity_curve) ? p.equity_curve : [],
+      drawdown: p.drawdown || {},
+      risk: p.risk || { available: false },
       buckets: Array.isArray(p.buckets) ? p.buckets : [],
       notable: Array.isArray(p.notable) ? p.notable : [],
       orderBehavior: p.order_behavior || { available: false },
+      recommendations: p.recommendations || { rules: [], coaching: [], watch: [] },
       reconciliation: p.reconciliation || {},
       roundtrips: Array.isArray(p.roundtrips) ? p.roundtrips : [],
       tzNote: p.tz_note || ""
@@ -1740,6 +1744,7 @@
   var { useState: useState5 } = React;
   var pct = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var usd2 = (v) => v == null ? "\u2014" : `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`;
+  var pts = (v) => v == null ? "\u2014" : `${v > 0 ? "+" : ""}${v}pt`;
   var DIM_LABEL = {
     exit_type: "How you exited",
     hold_bucket: "How long you held",
@@ -1764,11 +1769,38 @@
     short: "Short"
   };
   var relabel = (v) => VALUE_LABEL[v] || v;
+  function EquityCurve({ curve }) {
+    if (!curve || curve.length < 2) return null;
+    const W = 640, H = 130, pad = 6;
+    const xs = curve.map((p) => p.cum);
+    const peaks = curve.map((p) => p.peak);
+    const lo = Math.min(0, ...xs), hi = Math.max(...peaks, ...xs);
+    const range = hi - lo || 1;
+    const x = (i) => pad + i / (curve.length - 1) * (W - 2 * pad);
+    const y = (v) => H - pad - (v - lo) / range * (H - 2 * pad);
+    const line = (arr) => arr.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const zeroY = y(0);
+    const final = xs[xs.length - 1];
+    const up = final >= 0;
+    const areaCol = up ? "#26A69A" : "#EF5350";
+    return /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        viewBox: `0 0 ${W} ${H}`,
+        width: "100%",
+        height: H,
+        preserveAspectRatio: "none",
+        style: { display: "block" }
+      },
+      /* @__PURE__ */ React.createElement("line", { x1: pad, y1: zeroY, x2: W - pad, y2: zeroY, stroke: "currentColor", strokeOpacity: "0.2", strokeWidth: "1" }),
+      /* @__PURE__ */ React.createElement("path", { d: line(peaks), fill: "none", stroke: "currentColor", strokeOpacity: "0.25", strokeWidth: "1", strokeDasharray: "3 3" }),
+      /* @__PURE__ */ React.createElement("path", { d: line(xs), fill: "none", stroke: areaCol, strokeWidth: "1.75" })
+    );
+  }
   function FuturesView({ refreshNonce }) {
     const [nonce, setNonce] = useState5(0);
     const [busy, setBusy] = useState5(false);
-    const [alignment] = useState5(true);
-    const fa = useLive(() => getFuturesAnalysis({ alignment }), null, [refreshNonce, nonce, alignment]);
+    const fa = useLive(() => getFuturesAnalysis({ alignment: true }), null, [refreshNonce, nonce]);
     const a = fa.data;
     const reimport = async () => {
       if (busy) return;
@@ -1778,31 +1810,85 @@
       setNonce((n) => n + 1);
     };
     if (a && a.available === false) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "Futures"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, a.note || "No AMP futures fills imported yet.", " Put the AMP CSV export in", " ", /* @__PURE__ */ React.createElement("code", null, "data/ampfutures/"), " and run", " ", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.futures --import ampfutures"), " ", "(or click Import below)."), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: reimport }, busy ? "Importing\u2026" : "Import from data/ampfutures"));
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "Futures"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, a.note || "No AMP futures fills imported yet.", " Put the AMP CSV export in", " ", /* @__PURE__ */ React.createElement("code", null, "data/ampfutures/"), " and click Import."), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: reimport }, busy ? "Importing\u2026" : "Import from data/ampfutures"));
     }
     const ov = a && a.overall || {};
     const rec = a && a.reconciliation || {};
+    const dd = a && a.drawdown || {};
+    const risk = a && a.risk || {};
+    const recs = a && a.recommendations || { rules: [], coaching: [], watch: [] };
     const ob = a && a.orderBehavior || {};
-    const notable = a && a.notable || [];
-    const buckets = a && a.buckets || [];
     const baseline = a && a.baselineWinRate;
     const byDim = {};
-    for (const b of buckets) {
+    for (const b of a && a.buckets || []) {
       if (b.dimension === "__baseline__") continue;
       (byDim[b.dimension] = byDim[b.dimension] || []).push(b);
     }
     const DIM_ORDER = ["exit_type", "hold_bucket", "entry_hour_et", "playbook_align", "direction", "contract"];
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Futures win-rate analysis"), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, a ? `${ov.n || 0} round-trips paired in-window` : "loading\u2026", a && a.tzNote ? ` \xB7 ${a.tzNote}` : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: reimport }, busy ? "Re-importing\u2026" : "Re-import CSVs"))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Win rate", value: pct(ov.win_rate), tone: ov.win_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Profit factor", value: ov.profit_factor ?? "\u2014", tone: ov.profit_factor >= 1 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Net P&L*", value: usd2(ov.total_pnl_dollars), tone: ov.total_pnl_dollars >= 0 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Trades", value: ov.n ?? "\u2014" }))), a && rec.reconciled === false && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F ", /* @__PURE__ */ React.createElement("b", null, "Partial data:"), " ", rec.caveat, rec.broker_realized_pnl != null && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "Computed ", usd2(rec.computed_realized_pnl), " vs broker realized ", usd2(rec.broker_realized_pnl), ". *Win-rate/P&L below are the fully-paired in-window trades only.")), a && rec.reconciled === true && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { margin: "4px 0" } }, "\u2713 Reconciled to the broker's realized P&L."), notable.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "What's moving your win rate (vs your ", pct(baseline), " average)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 6, marginTop: 8 } }, notable.slice(0, 10).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-row", style: { gap: 8, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", b.kind === "edge" ? "good" : "bad"), style: { minWidth: 48, textAlign: "center" } }, b.kind === "edge" ? "EDGE" : "LEAK"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, flex: 1 } }, /* @__PURE__ */ React.createElement("b", null, DIM_LABEL[b.dimension] || b.dimension, ": ", relabel(b.value)), " \u2014 ", pct(b.win_rate), " win over ", b.n, " trades, net ", usd2(b.total_pnl)))))), DIM_ORDER.filter((d) => byDim[d] && byDim[d].length).map((d) => /* @__PURE__ */ React.createElement("details", { key: d, className: "vg-card", open: d === "exit_type" || d === "hold_bucket" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, DIM_LABEL[d] || d), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, byDim[d].sort((x, y) => y.n - x.n).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Futures performance"), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, a ? `${ov.n || 0} round-trips` : "loading\u2026", a && a.tzNote ? " \xB7 times ET" : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: reimport }, busy ? "Re-importing\u2026" : "Re-import CSVs"))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(
+      SummaryTile2,
+      {
+        label: "Expectancy / trade",
+        value: usd2(ov.expectancy_usd),
+        sub: pts(ov.expectancy_pts),
+        tone: ov.expectancy_pts >= 0 ? "good" : "bad"
+      }
+    ), /* @__PURE__ */ React.createElement(
+      SummaryTile2,
+      {
+        label: "Reward : Risk",
+        value: ov.reward_risk ?? "\u2014",
+        sub: `${ov.avg_win_pts ?? "\u2014"} / ${Math.abs(ov.avg_loss_pts ?? 0)}pt`,
+        tone: ov.reward_risk >= 1.5 ? "good" : "warn"
+      }
+    ), /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Win rate", value: pct(ov.win_rate), tone: ov.win_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Profit factor", value: ov.profit_factor ?? "\u2014", tone: ov.profit_factor >= 1.3 ? "good" : "warn" }), /* @__PURE__ */ React.createElement(
+      SummaryTile2,
+      {
+        label: "Max drawdown",
+        value: usd2(dd.max_drawdown),
+        sub: dd.max_drawdown_pct != null ? `${dd.max_drawdown_pct}%` : "",
+        tone: "bad"
+      }
+    ))), a && rec.reconciled === false && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F ", /* @__PURE__ */ React.createElement("b", null, "Partial data:"), " ", rec.caveat), a && a.equityCurve && a.equityCurve.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Equity curve \u2014 cumulative P&L", " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "(final ", usd2(ov.total_pnl_dollars), "; dashed = running peak)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, color: "var(--color-text, #888)" } }, /* @__PURE__ */ React.createElement(EquityCurve, { curve: a.equityCurve }))), (recs.rules.length > 0 || recs.coaching.length > 0) && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Recommendations to improve your win rate"), recs.rules.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, marginBottom: 4 } }, "RULES (from your numbers)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, recs.rules.map((r, i) => /* @__PURE__ */ React.createElement(RecRow, { key: i, r, icon: "\u2192" })))), recs.coaching.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, marginBottom: 4 } }, "DO MORE / DO LESS"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, recs.coaching.map((r, i) => /* @__PURE__ */ React.createElement(RecRow, { key: i, r, icon: "\u2022" }))))), risk.available && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Risk & discipline"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement(
+      RiskRow,
+      {
+        label: "Biggest single loss",
+        value: `${usd2(risk.worst_loss_usd)} (${Math.abs(risk.worst_loss_pts)}pt)`,
+        note: risk.worst_vs_avg_loss ? `${risk.worst_vs_avg_loss}\xD7 a normal loser` : "",
+        bad: true
+      }
+    ), /* @__PURE__ */ React.createElement(
+      RiskRow,
+      {
+        label: "Worst losing streak",
+        value: `${risk.worst_losing_streak} in a row`,
+        note: risk.worst_losing_streak >= 4 ? "revenge-trade risk" : "",
+        bad: risk.worst_losing_streak >= 4
+      }
+    ), /* @__PURE__ */ React.createElement(
+      RiskRow,
+      {
+        label: "Typical hold",
+        value: `${risk.median_hold_min}m`,
+        note: risk.longest_loser_hold_min ? `longest loser held ${Math.round(risk.longest_loser_hold_min)}m` : ""
+      }
+    ))), recs.watch && recs.watch.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Next-session watch (generic NQ playbook)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, marginTop: 6, fontSize: 13, lineHeight: 1.5 } }, recs.watch.map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: i === recs.watch.length - 1 ? "vg-note" : "" }, w.text)))), DIM_ORDER.filter((d) => byDim[d] && byDim[d].length).map((d) => /* @__PURE__ */ React.createElement("details", { key: d, className: "vg-card", open: d === "exit_type" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, DIM_LABEL[d] || d), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, byDim[d].sort((x, y) => y.n - x.n).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", b.win_rate >= (baseline || 0.5) ? "good" : "bad"),
         style: { minWidth: 46, textAlign: "center" }
       },
       pct(b.win_rate)
-    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, relabel(b.value)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, "n=", b.n, " \xB7 net ", usd2(b.total_pnl), " \xB7 CI ", pct(b.ci_low), "\u2013", pct(b.ci_high))))))), ob.available && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Order behavior"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.6, marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Cancel rate:"), " ", pct(ob.cancel_rate), " (", ob.cancelled, " of ", ob.total_orders, " orders cancelled)"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Filled:"), " ", ob.filled, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, "Stop orders placed:"), " ", ob.stop_orders), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "A high cancel rate often signals hesitation or over-managing orders \u2014 worth reviewing."))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "*P&L is gross of commissions (not in the AMP export). Entry-hour buckets are ET wall-clock."), /* @__PURE__ */ React.createElement("div", null, "Context for reviewing your trading, not a signal (ADR-008). Reads your own CSV export; places no orders.")));
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, relabel(b.value)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, "n=", b.n, " \xB7 net ", usd2(b.total_pnl), b.n < 5 ? " \xB7 thin" : "")))))), ob.available && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Order behavior"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.6, marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Cancel rate:"), " ", pct(ob.cancel_rate), " (", ob.cancelled, " of ", ob.total_orders, " orders)"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Filled:"), " ", ob.filled, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, "Stop orders:"), " ", ob.stop_orders))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "P&L is gross of commissions (not in the AMP export). Times are ET. Reward:risk and edges use points so micro/mini aren't conflated."), /* @__PURE__ */ React.createElement("div", null, "Context for reviewing your trading, not a signal (ADR-010). Reads your CSV export; places no orders.")));
   }
-  function SummaryTile2({ label, value, tone }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
+  function RecRow({ r, icon }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.6, fontSize: 13 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.45 } }, r.text), r.evidence && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, r.evidence)));
+  }
+  function RiskRow({ label, value, note, bad }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, minWidth: 150 } }, label), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", bad ? "bad" : "plain"), style: { textAlign: "center" } }, value), note && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, note));
+  }
+  function SummaryTile2({ label, value, sub, tone }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value), sub && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 10 } }, sub));
   }
 
   // src/trades.jsx
@@ -2689,7 +2775,7 @@
     if (!tf || !tf.trend) return `${name}: \u2014`;
     return `${name}: ${tf.trend.direction} (${tf.trend.structure})`;
   }
-  function RecRow({ d, onJump }) {
+  function RecRow2({ d, onJump }) {
     const [open, setOpen] = useState6(false);
     const conv = CONVICTION_CHIP[d.conviction.label] || CONVICTION_CHIP.neutral;
     const rec = REC_CHIP[d.recommendation] || { cls: "plain", text: d.recommendation };
@@ -2709,7 +2795,7 @@
       setSymbol(sym);
       go("charts");
     };
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Persisted decision journal", data && data.asOf ? ` \xB7 as of ${data.asOf}` : "", " \xB7 actionable first \xB7 educational only, not advice"), sorted.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "The decision journal is empty or the backend is unreachable. Run the nightly analysis (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.analyze"), ") and confirm the backend URL in Settings.")) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 0, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Conviction"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Recommendation"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Detail"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px", textAlign: "right" } }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(RecRow, { key: d.symbol, d, onJump: jump }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Executable covered-call ideas on your book \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Persisted decision journal", data && data.asOf ? ` \xB7 as of ${data.asOf}` : "", " \xB7 actionable first \xB7 educational only, not advice"), sorted.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "The decision journal is empty or the backend is unreachable. Run the nightly analysis (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.analyze"), ") and confirm the backend URL in Settings.")) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 0, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Conviction"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Recommendation"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Detail"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px", textAlign: "right" } }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(RecRow2, { key: d.symbol, d, onJump: jump }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Executable covered-call ideas on your book \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
   }
   function MarketsView({ setSymbol, go, settings }) {
     const [signalsTab, setSignalsTab] = useState6("active");

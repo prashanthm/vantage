@@ -186,3 +186,91 @@ def test_order_behavior_cancel_rate():
     ob = fut._order_behavior(orders)
     assert ob["available"] and ob["total_orders"] == 3
     assert ob["cancelled"] == 1 and round(ob["cancel_rate"], 2) == 0.33
+
+
+# ------------------------------------------------------------ trader metrics
+
+def _trips(seq):
+    """Build round-trips from (entry, exit, exit_type) tuples on NQ ($20/pt)."""
+    fills = []
+    oid = 0
+    for i, (e, x, xt) in enumerate(seq):
+        oid += 1
+        fills.append({"order_id": str(oid), "contract": "NQ", "point_value": 20.0,
+                      "side": "Buy", "avg_fill_price": float(e), "order_type": "Market",
+                      "status_time": f"2026-07-08 10:{i*2:02d}:00"})
+        oid += 1
+        fills.append({"order_id": str(oid), "contract": "NQ", "point_value": 20.0,
+                      "side": "Sell", "avg_fill_price": float(x), "order_type": xt,
+                      "status_time": f"2026-07-08 10:{i*2+1:02d}:00"})
+    trips, _ = fut.pair_roundtrips(fills)
+    return trips
+
+
+def test_overall_expectancy_and_reward_risk():
+    # 2 winners (+10pt each), 1 loser (-20pt) → win 67%, avg win 10 / loss 20,
+    # R:R 0.5, expectancy = .667*10 - .333*20 = 0.0pt
+    trips = _trips([(100, 110, "Market"), (110, 120, "Market"), (120, 100, "Stop")])
+    ov = fut._overall(trips)
+    assert ov["n"] == 3 and ov["wins"] == 2
+    assert ov["avg_win_pts"] == 10.0 and ov["avg_loss_pts"] == -20.0
+    assert ov["reward_risk"] == 0.5
+    assert ov["expectancy_pts"] == 0.0
+    assert ov["expectancy_usd"] == 0.0   # 0pt × $20
+
+
+def test_equity_curve_and_drawdown():
+    # +10, +10, -20 (in points → ×$20): cum 200, 400, 0. peak 400 → DD 400.
+    trips = _trips([(100, 110, "Market"), (110, 120, "Market"), (120, 100, "Stop")])
+    curve = fut._equity_curve(trips)
+    assert [p["cum"] for p in curve] == [200.0, 400.0, 0.0]
+    dd = fut._max_drawdown(curve)
+    assert dd["max_drawdown"] == 400.0 and dd["max_drawdown_pct"] == 100.0
+
+
+def test_risk_stats_worst_loss_and_streak():
+    # one big loser then 3 straight small losers → worst = -100pt, streak 4
+    trips = _trips([(100, 200, "Market"),        # +100 win
+                    (200, 100, "Stop"),          # -100 (worst)
+                    (100, 95, "Stop"),           # -5
+                    (95, 90, "Stop"),            # -5
+                    (90, 85, "Stop")])           # -5
+    r = fut._risk_stats(trips)
+    assert r["worst_loss_pts"] == -100.0
+    assert r["worst_losing_streak"] == 4
+    assert r["worst_vs_avg_loss"] is not None
+
+
+def test_recommendations_flag_low_reward_risk_and_streak():
+    trips = _trips([(100, 110, "Market"), (110, 120, "Market"),
+                    (120, 100, "Stop"), (100, 95, "Stop"),
+                    (95, 90, "Stop"), (90, 85, "Stop")])
+    ov = fut._overall(trips)
+    risk = fut._risk_stats(trips)
+    recs = fut.generate_recommendations(ov, risk, [], {"available": False}, {},
+                                        trips, with_watch=False)
+    joined = " ".join(r["text"] for r in recs["rules"])
+    assert "reward:risk" in joined                 # R:R rule fires (R:R < 1.5)
+    assert "expectancy" in joined.lower() or "worth about" in joined.lower()
+    assert recs["watch"] == []                     # watch skipped when off
+
+
+def test_analyze_includes_all_dashboard_blocks():
+    trips_fills = _trips([(100, 110, "Market"), (110, 90, "Stop")])
+    # analyze pairs its own fills, so pass the underlying fills, not trips
+    fills = []
+    oid = 0
+    for i, (e, x, xt) in enumerate([(100, 110, "Market"), (110, 90, "Stop")]):
+        oid += 1
+        fills.append({"order_id": str(oid), "contract": "NQ", "point_value": 20.0,
+                      "side": "Buy", "avg_fill_price": float(e), "order_type": "Market",
+                      "status_time": f"2026-07-08 10:{i*2:02d}:00"})
+        oid += 1
+        fills.append({"order_id": str(oid), "contract": "NQ", "point_value": 20.0,
+                      "side": "Sell", "avg_fill_price": float(x), "order_type": xt,
+                      "status_time": f"2026-07-08 10:{i*2+1:02d}:00"})
+    a = fut.analyze(fills, [], {"realized_pnl": None}, [], align={}, with_watch=False)
+    for block in ("overall", "equity_curve", "drawdown", "risk", "recommendations",
+                  "buckets", "reconciliation"):
+        assert block in a, f"missing {block}"
+    assert isinstance(a["equity_curve"], list) and len(a["equity_curve"]) == 2
