@@ -20,6 +20,9 @@ EXPECTED_TOOLS = {
     "vantage.lots",
     "vantage.quotes",
     "vantage.bars",
+    "vantage.fundamentals",
+    "vantage.news",
+    "vantage.spx_playbook",
     "vantage.signals",
     "vantage.history",
     "vantage.strategies",
@@ -145,6 +148,55 @@ def test_quotes_round_trip(mcp):
     payload = tool_payload(run_with_client(mcp, interact))
     assert payload["quotes"]["VOO"]["price"] == pytest.approx(683.20)
     assert payload["quotes"]["CASH"]["price"] == 1
+
+
+# --- fundamentals / news tools (empty-symbol path: no network) ---
+
+
+def test_fundamentals_empty_symbol_no_data(mcp):
+    async def interact(client):
+        return await client.call_tool("vantage.fundamentals", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["fundamentals"] is None
+    assert payload["no_data"] is True
+
+
+def test_news_empty_symbol_no_news(mcp):
+    async def interact(client):
+        return await client.call_tool("vantage.news", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["news"] is None
+    assert payload["no_news"] is True
+
+
+def test_news_round_trip_with_stub_source(mcp, monkeypatch):
+    """Non-empty symbol path: inject a stub NewsSource so the tool runs the
+    real pipeline (dedup/sentiment) without touching the network."""
+    from vantage_server import news as news_mod
+
+    class _Stub:
+        name = "stub"
+
+        def fetch(self, symbol):
+            return [news_mod.NewsItem(
+                title="ACME surges on record profit", summary="", publisher="Reuters",
+                published="2026-07-05T12:00:00Z", url="https://x/1", source="stub")]
+
+    monkeypatch.setattr(news_mod, "get_news_sources", lambda *a, **k: [_Stub()])
+    monkeypatch.setenv("VANTAGE_NEWS_TTL", "0")  # don't persist a cache file
+
+    async def interact(client):
+        return await client.call_tool("vantage.news", {"symbol": "ACME"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_news"] is False
+    news = payload["news"]
+    assert news["symbol"] == "ACME"
+    assert len(news["items"]) == 1
+    assert news["sentiment"]["band"] == "positive"
+    assert news["sentiment"]["estimated"] is True
 
 
 # --- history tool ---

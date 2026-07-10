@@ -439,9 +439,20 @@ def test_no_mutating_method_exists(client, route, method):
     assert r.status_code == 405, f"{method.upper()} {route} must be rejected"
 
 
-#: The single deliberate mutating route (a productization write) — every other
-#: route must remain read-only.
-ALLOWED_WRITE_ROUTES = {"/api/refresh"}
+#: The deliberate mutating routes (productization writes) — every other route
+#: must remain read-only. All write to OUR SQLite only; none touch a broker or
+#: any fund-moving path (ADR-010 preserved).
+ALLOWED_WRITE_ROUTES = {
+    "/api/refresh",
+    "/api/ticker/{symbol}/plan",
+    "/api/ticker/{symbol}/note",
+    # Regenerates the SPX playbook on demand — writes only our own store (the
+    # scaffold), no broker / fund-moving path (ADR-010 read-only doctrine holds).
+    "/api/spx/playbook/recompute",
+    # Imports the user's own AMP futures CSV export into our SQLite — reads local
+    # files, writes only our store; no broker contact / order path (ADR-010 holds).
+    "/api/futures/import",
+}
 
 
 def test_only_refresh_route_mutates(client):

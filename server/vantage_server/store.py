@@ -33,10 +33,9 @@ from typing import Any
 from . import db as _db
 from .models import Account, AutoBuy, Lot, RecentBuy
 
-DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-# Real (imported) data lives beside the fixtures, gitignored, and wins by
-# default so demo fixtures and personal portfolios never share a directory —
-# the fixture dataset is a test oracle (parity goldens) and must stay pristine.
+# Real (imported) data lives in data-local (gitignored, SQLite-backed). There is
+# NO packaged demo/fixture dataset — the app serves real data or nothing. Test
+# suites point at synthetic inputs under tests/fixtures via an explicit arg/env.
 LOCAL_DATA_DIR = Path(__file__).resolve().parent.parent / "data-local"
 ENV_DATA_DIR = "VANTAGE_DATA_DIR"
 ENV_DB = "VANTAGE_DB"
@@ -47,16 +46,18 @@ class StoreError(ValueError):
 
 
 def resolve_data_dir(data_dir: str | os.PathLike[str] | None = None) -> Path:
-    """Explicit arg > VANTAGE_DATA_DIR env > data-local (real data, when
-    present) > packaged fixture directory."""
+    """Explicit arg > VANTAGE_DATA_DIR env > data-local (real imported data).
+
+    There is no demo/fixture fallback: if none of these resolve to a real data
+    dir, data-local is returned regardless (empty until a broker is imported) —
+    the app shows empty states, never fabricated numbers.
+    """
     if data_dir is not None:
         return Path(data_dir)
     env = os.environ.get(ENV_DATA_DIR)
     if env:
         return Path(env)
-    if LOCAL_DATA_DIR.is_dir():
-        return LOCAL_DATA_DIR
-    return DEFAULT_DATA_DIR
+    return LOCAL_DATA_DIR
 
 
 def resolve_db_path(data_dir: Path) -> Path | None:
@@ -932,6 +933,240 @@ class Store:
         trail.sort(key=lambda x: str(x.get("as_of") or ""), reverse=True)
         return trail
 
+    # ── SPX 0DTE playbook (single latest, SQLite-only like the notebook) ──────
+
+    def upsert_spx_playbook(self, day: str, scaffold: dict, narrative=None) -> None:
+        """Insert/replace the SPX playbook scaffold (+ optional narrative) for a day."""
+        if not self.uses_sqlite:
+            raise RuntimeError("upsert_spx_playbook requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO spx_playbook(date, session, scaffold, narrative) "
+                "VALUES(?,?,?,?)",
+                (day, scaffold.get("session"), _db.dumps(scaffold),
+                 _db.dumps(narrative) if narrative is not None else None),
+            )
+
+    def load_spx_playbook(self, day: str | None = None) -> dict | None:
+        """The playbook for ``day`` (latest when None), or None. Returns
+        ``{date, session, scaffold, narrative}`` with parsed JSON."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            if day is None:
+                row = conn.execute(
+                    "SELECT * FROM spx_playbook ORDER BY date DESC LIMIT 1").fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM spx_playbook WHERE date=?", (day,)).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {
+            "date": row["date"],
+            "session": row["session"],
+            "scaffold": _db.loads(row["scaffold"], {}),
+            "narrative": _db.loads(row["narrative"], None) if row["narrative"] else None,
+        }
+
+    def save_spx_playbook_narrative(self, day: str, narrative) -> bool:
+        """Attach the LLM narrative to an existing playbook row (lazy-fill on read).
+        Returns True if a row was updated."""
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "UPDATE spx_playbook SET narrative=? WHERE date=?",
+                (_db.dumps(narrative), day))
+            return cur.rowcount > 0
+
+    # ── durable level memory (SQLite-only) ───────────────────────────────────
+
+    def record_levels(self, session: str, symbol: str, levels: list[dict],
+                      day: dict | None = None) -> int:
+        """Record one session's observed levels into ``level_history`` (idempotent
+        per session/symbol/dim/price). ``levels`` is a list of
+        ``{price, dim, kind, source, touches?}``; ``day`` optionally carries
+        ``{high, low, close}`` for the session so a later pass can score whether
+        price respected the level. Returns the number of rows written."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_levels requires the SQLite backend")
+        dh = (day or {}).get("high"); dl = (day or {}).get("low"); dc = (day or {}).get("close")
+        n = 0
+        with self._sqlite_txn() as conn:
+            for lv in levels:
+                price = lv.get("price")
+                dim = lv.get("dim"); kind = lv.get("kind"); src = lv.get("source")
+                if price is None or not dim or not kind:
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO level_history"
+                    "(session, symbol, price, dim, kind, source, touches, "
+                    " day_high, day_low, day_close) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                    (session, symbol, round(float(price), 2), dim, kind,
+                     src or "chart", lv.get("touches"), dh, dl, dc),
+                )
+                n += 1
+        return n
+
+    def load_level_history(self, symbol: str, since: str | None = None,
+                           until: str | None = None) -> list[dict]:
+        """Every recorded level for ``symbol`` in ``[since, until]`` (inclusive),
+        oldest session first. Empty on the JSON backend."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            sql = "SELECT * FROM level_history WHERE symbol=?"
+            params: list = [symbol]
+            if since:
+                sql += " AND session>=?"; params.append(since)
+            if until:
+                sql += " AND session<=?"; params.append(until)
+            sql += " ORDER BY session ASC, price DESC"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
+    def level_history_sessions(self, symbol: str) -> list[str]:
+        """Distinct sessions recorded for ``symbol`` (oldest first)."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT session FROM level_history WHERE symbol=? "
+                "ORDER BY session ASC", (symbol,)).fetchall()
+        finally:
+            conn.close()
+        return [r["session"] for r in rows]
+
+    # ── futures executions + order log (SQLite-only) ─────────────────────────
+
+    def record_futures_fills(self, fills: list[dict], *,
+                             account: str = "ampfutures") -> int:
+        """Persist AMP futures EXECUTIONS into ``futures_fills`` (idempotent on
+        ``order_id``). Each fill is a normalized dict from ``futures.parse_*``:
+        ``{order_id, raw_symbol, contract, contract_month, point_value, side,
+        order_type, quantity, fill_quantity, avg_fill_price, commission,
+        placing_time, status_time, status, duration, extra}``. Rows without an
+        order_id or a fill price are skipped. Returns the number written."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_futures_fills requires the SQLite backend")
+        n = 0
+        with self._sqlite_txn() as conn:
+            for i, f in enumerate(fills):
+                oid = f.get("order_id")
+                px = f.get("avg_fill_price")
+                if not oid or px is None:
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO futures_fills"
+                    "(order_id, raw_symbol, contract, contract_month, point_value,"
+                    " side, order_type, quantity, fill_quantity, avg_fill_price,"
+                    " commission, placing_time, status_time, status, duration,"
+                    " account, extra, seq) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (str(oid), f.get("raw_symbol"), f.get("contract"),
+                     f.get("contract_month"), float(f.get("point_value") or 0),
+                     f.get("side"), f.get("order_type"), f.get("quantity"),
+                     f.get("fill_quantity"), float(px), f.get("commission"),
+                     f.get("placing_time"), f.get("status_time"),
+                     f.get("status") or "Filled", f.get("duration"), account,
+                     _db.dumps(f.get("extra") or {}), i),
+                )
+                n += 1
+        return n
+
+    def record_futures_orders(self, orders: list[dict], *,
+                              account: str = "ampfutures") -> int:
+        """Persist the fuller AMP order LOG (all statuses) into ``futures_orders``
+        (idempotent on ``order_id``) for order-behavior analysis. Returns count."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_futures_orders requires the SQLite backend")
+        n = 0
+        with self._sqlite_txn() as conn:
+            for i, o in enumerate(orders):
+                oid = o.get("order_id")
+                if not oid:
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO futures_orders"
+                    "(order_id, raw_symbol, contract, side, order_type, status,"
+                    " quantity, fill_quantity, avg_fill_price, active_at,"
+                    " placing_time, status_time, duration, account, extra, seq) "
+                    "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (str(oid), o.get("raw_symbol"), o.get("contract"),
+                     o.get("side"), o.get("order_type"), o.get("status"),
+                     o.get("quantity"), o.get("fill_quantity"),
+                     o.get("avg_fill_price"), o.get("active_at"),
+                     o.get("placing_time"), o.get("status_time"),
+                     o.get("duration"), account, _db.dumps(o.get("extra") or {}), i),
+                )
+                n += 1
+        return n
+
+    def load_futures_fills(self, contract: str | None = None) -> list[dict]:
+        """Every stored execution (optionally one ``contract``), CHRONOLOGICAL
+        (status_time ascending) — the order the pairing needs. ``extra`` parsed
+        back to a dict. Empty on the JSON backend."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            sql = "SELECT * FROM futures_fills"
+            params: list = []
+            if contract:
+                sql += " WHERE contract=?"; params.append(contract)
+            sql += " ORDER BY status_time ASC, order_id ASC"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["extra"] = _db.loads(d.get("extra"), {})
+            out.append(d)
+        return out
+
+    def load_futures_orders(self, contract: str | None = None,
+                            status: str | None = None) -> list[dict]:
+        """The order log (optionally filtered by contract / status)."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            sql = "SELECT * FROM futures_orders"
+            clauses, params = [], []
+            if contract:
+                clauses.append("contract=?"); params.append(contract)
+            if status:
+                clauses.append("status=?"); params.append(status)
+            if clauses:
+                sql += " WHERE " + " AND ".join(clauses)
+            sql += " ORDER BY status_time ASC, order_id ASC"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["extra"] = _db.loads(d.get("extra"), {})
+            out.append(d)
+        return out
+
+    def put_futures_meta(self, payload: dict) -> None:
+        """Persist the parsed balances+positions snapshot (for reconciliation)
+        in the generic ``meta`` table under key ``futures_reconcile``."""
+        self.set_meta("futures_reconcile", _db.dumps(payload))
+
+    def load_futures_meta(self) -> dict:
+        """The last-imported balances+positions snapshot (or {})."""
+        return _db.loads(self.get_meta("futures_reconcile"), {}) or {}
+
     def put_roundtrips(self, account: str, roundtrips: list[dict], summary: dict,
                        *, as_of: str, now=None):
         """Persist the round-trips snapshot. On JSON, build_roundtrips.write_roundtrips
@@ -1084,6 +1319,85 @@ class Store:
         finally:
             conn.close()
         return row["value"] if row else None
+
+    # -- per-ticker notebook (plan + journal) -------------------------------
+    #
+    # The notebook is a real-data feature — SQLite only. On JSON these raise,
+    # matching put_analysis/put_roundtrips precedent.
+
+    def load_ticker_plan(self, symbol: str) -> dict | None:
+        """The structured plan for one symbol, or None. {thesis,target,stop,notes,updated_at}."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM ticker_plan WHERE symbol=?", (symbol.upper(),)
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {"symbol": row["symbol"], "thesis": row["thesis"], "target": row["target"],
+                "stop": row["stop"], "notes": row["notes"], "updated_at": row["updated_at"]}
+
+    def upsert_ticker_plan(self, symbol: str, plan: dict, *, now: str) -> None:
+        """Insert/replace the plan for one symbol. `plan` may carry thesis/target/stop/notes."""
+        if not self.uses_sqlite:
+            raise RuntimeError("upsert_ticker_plan requires the SQLite backend")
+        target = plan.get("target")
+        stop = plan.get("stop")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO ticker_plan(symbol, thesis, target, stop, notes, updated_at) "
+                "VALUES(?,?,?,?,?,?)",
+                (symbol.upper(), plan.get("thesis"),
+                 float(target) if target not in (None, "") else None,
+                 float(stop) if stop not in (None, "") else None,
+                 plan.get("notes"), now),
+            )
+
+    def append_ticker_journal(self, symbol: str, kind: str, payload: dict, *, now: str) -> int:
+        """Append one journal row; returns its id."""
+        if not self.uses_sqlite:
+            raise RuntimeError("append_ticker_journal requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "INSERT INTO ticker_journal(symbol, created_at, kind, payload) VALUES(?,?,?,?)",
+                (symbol.upper(), now, kind, _db.dumps(payload)),
+            )
+            return int(cur.lastrowid)
+
+    def load_ticker_journal(self, symbol: str, limit: int = 100) -> list[dict]:
+        """Journal rows for one symbol, newest first. [{id,created_at,kind,payload}]."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM ticker_journal WHERE symbol=? ORDER BY created_at DESC, id DESC LIMIT ?",
+                (symbol.upper(), int(limit)),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [{"id": r["id"], "created_at": r["created_at"], "kind": r["kind"],
+                 "payload": _db.loads(r["payload"], {})} for r in rows]
+
+    def has_ticker_journal_snapshot(self, symbol: str, day: str) -> bool:
+        """True if a 'snapshot' journal row for this symbol already exists whose
+        created_at date == day — the nightly writer's idempotency guard."""
+        if not self.uses_sqlite:
+            return False
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM ticker_journal WHERE symbol=? AND kind='snapshot' "
+                "AND substr(created_at,1,10)=? LIMIT 1",
+                (symbol.upper(), day[:10]),
+            ).fetchone()
+        finally:
+            conn.close()
+        return row is not None
 
     # -- sqlite txn helper --------------------------------------------------
 

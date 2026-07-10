@@ -138,16 +138,24 @@ def _latest_decision(data_dir: str | Path, symbol: str) -> dict | None:
     return None
 
 
-def overlay_payload(data_dir: str | Path, symbol: str) -> dict:
+def overlay_payload(data_dir: str | Path, symbol: str, *, live_price: float | None = None) -> dict:
     """The chart's full overlay bundle for one symbol. Raises BarsNotFound.
 
-    {symbol, current_price (last daily close), levels (all timeframes),
+    {symbol, current_price, last_close (EOD bar close), levels (all timeframes),
     analysis (latest journal decision or None), cost_basis (lots avg cost or
-    None)}."""
+    None)}.
+
+    ``current_price`` prefers the live intraday quote (``live_price``, from the
+    quote provider) so P&L and valuation agree with the positions view; it falls
+    back to the last daily bar close when no live quote is available. S/R levels
+    are always computed from the EOD bar series (they are structural, not
+    intraday), so ``last_close`` is surfaced separately for reference.
+    """
     data = load_bars_file(data_dir, symbol)
     sym = symbol.upper()
     daily = data.get("daily") if isinstance(data.get("daily"), list) else []
-    current_price = float(daily[-1]["close"]) if daily else None
+    last_close = float(daily[-1]["close"]) if daily else None
+    current_price = float(live_price) if live_price is not None else last_close
 
     levels = {}
     for tf in TIMEFRAMES:
@@ -158,6 +166,7 @@ def overlay_payload(data_dir: str | Path, symbol: str) -> dict:
         "symbol": sym,
         "as_of": data.get("as_of"),
         "current_price": current_price,
+        "last_close": last_close,
         "levels": levels,
         "analysis": _latest_decision(data_dir, sym),
         "cost_basis": _cost_basis(data_dir, sym),

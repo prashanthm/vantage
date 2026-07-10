@@ -67,8 +67,10 @@ cmd_setup() {
 }
 
 cmd_start() {
-  local quotes="fixture"
-  [ "${1:-}" = "--live" ] && quotes="stooq"
+  # Real market data (yfinance) is the default. --demo opts into the
+  # deterministic fixture seam (synthetic data only; not a shipped dataset).
+  local quotes="yfinance"
+  [ "${1:-}" = "--demo" ] && quotes="fixture"
   echo "starting vantage stack (quotes: $quotes)..."
   start_one api  server env VANTAGE_QUOTES="$quotes" .venv/bin/python -m uvicorn vantage_server.api:app --host 127.0.0.1 --port "$API_PORT"
   start_one mcp  mcp    env VANTAGE_QUOTES="$quotes" .venv/bin/python -m vantage_mcp.server
@@ -144,6 +146,55 @@ cmd_cron_uninstall() {
   echo "uninstalled $CRON_LABEL"
 }
 
+# --- nightly EOD schedule for the DOCKER stack (runs inside the container) ----
+# The host nightly writes server/data-local/; the Compose stack reads the
+# vantage-data volume at /data. This schedule invokes nightly-docker.sh, which
+# docker-execs the pipeline into the backend container so it lands in the DB the
+# UI reads. launchd runs with a bare PATH, so we set one that finds `docker`.
+CRON_LABEL_DOCKER="com.pmuniraju.vantage.nightly.docker"
+CRON_PLIST_DOCKER="$HOME/Library/LaunchAgents/$CRON_LABEL_DOCKER.plist"
+
+cmd_cron_install_docker() {
+  local repo; repo="$(pwd)"
+  cat > "$CRON_PLIST_DOCKER" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$CRON_LABEL_DOCKER</string>
+  <key>ProgramArguments</key>
+  <array><string>$repo/nightly-docker.sh</string></array>
+  <key>WorkingDirectory</key><string>$repo</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TZ</key><string>America/New_York</string>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>5</integer></dict>
+  </array>
+  <key>StandardOutPath</key><string>$repo/$LOG_DIR/nightly.log</string>
+  <key>StandardErrorPath</key><string>$repo/$LOG_DIR/nightly.log</string>
+</dict>
+</plist>
+PLIST
+  launchctl bootout "gui/$(id -u)/$CRON_LABEL_DOCKER" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$CRON_PLIST_DOCKER"
+  echo "installed $CRON_LABEL_DOCKER — weeknights 17:45 ET → nightly-docker.sh (bars + analyze in the backend container). Logs: $LOG_DIR/nightly.log"
+}
+
+cmd_cron_uninstall_docker() {
+  launchctl bootout "gui/$(id -u)/$CRON_LABEL_DOCKER" 2>/dev/null || true
+  rm -f "$CRON_PLIST_DOCKER"
+  echo "uninstalled $CRON_LABEL_DOCKER"
+}
+
 case "${1:-}" in
   setup)  cmd_setup ;;
   start)  shift; cmd_start "${1:-}" ;;
@@ -151,7 +202,10 @@ case "${1:-}" in
   status) cmd_status ;;
   logs)   shift; cmd_logs "${1:-}" ;;
   nightly) shift; ./nightly.sh "${1:-}" ;;
+  nightly-docker) shift; ./nightly-docker.sh "${1:-}" ;;
   cron-install)   cmd_cron_install ;;
   cron-uninstall) cmd_cron_uninstall ;;
+  cron-install-docker)   cmd_cron_install_docker ;;
+  cron-uninstall-docker) cmd_cron_uninstall_docker ;;
   *) sed -n '2,14p' "$0"; exit 1 ;;
 esac

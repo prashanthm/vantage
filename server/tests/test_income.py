@@ -300,3 +300,124 @@ def test_analyze_portfolio_maps_and_sorts():
     assert [d.symbol for d in out] == ["AAA", "ZZZ"]  # sorted
     assert out[0].recommendation == income.HOLD_AND_SELL_CALL
     assert out[1].recommendation == income.MONITOR
+
+
+# ==================================================== per-option-leg strategist
+
+def _leg(strike, exp_days, option_type="call", position_type="long", contracts=1,
+         avg_price=5.0, mark=None):
+    """One open option leg dict (broker-normalized shape) expiring exp_days out."""
+    exp = (TODAY + _dt.timedelta(days=exp_days)).isoformat()
+    leg = {"underlying": "X", "expiration": exp, "strike": float(strike),
+           "option_type": option_type, "position_type": position_type,
+           "contracts": float(contracts), "avg_price": avg_price,
+           "occ_symbol": f"X {exp} {int(strike)}{option_type[0].upper()}"}
+    if mark is not None:
+        leg["mark"] = mark
+    return leg
+
+
+def _book(legs, **extra):
+    return {"underlying": "X", "status": "open", "legs": legs, **extra}
+
+
+def _neutral_tech(support=None, resistance=None, direction="sideways", broke=False,
+                  label="neutral"):
+    daily = _tf(direction=direction, support=support or [], resistance=resistance or [])
+    return _mtr(per_tf={"daily": daily, "weekly": _tf(), "monthly": _tf()},
+                nearest_support=(support or [None])[0],
+                nearest_resistance=(resistance or [None])[0],
+                broke=broke, conviction=Conviction(score=0.0, label=label))
+
+
+def _actions(book, tech, price):
+    return income.analyze_option_legs(book, tech=tech, current_price=price,
+                                      today=TODAY, symbol="X")
+
+
+def test_near_expiry_itm_long_take_profit():
+    # long $90C, price $110 (ITM), 3 DTE -> TAKE_PROFIT
+    book = _book([_leg(90, 3)])
+    acts = _actions(book, _neutral_tech(), 110.0)
+    assert len(acts) == 1
+    assert acts[0]["action"] == income.TAKE_PROFIT
+    assert acts[0]["moneyness"] == "ITM" and acts[0]["dte"] == 3
+
+
+def test_near_expiry_otm_long_let_expire():
+    # long $130C, price $110 (OTM), 4 DTE -> LET_EXPIRE
+    acts = _actions(_book([_leg(130, 4)]), _neutral_tech(), 110.0)
+    assert acts[0]["action"] == income.LET_EXPIRE
+
+
+def test_near_expiry_atm_long_roll_out():
+    # long $110C, price $110 (ATM), 5 DTE -> ROLL_OUT with an expiry target
+    acts = _actions(_book([_leg(110, 5)]), _neutral_tech(), 110.0)
+    assert acts[0]["action"] == income.ROLL_OUT
+    assert acts[0]["target"] and acts[0]["target"].get("expiry")
+
+
+def test_short_leg_at_strike_defends():
+    # short $130C, price $131 (through strike) -> DEFEND, assignment_risk
+    resistance = _level(140.0, "resistance")
+    tech = _neutral_tech(resistance=[resistance])
+    acts = _actions(_book([_leg(130, 100, position_type="short")]), tech, 131.0)
+    assert acts[0]["action"] == income.DEFEND
+    assert acts[0]["assignment_risk"] is True
+    # roll target snaps to the resistance level
+    assert acts[0]["target"] and acts[0]["target"].get("strike") == 140.0
+
+
+def test_short_leg_comfortably_otm_holds():
+    # short $130C, price $110 -> HOLD_LEG (not threatened)
+    acts = _actions(_book([_leg(130, 100, position_type="short")]), _neutral_tech(), 110.0)
+    assert acts[0]["action"] == income.HOLD_LEG
+    assert acts[0]["assignment_risk"] is False
+
+
+def test_long_leg_freefall_closes():
+    # underlying broke support with momentum -> CLOSE_LEG on the long call
+    tech = _neutral_tech(broke=True, label="freefall")
+    acts = _actions(_book([_leg(90, 200)]), tech, 80.0)
+    assert acts[0]["action"] == income.CLOSE_LEG
+
+
+def test_long_leg_otm_loser_rolls_down_to_support():
+    # OTM long at a loss (mark < avg), underlying not uptrending, support below
+    support = _level(95.0, "support")
+    tech = _neutral_tech(support=[support], direction="sideways")
+    leg = _leg(120, 200, avg_price=6.0, mark=3.0)  # underwater
+    acts = _actions(_book([leg]), tech, 100.0)
+    assert acts[0]["action"] == income.ROLL_DOWN
+    assert acts[0]["target"]["strike"] == 95.0
+
+
+def test_long_leg_default_holds():
+    # comfortable long LEAP, nothing triggered -> HOLD_LEG
+    acts = _actions(_book([_leg(120, 400)]), _neutral_tech(), 100.0)
+    assert acts[0]["action"] == income.HOLD_LEG
+
+
+def test_unmarked_leg_still_gets_an_action():
+    # no mark present -> no crash; near-expiry OTM still LET_EXPIRE
+    leg = _leg(130, 4, mark=None)
+    acts = _actions(_book([leg]), _neutral_tech(), 110.0)
+    assert acts and acts[0]["action"] == income.LET_EXPIRE
+
+
+def test_equity_only_has_no_leg_actions():
+    assert income.analyze_option_legs(None, tech=_neutral_tech(),
+                                      current_price=100.0, today=TODAY, symbol="X") == []
+    assert _actions(_book([]), _neutral_tech(), 100.0) == []
+
+
+def test_leg_actions_flow_onto_the_decision():
+    # analyze_position attaches leg_actions and decision_to_dict serializes them.
+    book = _book([_leg(130, 4)], net_cost=500.0, unrealized=-50.0)
+    d = income.analyze_position(
+        symbol="X", ticker_book=book, equity_holding=None, current_price=110.0,
+        tech=_neutral_tech(), wash=None, today=TODAY,
+    )
+    assert len(d.leg_actions) == 1
+    payload = income.decision_to_dict(d)
+    assert payload["leg_actions"][0]["action"] == income.LET_EXPIRE

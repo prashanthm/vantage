@@ -164,6 +164,34 @@ def test_lots_float_precision_survives(tmp_path):
     assert lot.cost_per_share == 273.08
 
 
+def test_level_history_records_and_reads_back(tmp_path):
+    store = _sqlite_store(tmp_path)
+    n = store.record_levels(
+        "2026-07-08", "SPX",
+        [{"price": 7423.0, "dim": "support", "kind": "support (3x tested)",
+          "source": "chart", "touches": 3},
+         {"price": 7500.0, "dim": "max_pain", "kind": "max pain (pin)",
+          "source": "GEX"}],
+        day={"high": 7490.0, "low": 7420.0, "close": 7482.0})
+    assert n == 2
+    rows = store.load_level_history("SPX")
+    assert len(rows) == 2
+    sup = next(r for r in rows if r["dim"] == "support")
+    assert sup["price"] == 7423.0 and sup["touches"] == 3
+    assert sup["day_low"] == 7420.0 and sup["day_close"] == 7482.0
+
+
+def test_level_history_is_idempotent_per_session_and_windowed(tmp_path):
+    store = _sqlite_store(tmp_path)
+    lv = [{"price": 7423.0, "dim": "support", "kind": "support (2x)", "source": "chart", "touches": 2}]
+    store.record_levels("2026-07-06", "SPX", lv)
+    store.record_levels("2026-07-06", "SPX", lv)  # same session — replace, not duplicate
+    store.record_levels("2026-07-07", "SPX", lv)
+    assert store.level_history_sessions("SPX") == ["2026-07-06", "2026-07-07"]
+    assert len(store.load_level_history("SPX", since="2026-07-07")) == 1
+    assert len(store.load_level_history("SPX")) == 2
+
+
 def test_accounts_taxable_bool_round_trips(tmp_path):
     store = _sqlite_store(tmp_path)
     store.upsert_accounts([

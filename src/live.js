@@ -124,6 +124,15 @@ export const getBars = (symbol, timeframe = "daily") =>
 export const getBarsOverlay = (symbol) =>
   getJson(`${backendBase()}/api/bars/overlay?symbol=${encodeURIComponent(symbol)}`);
 
+// -- per-ticker notebook (plan + journal + fundamentals) --------------------
+const tickerBase = (sym) => `${backendBase()}/api/ticker/${encodeURIComponent(sym)}`;
+// GET the whole notebook in one call -> {symbol, plan, journal, fundamentals} or null.
+export const getNotebook = (symbol) => getJson(`${tickerBase(symbol)}/notebook`);
+// POST the structured plan (thesis/target/stop/notes) -> {plan} envelope or null.
+export const postPlan = (symbol, plan) => postJson(`${tickerBase(symbol)}/plan`, plan);
+// POST a manual journal note -> {journal} envelope or null.
+export const postNote = (symbol, text) => postJson(`${tickerBase(symbol)}/note`, { text });
+
 // GET /api/analysis[?date][?symbol] -> the nightly decision journal or null.
 // Omit both to read the latest journal for every held underlying. 404/non-200/
 // network failures resolve to null — the Recommendations view then shows its
@@ -191,18 +200,23 @@ const mapWashStatus = (w) => ({
 // /api/positions -> the array util.jsx positions() produces.
 export function mapPositions(payload) {
   if (!payload || !Array.isArray(payload.positions)) return null;
-  return payload.positions.map((p) => ({
-    symbol: p.symbol,
-    shares: p.shares,
-    value: p.value,
-    cost: p.cost,
-    unrl: p.unrealized,
-    dayPl: p.day_pl,
-    weight: p.weight,
-    accounts: p.accounts, // array; views spread it like the fixture Set
-    lots: (p.lots || []).map(mapLot),
-    overlap: p.overlap || null,
-  }));
+  return payload.positions.map((p) => {
+    // Per-share current price from the aggregate (value/shares) so each lot can
+    // show a real market value without a fixture quote table.
+    const perShare = p.shares ? p.value / p.shares : null;
+    return {
+      symbol: p.symbol,
+      shares: p.shares,
+      value: p.value,
+      cost: p.cost,
+      unrl: p.unrealized,
+      dayPl: p.day_pl,
+      weight: p.weight,
+      accounts: p.accounts, // array; views spread it like the fixture Set
+      lots: (p.lots || []).map((l) => ({ ...mapLot(l), price: perShare })),
+      overlap: p.overlap || null,
+    };
+  });
 }
 
 // /api/tax/wash -> { SYMBOL: washStatus } in util.jsx washStatus() shape.
@@ -242,6 +256,37 @@ export function mapAllocation(payload) {
   const byClass = {};
   for (const [k, v] of Object.entries(payload.by_class)) byClass[k] = v.value;
   return { byClass, total: payload.total };
+}
+
+// /api/quotes -> a compact market band for the Dashboard's "how is the market
+// doing today" question. Picks the broad-market proxies actually in the feed
+// (equities + growth/small-cap) and a one-line regime read from their average
+// day change. Returns null when the payload is empty/unavailable so the band
+// falls back to the fixture ticker. `asOf`/`source`/`stale` ride along so the
+// Dashboard can label a stale or fixture feed honestly.
+const _BAND_SYMS = [
+  { sym: "SPY", label: "S&P 500" },
+  { sym: "QQQ", label: "Nasdaq 100" },
+  { sym: "IWM", label: "Russell 2000" },
+  { sym: "VTI", label: "Total Market" },
+];
+export function mapMarketBand(payload) {
+  if (!payload || !payload.quotes) return null;
+  const q = payload.quotes;
+  const indexes = _BAND_SYMS
+    .filter((b) => q[b.sym] && q[b.sym].day_pct != null)
+    .map((b) => ({ sym: b.sym, label: b.label, price: q[b.sym].price, dayPct: q[b.sym].day_pct }));
+  if (indexes.length === 0) return null;
+  const avg = indexes.reduce((s, i) => s + i.dayPct, 0) / indexes.length;
+  // A plain regime read from breadth + average move — no authored market call.
+  const up = indexes.filter((i) => i.dayPct > 0).length;
+  let regime;
+  if (avg > 0.35) regime = "Broad risk-on — most proxies up";
+  else if (avg < -0.35) regime = "Broad risk-off — most proxies down";
+  else if (up === indexes.length) regime = "Quietly higher across the board";
+  else if (up === 0) regime = "Quietly lower across the board";
+  else regime = "Mixed — no clear direction";
+  return { indexes, avg, regime, asOf: payload.as_of, source: payload.source, stale: !!payload.stale };
 }
 
 // /api/signals -> the data.js SIGNALS row shape the signals view consumes.
@@ -307,6 +352,7 @@ const mapStrategyLeg = (l) => ({
   openedAt: l.opened_at,        // by_ticker legs carry their open date
   avgPrice: l.avg_price,
   mark: l.mark,
+  occSymbol: l.occ_symbol,      // for matching a leg to its leg-action
 });
 
 // /api/strategies?by=ticker -> { byTicker: [...] } of camelCase position-book
@@ -418,6 +464,7 @@ export function mapBarsOverlay(payload) {
     symbol: payload.symbol,
     asOf: payload.as_of,
     currentPrice: payload.current_price,
+    lastClose: payload.last_close,
     costBasis: cb
       ? {
           equity: cb.equity ? { shares: cb.equity.shares, avgCost: cb.equity.avg_cost } : null,
@@ -426,6 +473,54 @@ export function mapBarsOverlay(payload) {
       : null,
     levels: payload.levels || { daily: {}, weekly: {}, monthly: {} },
     analysis: payload.analysis ? mapDecision(payload.analysis) : null,
+  };
+}
+
+// GET /api/ticker/{sym}/notebook -> the notebook panel's persisted side:
+// {symbol, plan, journal[], fundamentals}. null (backend down) -> panel shows
+// its own empty state. Numbers/strings pass through; journal payloads are
+// already JSON objects. plan.target/stop are numbers or null.
+export function mapNotebook(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const plan = payload.plan || null;
+  return {
+    symbol: payload.symbol,
+    plan: plan
+      ? { thesis: plan.thesis || "", target: plan.target ?? null, stop: plan.stop ?? null,
+          notes: plan.notes || "", updatedAt: plan.updated_at || plan.updatedAt || null }
+      : null,
+    journal: Array.isArray(payload.journal)
+      ? payload.journal.map((j) => ({ id: j.id, createdAt: j.created_at || j.createdAt,
+                                      kind: j.kind, payload: j.payload || {} }))
+      : [],
+    fundamentals: payload.fundamentals || null,
+    news: mapNews(payload.news),
+  };
+}
+
+// Normalize the /notebook (and /api/ticker/{sym}/news) news block to the shape
+// the notebook's News section renders: recent items + the headline sentiment
+// lean (clearly labeled estimated). Null when the source returned nothing.
+export function mapNews(news) {
+  if (!news || typeof news !== "object") return null;
+  const items = Array.isArray(news.items) ? news.items : [];
+  const s = news.sentiment || {};
+  return {
+    symbol: news.symbol || null,
+    items: items.map((it) => ({
+      title: it.title || "",
+      summary: it.summary || "",
+      publisher: it.publisher || "",
+      published: it.published || "",
+      url: it.url || "",
+      source: it.source || "",
+    })),
+    sentiment: {
+      band: s.band || "neutral",
+      score: typeof s.score === "number" ? s.score : 0,
+      n: s.n_headlines ?? items.length,
+      estimated: s.estimated !== false,
+    },
   };
 }
 
@@ -478,6 +573,26 @@ export function mapDecision(d) {
       atSupport: ev.at_support,
       factors: ev.factors || null,
     },
+    // Per-option-leg strategist actions (empty for pure equity). camelCase for
+    // the SPA; matched to a rendered leg by occSymbol (or strike/expiry/type).
+    legActions: Array.isArray(d.leg_actions)
+      ? d.leg_actions.map((a) => ({
+          occSymbol: a.occ_symbol,
+          action: a.action,
+          side: a.side,
+          optionType: a.option_type,
+          strike: a.strike,
+          expiration: a.expiration,
+          contracts: a.contracts,
+          dte: a.dte,
+          moneyness: a.moneyness,
+          pctFromStrike: a.pct_from_strike,
+          target: a.target || null,
+          assignmentRisk: !!a.assignment_risk,
+          estimated: !!a.estimated,
+          rationale: a.rationale,
+        }))
+      : [],
   };
 }
 
@@ -507,11 +622,66 @@ export const getExplanation = (correlationId) =>
 // 503 unconfigured, network failure — all null).
 export const getInsights = () => getJson(`${miraBase()}/insights?domain=advisor`);
 
+// Normalize the Mira advisor report for display. This is the ONE live fetch
+// that used to bind straight into JSX — each observation's `evidence` is a
+// RAW JSON STRING of the tool result (e.g. the whole wash table), which dumped
+// as `{"as_of":...}` on screen. We keep the human `detail`, pull just the
+// provenance SOURCE out of evidence as a citation, drop the raw blob, and
+// surface `suggestions` (previously not rendered). Everything is coerced to a
+// display string so an object can never render as `[object Object]`.
+const _asText = (v) => {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(_asText).filter(Boolean).join(" · ");
+  return String(v);
+};
+const _sourceOf = (evidence) => {
+  // evidence is usually a JSON string of the raw tool result; surface only its
+  // provenance source (the citation), never the payload.
+  if (!evidence) return "";
+  let ev = evidence;
+  if (typeof ev === "string") {
+    try { ev = JSON.parse(ev); } catch { return ev.length > 80 ? "" : ev; }
+  }
+  const prov = ev && ev.provenance;
+  if (prov && prov.source_id) {
+    const id = String(prov.source_id).split("#")[1] || prov.source_id;
+    return `source: ${id}`;
+  }
+  return "";
+};
+export function mapInsights(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const r = payload.report || payload; // tolerate an envelope
+  return {
+    summary: _asText(r.summary),
+    confidence: _asText(r.confidence),
+    observations: Array.isArray(r.observations)
+      ? r.observations.map((o) => ({
+          topic: _asText(o.topic),
+          detail: _asText(o.detail),
+          source: _sourceOf(o.evidence),
+        }))
+      : [],
+    suggestions: Array.isArray(r.suggestions) ? r.suggestions.map(_asText).filter(Boolean) : [],
+    caveats: _asText(r.caveats),
+  };
+}
+
 // One stable thread id per page load.
 let _threadId = null;
 export function threadId() {
   if (!_threadId) _threadId = `vantage-${Date.now()}`;
   return _threadId;
+}
+
+// A stable thread id per symbol per page load, so each ticker's notebook chat
+// keeps its own conversation context (separate from the global chat).
+const _symThreads = {};
+export function symbolThreadId(sym) {
+  const key = (sym || "").toUpperCase();
+  if (!_symThreads[key]) _symThreads[key] = `vantage-${key}-${Date.now()}`;
+  return _symThreads[key];
 }
 
 // Parse one SSE frame ("event: <kind>\ndata: <json>") into {kind, ...data}.
@@ -583,6 +753,200 @@ export function streamTurn(prompt, thread, onEvent) {
   })();
 
   return () => { terminal = true; ctrl.abort(); };
+}
+
+// POST {miraUrl}/analyze — the multi-facet analysis graph. Fans the ticker
+// across technical/fundamental/news/advisor facets and returns an LLM-synthesized
+// grounded answer. Non-streaming JSON (synthesis is written whole). Returns null
+// on any failure (Mira down / bad symbol) so the caller can degrade to /turn.
+export async function analyzeSymbol(symbol, question) {
+  const base = miraBase();
+  if (!base) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 90000); // synthesis on 14b can be slow
+  try {
+    const res = await fetch(`${base}/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: (symbol || "").toUpperCase(), question: question || undefined }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    return mapAnalyze(await res.json());
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// The daily 0DTE SPX playbook. Prefers Mira's /playbook (narrated: templated
+// draft + LLM plain-English polish); falls back to Vantage's /api/spx/playbook
+// (scaffold only) when Mira is down so the level ladder + setups still render.
+// Returns {available, narrative, draft, scaffold, session} or {available:false}.
+export async function getPlaybook(date, { refresh = false } = {}) {
+  // Mira caches the narrated playbook in-memory keyed by date (no TTL). After a
+  // Vantage recompute, pass refresh=true so Mira re-fetches the fresh scaffold +
+  // re-narrates — otherwise the UI reads Mira's stale cache and shows old GEX.
+  const params = [];
+  if (date) params.push(`date=${encodeURIComponent(date)}`);
+  if (refresh) params.push("refresh=1");
+  const q = params.length ? `?${params.join("&")}` : "";
+  const mira = miraBase();
+  if (mira) {
+    try {
+      const res = await fetch(`${mira}/playbook${q}`, { signal: _timeout(90000) });
+      if (res.ok) {
+        const p = await res.json();
+        if (p && p.available) return mapPlaybook(p);
+      }
+    } catch (e) { /* fall through to Vantage scaffold */ }
+  }
+  // Vantage fallback — scaffold only, no LLM narrative. Generous timeout: a cold
+  // playbook read can re-fetch quotes/bars, exceeding the default 2.5s.
+  const v = await getJson(`${backendBase()}/api/spx/playbook${q}`, { timeoutMs: 20000 });
+  if (v && v.available) return mapPlaybook({ ...v, narrative: null });
+  return { available: false };
+}
+
+function _timeout(ms) {
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  return c.signal;
+}
+
+// The playbook as a TradingView Pine v5 script (rendered by Vantage from the
+// stored scaffold). Returns {available, session, script} or {available:false}.
+export async function getPlaybookPine(date) {
+  const q = date ? `?date=${encodeURIComponent(date)}` : "";
+  // 20s timeout: the endpoint renders the full Pine script from the scaffold and
+  // a cold call can trigger a quote re-fetch — the default 2.5s can abort it and
+  // surface a spurious "no script" error in the export modal.
+  const v = await getJson(`${backendBase()}/api/spx/playbook/pine${q}`, { timeoutMs: 20000 });
+  if (v && v.available) return { available: true, session: v.session, script: v.script };
+  return { available: false };
+}
+
+// Regenerate the playbook NOW from the latest data (fresh bars + Sentinel
+// artifacts), outside the nightly job. POST; returns the new scaffold via
+// mapPlaybook, or null on failure.
+export async function recomputePlaybook(asOf) {
+  const base = backendBase();
+  if (!base) return null;
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 90000); // fresh bar fetch can be slow
+  try {
+    const res = await fetch(`${base}/api/spx/playbook/recompute`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(asOf ? { as_of: asOf } : {}),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return null;
+    const p = await res.json();
+    return p && p.available ? mapPlaybook({ ...p, narrative: null }) : null;
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Normalize a playbook payload (from Mira or Vantage) to the shape the panel
+// renders: the narrative (or draft), plus the structured scaffold pieces.
+export function mapPlaybook(p) {
+  if (!p || typeof p !== "object") return { available: false };
+  const s = p.scaffold || {};
+  return {
+    available: true,
+    session: p.session || s.session || null,
+    narrative: p.narrative || p.draft || null,
+    regime: s.regime || {},
+    levelLadder: Array.isArray(s.level_ladder) ? s.level_ladder : [],
+    setups: Array.isArray(s.setups) ? s.setups : [],
+    // durable memory levels (respected across many sessions) + confluence zones
+    // (≥2 dimensions stacking) — the LuxAlgo-style features added to the scaffold.
+    durable: Array.isArray(s.durable) ? s.durable : [],
+    confluence: Array.isArray(s.confluence) ? s.confluence : [],
+    // the compact table carries the one-line read, volume + structure notes.
+    structureNote: (s.table && s.table.structure_note) || "",
+    volumeNote: (s.table && s.table.volume_note) || "",
+    catalysts: s.catalysts || {},
+    opex: s.opex || {},
+    edges: s.edges || {},
+    caveats: Array.isArray(s.caveats) ? s.caveats : [],
+    missing: Array.isArray(s.missing) ? s.missing : [],
+  };
+}
+
+// ── AMP futures analysis (win-rate by condition, reconciled vs broker) ──────
+
+// GET the futures win-rate analysis. Generous timeout: the read pairs round-trips
+// and (unless alignment=false) fetches NQ bars, which can be slow on a cold call.
+export async function getFuturesAnalysis({ contract, alignment = true } = {}) {
+  const params = [];
+  if (contract) params.push(`contract=${encodeURIComponent(contract)}`);
+  if (!alignment) params.push("alignment=false");
+  const q = params.length ? `?${params.join("&")}` : "";
+  const v = await getJson(`${backendBase()}/api/futures/analysis${q}`, { timeoutMs: 30000 });
+  return mapFuturesAnalysis(v);
+}
+
+// POST to (re)import the AMP CSVs, then return the fresh analysis.
+export async function importFutures() {
+  const base = backendBase();
+  if (!base) return { available: false };
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 60000);
+  try {
+    const res = await fetch(`${base}/api/futures/import`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}), signal: ctrl.signal,
+    });
+    if (!res.ok) return { available: false };
+    return mapFuturesAnalysis(await res.json());
+  } catch (e) {
+    return { available: false };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+// Normalize the futures analysis payload for the Futures screen. The backend
+// already sends analysis-shaped JSON; we just guard the fields the view reads.
+export function mapFuturesAnalysis(p) {
+  if (!p || typeof p !== "object" || !p.available) {
+    return { available: false, note: (p && p.note) || null };
+  }
+  return {
+    available: true,
+    contract: p.contract || null,
+    overall: p.overall || {},
+    baselineWinRate: p.baseline_win_rate ?? null,
+    buckets: Array.isArray(p.buckets) ? p.buckets : [],
+    notable: Array.isArray(p.notable) ? p.notable : [],
+    orderBehavior: p.order_behavior || { available: false },
+    reconciliation: p.reconciliation || {},
+    roundtrips: Array.isArray(p.roundtrips) ? p.roundtrips : [],
+    tzNote: p.tz_note || "",
+  };
+}
+
+// Normalize the /analyze payload to what the notebook renders: the synthesized
+// prose plus a compact per-facet map (so the UI can show which facets grounded
+// the answer). `correlationId` is surfaced when present for the sources toggle.
+export function mapAnalyze(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const results = Array.isArray(payload.results) ? payload.results : [];
+  return {
+    query: payload.query || "",
+    synthesis: typeof payload.synthesis === "string" ? payload.synthesis : "",
+    facets: results.map((r) => ({
+      domain: r.domain || "?",
+      error: r.error || (r.answer && r.answer.status === "tool_error" ? r.answer.detail || "tool error" : null),
+    })),
+    correlationId: payload.correlation_id || null,
+  };
 }
 
 /* ---------------- React glue ---------------- */

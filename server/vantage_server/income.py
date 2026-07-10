@@ -59,6 +59,29 @@ RECOMMENDATIONS = frozenset(
     {HOLD_AND_SELL_CALL, CLOSE_AND_BOOK_LOSS, HOLD_WASH_BLOCKED, MONITOR}
 )
 
+# --- per-option-leg actions (the options-strategist layer) ---
+# Advisory actions on an individual OPTION LEG you already hold, given its
+# strike/expiry/type/side and the underlying's trend + support/resistance. These
+# are ADDITIVE to the per-underlying recommendation above — never order
+# instructions (ADR-010 read-only doctrine holds).
+TAKE_PROFIT = "TAKE_PROFIT"     # near-expiry ITM long — capture before theta/expiry
+LET_EXPIRE = "LET_EXPIRE"       # near-expiry OTM long — worthless, let it go / close for scrap
+ROLL_OUT = "ROLL_OUT"           # extend to a later expiry (more time)
+ROLL_UP = "ROLL_UP"             # raise the strike (lock gains into strength)
+ROLL_DOWN = "ROLL_DOWN"         # lower the strike (cut basis on a loser near support)
+DEFEND = "DEFEND"               # short leg at/through its strike — assignment risk: roll or close
+CLOSE_LEG = "CLOSE_LEG"         # thesis broken (underlying freefall) — close the long option
+HOLD_LEG = "HOLD_LEG"           # no action — comfortable / time on its side
+
+LEG_ACTIONS = frozenset(
+    {TAKE_PROFIT, LET_EXPIRE, ROLL_OUT, ROLL_UP, ROLL_DOWN, DEFEND, CLOSE_LEG, HOLD_LEG}
+)
+
+# DTE bucket boundaries for the mechanics gate (calendar days to expiration).
+_NEAR_EXPIRY_DTE = 10           # <= this: an expiry-management decision
+# Moneyness threshold: a leg within this fraction of the strike is "near the money".
+_NTM_PCT = 0.03
+
 
 # ------------------------------------------------------------------ data shapes
 
@@ -106,6 +129,10 @@ class PositionDecision:
     rationale: str
     evidence: dict
     action_detail: dict | None = field(default=None)
+    # Per-option-leg strategist actions for THIS underlying's open option legs
+    # (empty for pure-equity positions). Each item is a JSON-safe dict from
+    # analyze_option_legs. Additive to `recommendation` / `action_detail`.
+    leg_actions: list = field(default_factory=list)
 
 
 # --------------------------------------------------------------- premium proxy
@@ -284,6 +311,195 @@ def _contracts_and_collateral(
     return 1, "uncovered (advisory only)"
 
 
+# ------------------------------------------------------- per-leg options strategist
+
+def _dte(expiration: str, today: date) -> int | None:
+    """Calendar days from ``today`` to an ISO expiration date, or None if unparsable."""
+    try:
+        exp = date.fromisoformat(str(expiration)[:10])
+    except (ValueError, TypeError):
+        return None
+    return (exp - today).days
+
+
+def _moneyness(option_type: str, strike: float, current_price: float) -> str:
+    """ITM / ATM / OTM for a call or put at the current underlying price."""
+    if current_price <= 0 or strike <= 0:
+        return "unknown"
+    if abs(current_price - strike) / current_price <= _NTM_PCT:
+        return "ATM"
+    itm = current_price > strike if option_type == "call" else current_price < strike
+    return "ITM" if itm else "OTM"
+
+
+def _support_strike_below(tech, current_price: float) -> float | None:
+    """The nearest support level BELOW current price (roll-down target), or None."""
+    levels = [
+        lv for lv in tech.per_tf["daily"].support_resistance["support"]
+        if lv.price < current_price
+    ]
+    if not levels:
+        return None
+    levels.sort(key=lambda lv: current_price - lv.price)  # nearest below first
+    return levels[0].price
+
+
+def _leg_action(
+    leg: dict, *, tech, current_price: float, today: date, symbol: str,
+) -> dict | None:
+    """Decide the strategist action for ONE open option leg. Pure.
+
+    Mechanics-gated (user-chosen): DTE + moneyness pick WHICH decision type
+    applies; the underlying's trend + support/resistance pick the direction and
+    the roll-target strike. Returns a JSON-safe dict, or None to skip a leg we
+    can't reason about (missing strike/expiry)."""
+    strike = leg.get("strike")
+    option_type = (leg.get("option_type") or "").lower()
+    side = (leg.get("position_type") or "").lower()  # "long" | "short"
+    expiration = leg.get("expiration")
+    contracts = leg.get("contracts")
+    if strike is None or not expiration or option_type not in ("call", "put"):
+        return None
+    strike = float(strike)
+    dte = _dte(expiration, today)
+    if dte is None:
+        return None
+
+    money = _moneyness(option_type, strike, current_price)
+    is_short = side == "short"
+    daily = tech.per_tf["daily"]
+    freefall = tech.broke_support_with_momentum or tech.conviction.label == "freefall"
+    uptrend = daily.trend.direction == "up"
+    # A short call is threatened when the underlying is at/through its strike.
+    short_threatened = is_short and current_price >= strike * (1 - _NTM_PCT)
+
+    # crude, honest OTM/ITM distance for the rationale (NOT a delta).
+    pct_from_strike = round((current_price - strike) / strike * 100, 1) if strike else 0.0
+
+    def build(action: str, rationale: str, *, target=None, assignment_risk=False):
+        return {
+            "kind": "leg_action",
+            "occ_symbol": leg.get("occ_symbol"),
+            "action": action,
+            "side": side,
+            "option_type": option_type,
+            "strike": strike,
+            "expiration": str(expiration)[:10],
+            "contracts": float(contracts) if contracts is not None else None,
+            "dte": dte,
+            "moneyness": money,
+            "pct_from_strike": pct_from_strike,
+            "target": target,           # {strike?, expiry?} for a roll, else None
+            "assignment_risk": assignment_risk,
+            "estimated": True,          # no live chain / greeks — advisory read only
+            "rationale": rationale,
+        }
+
+    # ---- SHORT legs: assignment defense first (any DTE) ----
+    if is_short:
+        if short_threatened:
+            new_strike, _ = _pick_call_strike(tech, current_price, None)
+            tgt = {"strike": new_strike} if new_strike else None
+            near = "in the money" if money == "ITM" else "at the money"
+            tgt_txt = (f" — roll up to ${new_strike:,.2f} (nearest resistance) or a "
+                       f"later expiry, or close" if new_strike else " — roll out/up or close")
+            return build(
+                DEFEND,
+                f"Short {option_type} ${strike:,.0f} is {near} with {symbol} at "
+                f"${current_price:,.2f} ({dte} DTE): assignment risk{tgt_txt}.",
+                target=tgt, assignment_risk=True,
+            )
+        return build(
+            HOLD_LEG,
+            f"Short {option_type} ${strike:,.0f} is comfortably OTM ({pct_from_strike:+.0f}% "
+            f"from strike, {dte} DTE) — let theta work; no action.",
+        )
+
+    # ---- LONG legs ----
+    # Near expiry: expiry-management decision (mechanics-first).
+    if dte <= _NEAR_EXPIRY_DTE:
+        if money == "ITM":
+            return build(
+                TAKE_PROFIT,
+                f"Long {option_type} ${strike:,.0f} is ITM with only {dte} DTE "
+                f"({symbol} ${current_price:,.2f}) — capture the intrinsic value "
+                f"before theta/expiry; take profit or roll out to keep exposure.",
+            )
+        if money == "OTM":
+            return build(
+                LET_EXPIRE,
+                f"Long {option_type} ${strike:,.0f} is OTM with {dte} DTE "
+                f"({symbol} ${current_price:,.2f}) — little time to recover; let it "
+                f"expire (or close for any remaining scrap value).",
+            )
+        # ATM near expiry: roll out for more time.
+        return build(
+            ROLL_OUT,
+            f"Long {option_type} ${strike:,.0f} is near the money with {dte} DTE — "
+            f"roll out to a later expiry to keep the position alive without paying "
+            f"peak theta.",
+            target={"expiry": weekly_expiry_date(today, 30)},
+        )
+
+    # Ongoing long position: manage by trend + support/resistance.
+    if freefall:
+        return build(
+            CLOSE_LEG,
+            f"{symbol} broke support with momentum (conviction "
+            f"{tech.conviction.label}); the long {option_type} ${strike:,.0f} thesis "
+            f"is impaired — close it and redeploy rather than hope.",
+        )
+    # Loser but underlying holding up: roll DOWN toward support to cut basis.
+    unmarked = leg.get("mark") is None
+    loss = (not unmarked) and leg.get("mark") is not None and float(leg["mark"]) < float(leg.get("avg_price", 0))
+    if money == "OTM" and loss and not uptrend:
+        sup = _support_strike_below(tech, current_price)
+        if sup:
+            return build(
+                ROLL_DOWN,
+                f"Long {option_type} ${strike:,.0f} is OTM and underwater while "
+                f"{symbol} bases — roll down toward support ${sup:,.2f} to cut basis "
+                f"and raise the odds of finishing ITM.",
+                target={"strike": sup},
+            )
+    # Winner running into resistance: roll UP to lock gains, keep upside.
+    if uptrend and money == "ITM" and tech.nearest_resistance is not None \
+            and current_price >= tech.nearest_resistance.price * (1 - _NTM_PCT):
+        return build(
+            ROLL_UP,
+            f"Long {option_type} ${strike:,.0f} is ITM into resistance "
+            f"(${tech.nearest_resistance.price:,.2f}) — roll up to lock gains and "
+            f"reduce capital at risk while keeping upside.",
+            target={"strike": tech.nearest_resistance.price},
+        )
+    # Otherwise hold — time on its side, thesis intact.
+    return build(
+        HOLD_LEG,
+        f"Long {option_type} ${strike:,.0f} ({money}, {dte} DTE) — {symbol} reads "
+        f"{tech.conviction.label}; time on its side, hold.",
+    )
+
+
+def analyze_option_legs(
+    ticker_book: dict | None, *, tech, current_price: float, today: date, symbol: str,
+) -> list[dict]:
+    """Per-leg strategist actions for every OPEN option leg of one underlying.
+
+    Pure. Returns a list of JSON-safe leg-action dicts (empty when there are no
+    option legs). Legs we can't reason about (missing strike/expiry) are skipped.
+    """
+    if not ticker_book or ticker_book.get("status") != "open":
+        return []
+    out: list[dict] = []
+    for leg in ticker_book.get("legs", []):
+        action = _leg_action(
+            leg, tech=tech, current_price=current_price, today=today, symbol=symbol,
+        )
+        if action is not None:
+            out.append(action)
+    return out
+
+
 # ------------------------------------------------------------- the analyzer
 
 def analyze_position(
@@ -318,6 +534,12 @@ def analyze_position(
     conviction = ConvictionView(label=tech.conviction.label, score=tech.conviction.score)
     evidence = build_evidence(tech)
     as_of = today.isoformat()
+
+    # Per-leg strategist actions for this underlying's open option legs (additive
+    # to the per-underlying recommendation below; empty for pure equity).
+    leg_actions = analyze_option_legs(
+        ticker_book, tech=tech, current_price=current_price, today=today, symbol=symbol,
+    )
 
     unrealized = _unrealized(ticker_book, equity_holding, current_price)
     net_cost = _current_net_cost(ticker_book, equity_holding)
@@ -364,6 +586,7 @@ def analyze_position(
                 conviction=conviction, recommendation=HOLD_WASH_BLOCKED,
                 rule="rule2_freefall_wash_blocked", rationale=rationale,
                 evidence=evidence, action_detail=_close_detail_dict(detail),
+                leg_actions=leg_actions,
             )
         detail = CloseDetail(
             unrealized_loss=loss,
@@ -389,6 +612,7 @@ def analyze_position(
             conviction=conviction, recommendation=CLOSE_AND_BOOK_LOSS,
             rule="rule2_freefall_close", rationale=rationale,
             evidence=evidence, action_detail=_close_detail_dict(detail),
+            leg_actions=leg_actions,
         )
 
     # ---- Rule 1: strong ticker, at support, basing -> sell a call ----
@@ -433,6 +657,7 @@ def analyze_position(
             conviction=conviction, recommendation=HOLD_AND_SELL_CALL,
             rule="rule1_strong_at_support", rationale=rationale,
             evidence=evidence, action_detail=_sell_call_detail_dict(detail),
+            leg_actions=leg_actions,
         )
 
     # ---- Rule 3: everything in between -> MONITOR (no action) ----
@@ -450,6 +675,7 @@ def analyze_position(
         conviction=conviction, recommendation=MONITOR,
         rule="rule3_monitor", rationale=rationale,
         evidence=evidence, action_detail=None,
+        leg_actions=leg_actions,
     )
 
 
@@ -522,4 +748,5 @@ def decision_to_dict(d: PositionDecision) -> dict:
         "rationale": d.rationale,
         "evidence": d.evidence,
         "action_detail": d.action_detail,
+        "leg_actions": d.leg_actions,
     }

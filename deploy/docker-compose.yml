@@ -12,7 +12,7 @@
 #
 # The named volume `vantage-data` starts EMPTY. Seed it once before first `up`
 # (see deploy/README.md "Seeding the database") or the backend serves an empty
-# portfolio. VANTAGE_QUOTES defaults to `fixture`; set it to `stooq` in .env for
+# portfolio. VANTAGE_QUOTES defaults to `yfinance` (real delayed quotes); set to `fixture` for
 # the live delayed feed. ROBINHOOD_TOKEN_FILE (host path) is REQUIRED only for
 # POST /api/refresh; reads work without it.
 
@@ -35,16 +35,31 @@ services:
       # operator sets in .env (never baked into the image). Reads work without
       # it; only POST /api/refresh needs it.
       - "${ROBINHOOD_TOKEN_FILE:-/dev/null}:/run/secrets/robinhood_token.json:ro"
+      # Sentinel's computed SPX intel (GEX/zones/breadth/macro), mounted READ-ONLY
+      # so the nightly spx_playbook job can fuse it. Points at a host Sentinel
+      # checkout via .env; /dev/null default keeps the stack bootable without it
+      # (the playbook then reports a thinner read).
+      - "${SENTINEL_LOGS_DIR:-/dev/null}:/sentinel/logs:ro"
+      - "${SENTINEL_DATA_DIR:-/dev/null}:/sentinel/data:ro"
     environment:
       VANTAGE_DB: /data/vantage.db
-      VANTAGE_QUOTES: "${VANTAGE_QUOTES:-fixture}"
+      # The data dir IS the writable volume — so the yfinance quote cache
+      # (quotes_cache_yf.json) persists there instead of a non-existent
+      # /app/data-local, otherwise every request re-fetches Yahoo (~13s each).
+      VANTAGE_DATA_DIR: /data
+      VANTAGE_QUOTES: "${VANTAGE_QUOTES:-yfinance}"
       ROBINHOOD_TOKEN_FILE: /run/secrets/robinhood_token.json
+      # Where the spx_playbook job reads Sentinel's artifacts (the mount above).
+      SENTINEL_LOGS_DIR: /sentinel/logs
+      SENTINEL_DATA_DIR: /sentinel/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8641/api/health',timeout=3).status==200 else 1)"]
-      interval: 10s
-      timeout: 5s
+      # Generous timeout: the first quote snapshot after a cold start fetches
+      # ~40 tickers from Yahoo (~15s) before the cache is warm.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8641/api/health',timeout=25).status==200 else 1)"]
+      interval: 30s
+      timeout: 30s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     restart: unless-stopped
 
   vantage-mcp:
@@ -69,7 +84,8 @@ services:
       - vantage-data:/data
     environment:
       VANTAGE_DB: /data/vantage.db
-      VANTAGE_QUOTES: "${VANTAGE_QUOTES:-fixture}"
+      VANTAGE_DATA_DIR: /data
+      VANTAGE_QUOTES: "${VANTAGE_QUOTES:-yfinance}"
       MCP_HOST: 0.0.0.0
       MCP_PORT: "8640"
       MCP_PATH: /mcp
@@ -102,12 +118,25 @@ services:
     ports:
       - "8080:8080"
     environment:
+      # Deployment profile: `local` (in-memory providers, no cloud SDK) is the
+      # right shape for this self-hosted Docker stack. WITHOUT it, build_app gets
+      # no profile and the /turn path degrades — the supervisor emits an empty
+      # synthesis and the reasoning loop never runs, so chat returns nothing.
+      DEPLOYMENT_PROFILE: "${DEPLOYMENT_PROFILE:-local}"
+      PLATFORM: "${PLATFORM:-local}"
       # Vantage MCP over the compose network (container DNS name), NOT localhost.
       MCP_BASE_URL: "${MCP_BASE_URL:-http://vantage-mcp:8640/mcp}"
       # Host Ollama (OpenAI-compatible). Override in .env for a different LLM.
       LLM_BASE_URL: "${LLM_BASE_URL:-http://host.docker.internal:11434/v1}"
-      LLM_MODEL: "${LLM_MODEL:-qwen2.5}"
+      # Must be a tag Ollama actually has (`ollama list`) — a bare "qwen2.5"
+      # with no tag 404s and the advisor returns empty. Override in .env.
+      LLM_MODEL: "${LLM_MODEL:-qwen2.5:7b}"
       LLM_API_KEY: "${LLM_API_KEY:-ollama}"
+      # Per-task model override (node-level, not an event bus): the /analyze
+      # synthesis node runs the stronger model for grounded multi-facet prose,
+      # while facet inference (deterministic) and general /turn stay on
+      # LLM_MODEL. Unset to run synthesis on LLM_MODEL. See MIRA model_routing.
+      MIRA_SYNTHESIS_MODEL: "${MIRA_SYNTHESIS_MODEL:-}"
     extra_hosts:
       # Linux needs this mapping for host.docker.internal (no-op on Docker Desktop).
       - "host.docker.internal:host-gateway"

@@ -260,6 +260,97 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         trail = store.load_analysis_symbol_history(symbol)
         return envelope(snap, symbol=symbol.upper(), history=trail)
 
+    @app.get("/api/spx/playbook")
+    def spx_playbook(date: str | None = Query(None)):
+        """The daily 0DTE SPX playbook (written by `python -m
+        vantage_server.spx_playbook`, which fuses Sentinel's GEX/zones/breadth/
+        macro with SPX 15m chart dimensions). ``{scaffold, narrative, session,
+        date}`` — latest when no date. Empty state (available:false) when nothing
+        has been generated. Context, not a signal (ADR-008); places no orders."""
+        snap = state.snapshot()
+        row = store.load_spx_playbook(date)
+        if row is None:
+            return envelope(snap, available=False,
+                            note="No SPX playbook generated yet — run "
+                                 "`python -m vantage_server.spx_playbook`.")
+        return envelope(snap, available=True, date=row["date"], session=row["session"],
+                        scaffold=row["scaffold"], narrative=row["narrative"])
+
+    @app.get("/api/spx/playbook/pine")
+    def spx_playbook_pine(date: str | None = Query(None)):
+        """The 0DTE SPX playbook as a copy-paste TradingView Pine v5 indicator:
+        every level marked, the setup zones shaded, and conditional buy/sell
+        arrows keyed to the gamma-flip regime. Rendered from the stored scaffold
+        (latest when no date). Context, not a signal (ADR-008) — the arrows are
+        conditional and the GEX read is 0DTE-blind (caveats are in the script)."""
+        from . import playbook_pine
+        snap = state.snapshot()
+        row = store.load_spx_playbook(date)
+        if row is None:
+            return envelope(snap, available=False,
+                            note="No SPX playbook generated yet.")
+        script = playbook_pine.build_playbook_pine(row["scaffold"] or {})
+        return envelope(snap, available=bool(script), date=row["date"],
+                        session=row["session"], script=script)
+
+    @app.post("/api/spx/playbook/recompute")
+    def spx_playbook_recompute(body: dict = Body(default={})):
+        """Regenerate the SPX playbook NOW from the latest data (fresh SPX bars +
+        Sentinel artifacts), outside the nightly job. Writes only our own store
+        (no broker / fund path — ADR-010 read-only doctrine holds). Returns the
+        new ``{scaffold, session, date}``. Optional ``{as_of: 'YYYY-MM-DD'}``."""
+        import datetime as _dt
+        from . import spx_playbook as _pb
+        as_of = (body or {}).get("as_of")
+        today = _dt.date.fromisoformat(as_of) if as_of else _dt.date.today()
+        scaffold = _pb.build_playbook(today, store=store)
+        store.upsert_spx_playbook(scaffold["generated_for"], scaffold)
+        _pb.write_pine_file(scaffold)  # refresh the vantage/pine copy-paste artifact
+        snap = state.snapshot()
+        return envelope(snap, available=True, date=scaffold["generated_for"],
+                        session=scaffold["session"], scaffold=scaffold)
+
+    @app.get("/api/futures/analysis")
+    def futures_analysis(contract: str | None = Query(None),
+                         alignment: bool = Query(True)):
+        """Win-rate analysis of imported AMP futures executions: round-trips
+        paired from fills, win-rate-by-condition (exit type / hold time / entry
+        hour ET / playbook alignment) via the Bayesian bucketing engine, order
+        behavior (cancel rate), and a RECONCILIATION vs the broker's realized PnL
+        that flags partial/windowed data. Empty state when nothing imported.
+        Decision-support (ADR-008); reads the user's CSV import, no broker path."""
+        from . import futures as _fut
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False) or not store.load_futures_fills(contract):
+            return envelope(snap, available=False,
+                            note="No AMP futures fills imported — run "
+                                 "`python -m vantage_server.futures --import ampfutures` "
+                                 "or POST /api/futures/import.")
+        analysis = _fut.analysis_from_store(store, contract=contract,
+                                            with_alignment=alignment)
+        return envelope(snap, available=True, contract=contract, **analysis)
+
+    @app.post("/api/futures/import")
+    def futures_import(body: dict = Body(default={})):
+        """(Re)import AMP futures CSVs from ``<data-dir>/<subdir>`` (default
+        'ampfutures') into the store, then return the fresh analysis. Writes only
+        our SQLite (no broker/order path — ADR-010). Optional
+        ``{subdir, account, alignment}``."""
+        from . import futures as _fut
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="Futures import requires the SQLite backend.")
+        subdir = (body or {}).get("subdir", "ampfutures")
+        account = (body or {}).get("account", "ampfutures")
+        base = os.path.join(str(store.data_dir), subdir)
+        if not os.path.isdir(base):
+            return envelope(snap, available=False, note=f"Import dir not found: {base}")
+        res = _fut.import_and_store(store, base, account=account)
+        analysis = _fut.analysis_from_store(
+            store, with_alignment=bool((body or {}).get("alignment", True)))
+        return envelope(snap, available=True, imported=res, **analysis)
+
     @app.get("/api/bars")
     def bars(symbol: str = Query(...),
              timeframe: str = Query("daily")):
@@ -288,8 +379,10 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         to draw everything. 404 {"error":"no_bars_for_symbol"} when no bars
         file exists."""
         snap = state.snapshot()
+        q = snap.quotes.get(symbol.upper())
+        live_price = q.price if q and q.price else None
         try:
-            payload = bars_view.overlay_payload(store.data_dir, symbol)
+            payload = bars_view.overlay_payload(store.data_dir, symbol, live_price=live_price)
         except bars_view.BarsNotFound:
             raise HTTPException(status_code=404, detail={"error": "no_bars_for_symbol"})
         return envelope(snap, **payload)
@@ -395,6 +488,65 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         snap = state.snapshot()
         graded = grade_signals(signal_seed, snap.quotes)
         return envelope(snap, signals=to_jsonable(graded))
+
+    # ==================================================================
+    # Per-ticker NOTEBOOK — the second deliberate API write surface after
+    # /api/refresh (ADR-014). Writes touch ONLY our own SQLite (plan + journal),
+    # never a broker or any fund-moving path — fully inside ADR-010.
+    # ==================================================================
+    def _now_iso() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
+
+    @app.get("/api/ticker/{symbol}/notebook")
+    def ticker_notebook(symbol: str):
+        """Everything the notebook panel needs in one call: the structured plan,
+        the running journal (newest first), valuation fundamentals, and recent
+        news (aggregated + sentiment lean)."""
+        from . import fundamentals as fund
+        from . import news as news_mod
+        snap = state.snapshot()
+        sym = symbol.upper()
+        return envelope(
+            snap,
+            symbol=sym,
+            plan=store.load_ticker_plan(sym),
+            journal=store.load_ticker_journal(sym),
+            fundamentals=fund.fundamentals(sym, store.data_dir),
+            news=news_mod.news(sym, store.data_dir),
+        )
+
+    @app.get("/api/ticker/{symbol}/fundamentals")
+    def ticker_fundamentals(symbol: str):
+        from . import fundamentals as fund
+        snap = state.snapshot()
+        return envelope(snap, symbol=symbol.upper(),
+                        fundamentals=fund.fundamentals(symbol.upper(), store.data_dir))
+
+    @app.get("/api/ticker/{symbol}/news")
+    def ticker_news(symbol: str):
+        """Aggregated, deduped, sentiment-tagged news for one symbol (or null)."""
+        from . import news as news_mod
+        snap = state.snapshot()
+        return envelope(snap, symbol=symbol.upper(),
+                        news=news_mod.news(symbol.upper(), store.data_dir))
+
+    @app.post("/api/ticker/{symbol}/plan")
+    def save_ticker_plan(symbol: str, body: dict = Body(default={})):
+        """Upsert the thesis/target/stop/notes plan for one symbol."""
+        store.upsert_ticker_plan(symbol.upper(), body or {}, now=_now_iso())
+        snap = state.snapshot()
+        return envelope(snap, symbol=symbol.upper(), plan=store.load_ticker_plan(symbol.upper()))
+
+    @app.post("/api/ticker/{symbol}/note")
+    def add_ticker_note(symbol: str, body: dict = Body(default={})):
+        """Append a manual note to the ticker's journal."""
+        text = str((body or {}).get("text", "")).strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="note text is required")
+        store.append_ticker_journal(symbol.upper(), "note", {"text": text}, now=_now_iso())
+        snap = state.snapshot()
+        return envelope(snap, symbol=symbol.upper(), journal=store.load_ticker_journal(symbol.upper()))
 
     return app
 

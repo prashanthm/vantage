@@ -1,4 +1,10 @@
-"""Shared fixtures: the deterministic fixture dataset (mirrors src/data.js)."""
+"""Shared fixtures: synthetic test inputs under tests/fixtures.
+
+These are the test suite's own deterministic inputs — NOT a product dataset.
+Nothing in vantage_server/ or the SPA can reach them (resolve_data_dir has no
+fixture fallback); they exist only so engine/store/importer tests have known
+inputs to assert against.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -9,7 +15,7 @@ from vantage_server import engine
 from vantage_server.quotes import FixtureQuoteProvider
 from vantage_server.store import Store
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
 @pytest.fixture(scope="session")

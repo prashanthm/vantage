@@ -1,4 +1,8 @@
-"""Fixtures for the vantage-mcp tool-surface tests: the shared fixture dataset."""
+"""Fixtures for the vantage-mcp tool-surface tests: synthetic test inputs.
+
+Not a product dataset — the engine project's test fixtures, reused here as the
+single source of synthetic inputs for the MCP tool surface.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +10,7 @@ from pathlib import Path
 
 import pytest
 
-# The deterministic dataset lives with the engine project (single source of truth).
-DATA_DIR = Path(__file__).resolve().parents[2] / "server" / "data"
+DATA_DIR = Path(__file__).resolve().parents[2] / "server" / "tests" / "fixtures"
 
 
 @pytest.fixture(scope="session")

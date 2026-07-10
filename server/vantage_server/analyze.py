@@ -57,25 +57,25 @@ class AnalyzeError(ValueError):
 # ------------------------------------------------------------- bars loading
 
 def load_bars(data_dir: str | Path, underlying: str) -> dict:
-    """Load <data_dir>/bars/<UND>.json written by snapshot_bars.
+    """Load one underlying's bars written by snapshot_bars.
 
-    Returns {"symbol", "as_of", "daily", "weekly", "monthly"}. Raises
-    AnalyzeError (with the fix instruction) when the file is missing — analyze
-    consumes the snapshot's output and must never silently refetch.
+    Reads through the Store backend, so a SQLite-backed data dir serves bars from
+    vantage.db (where snapshot_bars writes them) and a JSON dir reads
+    bars/<UND>.json. Returns {"symbol", "as_of", "daily", "weekly", "monthly"}.
+    Raises AnalyzeError (with the fix instruction) when absent — analyze consumes
+    the snapshot's output and must never silently refetch.
     """
-    path = Path(data_dir) / "bars" / f"{underlying.upper()}.json"
-    if not path.is_file():
+    from .store import Store
+
+    data = Store(data_dir).load_bars(underlying)
+    if not isinstance(data, dict):
         raise AnalyzeError(
-            f"no bars for {underlying} at {path} — run "
+            f"no bars for {underlying} in {data_dir} — run "
             f"'python -m vantage_server.snapshot_bars --from-lots' first"
         )
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise AnalyzeError(f"{path}: invalid JSON ({e})") from e
     for key in ("daily", "weekly", "monthly"):
         if not isinstance(data.get(key), list):
-            raise AnalyzeError(f"{path}: missing or malformed '{key}' bars")
+            raise AnalyzeError(f"{underlying}: missing or malformed '{key}' bars")
     return data
 
 
@@ -97,7 +97,9 @@ def _equity_holdings_by_symbol(lots) -> dict[str, dict]:
     for lot in lots:
         sym = lot.symbol
         if " " in sym or _underlying(sym) is None or _underlying(sym) != sym:
-            continue  # option display symbol or sleeve, not a plain equity
+            continue  # space-format option display symbol or sleeve
+        if sym.startswith("-") or sym.lstrip("-").isdigit():
+            continue  # broker option mark (-ALAB260710C400) or numeric CUSIP — not a listed equity
         entry = agg.setdefault(sym, {"shares": 0.0, "cost": 0.0})
         entry["shares"] += lot.shares
         entry["cost"] += lot.shares * lot.cost_per_share

@@ -1,16 +1,18 @@
 // Vantage — cross-account portfolio & market intelligence prototype.
 // v2: sidebar navigation + hash-routed views (one job per screen).
 import {
-  ACCOUNTS, MARKET, LOTS, TICKER_STRIP, AI_INSIGHTS, AI_PICKS, SIGNALS, SECTORS,
-  NOTIFICATIONS_SEED, NOTIF_TYPES, CHAT_RULES, ALLOCATION_TARGETS, ASSET_CLASSES,
+  NOTIF_TYPES, ALLOCATION_TARGETS, ASSET_CLASSES,
 } from "./data.js";
 import {
   usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
-  positions, tlhCandidates, allocation, accountValue, isOptionSym, isSleeveSym, underlyingOf,
-  loadSettings, SETTINGS_KEY, StatTile, heatTint, syncedAgo,
+  isOptionSym, isSleeveSym, underlyingOf,
+  loadSettings, SETTINGS_KEY, StatTile, syncedAgo,
 } from "./util.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
+import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
+import { PlaybookView } from "./playbook.jsx";
+import { FuturesView } from "./futures.jsx";
 import { TradeAnalyticsView } from "./trades.jsx";
 import * as live from "./live.js";
 import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, mapAnalysis } from "./live.js";
@@ -18,28 +20,38 @@ import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, m
 const { useState, useMemo, useEffect, useRef } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
 
+// Empty allocation shape (matches mapAllocation) — the no-demo fallback for the
+// allocation fetch so the Dashboard renders an empty bar, never fixture weights.
+const EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
+
 /* ---------------- navigation ---------------- */
 const NAV = [
   { group: "Portfolio", items: [
-    { id: "overview", label: "Overview", icon: "◫" },
-    { id: "holdings", label: "Holdings", icon: "▤" },
-    { id: "activity", label: "Activity", icon: "⇅" },
-    { id: "tax", label: "Tax Center", icon: "🌾" },
-    { id: "recs", label: "Recommendations", icon: "✦" },
+    { id: "dashboard", label: "Dashboard", icon: "◫" },
+    { id: "holdings", label: "Positions", icon: "▤" },
+    { id: "tax", label: "Tax", icon: "🌾" },
   ]},
   { group: "Intelligence", items: [
-    { id: "markets", label: "Market Intel", icon: "📈" },
-    { id: "options", label: "Options Intel", icon: "◎" },
-    { id: "trades", label: "Trade Analytics", icon: "🧮" },
-    { id: "charts", label: "AI Charts", icon: "📊" },
+    { id: "options", label: "Options", icon: "◎" },
+    { id: "playbook", label: "0DTE Playbook", icon: "🎯" },
+    { id: "futures", label: "Futures", icon: "📉" },
+    { id: "trades", label: "Performance", icon: "🧮" },
   ]},
 ];
-const ROUTES = NAV.flatMap((g) => g.items.map((i) => i.id));
+// Nav lists the five top-level views. These extra routes stay reachable as
+// drill-downs (via row jumps / links) but are intentionally off the nav so the
+// sidebar reads as a strategist's brief, not an operations console:
+//   charts   — opened from a Positions row or an Action ("view chart")
+//   activity — per-position transactions, reached from a holding
+//   recs     — the full decision journal, reached from the Dashboard Actions "All →"
+//   markets  — live pattern signals, reached from Market read links
+const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets"];
+const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 function useHashRoute() {
   const initial = () => {
     const h = window.location.hash.replace(/^#\/?/, "");
-    return ROUTES.includes(h) ? h : "overview";
+    return ROUTES.includes(h) ? h : "dashboard";
   };
   const [route, setRoute] = useState(initial);
   useEffect(() => {
@@ -62,14 +74,45 @@ function App() {
   const [accountId, setAccountId] = useState(settings.defaultAccount);
   const [symbol, setSymbol] = useState("SPY");
   const [route, go] = useHashRoute();
-  const [notifs, setNotifs] = useState(NOTIFICATIONS_SEED);
+  const [notifs, setNotifs] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [analysisSym, setAnalysisSym] = useState(null);
   // NotebookLM-style collapsible side panels (component state; default from viewport).
   const [leftOpen, setLeftOpen] = useState(() => window.innerWidth >= 860);
   const [rightOpen, setRightOpen] = useState(() => window.innerWidth >= 1100);
+  // Resizable right pane: user-dragged width persisted to localStorage. Clamped
+  // to a sane range; the .clps collapse rule (48px) still wins when collapsed.
+  const RIGHT_MIN = 300, RIGHT_MAX = 720;
+  const [rightWidth, setRightWidth] = useState(() => {
+    const saved = Number(localStorage.getItem("vantage.rightWidth"));
+    return saved >= RIGHT_MIN && saved <= RIGHT_MAX ? saved : 360;
+  });
+  const [resizing, setResizing] = useState(false);
+  const startResize = (e) => {
+    e.preventDefault();
+    setResizing(true);
+    const startX = e.clientX;
+    const startW = rightWidth;
+    const onMove = (ev) => {
+      // dragging left (smaller clientX) widens the right pane
+      const next = Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, startW + (startX - ev.clientX)));
+      setRightWidth(next);
+    };
+    const onUp = () => {
+      setResizing(false);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      document.body.style.userSelect = "";
+      try { localStorage.setItem("vantage.rightWidth", String(rightWidthRef.current)); } catch (_) {}
+    };
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+  // Keep a ref of the latest width so the mouseup closure persists the final value.
+  const rightWidthRef = useRef(rightWidth);
+  rightWidthRef.current = rightWidth;
   // Refresh wiring: a monotonically-bumped nonce that live-data fetchers depend
   // on, so a completed refresh re-pulls positions/rail without a page reload.
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -89,19 +132,12 @@ function App() {
     return () => { mqRight.removeEventListener("change", onRight); mqLeft.removeEventListener("change", onLeft); };
   }, []);
 
-  // TLH: fixture math is the fallback; the backend engine takes over when live.
-  const tlhFixture = useMemo(() => tlhCandidates(settings), [settings]);
-  const tlh = useLive(() => live.tlh(settings).then(mapTlh), tlhFixture, [settings]).data;
+  // TLH candidates come only from the live engine — no demo fallback. Empty
+  // until the backend responds (the Tax view shows an honest empty state).
+  const tlh = useLive(() => live.tlh(settings).then(mapTlh), [], [settings], { blankOnOutage: true }).data;
 
-  // Account scope rail: live /api/accounts (includes imported accounts like
-  // Robinhood) with the fixture registry as the offline fallback.
-  // Demo accounts show only until live data resolves (or on a cold start with
-  // no backend). Once the account fetch has succeeded once, a later failure is
-  // an outage and the rail blanks (useLive blankOnOutage) — no fake accounts.
-  const acctFixture = useMemo(
-    () => ACCOUNTS.map((a) => ({ id: a.id, short: a.short, type: a.type, value: accountValue(a.id) })),
-    [],
-  );
+  // Account scope rail: live /api/accounts only. No demo accounts — empty until
+  // the backend responds, and blanks on a later outage (blankOnOutage).
   const scopeLive = useLive(
     () => live.accounts().then((p) => {
       if (!p || !p.accounts) return null;
@@ -111,11 +147,15 @@ function App() {
         lastSynced: a.last_synced, broker: a.broker, refreshable: a.refreshable,
       }));
     }),
-    acctFixture,
+    [],
     [settings, refreshNonce], // re-fetch the rail after a refresh completes
     { blankOnOutage: true },
   );
   const scopeAccounts = scopeLive.data;
+
+  // Top market strip: live index band only (no demo ticker). Empty until the
+  // quote feed responds; blanks on outage.
+  const marketBand = useLive(() => live.quotes().then(live.mapMarketBand), null, [settings, refreshNonce]).data;
   const scopeOutage = scopeLive.outage;
   const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
 
@@ -153,7 +193,11 @@ function App() {
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(next)); } catch (e) { /* private mode */ }
   };
 
-  const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh, go, setAnalysisSym, setNotifOpen, refreshNonce };
+  const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh, go, setNotifOpen, refreshNonce };
+  // The Dashboard "Accounts today" section reuses the live account rail + its
+  // refresh handlers so "how is each account doing" is answered in the brief,
+  // not only in the scope selector.
+  const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
   const hasChartRail = route === "charts";
 
   return (
@@ -174,10 +218,10 @@ function App() {
       />
 
       <div className="vg-ticker">
-        {TICKER_STRIP.map((t) => (
+        {marketBand && marketBand.indexes.map((t) => (
           <span className="vg-tick" key={t.sym}>
-            <b>{t.label}</b> {t.price}
-            <span className={dirCls(t.pct)}>{signPct(t.pct)}</span>
+            <b>{t.label}</b> {t.price != null ? t.price.toFixed(2) : "—"}
+            <span className={dirCls(t.dayPct)}>{signPct(t.dayPct)}</span>
           </span>
         ))}
       </div>
@@ -294,35 +338,50 @@ function App() {
 
         {/* -------- center pane: routed view -------- */}
         <main id="vg-center" className="vg-pane vg-pane-center">
-          {route === "overview" && <OverviewView {...viewProps} notifs={notifs} />}
+          {route === "dashboard" && <DashboardView {...viewProps} {...dashProps} notifs={notifs} />}
           {route === "holdings" && <HoldingsView {...viewProps} />}
           {route === "activity" && <ActivityView {...viewProps} />}
           {route === "tax" && <TaxView {...viewProps} />}
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
+          {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
+          {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
         </main>
 
-        {/* -------- right pane: contextual AI rail (charts) or docked chat -------- */}
-        <aside className={cls("vg-pane", "vg-pane-right", !rightOpen && "clps")}>
+        {/* -------- right pane: per-ticker Notebook (default) / chart rail / chat -------- */}
+        <aside className={cls("vg-pane", "vg-pane-right", !rightOpen && "clps", resizing && "resizing")}
+          style={rightOpen ? { width: rightWidth } : undefined}>
+          {rightOpen && (
+            <div className="vg-resize-handle" onMouseDown={startResize}
+              title="Drag to resize" role="separator" aria-orientation="vertical"
+              aria-label="Resize notebook panel" />
+          )}
           <div className="vg-pane-top">
             <button className="vg-collapse" title={rightOpen ? "Collapse panel" : "Expand panel"}
-              aria-label={rightOpen ? "Collapse AI panel" : "Expand AI panel"}
+              aria-label={rightOpen ? "Collapse notebook panel" : "Expand notebook panel"}
               onClick={() => setRightOpen(!rightOpen)}>
               {rightOpen ? "»" : "«"}
             </button>
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
-                {hasChartRail ? "AI insights" : "Vantage AI"}
+                {hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"}
               </span>
+            )}
+            {rightOpen && !hasChartRail && symbol && (
+              <button className="vg-linkbtn" style={{ marginLeft: "auto" }}
+                title={`Open ${underlyingOf(symbol)} on AI Charts`}
+                onClick={() => go("charts")}>chart →</button>
             )}
           </div>
           {!rightOpen && <span className="vg-sparkle" aria-hidden="true">✦</span>}
           {rightOpen && (hasChartRail
             ? <div className="vg-pane-body vg-rail"><ChartsRail symbol={symbol} /></div>
-            : <ChatPanel docked settings={settings} />)}
+            : symbol
+              ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
+              : <ChatPanel docked settings={settings} />)}
         </aside>
       </div>
 
@@ -341,10 +400,9 @@ function App() {
       )}
       {chatOpen && <ChatPanel settings={settings} onClose={() => setChatOpen(false)} />}
       {settingsOpen && (
-        <SettingsModal settings={settings} onSave={(s) => { saveSettings(s); setSettingsOpen(false); }}
+        <SettingsModal settings={settings} accounts={scopeAccounts} onSave={(s) => { saveSettings(s); setSettingsOpen(false); }}
           onClose={() => setSettingsOpen(false)} />
       )}
-      {analysisSym && <AnalysisModal stock={analysisSym} onClose={() => setAnalysisSym(null)} />}
     </div>
   );
 }
@@ -382,11 +440,86 @@ function LiveStatusDots({ settings }) {
 }
 
 /* ================= Overview ================= */
-function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen, refreshNonce }) {
-  const posFixture = useMemo(() => positions(accountId), [accountId]);
-  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
-  const allocFixture = useMemo(() => allocation(accountId), [accountId]);
-  const alloc = useLive(() => live.allocation(accountId).then(mapAllocation), allocFixture, [accountId, settings, refreshNonce]).data;
+// Build the prioritized Action Queue from live sources — the answer to
+// "what needs me today?". Three real inputs, one sorted list:
+//   • decision journal (/api/analysis): CLOSE_AND_BOOK_LOSS, HOLD_AND_SELL_CALL
+//   • TLH engine: harvest-ready (clear) loss lots past threshold
+//   • allocation drift: any asset class ≥3pts off target (all-accounts scope)
+// MONITOR/below-threshold/na items are NOT actions and never appear here.
+// Each action carries an urgency weight (lower = more urgent) and a jump target.
+function buildActionQueue({ decisions, tlh, alloc, totalValue, accountId, settings, go, setSymbol }) {
+  const jumpChart = (sym) => { setSymbol(sym); go("charts"); };
+  const out = [];
+
+  for (const d of decisions) {
+    if (d.recommendation === "CLOSE_AND_BOOK_LOSS") {
+      out.push({
+        key: `close-${d.symbol}`, weight: 0, tone: "bad", chip: "CLOSE & BOOK LOSS",
+        title: `${d.symbol} — ${recDetail(d)}`, sub: d.rationale || "", onJump: () => jumpChart(d.symbol),
+      });
+    } else if (d.recommendation === "HOLD_AND_SELL_CALL") {
+      out.push({
+        key: `call-${d.symbol}`, weight: 1, tone: "info", chip: "SELL CALL",
+        title: `${d.symbol} — ${recDetail(d)}`, sub: d.rationale || "", onJump: () => jumpChart(d.symbol),
+      });
+    }
+  }
+
+  // Harvest-ready TLH lots the journal didn't already flag as CLOSE (dedupe by symbol).
+  const closeSyms = new Set(out.filter((a) => a.key.startsWith("close-")).map((a) => a.key.slice(6)));
+  const bySym = {};
+  for (const c of tlh) {
+    if (c.status !== "clear" || closeSyms.has(c.lot.symbol)) continue;
+    const g = (bySym[c.lot.symbol] ||= { sym: c.lot.symbol, loss: 0, replacement: c.replacement });
+    g.loss += -c.unrl;
+  }
+  for (const g of Object.values(bySym)) {
+    const benefit = g.loss * (settings.taxRate / 100);
+    out.push({
+      key: `harvest-${g.sym}`, weight: 2, tone: "good", chip: "HARVEST",
+      title: `${g.sym} — harvest ${usd(g.loss)} loss ≈ ${usd(benefit)} benefit`,
+      sub: g.replacement ? `Replace with ${g.replacement} to hold exposure and avoid a wash.` : "Wash-clear in taxable accounts.",
+      onJump: () => go("tax"),
+    });
+  }
+
+  // Allocation drift (portfolio-level only, like the legend badges).
+  if (accountId === "all" && totalValue > 0) {
+    for (const [k, m] of Object.entries(ASSET_CLASSES)) {
+      const pct = (alloc.byClass[k] / totalValue) * 100;
+      const drift = pct - ALLOCATION_TARGETS[k];
+      if (Math.abs(drift) >= 3) {
+        out.push({
+          key: `drift-${k}`, weight: 3, tone: drift > 0 ? "warn" : "info", chip: "REBALANCE",
+          title: `${m.label} ${signPct(drift, 1)} vs target (${pct.toFixed(1)}% / ${ALLOCATION_TARGETS[k]}%)`,
+          sub: drift > 0 ? "Overweight — trim on the next contribution." : "Underweight — direct new cash here.",
+          onJump: () => go("holdings"),
+        });
+      }
+    }
+  }
+
+  return out.sort((a, b) => a.weight - b.weight);
+}
+
+function DashboardView({
+  accountId, setAccountId, settings, tlh, go, setSymbol, refreshNonce,
+  scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll,
+}) {
+  // Live engine only — empty fallbacks, no demo. blankOnOutage keeps the app
+  // honest: an outage shows an empty book, never fabricated positions.
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
+  const alloc = useLive(() => live.allocation(accountId).then(mapAllocation), EMPTY_ALLOC, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
+
+  // Q1 — market today: live index band + Mira's market read (both may be null → fallbacks).
+  const band = useLive(() => live.quotes().then(live.mapMarketBand), null, [settings, refreshNonce]).data;
+  const miraOn = settings.aiBackend === "mira";
+  const report = useLive(() => (miraOn ? live.getInsights().then(live.mapInsights) : null), null, [settings]).data;
+
+  // Q4 — actions: the live decision journal drives the queue.
+  const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
+  const decisions = (analysis && analysis.decisions) || [];
+
   const totalValue = alloc.total;
   const dayPl = pos.reduce((s, p) => s + p.dayPl, 0);
   const unrlPl = pos.reduce((s, p) => s + p.unrl, 0);
@@ -394,16 +527,83 @@ function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen, refr
   const harvestableLoss = harvestable.reduce((s, c) => s + -c.unrl, 0);
   const estBenefit = harvestableLoss * (settings.taxRate / 100);
   const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
-  const recent = notifs.slice(0, 3);
+
+  const actions = buildActionQueue({ decisions, tlh, alloc, totalValue, accountId, settings, go, setSymbol });
 
   return (
     <div>
       <div className="vg-spread">
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Overview</h2>
-          <p className="vg-sub">{acctLabel} · marked to last close</p>
+          <h2 style={{ margin: 0, fontSize: 19 }}>Dashboard</h2>
+          <p className="vg-sub">{acctLabel} · your morning brief · marked to last close</p>
         </div>
       </div>
+
+      {/* ---------- Q1 · How is the market doing today? ---------- */}
+      <div className="vg-card" style={{ marginTop: 14 }}>
+        <div className="vg-spread">
+          <div className="vg-kicker" style={{ marginBottom: 0 }}>Market today</div>
+          {band && (
+            <span className="vg-note">
+              {band.source === "fixture" ? "demo feed" : band.source}{band.stale ? " · stale" : ""}
+              {band.asOf ? ` · ${band.asOf}` : ""}
+            </span>
+          )}
+        </div>
+        {band ? (
+          <>
+            <div className="vg-marketband" style={{ marginTop: 12 }}>
+              {band.indexes.map((ix) => (
+                <div className="vg-idx" key={ix.sym}>
+                  <div className="vg-idx-name">{ix.label}</div>
+                  <div className="vg-idx-price">{ix.price != null ? ix.price.toFixed(2) : "—"}</div>
+                  <div className={cls("vg-idx-pct", dirCls(ix.dayPct))}>{signPct(ix.dayPct)}</div>
+                </div>
+              ))}
+            </div>
+            <p className="vg-note" style={{ marginTop: 10 }}>{band.regime}.</p>
+          </>
+        ) : (
+          <p className="vg-note" style={{ marginTop: 12 }}>
+            Market data unavailable — start the backend to see live index levels.
+          </p>
+        )}
+        {report && (
+          <div style={{ marginTop: 14, borderTop: "1px solid var(--color-border, #e5e7eb)", paddingTop: 12 }}>
+            <div className="vg-spread">
+              <div className="vg-kicker" style={{ marginBottom: 0 }}>Mira advisor read</div>
+              <span className="vg-row">
+                <span className="vg-badge good">● live</span>
+                {report.confidence && <span className="vg-note">confidence {report.confidence}</span>}
+              </span>
+            </div>
+            {report.summary && <p style={{ fontSize: 14, lineHeight: 1.55, margin: "10px 0" }}>{report.summary}</p>}
+            {report.observations.length > 0 && (
+              <div className="vg-tablewrap">
+                <table className="vg-table">
+                  <tbody>
+                    {report.observations.map((o, i) => (
+                      <tr key={i}>
+                        <td style={{ width: 140 }}><b>{o.topic}</b></td>
+                        <td>{o.detail}{o.source && <div className="vg-note">{o.source}</div>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {report.suggestions.length > 0 && (
+              <ul className="vg-suggestions" style={{ marginTop: 10 }}>
+                {report.suggestions.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            )}
+            {report.caveats && <p className="vg-note" style={{ marginTop: 8 }}>{report.caveats}</p>}
+          </div>
+        )}
+      </div>
+
+      {/* ---------- Q2 · How is my portfolio doing today? ---------- */}
+      <div className="vg-kicker" style={{ margin: "20px 2px 6px" }}>Portfolio today</div>
       <div className="vg-stats">
         <StatTile label="Total value" value={usd(totalValue)} />
         <StatTile label="Day P/L" value={signUsd(dayPl)} deltaDir={dirCls(dayPl)}
@@ -442,39 +642,77 @@ function OverviewView({ accountId, settings, tlh, go, notifs, setNotifOpen, refr
         </div>
       </div>
 
-      <div className="vg-grid2" style={{ marginTop: 14 }}>
-        <div className="vg-card">
-          <div className="vg-spread">
-            <div className="vg-kicker" style={{ marginBottom: 0 }}>Top actions</div>
-            <button className="vg-linkbtn" onClick={() => go("recs")}>All recommendations →</button>
-          </div>
-          <div style={{ marginTop: 10, display: "grid", gap: 10 }}>
-            <SecurityCard accent="teal" title={`Harvest IWM → ≈ ${usd(1513 * settings.taxRate / 100)} benefit`}>
-              Clear in all 4 accounts. Replace with IJR to keep exposure.
-            </SecurityCard>
-            <SecurityCard accent="orange" title="Pause Jul VOO auto-buy">
-              Wealthfront's auto-invest is washing the Fidelity VOO loss.
-            </SecurityCard>
-          </div>
-        </div>
-        <div className="vg-card">
-          <div className="vg-spread">
-            <div className="vg-kicker" style={{ marginBottom: 0 }}>Latest alerts</div>
-            <button className="vg-linkbtn" onClick={() => setNotifOpen(true)}>Open inbox →</button>
-          </div>
-          <div style={{ marginTop: 10 }}>
-            {recent.map((n) => (
-              <div key={n.id} className={cls("vg-notif", !n.read && "unread")} style={{ cursor: "default" }}>
-                {!n.read && <span className="vg-dot" />}
-                <div>
-                  <div className="t">{NOTIF_TYPES[n.type].icon} {n.title}</div>
-                  <div className="when">{n.time} · {NOTIF_TYPES[n.type].label}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* ---------- Q3 · How are my accounts doing today? ---------- */}
+      <div className="vg-spread" style={{ margin: "20px 2px 6px" }}>
+        <div className="vg-kicker" style={{ marginBottom: 0 }}>Accounts today</div>
+        <button className={cls("vg-refresh", refreshing.all && "spinning")} title="Refresh all accounts"
+          aria-label="Refresh all accounts" disabled={!!refreshing.all} onClick={onRefreshAll}>
+          <span className="ic">⟳</span> <span style={{ fontSize: 12 }}>refresh all</span>
+        </button>
       </div>
+      {scopeAccounts.length === 0 ? (
+        <div className="vg-card">
+          <p className="vg-note" style={{ margin: 0 }}>
+            {scopeOutage ? "Backend unreachable — no accounts to show." : "No linked accounts yet — import a broker."}
+          </p>
+        </div>
+      ) : (
+        <div className="vg-acctgrid">
+          {scopeAccounts.map((a) => {
+            const csvOnly = a.refreshable === false;
+            const pending = !!refreshing[a.id];
+            return (
+              <div key={a.id} className={cls("vg-acctcard", accountId === a.id && "sel")}>
+                <button className="vg-acctcard-main" onClick={() => setAccountId(a.id)} title={`Scope to ${a.short}`}>
+                  <div className="vg-acctcard-name">{a.short}</div>
+                  <div className="vg-acctcard-val">{usd(a.value)}</div>
+                  <div className="vg-note">{a.type}{a.lastSynced !== undefined ? ` · synced ${syncedAgo(a.lastSynced)}` : ""}</div>
+                </button>
+                <button className={cls("vg-refresh", pending && "spinning")}
+                  title={csvOnly ? "re-import CSV to refresh — no live API" : `Refresh ${a.short}`}
+                  aria-label={`Refresh ${a.short}`} disabled={pending || csvOnly}
+                  onClick={(e) => { e.stopPropagation(); if (!csvOnly) onRefreshAccount(a.id); }}>
+                  <span className="ic">⟳</span>
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {refreshNote && (
+        <p className="vg-note" style={{ marginTop: 8, color: refreshNote.tone === "warn" ? "var(--color-grey)" : undefined }}>
+          {refreshNote.text}
+        </p>
+      )}
+
+      {/* ---------- Q4 · Are there any actions I need to take? ---------- */}
+      <div className="vg-spread" style={{ margin: "20px 2px 6px" }}>
+        <div className="vg-kicker" style={{ marginBottom: 0 }}>Actions{actions.length ? ` (${actions.length})` : ""}</div>
+        <button className="vg-linkbtn" onClick={() => go("recs")}>All recommendations →</button>
+      </div>
+      {actions.length === 0 ? (
+        <div className="vg-card">
+          <p className="vg-note" style={{ margin: 0 }}>
+            {analysis
+              ? "Nothing needs you today — no close, covered-call, harvest, or rebalance actions. Monitoring the rest."
+              : "The decision journal is empty or the backend is unreachable. Run the nightly analysis and confirm the backend URL in Settings."}
+          </p>
+        </div>
+      ) : (
+        <div className="vg-actionq">
+          {actions.map((a) => (
+            <div key={a.key} className="vg-action" onClick={a.onJump} role="button" tabIndex={0}
+              onKeyDown={(e) => { if (e.key === "Enter") a.onJump(); }}>
+              <span className={cls("vg-badge", a.tone)} style={{ flexShrink: 0 }}>{a.chip}</span>
+              <div style={{ minWidth: 0 }}>
+                <div className="vg-action-title">{a.title}</div>
+                {a.sub && <div className="vg-note">{a.sub}</div>}
+              </div>
+              <span className="vg-action-go" aria-hidden="true">→</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -513,18 +751,38 @@ const HOLD_SORTS = {
   symbol: { label: "Symbol",          key: (p) => p.symbol,     dir: 1 },
 };
 
+// A short option-leg label from a position symbol ("PLTR 2026-10-16 120C" ->
+// "$120C Oct 16") for the grouped leg sub-rows.
+function optionLegLabel(sym) {
+  // symbol shape: "UND YYYY-MM-DD STRIKE[C|P]"
+  const m = /^(\S+)\s+(\d{4}-\d{2}-\d{2})\s+(\d+(?:\.\d+)?)([CP])$/.exec(sym);
+  if (!m) return sym;
+  const [, , exp, strike, cp] = m;
+  return `$${Number(strike).toFixed(0)}${cp} ${fmtDate(exp)}`;
+}
+// Match key for pairing an option position row to its leg-action:
+// "strike|expiration|optiontype" (no side — the position symbol lacks it).
+function optionMatchKeyFrom(strike, expiration, optionType) {
+  return `${Number(strike)}|${expiration}|${(optionType || "").toLowerCase()}`;
+}
+function optionMatchKey(sym) {
+  const m = /^(\S+)\s+(\d{4}-\d{2}-\d{2})\s+(\d+(?:\.\d+)?)([CP])$/.exec(sym);
+  if (!m) return sym.toUpperCase();
+  const [, , exp, strike, cp] = m;
+  return optionMatchKeyFrom(strike, exp, cp === "C" ? "call" : "put");
+}
+
 function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
-  const [expanded, setExpanded] = useState({});
+  const [expanded, setExpanded] = useState({});   // keyed by underlying group id
   const [sortKey, setSortKey] = useState("value");
   const [recFilter, setRecFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all"); // all | equity | option | losers
   const [query, setQuery] = useState("");
 
-  const posFixture = useMemo(() => positions(accountId), [accountId]);
-  const pos = useLive(() => live.positions(accountId).then(mapPositions), posFixture, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
-  // Journal decisions indexed by underlying — an option contract inherits its
-  // underlying's read; a plain ticker maps to its own decision.
-  const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings]).data;
+  const pos = useLive(() => live.positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
+  // Journal decisions indexed by underlying — the group inherits its underlying's
+  // read; each option leg gets its own leg-action from decision.legActions.
+  const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
   const byUnderlying = useMemo(() => {
     const m = {};
     for (const d of (analysis?.decisions || [])) m[underlyingOf(d.symbol)] = d;
@@ -533,41 +791,76 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
 
   const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
 
-  const rows = useMemo(() => {
-    const withRec = pos
-      .filter((p) => p.symbol !== "CASH")
-      .map((p) => ({ ...p, _rec: byUnderlying[underlyingOf(p.symbol)] || null }));
+  // Group flat positions by underlying: each group = the equity position (if any)
+  // + every option-contract position for that ticker. Combined totals on the
+  // header; per-leg actions matched from the decision's legActions.
+  const groups = useMemo(() => {
+    const by = {};
+    for (const p of pos) {
+      if (p.symbol === "CASH") continue;
+      const key = underlyingOf(p.symbol);
+      const g = (by[key] ||= { key, equity: null, options: [], sleeve: null,
+                               value: 0, dayPl: 0, unrl: 0, weight: 0 });
+      if (isOptionSym(p.symbol)) g.options.push(p);
+      else if (p.symbol === "CRYPTO" || p.symbol === "FUTURES") g.sleeve = p;
+      else g.equity = p;
+      g.value += p.value || 0;
+      g.dayPl += p.dayPl || 0;
+      g.unrl += p.unrl || 0;
+      g.weight += p.weight || 0;
+    }
+    let list = Object.values(by).map((g) => {
+      const rec = byUnderlying[g.key] || null;
+      // index leg actions by occSymbol AND by strike|exp|type (the position
+      // symbol carries no long/short, so the fallback key omits side).
+      const legActs = {};
+      for (const a of (rec?.legActions || [])) {
+        if (a.occSymbol) legActs[a.occSymbol.toUpperCase()] = a;
+        legActs[optionMatchKeyFrom(a.strike, a.expiration, a.optionType)] = a;
+      }
+      return { ...g, _rec: rec, _legActs: legActs };
+    });
+
     const q = query.trim().toUpperCase();
-    const filtered = withRec.filter((p) => {
-      if (q && !p.symbol.toUpperCase().includes(q)) return false;
-      if (kindFilter === "option" && !isOptionSym(p.symbol)) return false;
-      if (kindFilter === "equity" && (isOptionSym(p.symbol) || isSleeveSym(p.symbol))) return false;
-      if (kindFilter === "losers" && !(p.unrl < 0)) return false;
-      if (recFilter === "actionable" && (REC_ORDER[p._rec?.recommendation] ?? 9) > 1) return false;
-      if (recFilter !== "all" && recFilter !== "actionable" && p._rec?.recommendation !== recFilter) return false;
+    list = list.filter((g) => {
+      if (q && !g.key.includes(q)) return false;
+      if (kindFilter === "equity" && !g.equity) return false;
+      if (kindFilter === "option" && g.options.length === 0) return false;
+      if (kindFilter === "losers" && !(g.unrl < 0)) return false;
+      if (recFilter === "actionable" && (REC_ORDER[g._rec?.recommendation] ?? 9) > 1) return false;
+      if (recFilter !== "all" && recFilter !== "actionable" && g._rec?.recommendation !== recFilter) return false;
       return true;
     });
+    // Sort groups by the same keys (they expose value/unrl/weight/dayPl/symbol).
     const s = HOLD_SORTS[sortKey] || HOLD_SORTS.value;
-    return filtered.sort((a, b) => {
-      const ka = s.key(a), kb = s.key(b);
+    const keyFor = (g) => {
+      if (sortKey === "symbol") return g.key;
+      if (sortKey === "action") return REC_ORDER[g._rec?.recommendation] ?? 9;
+      if (sortKey === "unrl") return g.unrl;
+      if (sortKey === "weight") return g.weight;
+      if (sortKey === "day") return g.dayPl;
+      return g.value;
+    };
+    return list.sort((a, b) => {
+      const ka = keyFor(a), kb = keyFor(b);
       const cmp = typeof ka === "string" ? ka.localeCompare(kb) : ka - kb;
       return cmp * s.dir;
     });
   }, [pos, byUnderlying, query, kindFilter, recFilter, sortKey]);
 
   const openChart = (sym) => { if (setSymbol) setSymbol(underlyingOf(sym)); if (go) go("charts"); };
-  const actionable = rows.filter((p) => (REC_ORDER[p._rec?.recommendation] ?? 9) <= 1).length;
+  const actionable = groups.filter((g) => (REC_ORDER[g._rec?.recommendation] ?? 9) <= 1).length;
 
   return (
     <div>
       <h2 style={{ margin: 0, fontSize: 19 }}>Holdings</h2>
       <p className="vg-sub">
-        {acctLabel} · {rows.length} shown{analysis ? ` · ${actionable} actionable` : ""} · click a row for per-lot detail
+        {acctLabel} · {groups.length} ticker{groups.length === 1 ? "" : "s"}{analysis ? ` · ${actionable} actionable` : ""} · grouped by symbol · click to expand
       </p>
 
       <div className="vg-spread" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
         <div className="vg-pills">
-          {[["all", "All"], ["equity", "Equities"], ["option", "Options"], ["losers", "Losers"]].map(([k, l]) => (
+          {[["all", "All"], ["equity", "Has equity"], ["option", "Has options"], ["losers", "Losers"]].map(([k, l]) => (
             <button key={k} className={cls("vg-pill", kindFilter === k && "sel")} onClick={() => setKindFilter(k)}>{l}</button>
           ))}
         </div>
@@ -596,45 +889,70 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
             </tr>
           </thead>
           <tbody>
-            {rows.map((p) => {
-              const opt = isOptionSym(p.symbol);
-              const sleeve = p.symbol === "CRYPTO" || p.symbol === "FUTURES";
-              const noDay = (opt || sleeve) && !p.dayPl;
+            {groups.map((g) => {
+              const isOpen = !!expanded[g.key];
+              const sleeve = !!g.sleeve && !g.equity && g.options.length === 0;
+              const nOpts = g.options.length;
               return (
-              <React.Fragment key={p.symbol}>
-                <tr className="click" onClick={() => setExpanded((e) => ({ ...e, [p.symbol]: !e[p.symbol] }))}>
+              <React.Fragment key={g.key}>
+                <tr className="click vg-grouprow" onClick={() => {
+                    if (setSymbol && !sleeve) setSymbol(g.key); // open the notebook
+                    setExpanded((e) => ({ ...e, [g.key]: !e[g.key] }));
+                  }}>
                   <td>
-                    <b>{p.symbol}</b>
-                    {opt && <span className="vg-chip" style={{ marginLeft: 6 }} title="option contract">OPT</span>}
-                    {p.overlap && accountId === "all" && (
-                      <span className="vg-badge info" style={{ marginLeft: 6 }} title={`Held as ${p.overlap.symbols.join(", ")}`}>Overlap</span>
+                    <span className="vg-caret">{isOpen ? "▾" : "▸"}</span>
+                    <b>{g.key}</b>
+                    {nOpts > 0 && <span className="vg-chip" style={{ marginLeft: 6 }} title={`${nOpts} option leg(s)`}>{nOpts} OPT</span>}
+                    {g.equity && g.equity.overlap && accountId === "all" && (
+                      <span className="vg-badge info" style={{ marginLeft: 6 }} title={`Held as ${g.equity.overlap.symbols.join(", ")}`}>Overlap</span>
                     )}
-                    {!sleeve && p.weight > 7 && ((MARKET[p.symbol] || {}).name || "").indexOf("ETF") === -1 && (
+                    {g.equity && g.equity.weight > 7 && (
                       <span className="vg-badge warn" style={{ marginLeft: 6 }}>Concentrated</span>
                     )}
-                    <div className="vg-note">
-                      {(MARKET[p.symbol] || {}).name || (sleeve ? "sleeve — value via Robinhood portfolio" : "")}
-                    </div>
+                    {sleeve && <div className="vg-note">sleeve — value via broker portfolio</div>}
                   </td>
-                  <td className="num">{usd(p.value)}</td>
-                  <td className={cls("num", dirCls(p.dayPl))}>{noDay ? "—" : signUsd(p.dayPl)}</td>
-                  <td className={cls("num", dirCls(p.unrl))}>{signUsd(p.unrl)}</td>
-                  <td className="num">{p.weight.toFixed(1)}%</td>
-                  <td>{sleeve ? <span className="vg-note">—</span> : <HoldingRec d={p._rec} onOpen={openChart} />}</td>
+                  <td className="num">{usd(g.value)}</td>
+                  <td className={cls("num", dirCls(g.dayPl))}>{g.dayPl ? signUsd(g.dayPl) : "—"}</td>
+                  <td className={cls("num", dirCls(g.unrl))}>{signUsd(g.unrl)}</td>
+                  <td className="num">{g.weight.toFixed(1)}%</td>
+                  <td>{sleeve ? <span className="vg-note">—</span> : <HoldingRec d={g._rec} onOpen={openChart} />}</td>
                 </tr>
-                {expanded[p.symbol] && p.lots.map((l, i) => (
-                  <tr className="vg-subrow" key={i}>
-                    <td style={{ paddingLeft: 26 }}>lot · {fmtDate(l.date)}</td>
-                    <td className="num">{usd(lotValue(l))}</td>
-                    <td className="num">{`${l.shares} sh @ ${usd(l.costPerShare, 2)}`}</td>
-                    <td className={cls("num", dirCls(lotUnrl(l)))}>{signUsd(lotUnrl(l))}</td>
-                    <td className="num" colSpan={2}>{daysAgo(l.date) > 365 ? "long-term" : "short-term"}</td>
-                  </tr>
-                ))}
+                {isOpen && g.equity && (
+                  <>
+                    <tr className="vg-subrow vg-subhead"><td colSpan={6} style={{ paddingLeft: 26 }}>Equity · {g.equity.shares} sh</td></tr>
+                    {g.equity.lots.map((l, i) => (
+                      <tr className="vg-subrow" key={`eq-${i}`}>
+                        <td style={{ paddingLeft: 34 }}>lot · {fmtDate(l.date)}</td>
+                        <td className="num">{usd(lotValue(l))}</td>
+                        <td className="num">{`${l.shares} sh @ ${usd(l.costPerShare, 2)}`}</td>
+                        <td className={cls("num", dirCls(lotUnrl(l)))}>{signUsd(lotUnrl(l))}</td>
+                        <td className="num" colSpan={2}>{daysAgo(l.date) > 365 ? "long-term" : "short-term"}</td>
+                      </tr>
+                    ))}
+                  </>
+                )}
+                {isOpen && nOpts > 0 && (
+                  <>
+                    <tr className="vg-subrow vg-subhead"><td colSpan={6} style={{ paddingLeft: 26 }}>Options · {nOpts} leg(s)</td></tr>
+                    {g.options.map((p) => {
+                      const a = g._legActs[p.symbol.toUpperCase()] || g._legActs[optionMatchKey(p.symbol)] || null;
+                      return (
+                        <tr className="vg-subrow vg-legrow" key={p.symbol}>
+                          <td style={{ paddingLeft: 34 }}>{optionLegLabel(p.symbol)}</td>
+                          <td className="num">{usd(p.value)}</td>
+                          <td className="num">—</td>
+                          <td className={cls("num", dirCls(p.unrl))}>{signUsd(p.unrl)}</td>
+                          <td className="num"></td>
+                          <td><LegActionChip a={a} /></td>
+                        </tr>
+                      );
+                    })}
+                  </>
+                )}
               </React.Fragment>
               );
             })}
-            {rows.length === 0 && (
+            {groups.length === 0 && (
               <tr><td colSpan={6} className="vg-note" style={{ padding: 16 }}>No holdings match the current filters.</td></tr>
             )}
           </tbody>
@@ -780,7 +1098,7 @@ function TaxView({ settings, tlh }) {
     <div>
       <h2 style={{ margin: 0, fontSize: 19 }}>Tax Center — loss harvesting</h2>
       <p className="vg-sub">
-        Every lot marked to last close · wash-sale window checked across <b>all {ACCOUNTS.length} accounts</b> ·
+        Every lot marked to last close · wash-sale window checked across <b>all linked accounts</b> ·
         threshold {usd(settings.thresholdUsd)} or {settings.thresholdPct}% · decision-support only, no orders placed
       </p>
       <div className="vg-card vg-tablewrap" style={{ padding: "8px 12px" }}>
@@ -855,6 +1173,33 @@ const REC_CHIP = {
 };
 // actionable-first sort weight.
 const REC_ORDER = { CLOSE_AND_BOOK_LOSS: 0, HOLD_AND_SELL_CALL: 1, HOLD_WASH_BLOCKED: 2, MONITOR: 3 };
+
+// Per-option-leg strategist action chips (from decision.legActions).
+const LEG_ACTION_CHIP = {
+  DEFEND:       { cls: "bad",   text: "DEFEND" },
+  CLOSE_LEG:    { cls: "bad",   text: "CLOSE" },
+  TAKE_PROFIT:  { cls: "good",  text: "TAKE PROFIT" },
+  ROLL_UP:      { cls: "info",  text: "ROLL UP" },
+  ROLL_DOWN:    { cls: "warn",  text: "ROLL DOWN" },
+  ROLL_OUT:     { cls: "warn",  text: "ROLL OUT" },
+  LET_EXPIRE:   { cls: "plain", text: "LET EXPIRE" },
+  HOLD_LEG:     { cls: "plain", text: "HOLD" },
+};
+
+// One option leg's action chip + one-line detail (strike/expiry/DTE + target).
+function LegActionChip({ a }) {
+  if (!a) return <span className="vg-note">—</span>;
+  const chip = LEG_ACTION_CHIP[a.action] || { cls: "plain", text: a.action };
+  let detail = `${a.dte}DTE · ${a.moneyness}`;
+  if (a.target && a.target.strike != null) detail += ` → $${Number(a.target.strike).toFixed(0)}`;
+  else if (a.target && a.target.expiry) detail += ` → ${a.target.expiry}`;
+  return (
+    <span title={a.rationale || ""}>
+      <span className={cls("vg-badge", chip.cls)}>{chip.text}</span>
+      <span className="vg-note" style={{ marginLeft: 6 }}>{detail}</span>
+    </span>
+  );
+}
 
 // The one-line "key detail" per recommendation, read from the persisted action.
 function recDetail(d) {
@@ -983,106 +1328,26 @@ function RecsView({ settings, setSymbol, go }) {
   );
 }
 
-/* ================= Market Intel ================= */
-function MarketsView({ symbol, setSymbol, setAnalysisSym, go, settings }) {
+/* ================= Market Intel (drill-down: live pattern signals) =========
+ * Off the top-level nav — reached from the Dashboard market read. The advisor
+ * read and the market band live on the Dashboard now; the fixture heatmap,
+ * fixture per-symbol meters, and "AI picks" are cut. What remains is the one
+ * genuinely live, book-relevant surface: backend-graded pattern signals. */
+function MarketsView({ setSymbol, go, settings }) {
   const [signalsTab, setSignalsTab] = useState("active");
-  // Mira advisor report (live) replaces the fixture "AI picks" panel when available.
-  const miraOn = settings.aiBackend === "mira";
-  const insights = useLive(() => (miraOn ? live.getInsights() : null), null, [settings]);
-  const report = insights.data;
   // Signals: backend-graded when live (statuses computed from quotes, never
   // authored), fixture rows otherwise. "Past" = resolved (hit target / stopped);
   // everything else — active and unquoted — stays on the Active tab.
-  const signals = useLive(() => live.getSignals().then(mapSignals), SIGNALS, [settings]).data;
+  const signals = useLive(() => live.getSignals().then(mapSignals), [], [settings], { blankOnOutage: true }).data;
   const isPastSignal = (s) => s.status === "hit-target" || s.status === "stopped";
   return (
     <div>
-      <h2 style={{ margin: 0, fontSize: 19 }}>Market intelligence</h2>
-      <p className="vg-sub">AI-generated market read · educational only, not trade recommendations</p>
+      <h2 style={{ margin: 0, fontSize: 19 }}>Pattern signals</h2>
+      <p className="vg-sub">
+        Backend-graded technical signals · statuses computed from live quotes, never authored · educational only
+      </p>
 
-      <div className="vg-card">
-        <div className="vg-spread">
-          <div className="vg-pills">
-            {Object.keys(AI_INSIGHTS).map((s) => (
-              <button key={s} className={cls("vg-pill", symbol === s && "sel")} onClick={() => setSymbol(s)}>{s}</button>
-            ))}
-          </div>
-          <div className="vg-row">
-            <span className={cls("vg-bias", AI_INSIGHTS[symbol].bias)}>{AI_INSIGHTS[symbol].bias}</span>
-            <button className="vg-linkbtn" onClick={() => go("charts")}>Open on AI Charts →</button>
-          </div>
-        </div>
-        <p style={{ fontSize: 14.5, lineHeight: 1.55, margin: "14px 0" }}>{AI_INSIGHTS[symbol].summary}</p>
-        <div className="vg-grid2">
-          <div>
-            <div className="vg-spread" style={{ fontSize: 12.5, color: "var(--color-grey)" }}>
-              <span>Momentum</span><span>{AI_INSIGHTS[symbol].momentum}/100</span>
-            </div>
-            <div className="vg-meter"><span style={{ width: `${AI_INSIGHTS[symbol].momentum}%` }} /></div>
-          </div>
-          <div>
-            <div className="vg-spread" style={{ fontSize: 12.5, color: "var(--color-grey)" }}>
-              <span>Sentiment</span><span>{AI_INSIGHTS[symbol].sentiment}/100</span>
-            </div>
-            <div className="vg-meter"><span style={{ width: `${AI_INSIGHTS[symbol].sentiment}%`, background: "var(--color-secondary)" }} /></div>
-          </div>
-        </div>
-      </div>
-
-      {report ? (
-        <div className="vg-card" style={{ marginTop: 14 }}>
-          <div className="vg-spread">
-            <div className="vg-kicker" style={{ marginBottom: 0 }}>Mira advisor insights</div>
-            <span className="vg-row">
-              <span className="vg-badge good">● live</span>
-              {report.confidence != null && <span className="vg-note">confidence {report.confidence}</span>}
-            </span>
-          </div>
-          {report.summary && <p style={{ fontSize: 14, lineHeight: 1.55, margin: "12px 0" }}>{report.summary}</p>}
-          {Array.isArray(report.observations) && report.observations.length > 0 && (
-            <div className="vg-tablewrap">
-              <table className="vg-table">
-                <tbody>
-                  {report.observations.map((o, i) => (
-                    <tr key={i}>
-                      <td style={{ width: 140 }}><b>{o.topic}</b></td>
-                      <td>
-                        {o.detail}
-                        {o.evidence && <div className="vg-note">{o.evidence}</div>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-          {report.caveats && (Array.isArray(report.caveats) ? report.caveats.length > 0 : true) && (
-            <p className="vg-note" style={{ marginTop: 8 }}>
-              {Array.isArray(report.caveats) ? report.caveats.join(" · ") : String(report.caveats)}
-            </p>
-          )}
-        </div>
-      ) : (
-        <div className="vg-card" style={{ marginTop: 14 }}>
-          <div className="vg-kicker">Today's AI picks</div>
-          <div className="vg-tablewrap">
-            <table className="vg-table">
-              <tbody>
-                {AI_PICKS.map((p) => (
-                  <tr key={p.sym} className="click" onClick={() => AI_INSIGHTS[p.sym] && setSymbol(p.sym)}>
-                    <td style={{ width: 70 }}><b>{p.sym}</b></td>
-                    <td><span className={cls("vg-bias", p.stance)} style={{ fontSize: 12 }}>{p.stance}</span></td>
-                    <td className="vg-note">{p.note}</td>
-                    <td className="num" style={{ width: 90 }}>{p.conf}% conf</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      <div className="vg-card" style={{ marginTop: 14 }}>
+      <div className="vg-card" style={{ marginTop: 8 }}>
         <div className="vg-spread">
           <div className="vg-kicker" style={{ marginBottom: 0 }}>AI pattern signals</div>
           <div className="vg-pills">
@@ -1131,34 +1396,6 @@ function MarketsView({ symbol, setSymbol, setAnalysisSym, go, settings }) {
               ))}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <div className="vg-card" style={{ marginTop: 14 }}>
-        <div className="vg-spread" style={{ marginBottom: 12 }}>
-          <div className="vg-kicker" style={{ marginBottom: 0 }}>Sector heatmap — S&P 100, 1-day change</div>
-          <span className="vg-note">green = up · red = down · click a stock for detail</span>
-        </div>
-        <div className="vg-heat">
-          {SECTORS.map((sec) => (
-            <div className="vg-heat-sector" key={sec.name}>
-              <h4>
-                {sec.name}
-                <span style={{ color: sec.pct >= 0 ? "var(--vg-success-deep)" : "var(--vg-danger)" }}>
-                  {signPct(sec.pct)}
-                </span>
-              </h4>
-              <div className="vg-heat-tiles">
-                {sec.stocks.map((st) => (
-                  <button key={st.sym} className="vg-heat-tile" style={{ background: heatTint(st.pct) }}
-                    onClick={() => setAnalysisSym(st)}>
-                    <div className="s">{st.sym}</div>
-                    <div className="p">{signPct(st.pct)}</div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
         </div>
       </div>
     </div>
@@ -1226,7 +1463,10 @@ function ChatPanel({ settings, onClose, docked }) {
 
   // Replace the last (streaming) assistant message via an updater.
   const patchLast = (fn) => setMsgs((m) => m.map((x, i) => (i === m.length - 1 ? fn(x) : x)));
-  const cannedReply = (text) => CHAT_RULES.find((r) => r.match.test(text)).reply;
+  // No demo replies: when the AI backend is off/unreachable, say so plainly
+  // rather than fabricate portfolio numbers.
+  const cannedReply = () =>
+    "The AI advisor is offline. Start Mira (and the backend) to ask grounded questions about your book — I won't invent numbers.";
 
   const send = () => {
     const text = draft.trim();
@@ -1357,14 +1597,14 @@ function ExplainBlock({ explain }) {
   );
 }
 
-function SettingsModal({ settings, onSave, onClose }) {
+function SettingsModal({ settings, accounts = [], onSave, onClose }) {
   const [draft, setDraft] = useState(settings);
   return (
     <Modal title="Settings" open onClose={onClose}>
       <FormField as="select" label="Default view" id="set-acct" value={draft.defaultAccount}
         onChange={(e) => setDraft({ ...draft, defaultAccount: e.target.value })}>
         <option value="all">All accounts</option>
-        {ACCOUNTS.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        {accounts.map((a) => <option key={a.id} value={a.id}>{a.short || a.id}</option>)}
       </FormField>
       <FormField label="Harvest threshold ($ loss per lot)" type="number" id="set-usd"
         value={String(draft.thresholdUsd)}
@@ -1390,30 +1630,6 @@ function SettingsModal({ settings, onSave, onClose }) {
         <Button variant="outline" onClick={onClose}>Cancel</Button>
         <Button variant="primary" onClick={() => onSave(draft)}>Save</Button>
       </div>
-    </Modal>
-  );
-}
-
-function AnalysisModal({ stock, onClose }) {
-  const insight = AI_INSIGHTS[stock.sym];
-  const held = LOTS.filter((l) => l.symbol === stock.sym);
-  const [why, setWhy] = useState(false);
-  return (
-    <Modal title={`${stock.sym} — analysis`} open onClose={onClose}>
-      <div className="vg-row" style={{ marginBottom: 12 }}>
-        <span className={cls("vg-badge", stock.pct >= 0 ? "good" : "bad")}>{signPct(stock.pct)} today</span>
-        {insight && <span className={cls("vg-bias", insight.bias)} style={{ fontSize: 12 }}>{insight.bias}</span>}
-        {held.length > 0
-          ? <span className="vg-badge info">You hold this in {[...new Set(held.map((l) => acctOf(l.account).short))].join(", ")}</span>
-          : <span className="vg-badge plain">Not held</span>}
-      </div>
-      <p style={{ fontSize: 14, lineHeight: 1.5 }}>
-        {insight ? insight.summary : `No AI note for ${stock.sym} in this demo — showing market context only. Sector move ${signPct(stock.pct)} on the day.`}
-      </p>
-      <FAQItem question="How is this rating generated?" open={why} onToggle={() => setWhy(!why)}>
-        In the real product this blends trend, momentum, volume and options-flow features into a single bias score.
-        In this prototype it is illustrative mock data — educational only, never trading advice.
-      </FAQItem>
     </Modal>
   );
 }

@@ -2,7 +2,6 @@
 The Stooq provider is exercised with a stubbed urlopen — no network, ever."""
 from __future__ import annotations
 
-import io
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -10,10 +9,9 @@ import pytest
 
 from vantage_server.quotes import (
     FixtureQuoteProvider,
-    StooqQuoteProvider,
+    YFinanceQuoteProvider,
     get_provider,
     resolve_ttl,
-    stooq_symbol,
 )
 from vantage_server.store import Store, StoreError
 
@@ -142,104 +140,72 @@ def test_env_data_dir_respected(tmp_path, monkeypatch):
 
 
 # --------------------------------------------------------------- providers
+#
+# yfinance is the default/real provider; the fixture provider is a test seam
+# selected only by VANTAGE_QUOTES=fixture. The yfinance provider's network I/O
+# is an injected `fetch(symbols) -> {SYMBOL: (last, prev_close)}` callable, so
+# these tests never touch Yahoo.
 
-def test_fixture_provider_is_default(data_dir, monkeypatch):
+def test_yfinance_provider_is_default(data_dir, monkeypatch):
     monkeypatch.delenv("VANTAGE_QUOTES", raising=False)
+    assert isinstance(get_provider(data_dir), YFinanceQuoteProvider)
+    monkeypatch.setenv("VANTAGE_QUOTES", "fixture")
     assert isinstance(get_provider(data_dir), FixtureQuoteProvider)
-    monkeypatch.setenv("VANTAGE_QUOTES", "stooq")
-    assert isinstance(get_provider(data_dir), StooqQuoteProvider)
 
 
 def test_fixture_snapshot(snapshot):
+    # The fixture provider (test seam) reads the synthetic quotes.json verbatim.
     assert snapshot.source == "fixture"
     assert snapshot.stale is False
-    assert snapshot.as_of == "2026-07-05T09:30:00-04:00"
     assert snapshot.quotes["VOO"].price == pytest.approx(683.20)
     assert snapshot.quotes["BND"].asset_class == "bonds"
-    assert len(snapshot.quotes) == 13
 
 
-class _StubResponse(io.BytesIO):
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        self.close()
-
-
-def _stub_urlopen(csv_body: str):
+def _stub_fetch(rows: dict):
+    """Return a fetch callable that yields {SYMBOL: (last, prev)} and records calls."""
     calls = []
 
-    def urlopen(url, timeout=None):
-        calls.append(url)
-        return _StubResponse(csv_body.encode("utf-8"))
+    def fetch(symbols):
+        calls.append(list(symbols))
+        return {s: rows[s] for s in symbols if s in rows}
 
-    urlopen.calls = calls
-    return urlopen
-
-
-STOOQ_CSV = (
-    "Symbol,Date,Time,Open,High,Low,Close,Volume\n"
-    "VOO.US,2026-07-06,16:00:00,690.00,700.00,688.00,697.00,1000\n"
-    "IWM.US,2026-07-06,16:00:00,300.00,301.00,290.00,291.00,2000\n"
-)
+    fetch.calls = calls
+    return fetch
 
 
-def test_stooq_overlays_prices_on_fixture(data_dir):
-    urlopen = _stub_urlopen(STOOQ_CSV)
-    snap = StooqQuoteProvider(data_dir, urlopen=urlopen, ttl=0).snapshot()
-    assert snap.source == "stooq"
+# last, prev_close pairs — VOO up, IWM down.
+YF_ROWS = {"VOO": (697.00, 690.00), "IWM": (291.00, 300.00)}
+
+
+def test_yfinance_overlays_real_prices(data_dir):
+    fetch = _stub_fetch(YF_ROWS)
+    snap = YFinanceQuoteProvider(data_dir, fetch=fetch, ttl=0).snapshot()
+    assert snap.source == "yfinance"
     assert snap.quotes["VOO"].price == pytest.approx(697.00)
     assert snap.quotes["VOO"].day_pct == pytest.approx((697 - 690) / 690 * 100, abs=0.01)
     assert snap.quotes["IWM"].price == pytest.approx(291.00)
-    # metadata always comes from the fixture
+    # metadata always comes from the stored base snapshot
     assert snap.quotes["VOO"].asset_class == "usEquity"
     assert snap.quotes["CASH"].price == 1
-    # symbols Stooq didn't return keep fixture prices and mark the snapshot stale
+    # a held equity Yahoo didn't return keeps its stored price and flags stale
     assert snap.quotes["NVDA"].price == pytest.approx(194.83)
     assert snap.stale is True
-    assert len(urlopen.calls) == 1 and "stooq.com" in urlopen.calls[0]
+    assert len(fetch.calls) == 1
 
 
-def test_stooq_nd_rows_skipped(data_dir):
-    csv = ("Symbol,Date,Time,Open,High,Low,Close,Volume\n"
-           "VOO.US,N/D,N/D,N/D,N/D,N/D,N/D,N/D\n")
-    snap = StooqQuoteProvider(data_dir, urlopen=_stub_urlopen(csv), ttl=0).snapshot()
-    assert snap.quotes["VOO"].price == pytest.approx(683.20)  # fixture fallback
-    assert snap.stale is True
-
-
-def test_stooq_failure_degrades_to_fixture_with_stale_flag(data_dir):
-    def exploding_urlopen(url, timeout=None):
+def test_yfinance_failure_degrades_to_stored_with_stale_flag(data_dir):
+    def exploding_fetch(symbols):
         raise OSError("network down")
 
-    snap = StooqQuoteProvider(data_dir, urlopen=exploding_urlopen, ttl=0).snapshot()
-    assert snap.source == "fixture"  # degraded snapshot is the fixture itself
+    snap = YFinanceQuoteProvider(data_dir, fetch=exploding_fetch, ttl=0).snapshot()
+    assert snap.source == "yfinance"  # the stored snapshot, flagged stale
     assert snap.stale is True
     assert snap.quotes["VOO"].price == pytest.approx(683.20)
 
 
-# ----------------------------------------------------- stooq symbol mapping
-
-def test_stooq_symbol_mapping():
-    assert stooq_symbol("SPY") == "spy.us"
-    assert stooq_symbol("brk.b".upper()) == "brk.b.us"
-
-
-def test_stooq_url_uses_lowercase_dot_us_symbols(data_dir):
-    urlopen = _stub_urlopen(STOOQ_CSV)
-    StooqQuoteProvider(data_dir, urlopen=urlopen, ttl=0).snapshot()
-    url = urlopen.calls[0]
-    for sym in ("voo.us", "spy.us", "nvda.us", "iwm.us"):
-        assert sym in url
-    assert "cash" not in url.lower().split("?")[1]  # CASH is never fetched
-    assert "VOO" not in url  # no uppercase leaks
-
-
-def test_stooq_never_fetches_importer_maintained_symbols(tmp_path):
-    """Option marks, CRYPTO/FUTURES sleeves, and CASH are importer-maintained
-    quote entries: excluded from the Stooq request (a space would corrupt the
-    URL) and NOT counted as stale when absent from the feed."""
+def test_yfinance_never_fetches_importer_maintained_symbols(tmp_path):
+    """Option marks, CRYPTO/FUTURES sleeves, CASH, and numeric CUSIPs are
+    excluded from the Yahoo fetch and never flag staleness when absent."""
     (tmp_path / "quotes.json").write_text(json.dumps({
         "as_of": "2026-07-05T09:30:00-04:00",
         "quotes": {
@@ -247,22 +213,16 @@ def test_stooq_never_fetches_importer_maintained_symbols(tmp_path):
                     "asset_class": "usEquity"},
             "SOXL 2026-07-10 178C": {"name": "opt", "price": 2195.0,
                                      "day_pct": 0, "asset_class": "options"},
-            "CRYPTO": {"name": "c", "price": 1, "day_pct": 0,
-                       "asset_class": "crypto"},
-            "FUTURES": {"name": "f", "price": 1, "day_pct": 0,
-                        "asset_class": "other"},
-            "CASH": {"name": "cash", "price": 1, "day_pct": 0,
-                     "asset_class": "cash"},
+            "CRYPTO": {"name": "c", "price": 1, "day_pct": 0, "asset_class": "crypto"},
+            "CASH": {"name": "cash", "price": 1, "day_pct": 0, "asset_class": "cash"},
         },
     }), encoding="utf-8")
-    csv = ("Symbol,Date,Time,Open,High,Low,Close,Volume\n"
-           "VOO.US,2026-07-06,16:00:00,690.00,700.00,688.00,697.00,1000\n")
-    urlopen = _stub_urlopen(csv)
-    snap = StooqQuoteProvider(tmp_path, urlopen=urlopen, ttl=0).snapshot()
-    url = urlopen.calls[0]
-    assert "soxl" not in url.lower() and "crypto" not in url.lower() \
-        and "futures" not in url.lower()
-    assert snap.quotes["VOO"].price == pytest.approx(697.00)  # live overlay
+    fetch = _stub_fetch({"VOO": (697.00, 690.00)})
+    snap = YFinanceQuoteProvider(tmp_path, fetch=fetch, ttl=0).snapshot()
+    requested = set(fetch.calls[0])
+    assert "SOXL 2026-07-10 178C" not in requested
+    assert "CRYPTO" not in requested and "CASH" not in requested
+    assert snap.quotes["VOO"].price == pytest.approx(697.00)
     assert snap.quotes["SOXL 2026-07-10 178C"].price == pytest.approx(2195.0)
     assert snap.quotes["CRYPTO"].price == 1
     assert snap.stale is False  # synthetic symbols never flag staleness
@@ -282,43 +242,42 @@ T0 = datetime(2026, 7, 5, 13, 30, 0, tzinfo=timezone.utc)
 
 
 def test_cache_hit_skips_the_network(live_dir):
-    urlopen = _stub_urlopen(STOOQ_CSV)
-    first = StooqQuoteProvider(live_dir, urlopen=urlopen, ttl=900,
-                               clock=lambda: T0).snapshot()
+    fetch = _stub_fetch(YF_ROWS)
+    first = YFinanceQuoteProvider(live_dir, fetch=fetch, ttl=900,
+                                  clock=lambda: T0).snapshot()
     assert first.quotes["VOO"].price == pytest.approx(697.00)
-    assert (live_dir / "quotes_cache.json").is_file()
+    assert (live_dir / "quotes_cache_yf.json").is_file()
 
-    def exploding_urlopen(url, timeout=None):
+    def exploding_fetch(symbols):
         raise AssertionError("cache hit must not touch the network")
 
     later = T0 + timedelta(seconds=899)
-    second = StooqQuoteProvider(live_dir, urlopen=exploding_urlopen, ttl=900,
-                                clock=lambda: later).snapshot()
-    assert second.source == "stooq"
+    second = YFinanceQuoteProvider(live_dir, fetch=exploding_fetch, ttl=900,
+                                   clock=lambda: later).snapshot()
+    assert second.source == "yfinance"
     assert second.quotes["VOO"].price == pytest.approx(697.00)
     assert second.as_of == first.as_of  # served as-of the cached fetch time
 
 
 def test_cache_expiry_refetches(live_dir):
-    StooqQuoteProvider(live_dir, urlopen=_stub_urlopen(STOOQ_CSV), ttl=900,
-                       clock=lambda: T0).snapshot()
-    fresher = STOOQ_CSV.replace("697.00", "701.00")
-    urlopen = _stub_urlopen(fresher)
+    YFinanceQuoteProvider(live_dir, fetch=_stub_fetch(YF_ROWS), ttl=900,
+                          clock=lambda: T0).snapshot()
+    fetch = _stub_fetch({"VOO": (701.00, 690.00), "IWM": (291.00, 300.00)})
     expired = T0 + timedelta(seconds=901)
-    snap = StooqQuoteProvider(live_dir, urlopen=urlopen, ttl=900,
-                              clock=lambda: expired).snapshot()
-    assert len(urlopen.calls) == 1  # TTL elapsed: fetched again
+    snap = YFinanceQuoteProvider(live_dir, fetch=fetch, ttl=900,
+                                 clock=lambda: expired).snapshot()
+    assert len(fetch.calls) == 1  # TTL elapsed: fetched again
     assert snap.quotes["VOO"].price == pytest.approx(701.00)
 
 
 def test_ttl_zero_bypasses_cache(live_dir, monkeypatch):
-    StooqQuoteProvider(live_dir, urlopen=_stub_urlopen(STOOQ_CSV), ttl=900,
-                       clock=lambda: T0).snapshot()
+    YFinanceQuoteProvider(live_dir, fetch=_stub_fetch(YF_ROWS), ttl=900,
+                          clock=lambda: T0).snapshot()
     monkeypatch.setenv("VANTAGE_QUOTES_TTL", "0")
-    urlopen = _stub_urlopen(STOOQ_CSV.replace("697.00", "703.00"))
-    snap = StooqQuoteProvider(live_dir, urlopen=urlopen,
-                              clock=lambda: T0).snapshot()  # ttl from env
-    assert len(urlopen.calls) == 1  # cache bypassed despite being fresh
+    fetch = _stub_fetch({"VOO": (703.00, 690.00), "IWM": (291.00, 300.00)})
+    snap = YFinanceQuoteProvider(live_dir, fetch=fetch,
+                                 clock=lambda: T0).snapshot()  # ttl from env
+    assert len(fetch.calls) == 1  # cache bypassed despite being fresh
     assert snap.quotes["VOO"].price == pytest.approx(703.00)
 
 
@@ -333,24 +292,23 @@ def test_ttl_resolution_order(monkeypatch):
 
 
 def test_corrupt_cache_is_ignored(live_dir):
-    (live_dir / "quotes_cache.json").write_text("{broken", encoding="utf-8")
-    urlopen = _stub_urlopen(STOOQ_CSV)
-    snap = StooqQuoteProvider(live_dir, urlopen=urlopen, ttl=900,
-                              clock=lambda: T0).snapshot()
-    assert len(urlopen.calls) == 1  # fell through to a real fetch
+    (live_dir / "quotes_cache_yf.json").write_text("{broken", encoding="utf-8")
+    fetch = _stub_fetch(YF_ROWS)
+    snap = YFinanceQuoteProvider(live_dir, fetch=fetch, ttl=900,
+                                 clock=lambda: T0).snapshot()
+    assert len(fetch.calls) == 1  # fell through to a real fetch
     assert snap.quotes["VOO"].price == pytest.approx(697.00)
 
 
-def test_resolve_data_dir_prefers_local_over_fixtures(monkeypatch, tmp_path):
-    """env > data-local (when present) > fixtures — real data never mixes with the oracle."""
+def test_resolve_data_dir_prefers_env_and_local(monkeypatch, tmp_path):
+    """arg > env > data-local. There is no fixture fallback — data-local is the
+    floor (empty until a broker is imported)."""
     from vantage_server import store as store_mod
 
     monkeypatch.delenv(store_mod.ENV_DATA_DIR, raising=False)
     local = tmp_path / "data-local"
     monkeypatch.setattr(store_mod, "LOCAL_DATA_DIR", local)
-    assert store_mod.resolve_data_dir() == store_mod.DEFAULT_DATA_DIR  # absent → fixtures
-    local.mkdir()
-    assert store_mod.resolve_data_dir() == local  # present → real data wins
+    assert store_mod.resolve_data_dir() == local  # floor is data-local, no demo fallback
     monkeypatch.setenv(store_mod.ENV_DATA_DIR, str(tmp_path / "explicit"))
-    assert store_mod.resolve_data_dir() == tmp_path / "explicit"  # env wins over both
-    assert store_mod.resolve_data_dir(tmp_path / "arg") == tmp_path / "arg"  # arg wins
+    assert store_mod.resolve_data_dir() == tmp_path / "explicit"  # env wins over local
+    assert store_mod.resolve_data_dir(tmp_path / "arg") == tmp_path / "arg"  # arg wins over all

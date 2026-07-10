@@ -2,3 +2,7 @@
 logs/
 .run/
 /data/
+
+# Local env with real paths/secrets — never commit
+deploy/.env
+.env

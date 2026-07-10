@@ -39,6 +39,12 @@ echo "[$STAMP] nightly: EOD bar snapshot (--from-lots ${1:-})"
 echo "[$STAMP] nightly: position analysis"
 "$PY" -m vantage_server.analyze 2>&1 | grep -v 'Session termination' || true
 
+# Per-ticker journal snapshot (price + P&L + recommendation per held underlying)
+# so each notebook's timeline accrues nightly. Idempotent per day; never fails
+# the pipeline.
+echo "[$STAMP] nightly: notebook journal snapshot"
+"$PY" -m vantage_server.snapshot_journal 2>&1 | grep -v 'Session termination' || true
+
 # ── ML trade-analysis build (round-trips → condition/edge features) ──────────
 # Read-only broker fetch for realized P/L, data-local writes to data-local/ml/.
 # build_features reuses the just-built round-trips (--from-roundtrips) so it

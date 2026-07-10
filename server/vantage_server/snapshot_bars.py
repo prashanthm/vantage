@@ -152,8 +152,10 @@ def _build_parser() -> argparse.ArgumentParser:
                     "and derives weekly/monthly.",
     )
     p.add_argument("symbols", nargs="*", help="ticker symbols to snapshot")
+    p.add_argument("--source", default="yfinance", choices=["yfinance", "broker"],
+                   help="bar source: yfinance (default, public data) or broker (read-only)")
     p.add_argument("--broker", default="robinhood",
-                   help=f"broker connection ({', '.join(sorted(CONNECTIONS)) or 'none'})")
+                   help=f"broker connection when --source broker ({', '.join(sorted(CONNECTIONS)) or 'none'})")
     p.add_argument("--from-lots", action="store_true",
                    help="also snapshot every symbol held in lots.json")
     p.add_argument("--symbol", action="append", dest="extra_symbols", default=[],
@@ -233,24 +235,31 @@ def _run(args: argparse.Namespace) -> int:
             "no symbols — pass symbols positionally, --symbol X, and/or --from-lots"
         )
 
-    if args.broker not in CONNECTIONS:
-        raise SnapshotError(
-            f"unknown broker {args.broker!r} (have: {', '.join(sorted(CONNECTIONS)) or 'none'})"
-        )
-    conn = get_connection(args.broker)()
-    if not hasattr(conn, "fetch_historicals"):
-        raise SnapshotError(f"{args.broker}: connection does not support historicals")
+    # Bar source: yfinance (default, public data — no broker/allowlist needed)
+    # or a read-only broker connection. Both satisfy the same fetch() seam.
+    if args.source == "yfinance":
+        from . import yf_bars
+        fetch = yf_bars.fetch_historicals
+    else:
+        if args.broker not in CONNECTIONS:
+            raise SnapshotError(
+                f"unknown broker {args.broker!r} (have: {', '.join(sorted(CONNECTIONS)) or 'none'})"
+            )
+        conn = get_connection(args.broker)()
+        if not hasattr(conn, "fetch_historicals"):
+            raise SnapshotError(f"{args.broker}: connection does not support historicals")
+        fetch = conn.fetch_historicals
 
     try:
         if args.backfill:
-            snapshot = bars_engine.backfill_bars(symbols, fetch=conn.fetch_historicals)
+            snapshot = bars_engine.backfill_bars(symbols, fetch=fetch)
         else:
             snapshot = bars_engine.snapshot_bars(
                 symbols, today=today, lookback_days=args.lookback_days,
-                fetch=conn.fetch_historicals,
+                fetch=fetch,
             )
     except BrokerConnectionError as e:
-        raise SnapshotError(f"{args.broker}: {e}") from e
+        raise SnapshotError(f"{args.source}: {e}") from e
 
     as_of = today.isoformat()
     wrote = 0

@@ -57,10 +57,25 @@ body {
   display: flex; flex-direction: column; overflow: hidden;
 }
 .vg-pane-left { width: 272px; }
-.vg-pane-right { width: 360px; }
+.vg-pane-right { width: 360px; position: relative; }
 @media (max-width: 1439px) { .vg-pane-right { width: 320px; } }
 .vg-pane-left.clps, .vg-pane-right.clps { width: 48px; }
 @media (max-width: 1439px) { .vg-pane-right.clps { width: 48px; } }
+.vg-pane-right.resizing { user-select: none; }
+
+/* Drag handle on the right pane's left edge — a thin hit-area with a visible
+   grip line on hover/drag. */
+.vg-resize-handle {
+  position: absolute; top: 0; left: -7px; width: 14px; height: 100%;
+  cursor: col-resize; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+}
+.vg-resize-handle::before {
+  content: ""; width: 3px; height: 40px; border-radius: 3px;
+  background: transparent; transition: background 0.12s ease;
+}
+.vg-resize-handle:hover::before,
+.vg-pane-right.resizing .vg-resize-handle::before { background: var(--color-primary); }
 .vg-pane-center { display: block; overflow-y: auto; padding: 18px 22px 28px; }
 
 .vg-pane-top {
@@ -312,3 +327,164 @@ body {
   color: var(--color-dark); font-size: 14px;
 }
 .vg-ivtile:hover { border-color: var(--color-primary); }
+
+/* advisor "considerations" list (Mira insight suggestions) */
+.vg-suggestions { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--color-dark); }
+.vg-suggestions li { margin-bottom: 4px; }
+
+/* ---------- Dashboard: four-question brief ---------- */
+/* market band (Q1) */
+.vg-marketband { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.vg-idx { border: 1px solid var(--color-border, #e5e7eb); border-radius: 10px; padding: 10px 12px; }
+.vg-idx-name { font-size: 12px; color: var(--color-grey); }
+.vg-idx-price { font-size: 18px; font-weight: 600; margin-top: 2px; }
+.vg-idx-pct { font-size: 13px; font-weight: 600; }
+.vg-idx-pct.up { color: var(--vg-success-deep); }
+.vg-idx-pct.down { color: var(--vg-danger); }
+
+/* account cards (Q3) */
+.vg-acctgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.vg-acctcard { display: flex; align-items: flex-start; gap: 6px; border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 10px; padding: 12px; background: var(--color-white, #fff); }
+.vg-acctcard.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary) inset; }
+.vg-acctcard-main { all: unset; cursor: pointer; flex: 1; min-width: 0; }
+.vg-acctcard-name { font-weight: 600; font-size: 14px; }
+.vg-acctcard-val { font-size: 17px; font-weight: 600; margin: 2px 0; }
+
+/* action queue (Q4) */
+.vg-actionq { display: grid; gap: 8px; }
+.vg-action { display: flex; align-items: center; gap: 12px; padding: 12px 14px; cursor: pointer;
+  border: 1px solid var(--color-border, #e5e7eb); border-radius: 10px; background: var(--color-white, #fff);
+  transition: border-color .12s ease, background .12s ease; }
+.vg-action:hover { border-color: var(--color-primary); background: var(--color-light, #f8fafc); }
+.vg-action-title { font-size: 14px; font-weight: 500; }
+.vg-action-go { margin-left: auto; color: var(--color-grey); flex-shrink: 0; }
+
+/* ---------- per-ticker Notebook (right pane) ---------- */
+/* Chat-primary layout: the notebook fills the pane as a flex column. The
+   pinned header + collapsible data sections are flex:none; the Ask region
+   (chat) is flex:1 and scrolls internally, so the conversation is the primary
+   surface and the structured data is a scannable summary the user expands. */
+.vg-notebook { display: flex; flex-direction: column; gap: 0; height: 100%; min-height: 0; padding: 0; }
+.vg-nb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;
+  flex: none; padding: 12px 12px 10px; border-bottom: 1px solid var(--color-border, #e5e7eb); }
+.vg-nb-headmain { min-width: 0; }
+.vg-nb-headright { text-align: right; flex-shrink: 0; }
+.vg-nb-sym { font-size: 20px; font-weight: 700; letter-spacing: 0.3px; }
+.vg-nb-subtitle { display: block; margin-top: 1px; }
+.vg-nb-price { font-size: 18px; font-weight: 600; }
+.vg-nb-pnl { font-size: 13px; font-weight: 600; margin-top: 1px; }
+.vg-nb-pnl.up { color: var(--color-good, #16a34a); }
+.vg-nb-pnl.down { color: var(--color-bad, #dc2626); }
+.vg-nb-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 0; }
+.vg-nb-fund { display: flex; flex-wrap: wrap; gap: 10px 16px; font-size: 13px; }
+.vg-nb-fund .vg-note { margin-right: 3px; }
+
+/* Ask region — the primary surface. Fills remaining height; chat scrolls inside;
+   the ask bar (facet chips + input) stays pinned at the bottom. */
+.vg-nb-ask { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; padding: 12px; }
+.vg-nb-empty { flex: 1 1 auto; overflow-y: auto; }
+.vg-nb-askbar { flex: none; padding-top: 10px; }
+
+/* Collapsible data-on-demand sections below the chat (flex:none, own scroll via
+   the pane if long). */
+.vg-nb-details { flex: none; border-top: 1px solid var(--color-border, #e5e7eb);
+  max-height: 42%; overflow-y: auto; padding: 4px 12px 12px; }
+.vg-nb-section { border-bottom: 1px solid var(--color-border, #eef1f4); }
+.vg-nb-section:last-child { border-bottom: none; }
+.vg-nb-summary { display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  cursor: pointer; padding: 9px 2px; font-size: 13px; list-style: none; user-select: none; }
+.vg-nb-summary::-webkit-details-marker { display: none; }
+.vg-nb-summary::before { content: "▸"; color: var(--color-grey); font-size: 10px; margin-right: 2px; }
+.vg-nb-section[open] > .vg-nb-summary::before { content: "▾"; }
+.vg-nb-sumtitle { font-weight: 600; }
+.vg-nb-sumval { text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vg-nb-secbody { padding: 2px 2px 12px 16px; }
+.vg-nb-secbody.plain { padding-left: 2px; }
+
+/* Facet chips — surface the multi-facet analysis graph as one-tap questions. */
+.vg-nb-facets { display: flex; flex-wrap: wrap; gap: 6px; }
+.vg-nb-facets-inline { margin-bottom: 8px; }
+.vg-facet-chip { font: inherit; font-size: 12.5px; font-weight: 600; padding: 6px 12px; cursor: pointer;
+  border: 1px solid var(--color-border, #e5e7eb); border-radius: 999px; background: var(--color-white, #fff);
+  color: inherit; transition: border-color .12s ease, background .12s ease, color .12s ease; }
+.vg-facet-chip:hover { border-color: var(--color-primary); background: var(--color-primary); color: #fff; }
+.vg-facet-chip.sm { font-size: 11.5px; padding: 4px 10px; }
+.vg-facet-chip:disabled { opacity: 0.5; cursor: default; }
+.vg-facet-chip:disabled:hover { background: var(--color-white, #fff); color: inherit; border-color: var(--color-border, #e5e7eb); }
+
+/* Per-answer facet provenance tags (which facets grounded the synthesis). */
+.vg-nb-facetline { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.vg-facet-tag { font-size: 10.5px; text-transform: uppercase; letter-spacing: .03em; padding: 2px 7px;
+  border-radius: 5px; background: var(--color-light, #f1f5f9); color: var(--color-grey); }
+.vg-facet-tag.bad { background: #fef2f2; color: #b91c1c; }
+
+/* News: compact cited headline list + the estimated sentiment lean. */
+.vg-nb-news { display: flex; flex-direction: column; gap: 9px; }
+.vg-nb-newsitem { font-size: 13px; line-height: 1.4; }
+.vg-nb-newstitle { color: inherit; text-decoration: none; font-weight: 500; }
+a.vg-nb-newstitle:hover { color: var(--color-primary); text-decoration: underline; }
+.vg-nb-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; padding: 6px 8px;
+  border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px; background: var(--color-white, #fff);
+  color: inherit; resize: vertical; }
+.vg-nb-input:focus { outline: none; border-color: var(--color-primary); }
+.vg-nb-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+.vg-nb-field { display: flex; flex-direction: column; gap: 3px; }
+.vg-btn-sm { font: inherit; font-size: 13px; font-weight: 600; padding: 5px 12px; cursor: pointer;
+  border: 1px solid var(--color-primary); border-radius: 8px; background: var(--color-primary); color: #fff; }
+.vg-btn-sm:disabled { opacity: 0.55; cursor: default; }
+.vg-nb-journal { display: flex; flex-direction: column; gap: 8px; }
+.vg-nb-entry { display: flex; gap: 10px; font-size: 13px; line-height: 1.45; }
+.vg-nb-when { flex-shrink: 0; width: 44px; color: var(--color-grey); font-size: 12px; padding-top: 1px; }
+.vg-nb-body { min-width: 0; }
+
+/* ---------- Holdings grouped by ticker ---------- */
+.vg-caret { display: inline-block; width: 14px; color: var(--color-grey); font-size: 11px; }
+.vg-grouprow > td:first-child { font-weight: 600; }
+.vg-subhead td { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--color-grey); background: var(--color-light, #f8fafc); padding-top: 6px; }
+.vg-legrow td { font-size: 13px; }
+.vg-nb-leg { border-left: 2px solid var(--color-border, #e5e7eb); padding-left: 8px; }
+
+/* ---------- Notebook: Ask Mira (chat-primary, fills the Ask region) ---------- */
+.vg-nb-chat { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 2px; }
+.vg-nb-chat .vg-msg { max-width: 100%; }
+.vg-msg-plan { font-size: 11px; opacity: 0.6; margin-bottom: 5px; }
+.vg-msg-explain { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-border, #e5e7eb);
+  font-size: 12px; line-height: 1.5; }
+
+/* ---------- 0DTE SPX Playbook view ---------- */
+.vg-playbook { display: flex; flex-direction: column; gap: 14px; }
+.vg-pb-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.vg-pb-levels { display: flex; gap: 8px; }
+.vg-pb-tile { text-align: center; padding: 4px 10px; border: 1px solid var(--color-border, #e5e7eb); border-radius: 8px; min-width: 62px; }
+.vg-pb-tileval { font-size: 16px; font-weight: 700; }
+.vg-pb-tileval.good { color: var(--color-good, #16a34a); }
+.vg-pb-tileval.bad { color: var(--color-bad, #dc2626); }
+.vg-pb-tileval.warn { color: #c9821b; }
+.vg-pb-catalyst { padding: 8px 12px; border-radius: 8px; background: #fef3c7; color: #92400e; font-size: 13px; }
+.vg-pb-narrative { font-size: 14px; line-height: 1.6; margin-top: 8px; }
+.vg-pb-setup { border-left: 3px solid var(--color-primary); padding: 6px 0 6px 10px; }
+.vg-pb-trigger { font-weight: 700; font-size: 13px; margin-bottom: 2px; }
+.vg-pb-ladder { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.vg-pb-lvl { display: flex; align-items: center; gap: 10px; padding: 3px 0; border-bottom: 1px solid var(--color-border, #eef1f4); }
+.vg-pb-lvl:last-child { border-bottom: none; }
+.vg-pb-caveats { font-size: 11.5px; color: var(--color-grey); line-height: 1.5; display: flex; flex-direction: column; gap: 2px; padding: 4px 2px; }
+@media (prefers-color-scheme: dark) {
+  .vg-pb-catalyst { background: #3a2e10; color: #fbbf24; }
+}
+
+/* ---------- Pine export modal (0DTE Playbook) ---------- */
+.vg-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 20px; }
+.vg-modal { background: #fff; border: 1px solid var(--color-border, #e5e7eb); border-radius: 14px;
+  padding: 18px 20px; width: min(760px, 96vw); max-height: 88vh; overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.3); }
+.vg-pine-box { width: 100%; box-sizing: border-box; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; line-height: 1.4; padding: 10px; border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px; background: #0d1117; color: #e6edf3; resize: vertical; white-space: pre; }
+.vg-linkbtn { background: none; border: none; color: var(--color-primary); cursor: pointer;
+  font: inherit; font-size: 12.5px; padding: 2px 4px; }
+@media (prefers-color-scheme: dark) {
+  .vg-modal { background: #161b22; }
+}

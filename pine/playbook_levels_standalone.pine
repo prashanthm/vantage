@@ -1,0 +1,651 @@
+//@version=5
+indicator("Playbook levels — standalone (any symbol)", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500, max_bars_back=5000)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A chart-native version of the Vantage 0DTE playbook — WORKS ON ANY SYMBOL /
+// TIMEFRAME. Recomputes EVERYTHING live from THIS chart: no server, no nightly
+// job, no external data. Paste it once into TradingView's Pine Editor.
+//
+// It draws the playbook's chart-native dimensions: the recent-swing FIB grid, a
+// window VWAP (the regime line), the volume PROFILE point-of-control (PoC), and
+// fractal SUPPORT/RESISTANCE shelves with touch counts — plus auto-scaled round
+// numbers, DURABLE memory levels, CONFLUENCE zones, an on-chart TABLE with A/B/C
+// keys, a faint regime tint, and confirmation-filtered BUY/SELL/BOS arrows.
+// Everything auto-scales to the instrument (equity, index, crypto, forex).
+//
+// DURABLE MEMORY (the LuxAlgo-style "level that traces back weeks"): fractal S/R
+// is tracked across a BOUNDED history window (durableLookback bars, default 2000)
+// — far more than the recent window — and the shelves price kept revisiting (most
+// touches) are promoted to ★ durable levels. The chart's own history IS the
+// memory; nothing is seeded, so it works on any symbol out of the box.
+//
+// ⚠️ WHAT'S MISSING vs the full SPX playbook: dealer-gamma GEX (call/put walls,
+//    gamma flip, max pain) CANNOT be computed in Pine — they need the options
+//    chain (and are SPX-specific). So the REGIME line here is VWAP, not the gamma
+//    flip. For GEX on SPX, use the Vantage export (spx_playbook.pine).
+//
+// ⚠️ NOT FINANCIAL ADVICE. The arrows are CONDITIONAL context (fade a confluence
+//    zone / durable level; BOS on a structure break), not a guaranteed buy/sell.
+//    Context for reading the tape, not a signal. Places no orders.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── inputs ───────────────────────────────────────────────────────────────────
+grpW = "Window"
+lookbackSessions = input.int(10, "Lookback sessions (fib/PoC/VWAP)", minval=1, maxval=60, group=grpW, tooltip="How many recent trading days frame the fib / PoC / VWAP — matches the playbook's RECENT_SESSIONS=10. Durable memory uses the FULL chart history, not this.")
+grpL = "Levels"
+showFib    = input.bool(true, "Fib grid (38.2/50/61.8/78.6)", group=grpL)
+showVwap   = input.bool(true, "VWAP (regime line)", group=grpL)
+showPoc    = input.bool(true, "Volume PoC", group=grpL)
+showSR     = input.bool(true, "Fractal S/R shelves", group=grpL)
+showRound  = input.bool(true, "Round numbers (auto-scaled)", group=grpL)
+showDurable= input.bool(true, "Durable memory levels (★)", group=grpL, tooltip="Shelves price kept revisiting across the FULL chart history — the 'traces back weeks' levels.")
+pivotLen   = input.int(2, "Pivot length", minval=1, maxval=10, group=grpL, tooltip="Williams fractal half-width. Higher = fewer, more significant swings (raise this on noisy futures).")
+clusterTolIn = input.float(0.0, "S/R cluster tolerance (0 = auto)", minval=0, group=grpL, tooltip="Points within which pivots merge into one shelf. 0 auto-scales to the instrument (~0.08% of price).")
+minTouch   = input.int(2, "Min touches to keep a shelf", minval=1, group=grpL)
+maxShelves = input.int(3, "Max S/R shelves per side", minval=1, maxval=10, group=grpL, tooltip="Keep only the strongest (most-tested), nearest N supports and N resistances — declutter.")
+durableMinTouch = input.int(4, "Min touches for a DURABLE level", minval=2, group=grpL, tooltip="A shelf revisited at least this many times across the history window is promoted to a ★ durable level.")
+maxDurable = input.int(4, "Max durable levels", minval=1, maxval=10, group=grpL)
+durableLookback = input.int(2000, "Durable memory lookback (bars)", minval=100, maxval=5000, group=grpL, tooltip="How far back the durable-memory scan reaches. Bounded (not literally all history) so it stays fast and Pine can determine the referencing length — 2000 bars is months to years depending on timeframe.")
+maxDistPct = input.float(1.2, "Only draw levels within % of price", minval=0.1, maxval=50, group=grpL, tooltip="Hide levels farther than this from the current price so the chart shows only what's tradeable now. Set high to show all.")
+maxLevels  = input.int(10, "Max levels total (nearest kept)", minval=3, maxval=26, group=grpL, tooltip="Hard cap on how many levels reach the table + chart. The nearest-to-price N survive after near-duplicates are merged — the main declutter.")
+pocBins    = input.int(40, "Volume-profile bins", minval=10, maxval=100, group=grpL)
+roundStepIn = input.float(0.0, "Round-number step (0 = auto)", minval=0, group=grpL, tooltip="Spacing of the round-number levels. 0 auto-scales to the instrument (a 'nice' value near 1% of price).")
+grpC = "Confluence"
+showConf   = input.bool(true, "Confluence zones (≥2 dims stack)", group=grpC, tooltip="Shade a band where 2+ different dimensions (fib / S-R / PoC / VWAP / round / durable) line up — the high-signal levels.")
+confTolIn  = input.float(0.0, "Confluence tolerance (0 = auto)", minval=0, group=grpC, tooltip="How close two dimensions must be to count as stacking. 0 auto-scales (~0.15% of price).")
+grpS = "Signals"
+showRegime = input.bool(true, "Regime tint (VWAP)", group=grpS)
+showArrows = input.bool(true, "Buy/Sell fade arrows", group=grpS)
+showBos    = input.bool(false, "BOS↑/↓ arrows (noisy)", group=grpS, tooltip="Break-of-structure arrows fire on EVERY fractal swing — very busy on intraday charts. Off by default; turn on if you want structure breaks marked.")
+arrowsConfluenceOnly = input.bool(false, "Arrows only at confluence/durable", group=grpS, tooltip="On: BUY/SELL fire only at confluence zones or durable levels (highest-quality). Off: also at the nearest plain S/R pivot.")
+grpT = "Table & display"
+showTable  = input.bool(true, "Levels table (corner)", group=grpT)
+keysMode   = input.string("confluence + durable", "Chart lines + letter markers", options=["off", "confluence + durable", "all levels"], group=grpT, tooltip="Which levels get a LINE + letter marker on the chart. 'confluence + durable' (default) = only the high-signal levels; the rest live in the table only. 'all levels' = a line for every table row (busy).")
+labelDetail = input.string("keys only", "Level labels", options=["off", "keys only", "name only", "name + meaning"], group=grpT, tooltip="'keys only' = just A/B/C markers (cleanest). 'name only' = compact name. 'name + meaning' = two-line explanation (crowds busy charts).")
+themeIn    = input.string("Auto", "Theme", options=["Auto", "Dark", "Light"], group=grpT, tooltip="Auto reads the chart background. Dark/Light force the palette so colors stay legible either way.")
+coexist    = input.bool(false, "Coexist mode (with LuxAlgo etc.)", group=grpT, tooltip="On: suppress our shaded boxes + regime tint so they don't collide with another indicator's zones — keep the table + letter lines only.")
+
+// ── theme (legible on BOTH dark and light backgrounds) ───────────────────────
+isDark = themeIn == "Dark" ? true : themeIn == "Light" ? false : (chart.bg_color == color.white ? false : true)
+// role/dimension color PAIRS: (dark-bg, light-bg) — mid-tone so nothing washes out
+cSup   = isDark ? #26A69A : #1B7A70
+cRes   = isDark ? #EF5350 : #C62828
+cFib   = isDark ? #42A5F5 : #1565C0
+cVwap  = isDark ? #FDD835 : #B8860B
+cPoc   = isDark ? #AB47BC : #7B1FA2
+cRound = isDark ? #EC407A : #AD1457
+cDur   = isDark ? #FFB300 : #E65100
+cConf  = isDark ? #7E57C2 : #4527A0
+tblBg  = isDark ? color.new(#0d1117, 4) : color.new(#f4f6f8, 3)
+tblTx  = isDark ? color.new(#e6edf3, 0) : color.new(#1b2733, 0)
+tblHd  = isDark ? color.new(#1f6feb, 0) : color.new(#0b4fa8, 0)
+
+// effective toggles: coexist suppresses the shaded boxes + regime tint
+showConfBox = showConf and not coexist
+showRegimeT = showRegime and not coexist
+
+// ── the recent window in bars (N sessions) ───────────────────────────────────
+// bars-per-session inferred from the chart timeframe AND the instrument's trading
+// hours so it works on any symbol: equities ~390 min/day (RTH), crypto/forex 24h.
+minutesPerBar = timeframe.in_seconds() / 60.0
+is24h = syminfo.type == "crypto" or syminfo.type == "forex" or syminfo.type == "swap"
+sessionMinutes = is24h ? 1440.0 : 390.0
+barsPerDay = timeframe.isintraday ? math.max(1, int(math.round(sessionMinutes / math.max(1.0, minutesPerBar)))) : 1
+// `win` is a SIMPLE int (input-derived) so it can feed ta.highest/lowest/sma.
+win = barsPerDay * lookbackSessions
+loopN = math.min(win, bar_index + 1)
+
+// ── recent swing hi/lo (recent window) ───────────────────────────────────────
+swingHi = ta.highest(high, win)
+swingLo = ta.lowest(low, win)
+
+// ── auto-scale price-dependent params to the instrument (any symbol) ─────────
+f_niceStep(float target) =>
+    p = math.max(target, syminfo.mintick)
+    mag = math.pow(10, math.floor(math.log10(p)))
+    r = p / mag
+    step = r >= 5 ? 5 * mag : r >= 2 ? 2 * mag : 1 * mag
+    step
+f_px(float p) => str.tostring(p, format.mintick)
+roundStep = roundStepIn > 0 ? roundStepIn : f_niceStep(close * 0.01)
+clusterTol = clusterTolIn > 0 ? clusterTolIn : math.max(syminfo.mintick, close * 0.0008)
+confTol = confTolIn > 0 ? confTolIn : math.max(syminfo.mintick, close * 0.0015)
+
+// ── window VWAP (rolling ratio of sums — every bar, for the regime tint) ─────
+tpv = ((high + low + close) / 3.0) * nz(volume, 0.0)
+sumTPV = ta.sma(tpv, win) * win
+sumVol = ta.sma(nz(volume, 0.0), win) * win
+vwapWin = sumVol > 0 ? sumTPV / sumVol : na
+
+// ── volume-profile PoC (40 bins across window hi-lo) ─────────────────────────
+var float pocPrice = na
+if barstate.islast and showPoc and swingHi > swingLo
+    lo = swingLo
+    hi = swingHi
+    bins = array.new_float(pocBins, 0.0)
+    for i = 0 to loopN - 1
+        c = close[i]
+        v = nz(volume[i], 0.0)
+        b = math.min(pocBins - 1, math.max(0, int((c - lo) / (hi - lo) * pocBins)))
+        array.set(bins, b, array.get(bins, b) + v)
+    maxV = 0.0
+    maxB = 0
+    for b = 0 to pocBins - 1
+        if array.get(bins, b) > maxV
+            maxV := array.get(bins, b)
+            maxB := b
+    pocPrice := lo + (maxB + 0.5) * (hi - lo) / pocBins
+
+// ── cluster helper: merge a price into a shelf array (centers + touch counts) ─
+// Also tracks the OLDEST bar_index each shelf was first seen (for durable age).
+f_addCluster(float price, int bidx, float[] centers, int[] counts, int[] firstBar) =>
+    merged = false
+    n = array.size(centers)
+    if n > 0
+        for k = 0 to n - 1
+            if not merged and math.abs(price - array.get(centers, k)) <= clusterTol
+                cnt = array.get(counts, k)
+                array.set(centers, k, (array.get(centers, k) * cnt + price) / (cnt + 1))
+                array.set(counts, k, cnt + 1)
+                array.set(firstBar, k, math.min(array.get(firstBar, k), bidx))
+                merged := true
+    if not merged
+        array.push(centers, price)
+        array.push(counts, 1)
+        array.push(firstBar, bidx)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLLECTED LEVELS (built once at the last bar) — a parallel set of arrays that
+// every dimension pushes into, then confluence + the table + the markers read.
+//   price · kind · a role (support/resistance/pivot) · durable? · touches
+// ─────────────────────────────────────────────────────────────────────────────
+var float[]  lvlPrice = array.new_float()
+var string[] lvlKind  = array.new_string()
+var string[] lvlRole  = array.new_string()
+var bool[]   lvlDur   = array.new_bool()
+var int[]    lvlTouch = array.new_int()
+
+f_role(float price) => price > close ? "resistance" : price < close ? "support" : "pivot"
+
+f_collect(float price, string kind, bool durable, int touches) =>
+    // proximity filter: only levels within maxDistPct of price (the declutter)
+    if not na(price) and math.abs(price - close) / close * 100.0 <= maxDistPct
+        // DEDUP: if a level within confTol already exists, MERGE into it instead
+        // of adding a near-duplicate row (e.g. 'resistance 2x' and 'support 6x' at
+        // the same price). Keep durable-if-either, higher touch count, and combine
+        // the two labels so the merged row shows both dimensions.
+        dupK = -1
+        if array.size(lvlPrice) > 0
+            for k = 0 to array.size(lvlPrice) - 1
+                if dupK < 0 and math.abs(price - array.get(lvlPrice, k)) <= confTol
+                    dupK := k
+        if dupK >= 0
+            // merge into existing row dupK
+            if durable and not array.get(lvlDur, dupK)
+                array.set(lvlDur, dupK, true)
+            if touches > array.get(lvlTouch, dupK)
+                array.set(lvlTouch, dupK, touches)
+            existing = array.get(lvlKind, dupK)
+            // only append the new kind if it adds a distinct dimension word
+            if not str.contains(existing, kind) and str.length(existing) < 40
+                array.set(lvlKind, dupK, existing + " / " + kind)
+        else
+            array.push(lvlPrice, price)
+            array.push(lvlKind, kind)
+            array.push(lvlRole, f_role(price))
+            array.push(lvlDur, durable)
+            array.push(lvlTouch, touches)
+
+f_meaning(string kind) =>
+    str.contains(kind, "resistance") ? "held before — more touches = stronger" :
+     str.contains(kind, "support")   ? "held before — more touches = stronger" :
+     str.contains(kind, "fib")       ? "common bounce level" :
+     str.contains(kind, "VWAP")      ? "trend-change line: above = calmer, below = faster moves" :
+     str.contains(kind, "PoC")       ? "price gets stuck / chops here" :
+     str.contains(kind, "durable")   ? "has held for many days — watch it closely" :
+     str.contains(kind, "round")     ? "round number — orders cluster here" : ""
+
+f_expect(string kind, string role) =>
+    str.contains(kind, "durable") ? "has held for days — watch it closely" :
+     role == "support" ? "good spot to buy dips" :
+     role == "resistance" ? "good spot to sell rallies" : "turning point"
+
+// ── drawing helpers ──────────────────────────────────────────────────────────
+var line[]  allLines  = array.new_line()
+var label[] allLabels = array.new_label()
+var box[]   allBoxes  = array.new_box()
+var table   tbl = na
+
+f_clearAll() =>
+    if array.size(allLines) > 0
+        for i = 0 to array.size(allLines) - 1
+            line.delete(array.get(allLines, i))
+        array.clear(allLines)
+    if array.size(allLabels) > 0
+        for i = 0 to array.size(allLabels) - 1
+            label.delete(array.get(allLabels, i))
+        array.clear(allLabels)
+    if array.size(allBoxes) > 0
+        for i = 0 to array.size(allBoxes) - 1
+            box.delete(array.get(allBoxes, i))
+        array.clear(allBoxes)
+    array.clear(lvlPrice)
+    array.clear(lvlKind)
+    array.clear(lvlRole)
+    array.clear(lvlDur)
+    array.clear(lvlTouch)
+
+f_kindColor(string kind) =>
+    str.contains(kind, "resistance") ? cRes :
+     str.contains(kind, "support")   ? cSup :
+     str.contains(kind, "fib")       ? cFib :
+     str.contains(kind, "VWAP")      ? cVwap :
+     str.contains(kind, "PoC")       ? cPoc :
+     str.contains(kind, "durable")   ? cDur : cRound
+
+// draw one level line (+ optional name label). Letter markers are drawn later.
+f_line(float price, string kind, bool durable) =>
+    col = durable ? cDur : f_kindColor(kind)
+    x0 = math.max(0, bar_index - win)
+    st = durable ? line.style_solid : (str.contains(kind, "fib") or str.contains(kind, "round") ? line.style_dashed : line.style_solid)
+    w = durable ? 2 : 1
+    ln = line.new(x0, price, bar_index + 3, price, extend=extend.left, color=color.new(col, durable ? 30 : 40), width=w, style=st)
+    array.push(allLines, ln)
+    if labelDetail == "name only" or labelDetail == "name + meaning"
+        nm = kind + " " + f_px(price)
+        txt = labelDetail == "name + meaning" ? nm + "\n" + f_meaning(kind) : nm
+        rank = array.size(allLabels)
+        lb = label.new(bar_index + 14 + (rank % 4) * 9, price, txt, style=label.style_label_left, color=color.new(col, 82), textcolor=col, size=size.small)
+        array.push(allLabels, lb)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DURABLE MEMORY — scan the FULL chart history (all bars, not just the window)
+// for fractal pivots, cluster into shelves with touch counts + first-seen bar.
+// The shelves with >= durableMinTouch touches, nearest to price, become ★ levels.
+// This is the Pine-native equivalent of the SPX SQLite level_history memory.
+// Kept as var arrays rebuilt at the last bar (bounded by chart length).
+// ─────────────────────────────────────────────────────────────────────────────
+f_buildDurable(float[] outPrice, int[] outTouch, string[] outRole) =>
+    dC = array.new_float()
+    dN = array.new_int()
+    dF = array.new_int()
+    // scan confirmable pivots across a BOUNDED history window (durableLookback,
+    // capped at what's loaded). Bounded so Pine can determine the referencing
+    // length (max_bars_back) and the loop stays fast on long charts.
+    total = math.min(bar_index + 1, durableLookback)
+    hiScan = total - pivotLen - 1
+    if hiScan >= pivotLen
+        for i = pivotLen to hiScan
+            hi_i = high[i]
+            lo_i = low[i]
+            isHigh = true
+            isLow = true
+            for j = i - pivotLen to i + pivotLen
+                if j != i
+                    if high[j] >= hi_i
+                        isHigh := false
+                    if low[j] <= lo_i
+                        isLow := false
+            if isHigh
+                f_addCluster(hi_i, bar_index - i, dC, dN, dF)
+            if isLow
+                f_addCluster(lo_i, bar_index - i, dC, dN, dF)
+    // pick the maxDurable most-touched shelves that clear durableMinTouch AND sit
+    // within maxDistPct of price (a durable level far away isn't tradeable today).
+    picked = 0
+    used = array.new_bool(array.size(dC), false)
+    while picked < maxDurable
+        bestK = -1
+        bestN = 0
+        if array.size(dC) > 0
+            for k = 0 to array.size(dC) - 1
+                p = array.get(dC, k)
+                near = math.abs(p - close) / close * 100.0 <= maxDistPct
+                if not array.get(used, k) and array.get(dN, k) >= durableMinTouch and near
+                    if array.get(dN, k) > bestN
+                        bestN := array.get(dN, k)
+                        bestK := k
+        if bestK < 0
+            break
+        array.set(used, bestK, true)
+        array.push(outPrice, array.get(dC, bestK))
+        array.push(outTouch, array.get(dN, bestK))
+        array.push(outRole, f_role(array.get(dC, bestK)))
+        picked += 1
+
+// draw the maxShelves NEAREST recent-window shelves (>= minTouch) from a cluster
+f_drawNearestSR(float[] centers, int[] counts, string kind) =>
+    drawn = 0
+    used = array.new_bool(array.size(centers), false)
+    while drawn < maxShelves
+        bestK = -1
+        bestD = 1e20
+        if array.size(centers) > 0
+            for k = 0 to array.size(centers) - 1
+                if not array.get(used, k) and array.get(counts, k) >= minTouch
+                    d = math.abs(array.get(centers, k) - close)
+                    if d < bestD
+                        bestD := d
+                        bestK := k
+        if bestK < 0
+            break
+        array.set(used, bestK, true)
+        p = array.get(centers, bestK)
+        n = array.get(counts, bestK)
+        f_collect(p, kind + " " + str.tostring(n) + "x", false, n)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONFLUENCE — after every dimension is collected, cluster the level prices and
+// flag bands where >= 2 DISTINCT kinds stack. Shade each as a box; mark it in the
+// table. Uses the collected lvl* arrays. Returns nothing; pushes to conf* arrays.
+// ─────────────────────────────────────────────────────────────────────────────
+var float[] confLo   = array.new_float()
+var float[] confHi   = array.new_float()
+var float[] confMid  = array.new_float()
+var string[] confRole = array.new_string()
+
+// a coarse dimension key for a kind string (support/resistance→sr, etc.)
+f_dim(string k) =>
+    str.contains(k, "resistance") ? "sr" : str.contains(k, "support") ? "sr" : str.contains(k, "fib") ? "fib" : str.contains(k, "VWAP") ? "vwap" : str.contains(k, "PoC") ? "poc" : str.contains(k, "durable") ? "dur" : "round"
+
+f_buildConfluence() =>
+    array.clear(confLo)
+    array.clear(confHi)
+    array.clear(confMid)
+    array.clear(confRole)
+    n = array.size(lvlPrice)
+    if n >= 2
+        // sort indices by price ascending (simple bubble — n is a handful)
+        order = array.new_int()
+        for i = 0 to n - 1
+            array.push(order, i)
+        for a = 0 to n - 2
+            for b = 0 to n - 2 - a
+                ia = array.get(order, b)
+                ib = array.get(order, b + 1)
+                if array.get(lvlPrice, ia) > array.get(lvlPrice, ib)
+                    array.set(order, b, ib)
+                    array.set(order, b + 1, ia)
+        // single pass grouping levels within confTol of the band anchor. The flush
+        // is INLINED (Pine forbids nested UDFs): whenever a band closes (a gap, or
+        // the last level), if it held >=2 distinct dims, emit it. distinctDims is
+        // recomputed per band by walking that band's members.
+        float anchor = na
+        float bandLo = na
+        float bandHi = na
+        int bandStart = 0
+        for oi = 0 to n - 1
+            idx = array.get(order, oi)
+            p = array.get(lvlPrice, idx)
+            newBand = na(anchor) or (p - anchor > confTol)
+            if newBand and not na(anchor)
+                // close the previous band [bandStart .. oi-1]: count distinct dims
+                dims = array.new_string()
+                for z = bandStart to oi - 1
+                    d = f_dim(array.get(lvlKind, array.get(order, z)))
+                    seen = false
+                    if array.size(dims) > 0
+                        for q = 0 to array.size(dims) - 1
+                            if array.get(dims, q) == d
+                                seen := true
+                    if not seen
+                        array.push(dims, d)
+                if array.size(dims) >= 2
+                    mid = (bandLo + bandHi) / 2.0
+                    array.push(confLo, bandLo)
+                    array.push(confHi, bandHi)
+                    array.push(confMid, mid)
+                    array.push(confRole, f_role(mid))
+                bandStart := oi
+            if newBand
+                anchor := p
+                bandLo := p
+            bandHi := p
+        // flush the final band [bandStart .. n-1]
+        if not na(anchor)
+            dims2 = array.new_string()
+            for z = bandStart to n - 1
+                d = f_dim(array.get(lvlKind, array.get(order, z)))
+                seen2 = false
+                if array.size(dims2) > 0
+                    for q = 0 to array.size(dims2) - 1
+                        if array.get(dims2, q) == d
+                            seen2 := true
+                if not seen2
+                    array.push(dims2, d)
+            if array.size(dims2) >= 2
+                mid2 = (bandLo + bandHi) / 2.0
+                array.push(confLo, bandLo)
+                array.push(confHi, bandHi)
+                array.push(confMid, mid2)
+                array.push(confRole, f_role(mid2))
+
+// is a price inside any confluence band? (high-signal test)
+f_inConf(float price) =>
+    hit = false
+    if array.size(confLo) > 0
+        for i = 0 to array.size(confLo) - 1
+            if price >= array.get(confLo, i) - confTol and price <= array.get(confHi, i) + confTol
+                hit := true
+    hit
+
+// CAP: trim the collected levels to maxLevels, keeping durable + confluence
+// members first, then the nearest-to-price of the rest. This is the main
+// declutter — without it a 1.2% window on a busy tape still yields ~20 levels.
+f_capLevels() =>
+    n = array.size(lvlPrice)
+    if n > maxLevels
+        // score each level: durable/confluence = keep priority 0 (best); others by
+        // distance to price. Then drop the worst until size == maxLevels by
+        // repeatedly finding the lowest-priority (farthest, non-signal) level.
+        removed = 0
+        while array.size(lvlPrice) > maxLevels
+            worstK = -1
+            worstScore = -1.0
+            sz = array.size(lvlPrice)
+            for k = 0 to sz - 1
+                p = array.get(lvlPrice, k)
+                signal = array.get(lvlDur, k) or f_inConf(p)
+                // non-signal levels are droppable; score = distance (farther = worse).
+                // signal levels get a huge negative score so they're dropped last.
+                score = signal ? -1e9 + math.abs(p - close) : math.abs(p - close)
+                if score > worstScore
+                    worstScore := score
+                    worstK := k
+            if worstK < 0
+                break
+            array.remove(lvlPrice, worstK)
+            array.remove(lvlKind, worstK)
+            array.remove(lvlRole, worstK)
+            array.remove(lvlDur, worstK)
+            array.remove(lvlTouch, worstK)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RENDER — everything once at the last bar. Collect dims → durable → confluence →
+// draw lines + boxes + letter markers + table.
+// ─────────────────────────────────────────────────────────────────────────────
+if barstate.islast
+    f_clearAll()
+
+    // 1) collect every dimension into the lvl* arrays
+    if showFib and swingHi > swingLo
+        rng = swingHi - swingLo
+        f_collect(swingLo + 0.786 * rng, "fib 78.6%", false, 0)
+        f_collect(swingLo + 0.618 * rng, "fib 61.8%", false, 0)
+        f_collect(swingLo + 0.5   * rng, "fib 50.0%", false, 0)
+        f_collect(swingLo + 0.382 * rng, "fib 38.2%", false, 0)
+    if showVwap and not na(vwapWin)
+        f_collect(vwapWin, "VWAP", false, 0)
+    if showPoc and not na(pocPrice)
+        f_collect(pocPrice, "volume PoC", false, 0)
+    if showSR
+        resC = array.new_float()
+        resN = array.new_int()
+        resF = array.new_int()
+        supC = array.new_float()
+        supN = array.new_int()
+        supF = array.new_int()
+        for i = pivotLen to loopN - pivotLen - 1
+            hi_i = high[i]
+            lo_i = low[i]
+            isHigh = true
+            isLow = true
+            for j = i - pivotLen to i + pivotLen
+                if j != i
+                    if high[j] >= hi_i
+                        isHigh := false
+                    if low[j] <= lo_i
+                        isLow := false
+            if isHigh
+                f_addCluster(hi_i, bar_index - i, resC, resN, resF)
+            if isLow
+                f_addCluster(lo_i, bar_index - i, supC, supN, supF)
+        f_drawNearestSR(resC, resN, "resistance")
+        f_drawNearestSR(supC, supN, "support")
+    if showRound and roundStep > 0
+        baseR = math.round(close / roundStep) * roundStep
+        f_collect(baseR - roundStep, "round", false, 0)
+        f_collect(baseR,             "round", false, 0)
+        f_collect(baseR + roundStep, "round", false, 0)
+
+    // 2) durable memory (full-history) → collect as its own dimension
+    if showDurable
+        dP = array.new_float()
+        dT = array.new_int()
+        dR = array.new_string()
+        f_buildDurable(dP, dT, dR)
+        if array.size(dP) > 0
+            for i = 0 to array.size(dP) - 1
+                f_collect(array.get(dP, i), "durable " + array.get(dR, i) + " " + str.tostring(array.get(dT, i)) + "x", true, array.get(dT, i))
+
+    // 3) confluence from the collected levels, THEN cap to maxLevels (declutter)
+    f_buildConfluence()
+    f_capLevels()
+
+    // 4) draw confluence boxes (unless coexist)
+    if showConfBox and array.size(confLo) > 0
+        for i = 0 to array.size(confLo) - 1
+            role = array.get(confRole, i)
+            col = role == "support" ? cSup : role == "resistance" ? cRes : cConf
+            lo = array.get(confLo, i)
+            hi = array.get(confHi, i)
+            if hi - lo < syminfo.mintick
+                hi := lo + syminfo.mintick
+            bx = box.new(math.max(0, bar_index - win), hi, bar_index + 3, lo, border_color=color.new(col, 55), bgcolor=color.new(col, 88), extend=extend.left)
+            array.push(allBoxes, bx)
+
+    // 5) draw the level lines + A/B/C letter markers (sorted high→low for keys)
+    // build a sort order by price desc
+    m = array.size(lvlPrice)
+    if m > 0
+        ord = array.new_int()
+        for i = 0 to m - 1
+            array.push(ord, i)
+        // bubble-sort ord by price desc — guarded m>=2 so `for a = 0 to m-2` never
+        // runs backward (m==1 → 0 to -1 would reverse-iterate + index out of bounds).
+        if m >= 2
+            for a = 0 to m - 2
+                for b = 0 to m - 2 - a
+                    ia = array.get(ord, b)
+                    ib = array.get(ord, b + 1)
+                    if array.get(lvlPrice, ia) < array.get(lvlPrice, ib)
+                        array.set(ord, b, ib)
+                        array.set(ord, b + 1, ia)
+        for oi = 0 to m - 1
+            idx = array.get(ord, oi)
+            price = array.get(lvlPrice, idx)
+            kind = array.get(lvlKind, idx)
+            dur = array.get(lvlDur, idx)
+            // which levels get a chart LINE + letter marker:
+            //   'off'                → none (table only)
+            //   'confluence + durable' → only high-signal levels (default declutter)
+            //   'all levels'         → every row
+            signal = dur or f_inConf(price)
+            drawMark = keysMode == "all levels" or (keysMode == "confluence + durable" and signal)
+            if drawMark
+                f_line(price, kind, dur)
+                key = str.substring("ABCDEFGHIJKLMNOPQRSTUVWXYZ", oi % 26, oi % 26 + 1)
+                mark = dur ? key + "★" : key
+                col = dur ? cDur : f_kindColor(kind)
+                lb = label.new(bar_index + 3, price, mark, style=label.style_label_left, color=color.new(col, 0), textcolor=color.white, size=size.normal)
+                array.push(allLabels, lb)
+
+        // 6) on-chart table (key · price · label · expect)
+        if showTable
+            rowsN = m + 2  // header + rows + caveat
+            tbl := table.new(position.top_right, 4, rowsN, bgcolor=tblBg, border_width=1, border_color=color.new(color.gray, 60), frame_width=1)
+            regTxt = not na(vwapWin) ? (close > vwapWin ? "above the line — moves stay calm, expect a range" : "below the line — moves can run") : "n/a"
+            table.cell(tbl, 0, 0, "Playbook · " + syminfo.ticker + " · " + regTxt, text_color=tblHd, text_size=size.normal, text_halign=text.align_left)
+            table.merge_cells(tbl, 0, 0, 3, 0)
+            for oi = 0 to m - 1
+                idx = array.get(ord, oi)
+                price = array.get(lvlPrice, idx)
+                kind = array.get(lvlKind, idx)
+                role = array.get(lvlRole, idx)
+                dur = array.get(lvlDur, idx)
+                rr = 1 + oi
+                key = str.substring("ABCDEFGHIJKLMNOPQRSTUVWXYZ", oi % 26, oi % 26 + 1)
+                col = dur ? cDur : (role == "support" ? cSup : role == "resistance" ? cRes : cVwap)
+                table.cell(tbl, 0, rr, key + (dur ? "★" : ""), text_color=col, text_size=size.normal, text_halign=text.align_center)
+                table.cell(tbl, 1, rr, f_px(price), text_color=col, text_size=size.normal, text_halign=text.align_right)
+                table.cell(tbl, 2, rr, kind, text_color=tblTx, text_size=size.normal, text_halign=text.align_left)
+                table.cell(tbl, 3, rr, f_expect(kind, role), text_color=tblTx, text_size=size.normal, text_halign=text.align_left)
+            cav = "★ = has held for many days · regime line is VWAP (no options data) · a guide, not a trade signal · not financial advice"
+            table.cell(tbl, 0, m + 1, cav, text_color=color.new(color.gray, 15), text_size=size.small, text_halign=text.align_left)
+            table.merge_cells(tbl, 0, m + 1, 3, m + 1)
+
+// ── regime tint ──────────────────────────────────────────────────────────────
+confirmed = barstate.isconfirmed
+hasVwap   = not na(vwapWin)
+aboveVwap = hasVwap and close > vwapWin
+bgcolor(showRegimeT and hasVwap ? (aboveVwap ? color.new(color.green, 96) : color.new(color.red, 96)) : na)
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ARROWS — strict fade at the nearest confirmed pivot S/R. When "arrows only at
+// confluence/durable" is on, they fire only if that pivot sits inside a confluence
+// band or near a durable level. BOS = a confirmed close beyond the last swing.
+// (plotshape / alertcondition are TOP-LEVEL, as Pine requires.)
+// ─────────────────────────────────────────────────────────────────────────────
+pvH = ta.pivothigh(pivotLen, pivotLen)
+pvL = ta.pivotlow(pivotLen, pivotLen)
+var float nearRes = na
+var float nearSup = na
+nearRes := not na(pvH) ? pvH : nearRes
+nearSup := not na(pvL) ? pvL : nearSup
+
+// gate: when arrowsConfluenceOnly, require the pivot to be a confluence level
+// (reuses f_inConf defined above — a price inside any confluence band).
+resGate = not arrowsConfluenceOnly or (not na(nearRes) and f_inConf(nearRes))
+supGate = not arrowsConfluenceOnly or (not na(nearSup) and f_inConf(nearSup))
+
+// SELL — confirmed bar tags resistance (high >= it) but closes back below it.
+var bool armedSell = true
+sellTrig = showArrows and confirmed and resGate and not na(nearRes) and high >= nearRes and close < nearRes
+fadeSell = sellTrig and armedSell
+armedSell := confirmed ? (fadeSell ? false : (high < nearRes * 0.999 ? true : armedSell)) : armedSell
+plotshape(fadeSell, title="fade resistance (sell)", location=location.abovebar, style=shape.triangledown, color=(isDark ? #EF5350 : #C62828), size=size.small, text="SELL")
+alertcondition(fadeSell, title="Fade resistance", message="Price got rejected at resistance — a good spot to sell the rally.")
+
+// BUY — confirmed bar tags support (low <= it) but closes back above it.
+var bool armedBuy = true
+buyTrig = showArrows and confirmed and supGate and not na(nearSup) and low <= nearSup and close > nearSup
+fadeBuy = buyTrig and armedBuy
+armedBuy := confirmed ? (fadeBuy ? false : (low > nearSup * 1.001 ? true : armedBuy)) : armedBuy
+plotshape(fadeBuy, title="bounce support (buy)", location=location.belowbar, style=shape.triangleup, color=(isDark ? #26A69A : #1B7A70), size=size.small, text="BUY")
+alertcondition(fadeBuy, title="Bounce support", message="Price bounced off support — a good spot to buy the dip.")
+
+// BOS = break of STRUCTURE: a confirmed close beyond the last swing pivot.
+var float bosHigh = na
+var float bosLow  = na
+bosHigh := not na(pvH) ? pvH : bosHigh
+bosLow  := not na(pvL) ? pvL : bosLow
+var bool bosUpArmed = true
+var bool bosDnArmed = true
+bosUp = showBos and confirmed and not na(bosHigh) and close > bosHigh and bosUpArmed
+bosDn = showBos and confirmed and not na(bosLow)  and close < bosLow  and bosDnArmed
+bosUpArmed := confirmed ? (bosUp ? false : (not na(pvH) ? true : bosUpArmed)) : bosUpArmed
+bosDnArmed := confirmed ? (bosDn ? false : (not na(pvL) ? true : bosDnArmed)) : bosDnArmed
+plotshape(bosUp, title="break of structure up", location=location.belowbar, style=shape.xcross, color=(isDark ? #26C6DA : #00838F), size=size.tiny, text="BOS↑")
+plotshape(bosDn, title="break of structure down", location=location.abovebar, style=shape.xcross, color=(isDark ? #FFA726 : #E65100), size=size.tiny, text="BOS↓")
+alertcondition(bosUp, title="BOS up", message="Break of structure UP — price closed above the last swing high.")
+alertcondition(bosDn, title="BOS down", message="Break of structure DOWN — price closed below the last swing low.")

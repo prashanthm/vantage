@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 4  # v4: futures ingest (AMP executions + order log)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -130,6 +130,13 @@ CREATE TABLE IF NOT EXISTS analysis (
     decisions    TEXT                -- JSON array
 );
 
+CREATE TABLE IF NOT EXISTS spx_playbook (
+    date      TEXT PRIMARY KEY,   -- generated_for (YYYY-MM-DD)
+    session   TEXT,               -- the session the playbook is for
+    scaffold  TEXT,               -- JSON: the deterministic playbook scaffold
+    narrative TEXT                -- JSON/text: the LLM narrative (filled lazily; may be null)
+);
+
 CREATE TABLE IF NOT EXISTS roundtrips (
     id         INTEGER PRIMARY KEY CHECK (id = 1),  -- single latest snapshot
     as_of      TEXT,
@@ -168,6 +175,105 @@ CREATE TABLE IF NOT EXISTS signals (
     time       TEXT,
     seq        INTEGER
 );
+
+-- Per-ticker notebook: one structured plan per symbol (thesis / target / stop /
+-- free-text notes). Written by the SPA via POST /api/ticker/{sym}/plan — the
+-- second deliberate API write after refresh (ADR-014). No broker/fund contact.
+CREATE TABLE IF NOT EXISTS ticker_plan (
+    symbol      TEXT PRIMARY KEY,
+    thesis      TEXT,
+    target      REAL,
+    stop        REAL,
+    notes       TEXT,
+    updated_at  TEXT NOT NULL
+);
+
+-- Per-ticker running journal: an append-only timeline of auto snapshots (nightly
+-- price + P&L + recommendation) interleaved with manual notes. `payload` is JSON.
+CREATE TABLE IF NOT EXISTS ticker_journal (
+    id          INTEGER PRIMARY KEY,
+    symbol      TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    kind        TEXT NOT NULL,          -- 'snapshot' | 'note'
+    payload     TEXT NOT NULL           -- JSON blob
+);
+CREATE INDEX IF NOT EXISTS ix_ticker_journal_sym ON ticker_journal(symbol, created_at);
+
+-- Durable level memory: one row per (session, symbol, level). Recorded nightly so
+-- a level's history builds over time — the thing that lets us surface a level
+-- that has been repeatedly tested/respected across weeks (LuxAlgo-style memory),
+-- but built from our own dimensions (fractal S/R, volume PoC, swings, round
+-- numbers, and — going forward — GEX walls/flip/max-pain). `dim` is the coarse
+-- dimension type (support/resistance/poc/swing/round/gex_wall/gamma_flip/max_pain);
+-- `kind` is the human label; `touches` is that session's own touch count (price
+-- dimensions only); `day_high`/`day_low`/`day_close` capture where price traded
+-- that session so a later pass can ask "did price respect this level?".
+CREATE TABLE IF NOT EXISTS level_history (
+    session    TEXT NOT NULL,        -- YYYY-MM-DD the level was observed for
+    symbol     TEXT NOT NULL,
+    price      REAL NOT NULL,
+    dim        TEXT NOT NULL,        -- coarse dimension type
+    kind       TEXT NOT NULL,        -- human label (e.g. "support (3x tested)")
+    source     TEXT NOT NULL,        -- 'chart' | 'GEX' | 'psych'
+    touches    INTEGER,              -- session-local touch count (price dims)
+    day_high   REAL,
+    day_low    REAL,
+    day_close  REAL,
+    PRIMARY KEY (session, symbol, dim, price)
+);
+CREATE INDEX IF NOT EXISTS ix_level_history_sym ON level_history(symbol, session);
+
+-- Futures order EXECUTIONS (filled orders) imported from an AMP/CQG CSV export.
+-- One row per filled order (AMP "Order ID" is the natural dedupe key). These are
+-- the ground truth for round-trip P&L; round-trips + win-rate are DERIVED on read
+-- (never stored), because a windowed export can leave positions unpaired and any
+-- cached P&L would be wrong. `contract` is normalized (NQ|MNQ); `point_value` is
+-- baked at ingest ($20 NQ e-mini / $2 MNQ micro) so dollar P&L is unambiguous.
+-- `extra` JSON carries the bracket prices (limit/stop/take-profit/stop-loss).
+CREATE TABLE IF NOT EXISTS futures_fills (
+    order_id       TEXT PRIMARY KEY,   -- AMP "Order ID" — idempotent dedupe key
+    raw_symbol     TEXT NOT NULL,      -- 'F.US.ENQU26'
+    contract       TEXT NOT NULL,      -- normalized 'NQ' | 'MNQ'
+    contract_month TEXT,               -- 'YYYY-MM' parsed from the CQG month code
+    point_value    REAL NOT NULL,      -- 20.0 (NQ) | 2.0 (MNQ)
+    side           TEXT NOT NULL,      -- 'Buy' | 'Sell'
+    order_type     TEXT,               -- Market | Stop | Stop Loss | Limit
+    quantity       REAL,
+    fill_quantity  REAL,
+    avg_fill_price REAL NOT NULL,
+    commission     REAL,               -- usually NULL in the AMP export
+    placing_time   TEXT,               -- 'YYYY-MM-DD HH:MM:SS' (ET), as-is
+    status_time    TEXT,               -- fill timestamp used for ordering
+    status         TEXT,               -- 'Filled'
+    duration       TEXT,               -- GTC | DAY
+    account        TEXT,               -- logical account tag (default 'ampfutures')
+    extra          TEXT,               -- JSON: limit/stop/take_profit/stop_loss
+    seq            INTEGER              -- source ordering within an import batch
+);
+CREATE INDEX IF NOT EXISTS ix_futures_fills_contract ON futures_fills(contract, status_time);
+
+-- Futures ORDER LOG (the fuller history, all statuses) — for order-BEHAVIOR
+-- analysis (cancel rate, stop usage), distinct from the executions above. Same
+-- Order ID key; Filled rows overlap futures_fills by design (separate concerns).
+CREATE TABLE IF NOT EXISTS futures_orders (
+    order_id       TEXT PRIMARY KEY,
+    raw_symbol     TEXT NOT NULL,
+    contract       TEXT NOT NULL,      -- 'NQ' | 'MNQ'
+    side           TEXT NOT NULL,
+    order_type     TEXT,               -- Market|Stop|Stop Loss|Take Profit|Limit|Trailing Stop
+    status         TEXT NOT NULL,      -- 'Filled' | 'Cancelled' | 'Rejected'
+    quantity       REAL,
+    fill_quantity  REAL,
+    avg_fill_price REAL,
+    active_at      TEXT,
+    placing_time   TEXT,
+    status_time    TEXT,
+    duration       TEXT,
+    account        TEXT,
+    extra          TEXT,               -- JSON: limit/stop prices
+    seq            INTEGER
+);
+CREATE INDEX IF NOT EXISTS ix_futures_orders_status ON futures_orders(contract, status);
 """
 
 

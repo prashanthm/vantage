@@ -47,7 +47,7 @@ def test_run_snapshots_explicit_symbols_with_stubbed_connection(tmp_path, monkey
     monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: StubConn()))
     monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": StubConn})
 
-    rc = snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+    rc = snap.main(["--source", "broker", "--broker", "robinhood", "--data-dir", str(tmp_path),
                     "--as-of", "2026-07-05", "SOXS", "PLTR"])
     assert rc == snap.EXIT_OK
     for sym in ("SOXS", "PLTR"):
@@ -59,7 +59,7 @@ def test_run_snapshots_explicit_symbols_with_stubbed_connection(tmp_path, monkey
 
 def test_run_requires_symbols(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": object})
-    rc = snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path)])
+    rc = snap.main(["--source", "broker", "--broker", "robinhood", "--data-dir", str(tmp_path)])
     assert rc == snap.EXIT_USER_ERROR
     assert "no symbols" in capsys.readouterr().err
 
@@ -71,7 +71,7 @@ def test_run_dry_run_writes_nothing(tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: StubConn()))
     monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": StubConn})
-    rc = snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+    rc = snap.main(["--source", "broker", "--broker", "robinhood", "--data-dir", str(tmp_path),
                     "--dry-run", "SOXS"])
     assert rc == snap.EXIT_OK
     assert not (tmp_path / "bars").exists()
@@ -120,7 +120,7 @@ def test_backfill_writes_marker_fields_and_trims(tmp_path, monkeypatch):
     monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: StubConn()))
     monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": StubConn})
 
-    rc = snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+    rc = snap.main(["--source", "broker", "--broker", "robinhood", "--data-dir", str(tmp_path),
                     "--as-of", "2026-07-05", "--backfill", "PLTR"])
     assert rc == snap.EXIT_OK
     data = json.loads((tmp_path / "bars" / "PLTR.json").read_text())
@@ -142,7 +142,7 @@ def test_symbol_flag_adds_ticker_for_on_demand_backfill(tmp_path, monkeypatch):
     monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: StubConn()))
     monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": StubConn})
 
-    rc = snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+    rc = snap.main(["--source", "broker", "--broker", "robinhood", "--data-dir", str(tmp_path),
                     "--as-of", "2026-07-05", "--backfill", "--symbol", "NVDA"])
     assert rc == snap.EXIT_OK
     assert seen == ["NVDA"]
@@ -159,7 +159,7 @@ def test_nightly_snapshot_merges_into_existing_deep_file_no_history_loss(
 
     monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: BackfillConn()))
     monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": BackfillConn})
-    assert snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+    assert snap.main(["--source", "broker", "--broker", "robinhood", "--data-dir", str(tmp_path),
                       "--as-of", "2026-07-05", "--backfill", "AAA"]) == snap.EXIT_OK
     deep = json.loads((tmp_path / "bars" / "AAA.json").read_text())
     assert deep["bar_count"] == 15 and deep["backfilled"] is True
@@ -177,7 +177,7 @@ def test_nightly_snapshot_merges_into_existing_deep_file_no_history_loss(
 
     monkeypatch.setattr(snap, "get_connection", lambda broker: (lambda: NightlyConn()))
     monkeypatch.setattr(snap, "CONNECTIONS", {"robinhood": NightlyConn})
-    assert snap.main(["--broker", "robinhood", "--data-dir", str(tmp_path),
+    assert snap.main(["--source", "broker", "--broker", "robinhood", "--data-dir", str(tmp_path),
                       "--as-of", "2026-07-06", "AAA"]) == snap.EXIT_OK
 
     merged = json.loads((tmp_path / "bars" / "AAA.json").read_text())

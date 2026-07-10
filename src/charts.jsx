@@ -9,11 +9,9 @@
 //   - conviction/recommendation badge on the card header
 // Fallback path (no Lightweight Charts global, or /api/bars 404s / backend down):
 //   - the original seeded-OHLC SVG candlestick chart (SvgChart below), unchanged.
-import { TODAY, MARKET, LOTS, AI_INSIGHTS, CHART_PARAMS, CHART_MARKERS, CHART_LEVELS, CHART_RECS } from "./data.js";
-import { genOHLC } from "./ohlc.js";
-import { usd, signUsd, signPct, cls, dirCls, acctOf, lotValue, lotCost, fmtDate } from "./util.jsx";
+import { usd, signUsd, signPct, cls, dirCls, acctOf } from "./util.jsx";
 import * as live from "./live.js";
-import { mapBars, mapBarsOverlay } from "./live.js";
+import { useLive, mapBars, mapBarsOverlay, getAnalysis, mapAnalysis } from "./live.js";
 
 const { useState, useMemo, useRef, useEffect } = React;
 const { FAQItem } = window.LookeyDS;
@@ -39,21 +37,21 @@ const hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts
 /* ============================================================= badge helpers */
 
 // conviction.label -> display + color. Backend labels: strong|neutral|weak|freefall.
-const CONVICTION = {
+export const CONVICTION = {
   strong:   { text: "STRONG",   fg: "#056645", bg: "#e7f6ef" },
   neutral:  { text: "NEUTRAL",  fg: "#475569", bg: "#eef1f6" },
   weak:     { text: "WEAK",     fg: "#92600a", bg: "#fdf0d9" },
   freefall: { text: "FREEFALL", fg: "#a01818", bg: "#fdeaea" },
 };
 // recommendation -> human label for the badge.
-const REC_LABEL = {
+export const REC_LABEL = {
   HOLD_AND_SELL_CALL: "HOLD & SELL CALL",
   CLOSE_AND_BOOK_LOSS: "CLOSE & BOOK LOSS",
   HOLD_WASH_BLOCKED: "HOLD — WASH BLOCKED",
   MONITOR: "MONITOR",
 };
 
-function ConvictionBadge({ analysis }) {
+export function ConvictionBadge({ analysis }) {
   if (!analysis) return null;
   const c = CONVICTION[analysis.conviction.label] || CONVICTION.neutral;
   const rec = REC_LABEL[analysis.recommendation] || analysis.recommendation;
@@ -308,23 +306,17 @@ const underlyingOf = (sym) => String(sym).split(" ")[0].toUpperCase();
 // otherwise) — option contract symbols collapse to their underlying, cash-like
 // sleeves are dropped — plus the fixture chart symbols, de-duped, order-stable.
 function useSymbolChoices() {
+  // Live held underlyings only — no fixture symbol list.
   const live_ = live.useLive(() => live.positions().then((p) => live.mapPositions(p)), null, []);
   const rawHeld = (live_.data || []).map((p) => p.symbol);
-  const rawFixture = [...new Set(LOTS.map((l) => l.symbol))];
-  const normalize = (arr) => {
-    const seen = new Set();
-    const out = [];
-    for (const s of arr) {
-      const u = underlyingOf(s);
-      if (NON_TICKER.has(u) || seen.has(u)) continue;
-      seen.add(u);
-      out.push(u);
-    }
-    return out;
-  };
-  const source = rawHeld.length ? normalize(rawHeld) : normalize(rawFixture);
-  const out = [...source];
-  for (const s of Object.keys(CHART_PARAMS)) if (!out.includes(s)) out.push(s);
+  const seen = new Set();
+  const out = [];
+  for (const s of rawHeld) {
+    const u = underlyingOf(s);
+    if (NON_TICKER.has(u) || seen.has(u)) continue;
+    seen.add(u);
+    out.push(u);
+  }
   return out;
 }
 
@@ -360,269 +352,92 @@ export function ChartsView({ symbol, setSymbol }) {
   }, [symbol]);
 
   if (mode === "live") return <LiveCandleChart key={symbol} symbol={symbol} setSymbol={setSymbol} />;
-  if (mode === "probing") {
-    // brief transitional render — keep the header + pills, show a spinner note
-    return (
-      <div>
-        <div className="vg-spread" style={{ marginBottom: 14 }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 19 }}>AI Charts</h2>
-            <p className="vg-sub" style={{ margin: "4px 0 0" }}>loading live candles…</p>
-          </div>
-          <SymbolPills symbol={symbol} setSymbol={setSymbol} />
-        </div>
-        <div className="vg-card" style={{ padding: 16 }}>
-          <div className="vg-chartwrap" />
-        </div>
-      </div>
-    );
-  }
-  return <SvgChart symbol={symbol} setSymbol={setSymbol} />;
-}
-
-/* ============================================================= SVG fallback chart */
-
-// Track an element's rendered size so the SVG viewBox can match it 1:1.
-function useSize(ref, fallback) {
-  const [size, setSize] = useState(fallback);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || typeof ResizeObserver === "undefined") return undefined;
-    const ro = new ResizeObserver((entries) => {
-      const r = entries[0].contentRect;
-      if (r.width > 0 && r.height > 0) setSize({ w: r.width, h: r.height });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [ref]);
-  return size;
-}
-
-// The original simulated-OHLC candlestick chart — retained verbatim as the
-// progressive-enhancement fallback when Lightweight Charts is absent or the
-// backend has no bars for the symbol.
-function SvgChart({ symbol, setSymbol }) {
-  const [tf, setTf] = useState("3M");
-  const [hover, setHover] = useState(null);
-  const wrapRef = useRef(null);
-  const size = useSize(wrapRef, { w: 960, h: 450 });
-
-  const params = CHART_PARAMS[symbol] || CHART_PARAMS.SPY;
-  const price = (MARKET[symbol] && MARKET[symbol].price) || 100;
-  const all = useMemo(
-    () => genOHLC(symbol, price, params, TODAY, CHART_MARKERS[symbol] || []),
-    [symbol] // eslint-disable-line react-hooks/exhaustive-deps
-  );
-  const bars = useMemo(() => all.slice(-TIMEFRAMES.find((t) => t.key === tf).bars), [all, tf]);
-
-  const held = LOTS.filter((l) => l.symbol === symbol);
-  const heldShares = held.reduce((s, l) => s + l.shares, 0);
-  const avgCost = heldShares ? held.reduce((s, l) => s + lotCost(l), 0) / heldShares : null;
-
-  const W = Math.max(320, size.w), VH = 70, PADR = 56, PADT = 10;
-  const H = Math.max(240, size.h - VH);
-  const plotW = W - PADR, n = bars.length;
-  const levels = CHART_LEVELS[symbol];
-  let lo = Math.min(...bars.map((b) => b.l)), hi = Math.max(...bars.map((b) => b.h));
-  if (levels) { lo = Math.min(lo, levels.support); hi = Math.max(hi, levels.resistance); }
-  if (avgCost != null) { lo = Math.min(lo, avgCost); hi = Math.max(hi, avgCost); }
-  const pad = (hi - lo) * 0.06; lo -= pad; hi += pad;
-  const y = (p) => PADT + ((hi - p) / (hi - lo)) * (H - PADT - 6);
-  const x = (i) => (i + 0.5) * (plotW / n);
-  const cw = Math.max(2, (plotW / n) * 0.62);
-  const maxV = Math.max(...bars.map((b) => b.v));
-  const insight = AI_INSIGHTS[symbol];
-
-  const onMove = (e) => {
-    const rect = wrapRef.current.getBoundingClientRect();
-    const px = ((e.clientX - rect.left) / rect.width) * W;
-    const i = Math.min(n - 1, Math.max(0, Math.floor(px / (plotW / n))));
-    setHover(px <= plotW ? i : null);
-  };
-
-  const gridLines = 4;
-  const hb = hover != null ? bars[hover] : null;
-
+  // "probing" and "svg" (no live bars / no Lightweight Charts) share one honest
+  // header + state — there is no demo chart fallback.
+  const loading = mode === "probing";
   return (
     <div>
       <div className="vg-spread" style={{ marginBottom: 14 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>AI Charts</h2>
+          <h2 style={{ margin: 0, fontSize: 19 }}>AI Charts — {symbol}</h2>
           <p className="vg-sub" style={{ margin: "4px 0 0" }}>
-            Simulated candles · AI markers &amp; levels are illustrative · educational only
+            {loading ? "loading live candles…" : "live candlestick, support/resistance, and the covered-call overlay"}
           </p>
         </div>
-        <SymbolPills symbol={symbol} setSymbol={(s) => { setSymbol(s); setHover(null); }} />
       </div>
-
       <div className="vg-card" style={{ padding: 16 }}>
-          <div className="vg-spread" style={{ marginBottom: 8 }}>
-            <div className="vg-row">
-              <strong style={{ fontSize: 17 }}>{symbol}</strong>
-              {MARKET[symbol] && <span className="vg-note">{MARKET[symbol].name}</span>}
-              {MARKET[symbol] && <b style={{ fontSize: 16 }}>{usd(MARKET[symbol].price, 2)}</b>}
-              {MARKET[symbol] && (
-                <span className={dirCls(MARKET[symbol].dayPct)} style={{ color: MARKET[symbol].dayPct >= 0 ? UP : DOWN, fontWeight: 600 }}>
-                  {signPct(MARKET[symbol].dayPct)}
-                </span>
-              )}
-              {insight && <span className={cls("vg-bias", insight.bias)} style={{ fontSize: 12 }}>{insight.bias}</span>}
-            </div>
-            <div className="vg-pills">
-              {TIMEFRAMES.map((t) => (
-                <button key={t.key} className={cls("vg-pill", tf === t.key && "sel")} onClick={() => { setTf(t.key); setHover(null); }}>{t.key}</button>
-              ))}
-            </div>
-          </div>
-
-          <div ref={wrapRef} className="vg-chartwrap" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
-            <svg viewBox={`0 0 ${W} ${H + VH}`} preserveAspectRatio="none" role="img"
-              aria-label={`${symbol} candlestick chart, ${tf}`}>
-              {Array.from({ length: gridLines + 1 }, (_, g) => {
-                const p = lo + ((hi - lo) * g) / gridLines;
-                return (
-                  <g key={g}>
-                    <line x1={0} x2={plotW} y1={y(p)} y2={y(p)} stroke="#eef1f6" />
-                    <text x={plotW + 8} y={y(p) + 4} fontSize="11" fill="#94a3b8">{p >= 100 ? p.toFixed(0) : p.toFixed(1)}</text>
-                  </g>
-                );
-              })}
-              {levels && (
-                <g>
-                  <line x1={0} x2={plotW} y1={y(levels.resistance)} y2={y(levels.resistance)} stroke={DOWN} strokeDasharray="6 4" strokeOpacity="0.55" />
-                  <text x={6} y={y(levels.resistance) - 5} fontSize="10.5" fill={DOWN}>resistance {levels.resistance}</text>
-                  <line x1={0} x2={plotW} y1={y(levels.support)} y2={y(levels.support)} stroke={UP} strokeDasharray="6 4" strokeOpacity="0.55" />
-                  <text x={6} y={y(levels.support) + 13} fontSize="10.5" fill={UP}>support {levels.support}</text>
-                </g>
-              )}
-              {avgCost != null && (
-                <g>
-                  <line x1={0} x2={plotW} y1={y(avgCost)} y2={y(avgCost)} stroke="#932cfa" strokeDasharray="2 4" strokeWidth="1.6" />
-                  <text x={plotW - 4} y={y(avgCost) - 5} fontSize="10.5" fill="#932cfa" textAnchor="end">
-                    your avg cost {usd(avgCost, 2)}
-                  </text>
-                </g>
-              )}
-              {bars.map((b, i) => {
-                const up = b.c >= b.o;
-                return (
-                  <g key={i}>
-                    <line x1={x(i)} x2={x(i)} y1={y(b.h)} y2={y(b.l)} stroke={up ? UP : DOWN} strokeWidth="1" />
-                    <rect x={x(i) - cw / 2} y={y(Math.max(b.o, b.c))} width={cw}
-                      height={Math.max(1.5, Math.abs(y(b.o) - y(b.c)))} rx="1"
-                      fill={up ? UP : DOWN} />
-                  </g>
-                );
-              })}
-              {bars.map((b, i) => b.marker && (
-                <g key={`m${i}`} className="vg-marker">
-                  {b.marker.type === "buy" && <path d={`M ${x(i)} ${y(b.l) + 8} l 6 10 l -12 0 z`} fill="#2e68fd" />}
-                  {b.marker.type === "sell" && <path d={`M ${x(i)} ${y(b.h) - 18} l 6 -10 l -12 0 z`} fill="#dc2626" />}
-                  {b.marker.type === "note" && <circle cx={x(i)} cy={y(b.h) - 14} r="5" fill="#ca8a04" />}
-                  <text x={x(i)} y={b.marker.type === "buy" ? y(b.l) + 30 : y(b.h) - 26} fontSize="9.5"
-                    fill="#4d525f" textAnchor="middle">AI</text>
-                </g>
-              ))}
-              {bars.map((b, i) => (
-                <rect key={`v${i}`} x={x(i) - cw / 2} y={H + VH - (b.v / maxV) * (VH - 12)}
-                  width={cw} height={(b.v / maxV) * (VH - 12)} rx="1"
-                  fill={b.c >= b.o ? UP : DOWN} opacity="0.35" />
-              ))}
-              <text x={0} y={H + 12} fontSize="10" fill="#94a3b8">volume</text>
-              {hb && (
-                <g>
-                  <line x1={x(hover)} x2={x(hover)} y1={PADT} y2={H + VH} stroke="#01081b" strokeOpacity="0.25" strokeDasharray="3 3" />
-                  <line x1={0} x2={plotW} y1={y(hb.c)} y2={y(hb.c)} stroke="#01081b" strokeOpacity="0.18" strokeDasharray="3 3" />
-                </g>
-              )}
-            </svg>
-            {hb && (
-              <div className="vg-charttip" style={{ left: `${Math.min(92, (x(hover) / W) * 100)}%` }}>
-                <b>{fmtD(hb.date)}</b> · O {hb.o.toFixed(2)} · H {hb.h.toFixed(2)} · L {hb.l.toFixed(2)} · C {hb.c.toFixed(2)}
-                {hb.marker && <div className="mk">{hb.marker.label}</div>}
-              </div>
-            )}
-          </div>
-
-          <div className="vg-row" style={{ marginTop: 10, fontSize: 12, color: "var(--color-grey)" }}>
-            <span><span className="vg-mk-swatch" style={{ background: "#2e68fd" }} /> AI buy/accumulation</span>
-            <span><span className="vg-mk-swatch" style={{ background: "#dc2626" }} /> AI sell/distribution</span>
-            <span><span className="vg-mk-swatch" style={{ background: "#ca8a04", borderRadius: 99 }} /> AI note</span>
-            {avgCost != null && <span><span className="vg-mk-swatch" style={{ background: "#932cfa" }} /> your avg cost</span>}
-          </div>
-          <div className="vg-markerlist">
-            {(CHART_MARKERS[symbol] || []).map((m, i) => {
-              const bar = all[all.length - 1 - m.ago];
-              return (
-                <span key={i} className={cls("vg-badge", m.type === "buy" ? "info" : m.type === "sell" ? "bad" : "warn")}>
-                  {bar ? fmtD(bar.date) : ""} — {m.label}
-                </span>
-              );
-            })}
-          </div>
+        {loading
+          ? <div className="vg-chartwrap" />
+          : <p className="vg-note" style={{ margin: 0 }}>
+              No bar data for {symbol}. Run the nightly bar snapshot
+              (<code>python -m vantage_server.snapshot_bars --from-lots</code>) or confirm the backend URL in Settings.
+            </p>}
       </div>
     </div>
   );
 }
 
+/* ============================================================= SVG fallback chart */
+
+// Track an element's rendered size so the SVG viewBox can match it 1:1.
+
+
 // Contextual AI rail for the charts view — rendered by the app shell inside
 // the studio's right pane: AI read + your position + AI recommendation + FAQ.
 export function ChartsRail({ symbol }) {
-  const insight = AI_INSIGHTS[symbol], rec = CHART_RECS[symbol];
-  const held = LOTS.filter((l) => l.symbol === symbol);
-  const heldShares = held.reduce((s, l) => s + l.shares, 0);
-  const heldUnrl = held.reduce((s, l) => s + lotValue(l) - lotCost(l), 0);
+  // The rail's recommendation comes from the SAME live decision journal as the
+  // Positions rec column and the Dashboard Action Queue — one advice source, no
+  // competing fixtures. Indexed by underlying so an option contract inherits its
+  // underlying's read. Null (backend down / not analyzed) → a clean empty state.
+  const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, []).data;
+  const decision = useMemo(() => {
+    const u = underlyingOf(symbol);
+    return (analysis?.decisions || []).find((d) => underlyingOf(d.symbol) === u) || null;
+  }, [analysis, symbol]);
+
+  // Your position — live positions only (no fixture lots), matched by underlying.
+  const positions = useLive(() => live.positions("all").then(live.mapPositions), [], []).data;
+  const u = underlyingOf(symbol);
+  const held = (positions || []).filter((p) => underlyingOf(p.symbol) === u);
+  const heldShares = held.reduce((s, p) => s + (p.shares || 0), 0);
+  const heldValue = held.reduce((s, p) => s + (p.value || 0), 0);
+  const heldUnrl = held.reduce((s, p) => s + (p.unrl || 0), 0);
   return (
     <div>
       <div className="vg-card">
         <div className="vg-kicker">AI read</div>
-        {insight && <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "0 0 10px" }}>{insight.summary}</p>}
-        {insight && (
-          <div className="vg-row" style={{ gap: 16 }}>
-            <div style={{ flex: 1 }}>
-              <div className="vg-spread" style={{ fontSize: 12, color: "var(--color-grey)" }}>
-                <span>Momentum</span><span>{insight.momentum}</span>
-              </div>
-              <div className="vg-meter"><span style={{ width: `${insight.momentum}%` }} /></div>
-            </div>
-            <div style={{ flex: 1 }}>
-              <div className="vg-spread" style={{ fontSize: 12, color: "var(--color-grey)" }}>
-                <span>Sentiment</span><span>{insight.sentiment}</span>
-              </div>
-              <div className="vg-meter"><span style={{ width: `${insight.sentiment}%`, background: "var(--color-secondary)" }} /></div>
-            </div>
-          </div>
+        {decision ? (
+          <>
+            <ConvictionBadge analysis={decision} />
+            {decision.rationale && (
+              <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "10px 0 0" }}>{decision.rationale}</p>
+            )}
+          </>
+        ) : (
+          <p className="vg-note" style={{ margin: 0 }}>
+            No decision journal entry for {symbol}. Run the nightly analysis, or confirm the backend URL in Settings.
+          </p>
         )}
-        {!insight && <p className="vg-note" style={{ margin: 0 }}>No AI read for {symbol}.</p>}
       </div>
 
       <div className="vg-card">
         <div className="vg-kicker">Your position</div>
-        {heldShares > 0 ? (
+        {held.length > 0 ? (
           <div>
             <div className="vg-spread" style={{ fontSize: 14 }}>
-              <b>{heldShares} sh · {usd(heldShares * ((MARKET[symbol] && MARKET[symbol].price) || 0))}</b>
+              <b>{heldShares.toLocaleString("en-US", { maximumFractionDigits: 2 })} sh · {usd(heldValue)}</b>
               <span className={dirCls(heldUnrl)} style={{ color: heldUnrl >= 0 ? UP : DOWN, fontWeight: 600 }}>{signUsd(heldUnrl)}</span>
             </div>
-            {held.map((l, i) => (
-              <div key={i} className="vg-note" style={{ marginTop: 6 }}>
-                {acctOf(l.account).short}: {l.shares} sh @ {usd(l.costPerShare, 2)} ({fmtDate(l.date)})
+            {held.flatMap((p) => (p.accounts || []).map((acc, i) => (
+              <div key={`${p.symbol}-${i}`} className="vg-note" style={{ marginTop: 6 }}>
+                {acctOf(acc).short}: {p.symbol}
               </div>
-            ))}
+            )))}
           </div>
         ) : (
           <p className="vg-note" style={{ margin: 0 }}>Not held in any linked account.</p>
         )}
       </div>
-
-      {rec && (
-        <div className="vg-card vg-reccard">
-          <div className="vg-kicker">AI recommendation</div>
-          <div className="vg-recaction">{rec.action}</div>
-          <p style={{ fontSize: 13.5, lineHeight: 1.5, margin: "8px 0" }}>{rec.detail}</p>
-          <p className="vg-note" style={{ margin: 0 }}>⚠ Risk: {rec.risk}</p>
-        </div>
-      )}
 
       <div className="vg-card">
         <ChartFaq />

@@ -290,6 +290,66 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         return envelope("bars", snap, no_bars=False, **payload)
 
     @mcp.tool(
+        name="vantage.fundamentals",
+        annotations=_READ_ONLY,
+        description="Slow-moving valuation context for one ticker from yfinance "
+                    "(disk-cached ~6h). Returns {symbol, name, sector, market_cap, "
+                    "pe, forward_pe, week52_low, week52_high, target_mean, "
+                    "dividend_yield, beta} with null for any field the source "
+                    "omits (ETFs return mostly nulls — no single P/E or target). "
+                    "no_data=true when yfinance yields nothing (never fabricate "
+                    "numbers).",
+    )
+    def fundamentals(symbol: str = "") -> dict:
+        from vantage_server import fundamentals as fund  # noqa: PLC0415
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("fundamentals", snap, symbol="", fundamentals=None,
+                            no_data=True)
+        data = fund.fundamentals(symbol.upper(), store.data_dir)
+        return envelope("fundamentals", snap, symbol=symbol.upper(),
+                        fundamentals=data, no_data=data is None)
+
+    @mcp.tool(
+        name="vantage.news",
+        annotations=_READ_ONLY,
+        description="Recent news for one ticker — aggregated across the configured "
+                    "sources (yfinance today; pluggable), deduped, newest-first, "
+                    "with a headline SENTIMENT LEAN. Returns {symbol, items:[{title,"
+                    "summary,publisher,published,url,source}], sentiment:{score,"
+                    "band(negative|neutral|positive),n_headlines,method,estimated}}. "
+                    "sentiment.estimated is ALWAYS true (a lexicon lean over titles, "
+                    "not ground truth) — cite it as such. no_news=true when no "
+                    "source yields items (never fabricate headlines).",
+    )
+    def news(symbol: str = "") -> dict:
+        from vantage_server import news as news_mod  # noqa: PLC0415
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("news", snap, symbol="", news=None, no_news=True)
+        data = news_mod.news(symbol.upper(), store.data_dir)
+        return envelope("news", snap, symbol=symbol.upper(), news=data,
+                        no_news=data is None)
+
+    @mcp.tool(
+        name="vantage.spx_playbook",
+        annotations=_READ_ONLY,
+        description="The daily 0DTE SPX PLAYBOOK (written nightly by `python -m "
+                    "vantage_server.spx_playbook`; fuses Sentinel's dealer-gamma "
+                    "GEX/zones/breadth/VIX/Fed-macro with SPX 15m chart dimensions). "
+                    "Returns {available, session, scaffold:{regime, level_ladder:"
+                    "[{price,kind,source}], setups:[{trigger,bias,structure,levels}], "
+                    "catalysts, opex, edges, caveats}, narrative}. Every setup is "
+                    "CONDITIONAL on a real level. Context, not a signal (ADR-008); "
+                    "the GEX read is 0DTE-blind. no_playbook=true when none generated.",
+    )
+    def spx_playbook(date: str | None = None) -> dict:
+        snap = snapshot()
+        row = store.load_spx_playbook(date)
+        return envelope("spx_playbook", snap, available=row is not None,
+                        playbook=row, no_playbook=row is None)
+
+    @mcp.tool(
         name="vantage.analysis",
         annotations=_READ_ONLY,
         description="The nightly covered-call / cost-reduction DECISION JOURNAL "
@@ -306,7 +366,8 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     )
     def analysis(date: str | None = None, symbol: str | None = None) -> dict:
         snap = snapshot()
-        day = analyze.load_day(store.data_dir, date)
+        # SQLite-aware read (see position_actions note) — not analyze.load_day.
+        day = store.load_analysis_day(date)
         decisions = (day or {}).get("decisions", [])
         if symbol:
             want = symbol.upper()
@@ -328,7 +389,11 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     )
     def position_actions(symbol: str | None = None) -> dict:
         snap = snapshot()
-        day = analyze.load_day(store.data_dir, None)
+        # Read through the store (SQLite-aware) — analyze.load_day only reads
+        # JSON files, so on a SQLite-backed data dir it returns nothing and every
+        # symbol's actions come back empty. store.load_analysis_day delegates to
+        # analyze.load_day on JSON, so both backends work.
+        day = store.load_analysis_day()
         decisions = (day or {}).get("decisions", [])
         if symbol:
             want = symbol.upper()
