@@ -457,6 +457,11 @@ ALLOWED_WRITE_ROUTES = {
     "/api/paper/open",
     "/api/paper/settle",
     "/api/paper/close",
+    # Chart-snapshot journal — saves an image + forecast + score to our own store/
+    # disk. Journal/analysis only; no broker or order path (ADR-010 holds).
+    "/api/journal/upload",
+    "/api/journal/score",
+    "/api/journal/delete",
 }
 
 

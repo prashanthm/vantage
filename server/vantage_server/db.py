@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 6  # v6: paper_trades (SPY paper-trading tracker)
+SCHEMA_VERSION = 7  # v7: journal_snapshots (chart image + forecast-vs-outcome)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -329,6 +329,29 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     pnl_pct      REAL                -- % move on SPY
 );
 CREATE INDEX IF NOT EXISTS ix_paper_status ON paper_trades(status, opened_at);
+
+-- Chart-snapshot journal: a saved chart IMAGE paired with the playbook forecast
+-- that was live when it was captured, so we can look back and score what was
+-- FORECAST vs what actually HAPPENED — building (or dissolving) confidence in the
+-- projections with evidence. The image bytes live on disk (data-dir/journal/);
+-- this row holds the metadata + a frozen copy of the forecast (`forecast` JSON:
+-- session, spot, regime, the plan line, and the key levels with roles) and a
+-- later-computed `scorecard` JSON (which levels held/broke, was the regime call
+-- right, price range since). Context/journal only — no orders (ADR-010).
+CREATE TABLE IF NOT EXISTS journal_snapshots (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at   TEXT NOT NULL,      -- ISO timestamp captured
+    session      TEXT,               -- the playbook session it was linked to
+    symbol       TEXT,               -- 'SPX' (proxy price scored on SPX/SPY)
+    image_path   TEXT,               -- relative path under the journal dir
+    image_mime   TEXT,               -- e.g. image/png
+    note         TEXT,               -- the user's short note
+    spot_at_snap REAL,               -- price when captured (for the outcome delta)
+    forecast     TEXT,               -- JSON: frozen forecast (levels/regime/plan)
+    scorecard    TEXT,               -- JSON: forecast-vs-outcome (filled later)
+    scored_at    TEXT                -- when the scorecard was last computed
+);
+CREATE INDEX IF NOT EXISTS ix_journal_created ON journal_snapshots(created_at);
 """
 
 

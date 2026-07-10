@@ -834,6 +834,50 @@
   var openPaperTrade = (ticket) => _paperPost("open", ticket);
   var settlePaper = () => _paperPost("settle", {});
   var closePaperTrade = (id, spyExit) => _paperPost("close", { id, spy_exit: spyExit });
+  async function getJournal() {
+    const v = await getJson(`${backendBase()}/api/journal`, { timeoutMs: 2e4 });
+    return v && v.available ? v : { available: false, note: v && v.note };
+  }
+  async function uploadJournal(fileOrBlob, note) {
+    const base = backendBase();
+    if (!base) return { available: false };
+    const fd = new FormData();
+    const name = fileOrBlob.name || "chart.png";
+    fd.append("image", fileOrBlob, name);
+    fd.append("note", note || "");
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 3e4);
+    try {
+      const res = await fetch(`${base}/api/journal/upload`, {
+        method: "POST",
+        body: fd,
+        signal: ctrl.signal
+      });
+      if (!res.ok) return { available: false };
+      return await res.json();
+    } catch (e) {
+      return { available: false };
+    } finally {
+      clearTimeout(t);
+    }
+  }
+  async function _journalPost(path, body) {
+    const base = backendBase();
+    if (!base) return { available: false };
+    try {
+      const res = await fetch(`${base}/api/journal/${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body || {})
+      });
+      return res.ok ? await res.json() : { available: false };
+    } catch (e) {
+      return { available: false };
+    }
+  }
+  var scoreJournal = () => _journalPost("score", {});
+  var deleteJournal = (id) => _journalPost("delete", { id });
+  var journalImageUrl = (id) => `${backendBase()}/api/journal/image/${id}`;
   function mapAnalyze(payload) {
     if (!payload || typeof payload !== "object") return null;
     const results = Array.isArray(payload.results) ? payload.results : [];
@@ -2105,9 +2149,138 @@
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
   }
 
+  // src/journal.jsx
+  var { useState: useState7, useRef: useRef2, useEffect: useEffect4 } = React;
+  var pct3 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
+  var when = (iso) => {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch (e) {
+      return iso;
+    }
+  };
+  var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
+  function JournalView({ refreshNonce }) {
+    const [nonce, setNonce] = useState7(0);
+    const [busy, setBusy] = useState7("");
+    const [note, setNote] = useState7("");
+    const [drag, setDrag] = useState7(false);
+    const fileRef = useRef2(null);
+    const jv = useLive(() => getJournal(), null, [refreshNonce, nonce]);
+    const d = jv.data;
+    const reload = () => setNonce((n) => n + 1);
+    const doUpload = async (fileOrBlob) => {
+      if (!fileOrBlob) return;
+      setBusy("upload");
+      await uploadJournal(fileOrBlob, note);
+      setBusy("");
+      setNote("");
+      reload();
+    };
+    const doScore = async () => {
+      setBusy("score");
+      await scoreJournal();
+      setBusy("");
+      reload();
+    };
+    const doDelete = async (id) => {
+      setBusy(`del${id}`);
+      await deleteJournal(id);
+      setBusy("");
+      reload();
+    };
+    useEffect4(() => {
+      const onPaste = (e) => {
+        const items = e.clipboardData && e.clipboardData.items || [];
+        for (const it of items) {
+          if (it.type && it.type.startsWith("image/")) {
+            const blob = it.getAsFile();
+            if (blob) {
+              doUpload(blob);
+              e.preventDefault();
+              return;
+            }
+          }
+        }
+      };
+      window.addEventListener("paste", onPaste);
+      return () => window.removeEventListener("paste", onPaste);
+    }, [note]);
+    const onDrop = (e) => {
+      e.preventDefault();
+      setDrag(false);
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f && f.type.startsWith("image/")) doUpload(f);
+    };
+    if (d && d.available === false) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "Journal"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, d.note || "Journal needs the SQLite backend + a generated playbook."));
+    }
+    const snaps = d && d.snapshots || [];
+    const acc = d && d.accuracy || {};
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Chart journal ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, "\xB7 forecast vs. outcome")), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, d ? `${snaps.length} snapshot${snaps.length === 1 ? "" : "s"}` : "loading\u2026"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy === "score", onClick: doScore }, busy === "score" ? "Scoring\u2026" : "Score vs. price"))), acc.n_scored > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(Tile2, { label: "Level accuracy", value: pct3(acc.avg_level_accuracy), tone: acc.avg_level_accuracy >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Regime calls right", value: pct3(acc.regime_hit_rate), tone: acc.regime_hit_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Scored", value: acc.n_scored }))), /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "vg-card",
+        onDragOver: (e) => {
+          e.preventDefault();
+          setDrag(true);
+        },
+        onDragLeave: () => setDrag(false),
+        onDrop,
+        style: {
+          border: drag ? "2px dashed var(--color-primary)" : "2px dashed var(--color-border, #ccc)",
+          textAlign: "center",
+          padding: 18,
+          cursor: "pointer"
+        },
+        onClick: () => fileRef.current && fileRef.current.click()
+      },
+      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14 } }, busy === "upload" ? "Uploading\u2026" : "Drop a chart screenshot here, paste (\u2318V), or click to choose a file"),
+      /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, marginTop: 4 } }, "It's saved with today's playbook forecast so you can score it later."),
+      /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          ref: fileRef,
+          type: "file",
+          accept: "image/*",
+          style: { display: "none" },
+          onChange: (e) => doUpload(e.target.files && e.target.files[0])
+        }
+      )
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "vg-input",
+        placeholder: "Optional note for the next snapshot (e.g. 'broke 7547 and ran')",
+        value: note,
+        onChange: (e) => setNote(e.target.value),
+        style: { width: "100%", padding: "6px 8px", marginTop: 4, fontSize: 13 }
+      }
+    ), snaps.map((s) => /* @__PURE__ */ React.createElement("div", { key: s.id, className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, when(s.created_at), s.session ? ` \xB7 ${s.session} playbook` : ""), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", disabled: busy === `del${s.id}`, onClick: () => doDelete(s.id) }, busy === `del${s.id}` ? "\u2026" : "delete")), s.note && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, margin: "4px 0" } }, s.note), /* @__PURE__ */ React.createElement(
+      "img",
+      {
+        src: journalImageUrl(s.id),
+        alt: "chart snapshot",
+        style: { maxWidth: "100%", borderRadius: 6, marginTop: 6, display: "block" }
+      }
+    ), s.forecast && s.forecast.plan && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, marginTop: 8 } }, /* @__PURE__ */ React.createElement("b", null, "Forecast then:"), " ", s.forecast.gamma, " gamma \xB7 ", s.forecast.plan), s.scorecard ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, marginBottom: 4 } }, "WHAT HAPPENED \u2014 price ", s.scorecard.price_low, "\u2013", s.scorecard.price_high, s.scorecard.regime && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 regime call", " ", /* @__PURE__ */ React.createElement("b", { className: s.scorecard.regime.correct ? "up" : "down" }, s.scorecard.regime.correct ? "\u2713 right" : "\u2717 wrong"), " ", "(", s.scorecard.regime.outcome, ")"), s.scorecard.level_accuracy != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 levels ", pct3(s.scorecard.level_accuracy))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, (s.scorecard.levels || []).filter((l) => l.verdict !== "untested").map((l, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        className: cls("vg-badge", VERDICT_TONE[l.verdict] || "plain"),
+        style: { minWidth: 56, textAlign: "center" }
+      },
+      l.verdict
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, l.key, " \xB7 ", Math.round(l.price), " ", l.role), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, l.label))))) : /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, marginTop: 6 } }, 'Not scored yet \u2014 click "Score vs. price" once the session has traded.'))), snaps.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 10 } }, "No snapshots yet. Drop or paste today's chart above \u2014 it'll be saved with the current playbook forecast, and you can score it against price later."), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "Each snapshot freezes the playbook forecast that was live; scoring compares it to actual SPX price action."), /* @__PURE__ */ React.createElement("div", null, "Journal / analysis only. Places no orders (ADR-010). Not financial advice.")));
+  }
+  function Tile2({ label, value, tone }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
+  }
+
   // src/trades.jsx
   var { useMemo: useMemo4 } = React;
-  var pct3 = (v) => v == null ? "\u2014" : `${Math.round(v * 100)}%`;
+  var pct4 = (v) => v == null ? "\u2014" : `${Math.round(v * 100)}%`;
   var pct1 = (v) => v == null ? "\u2014" : `${(v * 100).toFixed(1)}%`;
   var num = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   function CiBar({ ciLow, ciHigh, winRate, baseline, kind }) {
@@ -2158,7 +2331,7 @@
   function Scorecard({ summary }) {
     const s = summary || {};
     const pf = s.profit_factor;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-stats" }, /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Win rate"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct1(s.win_rate)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.wins ?? 0, "W / ", s.losses ?? 0, "L")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Profit factor"), /* @__PURE__ */ React.createElement("div", { className: "val" }, num(pf)), /* @__PURE__ */ React.createElement("div", { className: cls("delta", pf != null && (pf >= 1 ? "up" : "down")) }, pf == null ? "" : pf >= 1 ? "profitable" : "below breakeven")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg hold"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.avg_holding_days == null ? "\u2014" : `${num(s.avg_holding_days, 1)}d`)), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg MFE capture"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct3(s.avg_mfe_capture)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "share of peak move captured")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Closed trades"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.count ?? 0), s.entry_unknown ? /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.entry_unknown, " est. entry") : null));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-stats" }, /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Win rate"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct1(s.win_rate)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.wins ?? 0, "W / ", s.losses ?? 0, "L")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Profit factor"), /* @__PURE__ */ React.createElement("div", { className: "val" }, num(pf)), /* @__PURE__ */ React.createElement("div", { className: cls("delta", pf != null && (pf >= 1 ? "up" : "down")) }, pf == null ? "" : pf >= 1 ? "profitable" : "below breakeven")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg hold"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.avg_holding_days == null ? "\u2014" : `${num(s.avg_holding_days, 1)}d`)), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg MFE capture"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct4(s.avg_mfe_capture)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "share of peak move captured")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Closed trades"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.count ?? 0), s.entry_unknown ? /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.entry_unknown, " est. entry") : null));
   }
   function NotableCards({ notable, baseline }) {
     const significant = (notable || []).filter((b) => b.significant === true);
@@ -2217,7 +2390,7 @@
       /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: cls("num", r.realized_pnl >= 0 ? "up" : "down") }, signUsd(r.realized_pnl)),
       /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: cls("num", r.realized_pct >= 0 ? "up" : "down") }, signPct(r.realized_pct)),
       /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.win ? "good" : "bad") }, r.win ? "\u2713 Win" : "\u2715 Loss")),
-      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: "num" }, pct3(r.mfe_capture))
+      /* @__PURE__ */ React.createElement("td", { style: { padding: "9px 12px", textAlign: "right" }, className: "num" }, pct4(r.mfe_capture))
     )))));
   }
   function TradeAnalyticsView({ accountId, settings, setSymbol, go }) {
@@ -2240,7 +2413,7 @@
   }
 
   // src/app.jsx
-  var { useState: useState7, useMemo: useMemo5, useEffect: useEffect4, useRef: useRef2 } = React;
+  var { useState: useState8, useMemo: useMemo5, useEffect: useEffect5, useRef: useRef3 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -2253,6 +2426,7 @@
       { id: "options", label: "Options", icon: "\u25CE" },
       { id: "playbook", label: "0DTE Playbook", icon: "\u{1F3AF}" },
       { id: "paper", label: "Paper Trading", icon: "\u{1F4DD}" },
+      { id: "journal", label: "Chart Journal", icon: "\u{1F4F8}" },
       { id: "futures", label: "Futures", icon: "\u{1F4C9}" },
       { id: "trades", label: "Performance", icon: "\u{1F9EE}" }
     ] }
@@ -2264,8 +2438,8 @@
       const h = window.location.hash.replace(/^#\/?/, "");
       return ROUTES.includes(h) ? h : "dashboard";
     };
-    const [route, setRoute] = useState7(initial);
-    useEffect4(() => {
+    const [route, setRoute] = useState8(initial);
+    useEffect5(() => {
       const onHash = () => setRoute(initial());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
@@ -2278,22 +2452,22 @@
     return [route, go];
   }
   function App() {
-    const [settings, setSettings] = useState7(loadSettings);
-    const [accountId, setAccountId] = useState7(settings.defaultAccount);
-    const [symbol, setSymbol] = useState7("SPY");
+    const [settings, setSettings] = useState8(loadSettings);
+    const [accountId, setAccountId] = useState8(settings.defaultAccount);
+    const [symbol, setSymbol] = useState8("SPY");
     const [route, go] = useHashRoute();
-    const [notifs, setNotifs] = useState7([]);
-    const [notifOpen, setNotifOpen] = useState7(false);
-    const [chatOpen, setChatOpen] = useState7(false);
-    const [settingsOpen, setSettingsOpen] = useState7(false);
-    const [leftOpen, setLeftOpen] = useState7(() => window.innerWidth >= 860);
-    const [rightOpen, setRightOpen] = useState7(() => window.innerWidth >= 1100);
+    const [notifs, setNotifs] = useState8([]);
+    const [notifOpen, setNotifOpen] = useState8(false);
+    const [chatOpen, setChatOpen] = useState8(false);
+    const [settingsOpen, setSettingsOpen] = useState8(false);
+    const [leftOpen, setLeftOpen] = useState8(() => window.innerWidth >= 860);
+    const [rightOpen, setRightOpen] = useState8(() => window.innerWidth >= 1100);
     const RIGHT_MIN = 300, RIGHT_MAX = 720;
-    const [rightWidth, setRightWidth] = useState7(() => {
+    const [rightWidth, setRightWidth] = useState8(() => {
       const saved = Number(localStorage.getItem("vantage.rightWidth"));
       return saved >= RIGHT_MIN && saved <= RIGHT_MAX ? saved : 360;
     });
-    const [resizing, setResizing] = useState7(false);
+    const [resizing, setResizing] = useState8(false);
     const startResize = (e) => {
       e.preventDefault();
       setResizing(true);
@@ -2317,12 +2491,12 @@
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     };
-    const rightWidthRef = useRef2(rightWidth);
+    const rightWidthRef = useRef3(rightWidth);
     rightWidthRef.current = rightWidth;
-    const [refreshNonce, setRefreshNonce] = useState7(0);
-    const [refreshing, setRefreshing] = useState7({});
-    const [refreshNote, setRefreshNote] = useState7(null);
-    useEffect4(() => {
+    const [refreshNonce, setRefreshNonce] = useState8(0);
+    const [refreshing, setRefreshing] = useState8({});
+    const [refreshNote, setRefreshNote] = useState8(null);
+    useEffect5(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
       const mqLeft = window.matchMedia("(max-width: 859px)");
@@ -2473,7 +2647,7 @@
         },
         /* @__PURE__ */ React.createElement("span", { className: "ic" }, "\u27F3")
       )));
-    }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement(
+    }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol })), /* @__PURE__ */ React.createElement(
       "aside",
       {
         className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps", resizing && "resizing"),
@@ -2534,8 +2708,8 @@
     ));
   }
   function LiveStatusDots({ settings }) {
-    const [st, setSt] = useState7({ backend: null, mira: null });
-    useEffect4(() => {
+    const [st, setSt] = useState8({ backend: null, mira: null });
+    useEffect5(() => {
       let alive = true;
       health().then((h) => {
         if (alive) setSt((s) => ({ ...s, backend: h }));
@@ -2610,15 +2784,15 @@
     }
     if (accountId === "all" && totalValue > 0) {
       for (const [k, m] of Object.entries(ASSET_CLASSES)) {
-        const pct4 = alloc.byClass[k] / totalValue * 100;
-        const drift = pct4 - ALLOCATION_TARGETS[k];
+        const pct5 = alloc.byClass[k] / totalValue * 100;
+        const drift = pct5 - ALLOCATION_TARGETS[k];
         if (Math.abs(drift) >= 3) {
           out.push({
             key: `drift-${k}`,
             weight: 3,
             tone: drift > 0 ? "warn" : "info",
             chip: "REBALANCE",
-            title: `${m.label} ${signPct(drift, 1)} vs target (${pct4.toFixed(1)}% / ${ALLOCATION_TARGETS[k]}%)`,
+            title: `${m.label} ${signPct(drift, 1)} vs target (${pct5.toFixed(1)}% / ${ALLOCATION_TARGETS[k]}%)`,
             sub: drift > 0 ? "Overweight \u2014 trim on the next contribution." : "Underweight \u2014 direct new cash here.",
             onJump: () => go("holdings")
           });
@@ -2681,12 +2855,12 @@
         note: `\u2248 ${usd(estBenefit)} est. benefit at ${settings.taxRate}%`
       }
     )), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 14.5 } }, "Allocation by asset class"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "target 70 / 10 / 15 / 5")), /* @__PURE__ */ React.createElement("div", { className: "vg-allocbar", style: { marginTop: 12 }, role: "img", "aria-label": "Asset allocation" }, Object.entries(ASSET_CLASSES).map(([k, m]) => {
-      const pct4 = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
-      return pct4 > 0 && /* @__PURE__ */ React.createElement("span", { key: k, style: { width: `${pct4}%`, background: m.color }, title: `${m.label} ${pct4.toFixed(1)}%` });
+      const pct5 = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
+      return pct5 > 0 && /* @__PURE__ */ React.createElement("span", { key: k, style: { width: `${pct5}%`, background: m.color }, title: `${m.label} ${pct5.toFixed(1)}%` });
     })), /* @__PURE__ */ React.createElement("div", { className: "vg-legend" }, Object.entries(ASSET_CLASSES).map(([k, m]) => {
-      const pct4 = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
-      const drift = pct4 - ALLOCATION_TARGETS[k];
-      return /* @__PURE__ */ React.createElement("span", { key: k }, /* @__PURE__ */ React.createElement("span", { className: "sw", style: { background: m.color } }), m.label, " ", /* @__PURE__ */ React.createElement("span", { className: "num" }, pct4.toFixed(1), "%"), " ", accountId === "all" && Math.abs(drift) >= 3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", drift > 0 ? "warn" : "info") }, signPct(drift, 1), " vs target"));
+      const pct5 = totalValue ? alloc.byClass[k] / totalValue * 100 : 0;
+      const drift = pct5 - ALLOCATION_TARGETS[k];
+      return /* @__PURE__ */ React.createElement("span", { key: k }, /* @__PURE__ */ React.createElement("span", { className: "sw", style: { background: m.color } }), m.label, " ", /* @__PURE__ */ React.createElement("span", { className: "num" }, pct5.toFixed(1), "%"), " ", accountId === "all" && Math.abs(drift) >= 3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", drift > 0 ? "warn" : "info") }, signPct(drift, 1), " vs target"));
     }))), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { margin: "20px 2px 6px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Accounts today"), /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -2783,11 +2957,11 @@
     return optionMatchKeyFrom(strike, exp, cp === "C" ? "call" : "put");
   }
   function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
-    const [expanded, setExpanded] = useState7({});
-    const [sortKey, setSortKey] = useState7("value");
-    const [recFilter, setRecFilter] = useState7("all");
-    const [kindFilter, setKindFilter] = useState7("all");
-    const [query, setQuery] = useState7("");
+    const [expanded, setExpanded] = useState8({});
+    const [sortKey, setSortKey] = useState8("value");
+    const [recFilter, setRecFilter] = useState8("all");
+    const [kindFilter, setKindFilter] = useState8("all");
+    const [query, setQuery] = useState8("");
     const pos = useLive(() => positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
     const byUnderlying = useMemo5(() => {
@@ -2886,14 +3060,14 @@
     };
   }
   function ActivityView({ accountId, settings, refreshNonce }) {
-    const [kind, setKind] = useState7("all");
-    const [shown, setShown] = useState7(ACTIVITY_PAGE);
+    const [kind, setKind] = useState8("all");
+    const [shown, setShown] = useState8(ACTIVITY_PAGE);
     const rows = useLive(
       () => getHistory(accountId).then(mapHistory),
       null,
       [accountId, settings, refreshNonce]
     ).data;
-    useEffect4(() => {
+    useEffect5(() => {
       setShown(ACTIVITY_PAGE);
     }, [accountId, kind]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -2924,7 +3098,7 @@
     })))), filtered.length > shown && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: 10 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => setShown(shown + ACTIVITY_PAGE) }, "Show ", Math.min(ACTIVITY_PAGE, filtered.length - shown), " more \xB7 ", filtered.length - shown, " remaining"))));
   }
   function TaxView({ settings, tlh: tlh2 }) {
-    const [washFaqOpen, setWashFaqOpen] = useState7(false);
+    const [washFaqOpen, setWashFaqOpen] = useState8(false);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Tax Center \u2014 loss harvesting"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Every lot marked to last close \xB7 wash-sale window checked across ", /* @__PURE__ */ React.createElement("b", null, "all linked accounts"), " \xB7 threshold ", usd(settings.thresholdUsd), " or ", settings.thresholdPct, "% \xB7 decision-support only, no orders placed"), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Lot"), /* @__PURE__ */ React.createElement("th", null, "Account"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"), /* @__PURE__ */ React.createElement("th", null, "Status"), /* @__PURE__ */ React.createElement("th", null, "Action"))), /* @__PURE__ */ React.createElement("tbody", null, tlh2.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, c.lot.symbol), " \xB7 ", c.lot.shares, " sh @ ", usd(c.lot.costPerShare, 2), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "bought ", fmtDate(c.lot.date))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-chip" }, c.acct.short)), /* @__PURE__ */ React.createElement("td", { className: "num down" }, signUsd(c.unrl), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "(", signPct(-c.lossPct), ")")), /* @__PURE__ */ React.createElement("td", null, c.status === "clear" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u2713 Clear to harvest"), c.status === "blocked" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "\u2715 Wash-sale blocked"), c.status === "below" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "Below threshold"), c.status === "na" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "N/A \u2014 tax-advantaged"), c.status === "blocked" && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { maxWidth: 320, marginTop: 4 } }, c.wash.reason, ". Clears ", c.wash.clearsOn === "auto-buy paused" ? "once the auto-buy is paused" : c.wash.clearsOn, ".")), /* @__PURE__ */ React.createElement("td", null, c.status === "clear" && (c.replacement ? /* @__PURE__ */ React.createElement("span", null, "Sell \u2192 buy ", /* @__PURE__ */ React.createElement("b", null, c.replacement), " ", /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "different index, near-identical exposure")) : /* @__PURE__ */ React.createElement("span", null, "Sell, wait 31 days to rebuy", /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "no like-exposure partner for single stock"))), c.status === "blocked" && c.wash.futureRisk && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Pause ", c.wash.futureRisk.symbol, " auto-buy to open a window"), (c.status === "below" || c.status === "na") && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Monitor"))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(
       FAQItem3,
       {
@@ -2991,7 +3165,7 @@
     return `${name}: ${tf.trend.direction} (${tf.trend.structure})`;
   }
   function RecRow2({ d, onJump }) {
-    const [open, setOpen] = useState7(false);
+    const [open, setOpen] = useState8(false);
     const conv = CONVICTION_CHIP[d.conviction.label] || CONVICTION_CHIP.neutral;
     const rec = REC_CHIP[d.recommendation] || { cls: "plain", text: d.recommendation };
     const ev = d.evidence || {};
@@ -3013,7 +3187,7 @@
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Persisted decision journal", data && data.asOf ? ` \xB7 as of ${data.asOf}` : "", " \xB7 actionable first \xB7 educational only, not advice"), sorted.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "The decision journal is empty or the backend is unreachable. Run the nightly analysis (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.analyze"), ") and confirm the backend URL in Settings.")) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 0, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Conviction"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Recommendation"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Detail"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px", textAlign: "right" } }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(RecRow2, { key: d.symbol, d, onJump: jump }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Executable covered-call ideas on your book \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
   }
   function MarketsView({ setSymbol, go, settings }) {
-    const [signalsTab, setSignalsTab] = useState7("active");
+    const [signalsTab, setSignalsTab] = useState8("active");
     const signals = useLive(() => getSignals().then(mapSignals), [], [settings], { blankOnOutage: true }).data;
     const isPastSignal = (s) => s.status === "hit-target" || s.status === "stopped";
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Pattern signals"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Backend-graded technical signals \xB7 statuses computed from live quotes, never authored \xB7 educational only"), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "AI pattern signals"), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", signalsTab === "active" && "sel"), onClick: () => setSignalsTab("active") }, "Active (", signals.filter((s) => !isPastSignal(s)).length, ")"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", signalsTab === "past" && "sel"), onClick: () => setSignalsTab("past") }, "Past (", signals.filter(isPastSignal).length, ")"))), /* @__PURE__ */ React.createElement("div", { className: "vg-tablewrap", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Ticker"), /* @__PURE__ */ React.createElement("th", null, "Pattern"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Entry"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Target"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Stop"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Move"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Conf"), /* @__PURE__ */ React.createElement("th", null, "Status"))), /* @__PURE__ */ React.createElement("tbody", null, signals.filter((s) => signalsTab === "active" ? !isPastSignal(s) : isPastSignal(s)).map((s) => /* @__PURE__ */ React.createElement("tr", { key: s.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, s.sym), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.time)), /* @__PURE__ */ React.createElement("td", null, s.pattern), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.entry.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.target.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.stop.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(s.movePct || 0)) }, s.movePct != null ? signPct(s.movePct, 1) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.conf != null ? `${s.conf}%` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, s.status === "active" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u25CF Active"), s.status === "hit-target" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info" }, "\u2713 Hit target"), s.status === "stopped" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "\u2715 Stopped"), s.status === "unquoted" && /* @__PURE__ */ React.createElement(
@@ -3055,17 +3229,17 @@
   }
   function ChatPanel({ settings, onClose, docked }) {
     const useMira = settings.aiBackend === "mira";
-    const [msgs, setMsgs] = useState7([
+    const [msgs, setMsgs] = useState8([
       { who: "ai", text: "Hi \u2014 I'm Vantage AI. I can see across all 4 of your linked accounts. Ask me about harvesting, wash sales, overlap, or your allocation." }
     ]);
-    const [draft, setDraft] = useState7("");
-    const [busy, setBusy] = useState7(false);
-    const bodyRef = useRef2(null);
-    const abortRef = useRef2(null);
-    useEffect4(() => {
+    const [draft, setDraft] = useState8("");
+    const [busy, setBusy] = useState8(false);
+    const bodyRef = useRef3(null);
+    const abortRef = useRef3(null);
+    useEffect5(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect4(() => () => {
+    useEffect5(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -3130,7 +3304,7 @@
     return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)", fontSize: 12, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11.5, marginBottom: 4 } }, ratio != null && /* @__PURE__ */ React.createElement(React.Fragment, null, "grounded ", Math.round(ratio * 100), "% \xB7 "), steps, " plan step", steps === 1 ? "" : "s", " \xB7 ", claims.length, " claim", claims.length === 1 ? "" : "s"), claims.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i }, "\xB7 ", c.statement, " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "(", c.source_type, ":", c.source_id, ")"))));
   }
   function SettingsModal({ settings, accounts: accounts2 = [], onSave, onClose }) {
-    const [draft, setDraft] = useState7(settings);
+    const [draft, setDraft] = useState8(settings);
     return /* @__PURE__ */ React.createElement(Modal, { title: "Settings", open: true, onClose }, /* @__PURE__ */ React.createElement(
       FormField,
       {

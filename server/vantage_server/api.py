@@ -22,8 +22,9 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 
 from . import analyze
 from . import bars_view
@@ -413,6 +414,97 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         row = store.load_spx_playbook()
         return envelope(snap, available=True, closed=ok,
                         **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None))
+
+    @app.get("/api/journal")
+    def journal_view():
+        """The chart-snapshot journal: every saved chart image (metadata + the
+        forecast that was live when captured + the forecast-vs-outcome scorecard)
+        and the running accuracy. Image bytes served via /api/journal/image/{id}.
+        Journal/analysis only — no orders (ADR-010)."""
+        from . import journal as _j
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        return envelope(snap, available=True, **_j.build_journal(store))
+
+    @app.post("/api/journal/upload")
+    async def journal_upload(image: UploadFile = File(...),
+                             note: str = Form(""),
+                             symbol: str = Form("SPX")):
+        """Save a chart image + link it to the CURRENT playbook forecast. The image
+        is written under the journal dir; the row freezes the live forecast so we
+        can score it later. Writes only our store/disk — no orders (ADR-010)."""
+        import datetime as _dt
+        from . import journal as _j
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        data = await image.read()
+        if not data:
+            return envelope(snap, available=False, note="empty upload")
+        now = _dt.datetime.now(_dt.timezone.utc).astimezone()
+        jdir = _j.journal_dir(store.data_dir)
+        ext = os.path.splitext(image.filename or "")[1].lower() or ".png"
+        fname = f"{now.strftime('%Y%m%dT%H%M%S')}_{int(now.timestamp())}{ext}"
+        (jdir / fname).write_bytes(data)
+        # freeze the current playbook forecast
+        row = store.load_spx_playbook()
+        scaffold = (row or {}).get("scaffold") or {}
+        forecast = _j.forecast_from_scaffold(scaffold) if scaffold else {}
+        sid = store.record_journal_snapshot({
+            "created_at": now.isoformat(), "session": (row or {}).get("session"),
+            "symbol": symbol, "image_path": fname,
+            "image_mime": image.content_type or "image/png", "note": note,
+            "spot_at_snap": (scaffold.get("regime") or {}).get("spot"),
+            "forecast": forecast,
+        })
+        return envelope(snap, available=True, id=sid, **_j.build_journal(store))
+
+    @app.get("/api/journal/image/{snap_id}")
+    def journal_image(snap_id: int):
+        """Serve a snapshot's image bytes."""
+        from . import journal as _j
+        if not getattr(store, "uses_sqlite", False):
+            raise HTTPException(status_code=404, detail="not found")
+        row = store.load_journal_snapshot(snap_id)
+        if not row or not row.get("image_path"):
+            raise HTTPException(status_code=404, detail="snapshot not found")
+        path = _j.journal_dir(store.data_dir) / row["image_path"]
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="image missing")
+        return FileResponse(str(path), media_type=row.get("image_mime") or "image/png")
+
+    @app.post("/api/journal/score")
+    def journal_score(body: dict = Body(default={})):
+        """(Re)score snapshots against price action since they were captured —
+        which forecast levels held/broke, was the regime call right. Writes only
+        our store (ADR-010)."""
+        from . import journal as _j
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        res = _j.score_all_open(store)
+        return envelope(snap, available=True, scored=res, **_j.build_journal(store))
+
+    @app.post("/api/journal/delete")
+    def journal_delete(body: dict = Body(default={})):
+        """Delete a snapshot (row + image file)."""
+        from . import journal as _j
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        sid = (body or {}).get("id")
+        if sid is None:
+            return envelope(snap, available=False, note="need id")
+        row = store.load_journal_snapshot(int(sid))
+        if row and row.get("image_path"):
+            p = _j.journal_dir(store.data_dir) / row["image_path"]
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+        store.delete_journal_snapshot(int(sid))
+        return envelope(snap, available=True, deleted=True, **_j.build_journal(store))
 
     @app.get("/api/bars")
     def bars(symbol: str = Query(...),

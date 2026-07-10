@@ -1262,6 +1262,75 @@ class Store:
                 (spy_exit, exit_reason, pnl, pnl_pct, closed_at, trade_id))
             return cur.rowcount > 0
 
+    # ── chart-snapshot journal (SQLite metadata; image bytes on disk) ────────
+
+    def record_journal_snapshot(self, snap: dict) -> int:
+        """Insert a journal snapshot row (image already written to disk). Returns
+        the new id. `forecast` is stored as JSON; `scorecard` starts null."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_journal_snapshot requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "INSERT INTO journal_snapshots"
+                "(created_at, session, symbol, image_path, image_mime, note,"
+                " spot_at_snap, forecast) VALUES(?,?,?,?,?,?,?,?)",
+                (snap.get("created_at"), snap.get("session"), snap.get("symbol", "SPX"),
+                 snap.get("image_path"), snap.get("image_mime"), snap.get("note"),
+                 snap.get("spot_at_snap"), _db.dumps(snap.get("forecast") or {})))
+            return int(cur.lastrowid)
+
+    def load_journal_snapshots(self) -> list[dict]:
+        """All journal snapshots, newest first, with forecast/scorecard parsed."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM journal_snapshots ORDER BY created_at DESC, id DESC"
+            ).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["forecast"] = _db.loads(d.get("forecast"), {})
+            d["scorecard"] = _db.loads(d.get("scorecard"), None)
+            out.append(d)
+        return out
+
+    def load_journal_snapshot(self, snap_id: int) -> dict | None:
+        conn = self._backend._conn() if self.uses_sqlite else None
+        if conn is None:
+            return None
+        try:
+            row = conn.execute(
+                "SELECT * FROM journal_snapshots WHERE id=?", (snap_id,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        d["forecast"] = _db.loads(d.get("forecast"), {})
+        d["scorecard"] = _db.loads(d.get("scorecard"), None)
+        return d
+
+    def update_journal_scorecard(self, snap_id: int, scorecard: dict,
+                                 scored_at: str) -> bool:
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "UPDATE journal_snapshots SET scorecard=?, scored_at=? WHERE id=?",
+                (_db.dumps(scorecard), scored_at, snap_id))
+            return cur.rowcount > 0
+
+    def delete_journal_snapshot(self, snap_id: int) -> bool:
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute("DELETE FROM journal_snapshots WHERE id=?", (snap_id,))
+            return cur.rowcount > 0
+
     def put_roundtrips(self, account: str, roundtrips: list[dict], summary: dict,
                        *, as_of: str, now=None):
         """Persist the round-trips snapshot. On JSON, build_roundtrips.write_roundtrips

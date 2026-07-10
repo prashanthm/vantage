@@ -14,6 +14,7 @@ import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
 import { FuturesView } from "./futures.jsx";
 import { PaperView } from "./paper.jsx";
+import { JournalView } from "./journal.jsx";
 import { TradeAnalyticsView } from "./trades.jsx";
 import * as live from "./live.js";
 import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, mapAnalysis } from "./live.js";
@@ -36,6 +37,7 @@ const NAV = [
     { id: "options", label: "Options", icon: "◎" },
     { id: "playbook", label: "0DTE Playbook", icon: "🎯" },
     { id: "paper", label: "Paper Trading", icon: "📝" },
+    { id: "journal", label: "Chart Journal", icon: "📸" },
     { id: "futures", label: "Futures", icon: "📉" },
     { id: "trades", label: "Performance", icon: "🧮" },
   ]},
@@ -349,6 +351,7 @@ function App() {
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}
+          {route === "journal" && <JournalView refreshNonce={refreshNonce} />}
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}

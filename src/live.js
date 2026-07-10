@@ -966,6 +966,53 @@ export const openPaperTrade = (ticket) => _paperPost("open", ticket);
 export const settlePaper = () => _paperPost("settle", {});
 export const closePaperTrade = (id, spyExit) => _paperPost("close", { id, spy_exit: spyExit });
 
+// ── chart-snapshot journal (forecast vs outcome) ─────────────────────────────
+
+export async function getJournal() {
+  const v = await getJson(`${backendBase()}/api/journal`, { timeoutMs: 20000 });
+  return v && v.available ? v : { available: false, note: v && v.note };
+}
+
+// Upload a chart image (File or Blob) + note; links to the live playbook forecast.
+export async function uploadJournal(fileOrBlob, note) {
+  const base = backendBase();
+  if (!base) return { available: false };
+  const fd = new FormData();
+  const name = fileOrBlob.name || "chart.png";
+  fd.append("image", fileOrBlob, name);
+  fd.append("note", note || "");
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch(`${base}/api/journal/upload`, {
+      method: "POST", body: fd, signal: ctrl.signal,
+    });
+    if (!res.ok) return { available: false };
+    return await res.json();
+  } catch (e) {
+    return { available: false };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function _journalPost(path, body) {
+  const base = backendBase();
+  if (!base) return { available: false };
+  try {
+    const res = await fetch(`${base}/api/journal/${path}`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    return res.ok ? await res.json() : { available: false };
+  } catch (e) { return { available: false }; }
+}
+
+export const scoreJournal = () => _journalPost("score", {});
+export const deleteJournal = (id) => _journalPost("delete", { id });
+// The image URL for a snapshot (served by the backend).
+export const journalImageUrl = (id) => `${backendBase()}/api/journal/image/${id}`;
+
 // Normalize the /analyze payload to what the notebook renders: the synthesized
 // prose plus a compact per-facet map (so the UI can show which facets grounded
 // the answer). `correlationId` is surfaced when present for the sources toggle.
