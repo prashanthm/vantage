@@ -1644,6 +1644,99 @@
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Options"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Your live option strategies \u2014 open positions and closed spreads, rolled up by structure and ticker \xB7 educational only"), /* @__PURE__ */ React.createElement(StrategiesSection, { accountId }), /* @__PURE__ */ React.createElement("div", { className: "vg-grid2", style: { margin: "20px 0" } }, /* @__PURE__ */ React.createElement(SecurityCard, { accent: "teal", title: "Covered-call ideas live in your Actions" }, "The nightly engine flags HOLD & SELL CALL against real lots, with a suggested strike, credit, and basis reduction. Those appear in the Dashboard Action Queue \u2014 cross-checked against your Tax Center for wash risk."), /* @__PURE__ */ React.createElement(SecurityCard, { accent: "orange", title: "Approval levels differ per account" }, "Roth allows covered calls and CSPs at most brokers; 401(k)s rarely allow options at all. The engine only suggests calls on lots in accounts where they're actually executable.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(FAQItem2, { question: "How are covered-call ideas generated?", open: faq, onToggle: () => setFaq(!faq) }, "The nightly analysis looks for lots of 100+ shares held at a loss or near breakeven, targets a strike above cost basis at the next monthly expiry, estimates the credit, and only recommends the call when it isn't wash-blocked. Results are persisted to the decision journal \u2014 educational only, not advice.")));
   }
 
+  // src/glossary.jsx
+  var GLOSSARY = {
+    positive_gamma: {
+      label: "positive gamma",
+      short: "Dealers hedge AGAINST moves \u2014 they sell rallies and buy dips, which dampens the market into a range.",
+      long: "Options dealers hedge to stay neutral. In POSITIVE gamma their hedging works against the move \u2014 selling into strength, buying into weakness \u2014 so it acts like a shock absorber and pins price into a range. (Negative gamma is the opposite: hedging amplifies moves, giving trend days.)"
+    },
+    negative_gamma: {
+      label: "negative gamma",
+      short: "Dealers hedge WITH the move \u2014 selling into drops, buying into rallies \u2014 so moves accelerate (trend/crash days).",
+      long: "The dangerous regime: dealer hedging adds to the move (sell into declines, buy into rallies), so intraday moves get amplified. Trend days and fast selloffs live here \u2014 you go WITH the move, not against it."
+    },
+    mean_reversion: {
+      label: "mean-reversion",
+      short: "Price tends to snap back toward the middle instead of trending \u2014 so fade the edges.",
+      long: "'Mean reversion' means price tends to return toward the middle of its range rather than running one direction. On a positive-gamma day the dealer hedging keeps pulling price back, so the day chops in a range \u2014 you fade the extremes (sell rallies, buy dips) instead of chasing breakouts."
+    },
+    fade: {
+      label: "fade",
+      short: "Bet AGAINST the current move \u2014 sell into a rally, buy into a dip, expecting a reversal.",
+      long: "To 'fade' a move is to trade the opposite direction, expecting it to reverse. Fade a rally = sell/short as price rises into resistance. Fade a dip = buy as price falls into support. It's the core tactic on a mean-reversion (positive-gamma) day."
+    },
+    gamma_flip: {
+      label: "gamma flip",
+      short: "The price line where the regime flips: above = calm/range, below = fast/trending.",
+      long: "The spot level where net dealer gamma crosses zero. Above the flip you're in the calm, range-bound (positive-gamma) regime; a break below flips it to the fast, momentum (negative-gamma) regime. It's the single most important line to watch."
+    },
+    call_wall: {
+      label: "call wall",
+      short: "The strike with the most call gamma above spot \u2014 rallies tend to stall here.",
+      long: "The strike above spot with the largest dealer call-gamma. Dealer re-hedging is heaviest here, so rallies often slow or reverse at the call wall. A magnet/brake, not a guarantee."
+    },
+    put_wall: {
+      label: "put wall",
+      short: "The strike with the most put gamma below spot \u2014 dips tend to get bought here.",
+      long: "The strike below spot with the largest dealer put-gamma. Dips often find support at the put wall as dealer hedging kicks in. A magnet/brake, not a guarantee."
+    },
+    max_pain: {
+      label: "max pain",
+      short: "The strike where the most options expire worthless \u2014 price often drifts toward it.",
+      long: "The strike that minimizes total payout to option holders at expiry. Price sometimes drifts toward max pain into an expiration as positioning unwinds \u2014 a soft magnet, weakest of the GEX levels."
+    },
+    confluence: {
+      label: "confluence",
+      short: "A price where 2+ independent levels stack \u2014 a stronger spot than any one alone.",
+      long: "A band where two or more different level types line up (e.g. a fib level + a support shelf + a wall). Stacked levels reinforce each other, so confluence zones react more reliably than a single level. Marked \u2726."
+    },
+    // ---- futures metrics ----
+    expectancy: {
+      label: "expectancy",
+      short: "Your average profit/loss PER TRADE \u2014 the number that says if the system makes money.",
+      long: "Win% \xD7 average win \u2212 loss% \xD7 average loss. It's what you make per trade on average. Positive = the system prints money over time even with losses; negative = it bleeds regardless of win rate. The single most important edge metric."
+    },
+    reward_risk: {
+      label: "reward : risk",
+      short: "How big your average winner is vs your average loser. Below ~1.5 means winners barely beat losers.",
+      long: "Average win \xF7 average loss (in points, so a micro and a mini aren't conflated). A 54% win rate with 1.1 R:R barely pays; the same win rate at 2.0 R:R is strong. Raising your targets (or cutting losers sooner) improves this."
+    },
+    profit_factor: {
+      label: "profit factor",
+      short: "Gross profit \xF7 gross loss. Above 1 = profitable; 1.5+ is solid.",
+      long: "Total dollars won \xF7 total dollars lost. 1.0 = breakeven, above 1 = profitable, 1.5+ is a healthy system. Complements expectancy \u2014 it tells you how much cushion your winners give over your losers."
+    },
+    drawdown: {
+      label: "drawdown",
+      short: "The biggest drop from a peak in your running P&L \u2014 how deep it dug before recovering.",
+      long: "The largest peak-to-trough fall in your cumulative equity. It's the pain you'd have felt at the worst point. A big drawdown relative to total profit is a risk-management red flag even if you ended up green."
+    },
+    win_rate: {
+      label: "win rate",
+      short: "The % of trades that were profitable. High win rate alone doesn't mean profitable \u2014 reward:risk matters too.",
+      long: "Share of round-trips that made money. On its own it's misleading: a 40%-win system with big winners beats an 80%-win system with tiny winners that gives it all back on the losers. Read it alongside reward:risk and expectancy."
+    }
+  };
+  function Term({ k, children }) {
+    const g = GLOSSARY[k];
+    if (!g) return children || null;
+    return /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        className: "vg-term",
+        title: g.short,
+        style: { borderBottom: "1px dotted currentColor", cursor: "help" }
+      },
+      children || g.label
+    );
+  }
+  function GlossaryCard({ terms, title = "What these terms mean" }) {
+    const items = (terms || []).map((k) => GLOSSARY[k]).filter(Boolean);
+    if (!items.length) return null;
+    return /* @__PURE__ */ React.createElement("details", { className: "vg-card" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, title), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, marginTop: 8 } }, items.map((g, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { fontSize: 13, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("b", null, g.label), " \u2014 ", g.long))));
+  }
+
   // src/playbook.jsx
   var { useMemo: useMemo3, useState: useState4 } = React;
   var fmtP = (v) => v == null ? "\u2014" : Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1);
@@ -1699,7 +1792,7 @@
         onClick: recompute
       },
       busy ? "Recomputing\u2026" : "Recompute"
-    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, spot != null && /* @__PURE__ */ React.createElement(SummaryTile, { label: "Spot", value: fmtP(spot) }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Flip", value: fmtP(keyLevels.flip), tone: "warn" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Put wall", value: fmtP(keyLevels.put), tone: "good" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Call wall", value: fmtP(keyLevels.call), tone: "bad" }))), pine && /* @__PURE__ */ React.createElement(PineModal, { pine, session: p && p.session, onClose: () => setPine(null) }), cat.today && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F Catalyst today: ", /* @__PURE__ */ React.createElement("b", null, cat.today), " \u2014 expect bigger moves; size down."), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's read"), p && p.narrative ? /* @__PURE__ */ React.createElement("div", { className: "vg-pb-narrative", style: { whiteSpace: "pre-wrap" } }, p.narrative) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, pb.loading ? "Generating the read\u2026" : "No narrative available."), p && p.structureNote && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, /* @__PURE__ */ React.createElement("b", null, "Structure:"), " ", p.structureNote), p && p.volumeNote && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 2, fontSize: 12 } }, /* @__PURE__ */ React.createElement("b", null, "Volume:"), " ", p.volumeNote)), p && p.durable && p.durable.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Durable levels \u2605 (memory)"), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "2px 0 8px" } }, 'Levels the tape kept respecting across many sessions \u2014 the "traces back weeks" levels.'), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, p.durable.map((z, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, spot != null && /* @__PURE__ */ React.createElement(SummaryTile, { label: "Spot", value: fmtP(spot) }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Flip", value: fmtP(keyLevels.flip), tone: "warn" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Put wall", value: fmtP(keyLevels.put), tone: "good" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Call wall", value: fmtP(keyLevels.call), tone: "bad" }))), pine && /* @__PURE__ */ React.createElement(PineModal, { pine, session: p && p.session, onClose: () => setPine(null) }), cat.today && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F Catalyst today: ", /* @__PURE__ */ React.createElement("b", null, cat.today), " \u2014 expect bigger moves; size down."), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's read"), p && p.narrative ? /* @__PURE__ */ React.createElement("div", { className: "vg-pb-narrative", style: { whiteSpace: "pre-wrap" } }, p.narrative) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, pb.loading ? "Generating the read\u2026" : "No narrative available."), p && p.structureNote && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, /* @__PURE__ */ React.createElement("b", null, "Structure:"), " ", p.structureNote), p && p.volumeNote && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 2, fontSize: 12 } }, /* @__PURE__ */ React.createElement("b", null, "Volume:"), " ", p.volumeNote)), p && reg.gamma && /* @__PURE__ */ React.createElement(PlainEnglish, { reg, keyLevels }), p && p.durable && p.durable.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Durable levels \u2605 (memory)"), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "2px 0 8px" } }, 'Levels the tape kept respecting across many sessions \u2014 the "traces back weeks" levels.'), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, p.durable.map((z, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", z.role === "support" ? "good" : z.role === "resistance" ? "bad" : "warn"),
@@ -1713,7 +1806,23 @@
         style: { minWidth: 62, textAlign: "right" }
       },
       fmtP(z.price)
-    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, (z.kinds || []).slice(0, 3).join(" + ")), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, z.role, z.strength ? ` \xB7 ${z.strength} dims` : ""))))), p && p.setups && p.setups.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Conditional setups"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, marginTop: 8 } }, p.setups.map((su, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-setup" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-trigger" }, "IF ", su.trigger), su.bias && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginBottom: 2 } }, su.bias), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.5 } }, su.structure))))), p && p.levelLadder && p.levelLadder.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "vg-card", open: true }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Level ladder (", p.levelLadder.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, p.levelLadder.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", levelTone(r.kind)), style: { minWidth: 62, textAlign: "right" } }, fmtP(r.price)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.kind), r.source && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, r.source))))), p && p.edges && (p.edges.gex_regime_next_day_range || p.edges.day_time) && /* @__PURE__ */ React.createElement("details", { className: "vg-card" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Lookback edges"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, fontSize: 13, lineHeight: 1.6 } }, p.edges.gex_regime_next_day_range && p.edges.gex_regime_next_day_range.read && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Gamma \u2192 next-day range:"), " ", p.edges.gex_regime_next_day_range.read), p.edges.day_time && p.edges.day_time.by_slot && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, "By time of day (avg 15m range):"), " ", Object.entries(p.edges.day_time.by_slot).map(([k, v]) => `${k} ${v}pt`).join(" \xB7 ")), p.edges.zone_hit_rate && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, "Zone hit-rate (Sentinel):"), " ", Math.round((p.edges.zone_hit_rate.hit_rate || 0) * 100), "% over", " ", p.edges.zone_hit_rate.tested, " tested (", p.edges.zone_hit_rate.avg_coverage_pct, "% coverage)"))), p && p.caveats && p.caveats.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, p.caveats.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i }, c)), p.missing && p.missing.length > 0 && /* @__PURE__ */ React.createElement("div", null, "Thinner read \u2014 missing sources: ", p.missing.join(", "), ".")));
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, (z.kinds || []).slice(0, 3).join(" + ")), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, z.role, z.strength ? ` \xB7 ${z.strength} dims` : ""))))), p && p.setups && p.setups.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Conditional setups"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, marginTop: 8 } }, p.setups.map((su, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-setup" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-trigger" }, "IF ", su.trigger), su.bias && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginBottom: 2 } }, su.bias), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.5 } }, su.structure))))), p && p.levelLadder && p.levelLadder.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "vg-card", open: true }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Level ladder (", p.levelLadder.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, p.levelLadder.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", levelTone(r.kind)), style: { minWidth: 62, textAlign: "right" } }, fmtP(r.price)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.kind), r.source && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, r.source))))), p && p.edges && (p.edges.gex_regime_next_day_range || p.edges.day_time) && /* @__PURE__ */ React.createElement("details", { className: "vg-card" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Lookback edges"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8, fontSize: 13, lineHeight: 1.6 } }, p.edges.gex_regime_next_day_range && p.edges.gex_regime_next_day_range.read && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Gamma \u2192 next-day range:"), " ", p.edges.gex_regime_next_day_range.read), p.edges.day_time && p.edges.day_time.by_slot && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, "By time of day (avg 15m range):"), " ", Object.entries(p.edges.day_time.by_slot).map(([k, v]) => `${k} ${v}pt`).join(" \xB7 ")), p.edges.zone_hit_rate && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, "Zone hit-rate (Sentinel):"), " ", Math.round((p.edges.zone_hit_rate.hit_rate || 0) * 100), "% over", " ", p.edges.zone_hit_rate.tested, " tested (", p.edges.zone_hit_rate.avg_coverage_pct, "% coverage)"))), /* @__PURE__ */ React.createElement(GlossaryCard, { terms: [
+      "positive_gamma",
+      "negative_gamma",
+      "mean_reversion",
+      "fade",
+      "gamma_flip",
+      "call_wall",
+      "put_wall",
+      "max_pain",
+      "confluence"
+    ] }), p && p.caveats && p.caveats.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, p.caveats.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i }, c)), p.missing && p.missing.length > 0 && /* @__PURE__ */ React.createElement("div", null, "Thinner read \u2014 missing sources: ", p.missing.join(", "), ".")));
+  }
+  function PlainEnglish({ reg, keyLevels }) {
+    const pos = reg.gamma === "positive";
+    const spot = reg.spot;
+    const { flip, call, put } = keyLevels;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today, in plain English"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13.5, lineHeight: 1.6, marginTop: 6 } }, /* @__PURE__ */ React.createElement("p", { style: { margin: "0 0 8px" } }, "Dealers are in", " ", /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement(Term, { k: pos ? "positive_gamma" : "negative_gamma" }, pos ? "positive gamma" : "negative gamma")), " ", "today", reg.vix != null ? ` (VIX ${fmtP(reg.vix)})` : "", ". ", pos ? /* @__PURE__ */ React.createElement(React.Fragment, null, "That means their hedging works like a shock absorber \u2014 selling rallies and buying dips \u2014 so this is a", " ", /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement(Term, { k: "mean_reversion" }, "mean-reversion")), " day: expect price to chop in a range rather than trend hard. The play is to", " ", /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement(Term, { k: "fade" }, "fade"), " the edges"), " \u2014 sell rallies into resistance, buy dips into support \u2014 instead of chasing breakouts.") : /* @__PURE__ */ React.createElement(React.Fragment, null, "That means their hedging ", /* @__PURE__ */ React.createElement("i", null, "amplifies"), " moves \u2014 selling into drops, buying into rallies \u2014 so moves can run. This is a momentum tape: trade", " ", /* @__PURE__ */ React.createElement("b", null, "with"), " the move, not against it, and respect breakouts.")), /* @__PURE__ */ React.createElement("p", { style: { margin: 0 } }, flip != null && spot != null && /* @__PURE__ */ React.createElement(React.Fragment, null, "Your line in the sand is the", " ", /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement(Term, { k: "gamma_flip" }, "gamma flip"), " at ", fmtP(flip)), ": while price holds above it you're in the ", pos ? "calm, range-bound" : "current", " regime; a break below flips it to the faster, trending mode. "), call != null && /* @__PURE__ */ React.createElement(React.Fragment, null, "Rallies tend to stall at the", " ", /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement(Term, { k: "call_wall" }, "call wall"), " (", fmtP(call), ")"), put != null ? /* @__PURE__ */ React.createElement(React.Fragment, null, ", and dips get bought near the", " ", /* @__PURE__ */ React.createElement("b", null, /* @__PURE__ */ React.createElement(Term, { k: "put_wall" }, "put wall"), " (", fmtP(put), ")")) : null, "."))));
   }
   function SummaryTile({ label, value, tone }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
@@ -1828,6 +1937,7 @@
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Futures performance"), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, a ? `${ov.n || 0} round-trips` : "loading\u2026", a && a.tzNote ? " \xB7 times ET" : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: reimport }, busy ? "Re-importing\u2026" : "Re-import CSVs"))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(
       SummaryTile2,
       {
+        termKey: "expectancy",
         label: "Expectancy / trade",
         value: usd2(ov.expectancy_usd),
         sub: pts(ov.expectancy_pts),
@@ -1836,14 +1946,16 @@
     ), /* @__PURE__ */ React.createElement(
       SummaryTile2,
       {
+        termKey: "reward_risk",
         label: "Reward : Risk",
         value: ov.reward_risk ?? "\u2014",
         sub: `${ov.avg_win_pts ?? "\u2014"} / ${Math.abs(ov.avg_loss_pts ?? 0)}pt`,
         tone: ov.reward_risk >= 1.5 ? "good" : "warn"
       }
-    ), /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Win rate", value: pct(ov.win_rate), tone: ov.win_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(SummaryTile2, { label: "Profit factor", value: ov.profit_factor ?? "\u2014", tone: ov.profit_factor >= 1.3 ? "good" : "warn" }), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(SummaryTile2, { termKey: "win_rate", label: "Win rate", value: pct(ov.win_rate), tone: ov.win_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(SummaryTile2, { termKey: "profit_factor", label: "Profit factor", value: ov.profit_factor ?? "\u2014", tone: ov.profit_factor >= 1.3 ? "good" : "warn" }), /* @__PURE__ */ React.createElement(
       SummaryTile2,
       {
+        termKey: "drawdown",
         label: "Max drawdown",
         value: usd2(dd.max_drawdown),
         sub: dd.max_drawdown_pct != null ? `${dd.max_drawdown_pct}%` : "",
@@ -1879,7 +1991,13 @@
         style: { minWidth: 46, textAlign: "center" }
       },
       pct(b.win_rate)
-    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, relabel(b.value)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, "n=", b.n, " \xB7 net ", usd2(b.total_pnl), b.n < 5 ? " \xB7 thin" : "")))))), ob.available && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Order behavior"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.6, marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Cancel rate:"), " ", pct(ob.cancel_rate), " (", ob.cancelled, " of ", ob.total_orders, " orders)"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Filled:"), " ", ob.filled, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, "Stop orders:"), " ", ob.stop_orders))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "P&L is gross of commissions (not in the AMP export). Times are ET. Reward:risk and edges use points so micro/mini aren't conflated."), /* @__PURE__ */ React.createElement("div", null, "Context for reviewing your trading, not a signal (ADR-010). Reads your CSV export; places no orders.")));
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, relabel(b.value)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, "n=", b.n, " \xB7 net ", usd2(b.total_pnl), b.n < 5 ? " \xB7 thin" : "")))))), ob.available && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Order behavior"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.6, marginTop: 4 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Cancel rate:"), " ", pct(ob.cancel_rate), " (", ob.cancelled, " of ", ob.total_orders, " orders)"), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("b", null, "Filled:"), " ", ob.filled, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, "Stop orders:"), " ", ob.stop_orders))), /* @__PURE__ */ React.createElement(GlossaryCard, { terms: [
+      "expectancy",
+      "reward_risk",
+      "profit_factor",
+      "drawdown",
+      "win_rate"
+    ] }), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "P&L is gross of commissions (not in the AMP export). Times are ET. Reward:risk and edges use points so micro/mini aren't conflated."), /* @__PURE__ */ React.createElement("div", null, "Context for reviewing your trading, not a signal (ADR-010). Reads your CSV export; places no orders.")));
   }
   function RecRow({ r, icon }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { opacity: 0.6, fontSize: 13 } }, icon), /* @__PURE__ */ React.createElement("div", { style: { flex: 1 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.45 } }, r.text), r.evidence && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, r.evidence)));
@@ -1887,8 +2005,8 @@
   function RiskRow({ label, value, note, bad }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, minWidth: 150 } }, label), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", bad ? "bad" : "plain"), style: { textAlign: "center" } }, value), note && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, note));
   }
-  function SummaryTile2({ label, value, sub, tone }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value), sub && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 10 } }, sub));
+  function SummaryTile2({ label, value, sub, tone, termKey }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value), sub && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 10 } }, sub));
   }
 
   // src/trades.jsx

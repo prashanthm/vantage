@@ -6,6 +6,7 @@
 // setups, lookback edges). Refreshed nightly by the Vantage batch; the view
 // reads the latest. Context, not a signal (ADR-008) — no orders placed.
 import { cls } from "./util.jsx";
+import { Term, GlossaryCard } from "./glossary.jsx";
 import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook } from "./live.js";
 
 const { useMemo, useState } = React;
@@ -130,6 +131,11 @@ export function PlaybookView({ refreshNonce }) {
         )}
       </div>
 
+      {/* ---- plain-English explanation of today's regime + how to trade it ---- */}
+      {p && reg.gamma && (
+        <PlainEnglish reg={reg} keyLevels={keyLevels} />
+      )}
+
       {/* ---- durable memory levels (respected across many sessions) ---- */}
       {p && p.durable && p.durable.length > 0 && (
         <div className="vg-card">
@@ -237,6 +243,10 @@ export function PlaybookView({ refreshNonce }) {
         </details>
       )}
 
+      {/* ---- glossary (plain definitions on demand) ---- */}
+      <GlossaryCard terms={["positive_gamma", "negative_gamma", "mean_reversion",
+        "fade", "gamma_flip", "call_wall", "put_wall", "max_pain", "confluence"]} />
+
       {/* ---- caveats footer ---- */}
       {p && p.caveats && p.caveats.length > 0 && (
         <div className="vg-pb-caveats">
@@ -246,6 +256,51 @@ export function PlaybookView({ refreshNonce }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// "Today, in plain English" — turns the regime + key levels into a readable
+// story with hoverable jargon, so a non-options reader knows what to actually do.
+function PlainEnglish({ reg, keyLevels }) {
+  const pos = reg.gamma === "positive";
+  const spot = reg.spot;
+  const { flip, call, put } = keyLevels;
+  return (
+    <div className="vg-card">
+      <div className="vg-kicker">Today, in plain English</div>
+      <div style={{ fontSize: 13.5, lineHeight: 1.6, marginTop: 6 }}>
+        <p style={{ margin: "0 0 8px" }}>
+          Dealers are in{" "}
+          <b><Term k={pos ? "positive_gamma" : "negative_gamma"}>{pos ? "positive gamma" : "negative gamma"}</Term></b>{" "}
+          today{reg.vix != null ? ` (VIX ${fmtP(reg.vix)})` : ""}. {pos ? (
+            <>That means their hedging works like a shock absorber — selling rallies
+            and buying dips — so this is a{" "}
+            <b><Term k="mean_reversion">mean-reversion</Term></b> day: expect price to
+            chop in a range rather than trend hard. The play is to{" "}
+            <b><Term k="fade">fade</Term> the edges</b> — sell rallies into resistance,
+            buy dips into support — instead of chasing breakouts.</>
+          ) : (
+            <>That means their hedging <i>amplifies</i> moves — selling into drops,
+            buying into rallies — so moves can run. This is a momentum tape: trade{" "}
+            <b>with</b> the move, not against it, and respect breakouts.</>
+          )}
+        </p>
+        <p style={{ margin: 0 }}>
+          {flip != null && spot != null && (
+            <>Your line in the sand is the{" "}
+            <b><Term k="gamma_flip">gamma flip</Term> at {fmtP(flip)}</b>: while price
+            holds above it you're in the {pos ? "calm, range-bound" : "current"} regime;
+            a break below flips it to the faster, trending mode. </>
+          )}
+          {call != null && (
+            <>Rallies tend to stall at the{" "}
+            <b><Term k="call_wall">call wall</Term> ({fmtP(call)})</b>
+            {put != null ? <>, and dips get bought near the{" "}
+            <b><Term k="put_wall">put wall</Term> ({fmtP(put)})</b></> : null}.</>
+          )}
+        </p>
+      </div>
     </div>
   );
 }

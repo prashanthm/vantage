@@ -6,6 +6,7 @@
 // evidence-based recommendations (rules from your history + coaching + a forward
 // level watch). Decision-support (ADR-010) — reads your CSVs, places no orders.
 import { cls } from "./util.jsx";
+import { Term, GlossaryCard } from "./glossary.jsx";
 import { useLive, getFuturesAnalysis, importFutures } from "./live.js";
 
 const { useState } = React;
@@ -116,14 +117,14 @@ export function FuturesView({ refreshNonce }) {
           </div>
         </div>
         <div className="vg-pb-levels">
-          <SummaryTile label="Expectancy / trade" value={usd(ov.expectancy_usd)}
+          <SummaryTile termKey="expectancy" label="Expectancy / trade" value={usd(ov.expectancy_usd)}
             sub={pts(ov.expectancy_pts)} tone={ov.expectancy_pts >= 0 ? "good" : "bad"} />
-          <SummaryTile label="Reward : Risk" value={ov.reward_risk ?? "—"}
+          <SummaryTile termKey="reward_risk" label="Reward : Risk" value={ov.reward_risk ?? "—"}
             sub={`${ov.avg_win_pts ?? "—"} / ${Math.abs(ov.avg_loss_pts ?? 0)}pt`}
             tone={ov.reward_risk >= 1.5 ? "good" : "warn"} />
-          <SummaryTile label="Win rate" value={pct(ov.win_rate)} tone={ov.win_rate >= 0.5 ? "good" : "bad"} />
-          <SummaryTile label="Profit factor" value={ov.profit_factor ?? "—"} tone={ov.profit_factor >= 1.3 ? "good" : "warn"} />
-          <SummaryTile label="Max drawdown" value={usd(dd.max_drawdown)}
+          <SummaryTile termKey="win_rate" label="Win rate" value={pct(ov.win_rate)} tone={ov.win_rate >= 0.5 ? "good" : "bad"} />
+          <SummaryTile termKey="profit_factor" label="Profit factor" value={ov.profit_factor ?? "—"} tone={ov.profit_factor >= 1.3 ? "good" : "warn"} />
+          <SummaryTile termKey="drawdown" label="Max drawdown" value={usd(dd.max_drawdown)}
             sub={dd.max_drawdown_pct != null ? `${dd.max_drawdown_pct}%` : ""} tone="bad" />
         </div>
       </div>
@@ -230,6 +231,10 @@ export function FuturesView({ refreshNonce }) {
         </div>
       )}
 
+      {/* glossary — what the metrics mean */}
+      <GlossaryCard terms={["expectancy", "reward_risk", "profit_factor",
+        "drawdown", "win_rate"]} />
+
       <div className="vg-pb-caveats">
         <div>P&L is gross of commissions (not in the AMP export). Times are ET. Reward:risk and edges use points so micro/mini aren't conflated.</div>
         <div>Context for reviewing your trading, not a signal (ADR-010). Reads your CSV export; places no orders.</div>
@@ -260,10 +265,12 @@ function RiskRow({ label, value, note, bad }) {
   );
 }
 
-function SummaryTile({ label, value, sub, tone }) {
+function SummaryTile({ label, value, sub, tone, termKey }) {
   return (
     <div className="vg-pb-tile">
-      <div className="vg-note" style={{ fontSize: 11 }}>{label}</div>
+      <div className="vg-note" style={{ fontSize: 11 }}>
+        {termKey ? <Term k={termKey}>{label}</Term> : label}
+      </div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
       {sub && <div className="vg-note" style={{ fontSize: 10 }}>{sub}</div>}
     </div>
