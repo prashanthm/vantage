@@ -96,3 +96,128 @@ def test_delete_snapshot(tmp_path):
         "forecast": {}})
     assert store.delete_journal_snapshot(sid)
     assert store.load_journal_snapshots() == []
+
+
+# ------------------------------------------------------------ entry + prior pick
+
+def test_normalize_entry():
+    assert j.normalize_entry(None) is None
+    assert j.normalize_entry({"action": "  "}) is None          # all-blank → None
+    assert j.normalize_entry({"action": " bought 7550C ", "junk": "x"}) == {
+        "action": "bought 7550C"}                                # trimmed, junk dropped
+
+
+def test_snapshot_without_image(tmp_path):
+    """A data-only entry (no reference image) round-trips fine."""
+    store = _sqlite_store(tmp_path)
+    sid = store.record_journal_snapshot({
+        "created_at": "2026-07-13T09:30:00-04:00", "forecast": {},
+        "forecast_kind": "prior"})
+    row = store.load_journal_snapshot(sid)
+    assert row["image_path"] is None and row["forecast_kind"] == "prior"
+
+
+def test_update_journal_entry(tmp_path):
+    store = _sqlite_store(tmp_path)
+    sid = store.record_journal_snapshot({
+        "created_at": "2026-07-13T09:30:00-04:00", "forecast": {}})
+    assert store.load_journal_snapshot(sid)["entry"] is None
+    entry = j.normalize_entry({"action": "bought 7550C", "result": "+1.5R"})
+    assert store.update_journal_entry(sid, entry, "2026-07-13T16:05:00-04:00")
+    got = store.load_journal_snapshot(sid)
+    assert got["entry"] == {"action": "bought 7550C", "result": "+1.5R"}
+    assert got["entry_updated_at"] == "2026-07-13T16:05:00-04:00"
+    # clearing
+    assert store.update_journal_entry(sid, None, "2026-07-13T16:10:00-04:00")
+    assert store.load_journal_snapshot(sid)["entry"] is None
+
+
+def test_pick_forecast_prefers_prior_session(tmp_path):
+    store = _sqlite_store(tmp_path)
+    # last night's playbook (dated before today) and a today playbook
+    prior = _scaffold(); prior["session"] = "2026-07-13"; prior["regime"]["spot"] = 7500.0
+    live = _scaffold(); live["session"] = "2026-07-14"; live["regime"]["spot"] = 7600.0
+    store.upsert_spx_playbook("2026-07-13", prior)
+    store.upsert_spx_playbook("2026-07-14", live)
+    # prior: freezes yesterday's (7500), even though today's exists
+    _, fc, kind = j.pick_forecast(store, "2026-07-14", "prior")
+    assert kind == "prior" and fc["spot"] == 7500.0
+    # live: freezes today's (7600)
+    _, fc2, kind2 = j.pick_forecast(store, "2026-07-14", "live")
+    assert kind2 == "live" and fc2["spot"] == 7600.0
+
+
+def test_pick_forecast_falls_back_when_no_prior(tmp_path):
+    store = _sqlite_store(tmp_path)
+    only = _scaffold(); only["session"] = "2026-07-14"; only["regime"]["spot"] = 7600.0
+    store.upsert_spx_playbook("2026-07-14", only)
+    # asking for prior with no earlier session → falls back to live
+    _, fc, kind = j.pick_forecast(store, "2026-07-14", "prior")
+    assert kind == "live" and fc["spot"] == 7600.0
+
+
+# ------------------------------------------------------------ daily auto-entry
+
+def test_ensure_today_is_idempotent(tmp_path, monkeypatch):
+    """First open creates today's entry (last night's forecast); repeat opens
+    don't create a second. Price scoring is stubbed out (no network)."""
+    store = _sqlite_store(tmp_path)
+    # a playbook dated well before any real 'today' so pick_forecast('prior') hits it
+    prior = _scaffold(); prior["session"] = "2000-01-03"; prior["regime"]["spot"] = 7500.0
+    store.upsert_spx_playbook("2000-01-03", prior)
+    monkeypatch.setattr(j, "score_snapshot", lambda snap, symbol="^GSPC": None)
+
+    r1 = j.ensure_today_entry(store)
+    assert r1["created"] is True and r1["id"]
+    snaps = store.load_journal_snapshots()
+    assert len(snaps) == 1
+    assert snaps[0]["forecast_kind"] == "prior"
+    assert snaps[0]["forecast"]["spot"] == 7500.0     # last night's
+
+    r2 = j.ensure_today_entry(store)                   # second open
+    assert r2["created"] is False and r2["id"] == r1["id"]
+    assert len(store.load_journal_snapshots()) == 1    # still just one
+
+
+def test_ensure_today_rescores(tmp_path, monkeypatch):
+    """On open, today's entry is re-scored against a (stubbed) price read."""
+    store = _sqlite_store(tmp_path)
+    prior = _scaffold(); prior["session"] = "2000-01-03"
+    store.upsert_spx_playbook("2000-01-03", prior)
+    monkeypatch.setattr(j, "score_snapshot",
+                        lambda snap, symbol="^GSPC": {"price_low": 7490, "price_high": 7560,
+                                                      "price_last": 7555, "levels": []})
+    r = j.ensure_today_entry(store)
+    assert r["created"] and r["rescored"]
+    assert store.load_journal_snapshot(r["id"])["scorecard"]["price_high"] == 7560
+
+
+def test_score_snapshot_uses_full_session(tmp_path, monkeypatch):
+    """score_snapshot scores against the WHOLE day's bars, not just bars after
+    the snapshot's creation time (so opening after close still scores)."""
+    import pandas as pd
+    from vantage_server import spx_playbook as sp
+    # bars across the full 2026-07-13 session; snapshot is created at 15:00 that day
+    idx = pd.to_datetime([
+        "2026-07-13 09:45", "2026-07-13 12:00", "2026-07-13 15:45",
+    ]).tz_localize("America/New_York")
+    df = pd.DataFrame({"Low": [7480, 7495, 7540], "High": [7500, 7560, 7580],
+                       "Close": [7490, 7550, 7570]}, index=idx)
+    monkeypatch.setattr(sp, "_fetch_15m", lambda symbol: df)
+    snap = {"created_at": "2026-07-13T15:00:00-04:00",
+            "forecast": j.forecast_from_scaffold(_scaffold()), "spot_at_snap": 7543.0}
+    sc = j.score_snapshot(snap)
+    # full-session range: low 7480, high 7580 — includes the 09:45 bar BEFORE 15:00
+    assert sc is not None
+    assert sc["price_low"] == 7480.0 and sc["price_high"] == 7580.0
+    assert sc["bars_since"] == 3
+
+
+def test_update_journal_image(tmp_path):
+    store = _sqlite_store(tmp_path)
+    sid = store.record_journal_snapshot({
+        "created_at": "2026-07-13T09:30:00-04:00", "forecast": {}})
+    assert store.load_journal_snapshot(sid)["image_path"] is None
+    assert store.update_journal_image(sid, "chart.png", "image/png")
+    got = store.load_journal_snapshot(sid)
+    assert got["image_path"] == "chart.png" and got["image_mime"] == "image/png"

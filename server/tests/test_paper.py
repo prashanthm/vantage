@@ -39,8 +39,15 @@ def _scaffold():
     }
 
 
+# a fixed ET time + a quiet session range keep ticket tests network-free and
+# deterministic (no live fetch, no break setups unless a test opts in).
+_NOON = _dt.datetime(2026, 7, 10, 10, 0, tzinfo=paper.ET)
+_QUIET = (7540.0, 7548.0, 7543.0)   # range hugging spot — breaks nothing
+
+
 def test_build_tickets_entry_at_level_and_rr():
-    tickets = paper.build_tickets(_scaffold(), spy_price=754.3, ratio=10.0)
+    tickets = paper.build_tickets(_scaffold(), spy_price=754.3, ratio=10.0,
+                                  session_range=_QUIET, now_et=_NOON)
     # a resistance above spot → fade rally (short); supports below → buy dip (long)
     shorts = [t for t in tickets if t["side"] == "short"]
     longs = [t for t in tickets if t["side"] == "long"]
@@ -55,7 +62,85 @@ def test_build_tickets_entry_at_level_and_rr():
 
 
 def test_no_tickets_without_confluence():
-    assert paper.build_tickets({"regime": {"spot": 7543}, "confluence": []}, 754, 10) == []
+    assert paper.build_tickets({"regime": {"spot": 7543}, "confluence": []}, 754, 10,
+                               session_range=_QUIET, now_et=_NOON) == []
+
+
+# ------------------------------------------------------- demand/supply enrich
+
+def test_trend_filter_flags_counter_trend():
+    sc = _scaffold()
+    sc["chart"] = {"structure": {"state": "uptrend"}}
+    sc["regime"]["gamma"] = "negative"
+    tickets = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=_NOON)
+    short = next(t for t in tickets if t["side"] == "short" and t["setup"] == "test")
+    long_ = next(t for t in tickets if t["side"] == "long" and t["setup"] == "test")
+    assert short["counter_trend"] is True      # fade-rally fights the uptrend
+    assert long_["counter_trend"] is False     # buy-dip aligns with the uptrend
+
+
+def test_positive_gamma_is_never_counter_trend():
+    sc = _scaffold()
+    sc["chart"] = {"structure": {"state": "uptrend"}}
+    sc["regime"]["gamma"] = "positive"          # mean-revert regime → reversion ok
+    tickets = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=_NOON)
+    assert all(t["counter_trend"] is False for t in tickets)
+
+
+def test_break_setup_on_closed_through_resistance():
+    sc = _scaffold()
+    # price ran to 7560 and closed 7555 → 7547 resistance BROKEN → break long
+    rng = (7540.0, 7560.0, 7555.0)
+    tickets = paper.build_tickets(sc, 754.3, 10.0, session_range=rng, now_et=_NOON)
+    breaks = [t for t in tickets if t["setup"] == "break"]
+    assert len(breaks) == 1
+    b = breaks[0]
+    assert b["side"] == "long" and b["experts_only"] is True
+    assert b["spx_level"] == 7547.0
+    assert "breakout retest" in b["signal"]
+
+
+def test_no_break_setup_when_range_quiet():
+    tickets = paper.build_tickets(_scaffold(), 754.3, 10.0,
+                                  session_range=_QUIET, now_et=_NOON)
+    assert all(t["setup"] == "test" for t in tickets)
+
+
+def test_zone_freshness_from_durable():
+    sc = _scaffold()
+    sc["durable"] = [
+        {"price": 7500.0, "lo": 7498.0, "hi": 7502.0, "sessions": 8, "respected": 6, "role": "support"},
+        {"price": 7473.0, "lo": 7471.0, "hi": 7475.0, "sessions": 8, "respected": 1, "role": "support"},
+    ]
+    tickets = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=_NOON)
+    by_lvl = {t["spx_level"]: t for t in tickets if t["setup"] == "test"}
+    assert by_lvl[7500.0]["freshness"] == "strong"   # respected 6/8
+    assert by_lvl[7473.0]["freshness"] == "weak"     # respected 1/8
+    assert by_lvl[7547.0]["freshness"] == "fresh"    # no durable match
+
+
+def test_otm_strike_time_of_day_and_direction():
+    sc = _scaffold()
+    morning = _dt.datetime(2026, 7, 10, 10, 0, tzinfo=paper.ET)     # 9am CST
+    afternoon = _dt.datetime(2026, 7, 10, 15, 0, tzinfo=paper.ET)   # 2pm CST
+    t_am = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=morning)
+    t_pm = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=afternoon)
+    long_am = next(t for t in t_am if t["side"] == "long" and t["setup"] == "test")
+    long_pm = next(t for t in t_pm if t["side"] == "long" and t["setup"] == "test")
+    # wider OTM in the morning than the afternoon; call OTM is ABOVE entry
+    assert long_am["otm_strike"] - long_am["spy_entry"] > long_pm["otm_strike"] - long_pm["spy_entry"]
+    assert long_am["otm_strike"] > long_am["spy_entry"]
+    short_am = next(t for t in t_am if t["side"] == "short" and t["setup"] == "test")
+    assert short_am["otm_strike"] < short_am["spy_entry"]   # put OTM is BELOW entry
+
+
+def test_suppress_counter_trend_toggle(monkeypatch):
+    sc = _scaffold()
+    sc["chart"] = {"structure": {"state": "uptrend"}}
+    sc["regime"]["gamma"] = "negative"
+    monkeypatch.setattr(paper, "SUPPRESS_COUNTER_TREND", True)
+    tickets = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=_NOON)
+    assert all(t["counter_trend"] is False for t in tickets)   # counter-trend dropped
 
 
 # ------------------------------------------------------------ open + settle

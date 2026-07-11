@@ -474,6 +474,82 @@ a.vg-nb-newstitle:hover { color: var(--color-primary); text-decoration: underlin
   .vg-pb-catalyst { background: #3a2e10; color: #fbbf24; }
 }
 
+/* ---------- Trading Journal (calendar + day detail) ---------- */
+.vg-jr { display: flex; flex-direction: column; gap: 14px; }
+
+/* month calendar */
+.vg-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.vg-cal-title { font-weight: 700; font-size: 14px; }
+.vg-cal-nav { display: flex; gap: 4px; }
+.vg-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.vg-cal-dow { text-align: center; font-size: 10.5px; color: var(--color-grey); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .04em; padding-bottom: 2px; }
+.vg-cal-cell { aspect-ratio: 1 / 1; border: 1px solid var(--color-border); border-radius: 8px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font-size: 12px; cursor: default; background: #fff; position: relative; min-height: 40px; }
+.vg-cal-cell.empty { border: none; background: transparent; }
+.vg-cal-cell.has { cursor: pointer; }
+.vg-cal-cell.has:hover { border-color: var(--color-primary); }
+.vg-cal-cell.sel { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary) inset; }
+.vg-cal-cell.today .vg-cal-day { text-decoration: underline; font-weight: 700; }
+.vg-cal-day { font-size: 12px; line-height: 1; }
+.vg-cal-dot { width: 7px; height: 7px; border-radius: 50%; }
+.vg-cal-dot.good { background: var(--color-good, #16a34a); }
+.vg-cal-dot.warn { background: #d98c1b; }
+.vg-cal-dot.bad  { background: var(--color-bad, #dc2626); }
+.vg-cal-dot.none { background: var(--color-border); }
+.vg-cal-cell.good { background: #eefaf2; }
+.vg-cal-cell.warn { background: #fdf5e7; }
+.vg-cal-cell.bad  { background: #fdeeee; }
+.vg-cal-legend { display: flex; gap: 14px; margin-top: 8px; font-size: 11px; color: var(--color-grey);
+  flex-wrap: wrap; align-items: center; }
+.vg-cal-legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+
+/* day detail: forecast|actual tiles top, chart + journal below */
+.vg-jr-detail { display: flex; flex-direction: column; gap: 12px; }
+.vg-jr-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vg-jr-tile { border: 1px solid var(--color-border); border-radius: 12px; padding: 12px 14px; background: #fff; }
+.vg-jr-tile h4 { margin: 0 0 6px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--color-grey); }
+.vg-jr-tile .big { font-size: 15px; font-weight: 600; }
+.vg-jr-tile .sub { font-size: 12.5px; color: var(--color-grey); margin-top: 3px; line-height: 1.45; }
+.vg-jr-lower { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+.vg-jr-chart { border: 1px solid var(--color-border); border-radius: 12px; padding: 10px; background: #fff; }
+.vg-jr-chart img { width: 100%; border-radius: 8px; display: block; }
+.vg-jr-drop { border: 2px dashed var(--color-border); border-radius: 12px; padding: 22px 14px;
+  text-align: center; cursor: pointer; background: #fff; }
+.vg-jr-drop.drag { border-color: var(--color-primary); }
+.vg-jr-form { border: 1px solid var(--color-border); border-radius: 12px; padding: 12px 14px; background: #fff; }
+.vg-jr-form h4 { margin: 0 0 8px; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--color-grey); }
+.vg-jr-field { margin-bottom: 8px; }
+.vg-jr-field label { display: block; font-size: 11px; color: var(--color-grey); margin-bottom: 2px; }
+.vg-jr-field input, .vg-jr-field textarea { width: 100%; box-sizing: border-box; padding: 6px 8px;
+  border: 1px solid var(--color-border); border-radius: 8px; font-size: 13px; font-family: inherit; }
+.vg-jr-field textarea { resize: vertical; }
+.vg-jr-saved { font-size: 12.5px; margin: 2px 0; }
+.vg-jr-saved b { font-size: 11px; color: var(--color-grey); text-transform: uppercase; letter-spacing: .04em; }
+/* per-level forecast⇄actual table */
+.vg-lvltbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.vg-lvltbl th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--color-grey); font-weight: 600; padding: 3px 8px 5px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.vg-lvltbl td { padding: 5px 8px; border-bottom: 1px solid var(--color-border, #eef1f4); vertical-align: top; }
+.vg-lvltbl tr:last-child td { border-bottom: none; }
+.vg-lvltbl tr.muted td { opacity: .5; }
+.vg-lvltbl .lvl-price { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vg-lvltbl .lvl-expect { max-width: 230px; }
+.vg-lvltbl .lvl-actual { min-width: 180px; }
+
+@media (max-width: 720px) {
+  .vg-jr-lower { grid-template-columns: 1fr; }
+  .vg-jr-tiles { grid-template-columns: 1fr; }
+  .vg-lvltbl .lvl-expect { max-width: 160px; }
+}
+@media (prefers-color-scheme: dark) {
+  .vg-cal-cell, .vg-jr-tile, .vg-jr-chart, .vg-jr-drop, .vg-jr-form { background: #1a1d21; }
+  .vg-cal-cell.good { background: #10231a; }
+  .vg-cal-cell.warn { background: #241d10; }
+  .vg-cal-cell.bad  { background: #241414; }
+}
+
 /* ---------- Pine export modal (0DTE Playbook) ---------- */
 .vg-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100;
   display: flex; align-items: center; justify-content: center; padding: 20px; }

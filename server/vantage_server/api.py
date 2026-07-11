@@ -428,37 +428,95 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, **_j.build_journal(store))
 
     @app.post("/api/journal/upload")
-    async def journal_upload(image: UploadFile = File(...),
+    async def journal_upload(image: UploadFile = File(default=None),
                              note: str = Form(""),
-                             symbol: str = Form("SPX")):
-        """Save a chart image + link it to the CURRENT playbook forecast. The image
-        is written under the journal dir; the row freezes the live forecast so we
-        can score it later. Writes only our store/disk — no orders (ADR-010)."""
+                             symbol: str = Form("SPX"),
+                             forecast_kind: str = Form("prior"),
+                             attach_to: str = Form("")):
+        """Attach a reference chart to a journal entry. With ``attach_to`` set to a
+        snapshot id, the image is attached to THAT existing entry (the normal path:
+        drop today's chart onto today's auto-created row) — no new entry. Without
+        it, a NEW entry is created, freezing a playbook forecast: ``forecast_kind``
+        ``'prior'`` (default) pins LAST NIGHT'S forecast, ``'live'`` pins today's.
+        The image is reference only — never analyzed. Store/disk-only (ADR-010)."""
         import datetime as _dt
         from . import journal as _j
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="SQLite backend required.")
-        data = await image.read()
-        if not data:
-            return envelope(snap, available=False, note="empty upload")
         now = _dt.datetime.now(_dt.timezone.utc).astimezone()
-        jdir = _j.journal_dir(store.data_dir)
-        ext = os.path.splitext(image.filename or "")[1].lower() or ".png"
-        fname = f"{now.strftime('%Y%m%dT%H%M%S')}_{int(now.timestamp())}{ext}"
-        (jdir / fname).write_bytes(data)
-        # freeze the current playbook forecast
-        row = store.load_spx_playbook()
-        scaffold = (row or {}).get("scaffold") or {}
-        forecast = _j.forecast_from_scaffold(scaffold) if scaffold else {}
+        today = now.date().isoformat()
+        # write the reference image (optional)
+        fname = mime = None
+        if image is not None:
+            data = await image.read()
+            if data:
+                jdir = _j.journal_dir(store.data_dir)
+                ext = os.path.splitext(image.filename or "")[1].lower() or ".png"
+                fname = f"{now.strftime('%Y%m%dT%H%M%S')}_{int(now.timestamp())}{ext}"
+                (jdir / fname).write_bytes(data)
+                mime = image.content_type or "image/png"
+
+        # attach to an existing entry (today's row) rather than create a new one
+        if attach_to:
+            row = store.load_journal_snapshot(int(attach_to))
+            if not row:
+                return envelope(snap, available=False, note="entry not found")
+            if fname:
+                # drop the old image file if it's being replaced
+                old = row.get("image_path")
+                if old:
+                    try:
+                        (_j.journal_dir(store.data_dir) / old).unlink(missing_ok=True)
+                    except OSError:
+                        pass
+                store.update_journal_image(int(attach_to), fname, mime)
+            return envelope(snap, available=True, id=int(attach_to),
+                            **_j.build_journal(store))
+
+        # otherwise: a fresh entry freezing the chosen forecast (prior by default)
+        scaffold, forecast, resolved = _j.pick_forecast(
+            store, today, "live" if forecast_kind == "live" else "prior")
         sid = store.record_journal_snapshot({
-            "created_at": now.isoformat(), "session": (row or {}).get("session"),
+            "created_at": now.isoformat(),
+            "session": forecast.get("session") or (scaffold.get("session")),
             "symbol": symbol, "image_path": fname,
-            "image_mime": image.content_type or "image/png", "note": note,
+            "image_mime": mime, "note": note,
             "spot_at_snap": (scaffold.get("regime") or {}).get("spot"),
-            "forecast": forecast,
+            "forecast": forecast, "forecast_kind": resolved,
         })
         return envelope(snap, available=True, id=sid, **_j.build_journal(store))
+
+    @app.post("/api/journal/ensure_today")
+    def journal_ensure_today(body: dict = Body(default={})):
+        """Ensure today's journal entry exists (auto-create, freezing last night's
+        forecast — idempotent, one per day) and re-score it against live price.
+        The Journal page calls this on open so you arrive to a ready, current row.
+        Store/disk-only writes (ADR-010)."""
+        from . import journal as _j
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        res = _j.ensure_today_entry(store)
+        return envelope(snap, available=True, ensured=res, **_j.build_journal(store))
+
+    @app.post("/api/journal/entry")
+    def journal_entry(body: dict = Body(default={})):
+        """Save / update the structured trade-action log ('what I did') for a
+        snapshot. Body: ``{id, entry: {action, entry, exit, result, lesson, notes}}``.
+        Store-only write (ADR-010)."""
+        import datetime as _dt
+        from . import journal as _j
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        sid = (body or {}).get("id")
+        if sid is None:
+            return envelope(snap, available=False, note="need id")
+        entry = _j.normalize_entry((body or {}).get("entry"))
+        now = _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat()
+        store.update_journal_entry(int(sid), entry, now)
+        return envelope(snap, available=True, saved=True, **_j.build_journal(store))
 
     @app.get("/api/journal/image/{snap_id}")
     def journal_image(snap_id: int):

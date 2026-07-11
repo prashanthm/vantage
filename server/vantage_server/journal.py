@@ -65,6 +65,53 @@ def forecast_from_scaffold(scaffold: dict) -> dict:
     }
 
 
+def pick_forecast(store: Store, day: str, kind: str = "prior") -> tuple[dict, dict, str]:
+    """Choose which playbook forecast to freeze into a new journal entry.
+
+    ``kind="prior"`` (default) freezes LAST NIGHT'S / the prior session's playbook
+    — so the entry compares "yesterday's levels vs today's action". Falls back to
+    the current playbook if no prior one exists (e.g. very first day).
+    ``kind="live"`` freezes whatever playbook is current.
+
+    Returns ``(scaffold, forecast, resolved_kind)`` where forecast is the frozen,
+    scoreable slice. All reads are store-only (ADR-010)."""
+    row = None
+    resolved = kind
+    if kind == "prior":
+        row = store.load_spx_playbook_before(day)
+        if row is None:  # no earlier session — fall back to whatever's live
+            row = store.load_spx_playbook()
+            resolved = "live"
+    else:
+        row = store.load_spx_playbook()
+        resolved = "live"
+    scaffold = (row or {}).get("scaffold") or {}
+    forecast = forecast_from_scaffold(scaffold) if scaffold else {}
+    return scaffold, forecast, resolved
+
+
+#: the light-structured trade-action log ("what I did"). Free-text fields; empty
+#: strings are fine. Stored as JSON so the shape can grow without a migration.
+ENTRY_FIELDS = ("action", "entry", "exit", "result", "lesson", "notes")
+
+
+def normalize_entry(raw: dict | None) -> dict | None:
+    """Coerce a posted entry to the known fields (extra keys dropped, values
+    stringified). Returns None when every field is blank so we don't store an
+    empty shell."""
+    if not raw:
+        return None
+    out = {}
+    for k in ENTRY_FIELDS:
+        v = raw.get(k)
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s:
+            out[k] = s
+    return out or None
+
+
 # ── score the forecast against later price action ────────────────────────────
 
 def _price_range_since(symbol: str, since_iso: str):
@@ -77,6 +124,27 @@ def _price_range_since(symbol: str, since_iso: str):
     lows, highs, closes = [], [], []
     for ts, row in df.iterrows():
         if ts.to_pydatetime().isoformat() <= since_iso:
+            continue
+        lows.append(float(row["Low"])); highs.append(float(row["High"]))
+        closes.append(float(row["Close"]))
+    if not closes:
+        return None
+    return min(lows), max(highs), closes[-1], len(closes)
+
+
+def _price_range_for_day(symbol: str, day: str):
+    """(low, high, last, n_bars) over the WHOLE RTH session of ``day``
+    (YYYY-MM-DD), regardless of what time the snapshot was created. This is what
+    the daily entry scores against, so opening the page midday or after the close
+    still reads the full session — not just bars printed after you looked. Returns
+    None if no bars fall on that day."""
+    from . import spx_playbook as sp
+    df = sp._fetch_15m(symbol)
+    if df is None or getattr(df, "empty", True):
+        return None
+    lows, highs, closes = [], [], []
+    for ts, row in df.iterrows():
+        if ts.to_pydatetime().date().isoformat() != day:
             continue
         lows.append(float(row["Low"])); highs.append(float(row["High"]))
         closes.append(float(row["Close"]))
@@ -147,9 +215,14 @@ def score_forecast(forecast: dict, price_low: float, price_high: float,
 
 
 def score_snapshot(snap: dict, symbol: str = "^GSPC") -> dict | None:
-    """Compute the scorecard for one snapshot from live bars since it was taken.
-    Returns the scorecard, or None if no bars have printed since."""
-    rng = _price_range_since(symbol, snap.get("created_at") or "")
+    """Compute the scorecard for one snapshot against price action.
+
+    Scores against the FULL RTH session of the snapshot's day (open→close), so
+    opening the page midday or after the close still reads the whole session, not
+    just bars printed after you looked. Returns the scorecard, or None if no bars
+    fall on that day yet."""
+    day = (snap.get("created_at") or "")[:10]
+    rng = _price_range_for_day(symbol, day) if day else None
     if rng is None:
         return None
     low, high, last, n = rng
@@ -191,6 +264,43 @@ def journal_accuracy(snaps: list[dict]) -> dict:
     }
 
 
+def ensure_today_entry(store: Store, symbol: str = "^GSPC") -> dict:
+    """Make sure a journal entry exists for TODAY, then keep it current.
+
+    On the first open of a trading day this auto-creates one entry (idempotent —
+    one per day) freezing LAST NIGHT'S forecast, so you arrive to a ready row and
+    just drop your chart + log what you did. On every open it re-scores today's
+    entry against live price (until the day's bars stop printing), so the
+    "today's action" column stays fresh. Store/disk-only writes (ADR-010).
+
+    Returns ``{created: bool, id, rescored: bool}``."""
+    if not getattr(store, "uses_sqlite", False):
+        return {"created": False, "id": None, "rescored": False}
+    now = _dt.datetime.now(ET)
+    today = now.date().isoformat()
+    existing = store.load_journal_snapshot_for_day(today)
+    created = False
+    if existing is None:
+        scaffold, forecast, resolved = pick_forecast(store, today, "prior")
+        sid = store.record_journal_snapshot({
+            "created_at": now.isoformat(),
+            "session": forecast.get("session") or scaffold.get("session"),
+            "symbol": "SPX", "image_path": None, "image_mime": None, "note": None,
+            "spot_at_snap": (scaffold.get("regime") or {}).get("spot"),
+            "forecast": forecast, "forecast_kind": resolved,
+        })
+        created = True
+        existing = store.load_journal_snapshot(sid)
+    # re-score today's entry against live price (no-op if no bars yet)
+    rescored = False
+    if existing:
+        sc = score_snapshot(existing, symbol)
+        if sc and store.update_journal_scorecard(existing["id"], sc, now.isoformat()):
+            rescored = True
+    return {"created": created, "id": existing["id"] if existing else None,
+            "rescored": rescored}
+
+
 def build_journal(store: Store) -> dict:
     """The full journal view: every snapshot (metadata + forecast + scorecard) and
     the running accuracy. Image bytes are served separately via the image route."""
@@ -198,7 +308,7 @@ def build_journal(store: Store) -> dict:
     return {
         "snapshots": snaps,
         "accuracy": journal_accuracy(snaps),
-        "note": ("Each snapshot pairs your chart with the forecast that was live "
-                 "then; scores compare it to what price actually did. Journal/"
-                 "analysis only — no orders (ADR-010)."),
+        "note": ("Each entry pairs a playbook forecast (last night's by default) "
+                 "with what price actually did; today's entry is created for you "
+                 "and re-scored on open. Journal/analysis only — no orders (ADR-010)."),
     }

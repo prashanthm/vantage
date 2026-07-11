@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 7  # v7: journal_snapshots (chart image + forecast-vs-outcome)
+SCHEMA_VERSION = 8  # v8: journal_snapshots.entry — structured trade-action log
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -349,10 +349,22 @@ CREATE TABLE IF NOT EXISTS journal_snapshots (
     spot_at_snap REAL,               -- price when captured (for the outcome delta)
     forecast     TEXT,               -- JSON: frozen forecast (levels/regime/plan)
     scorecard    TEXT,               -- JSON: forecast-vs-outcome (filled later)
-    scored_at    TEXT                -- when the scorecard was last computed
+    scored_at    TEXT,               -- when the scorecard was last computed
+    forecast_kind TEXT,              -- 'prior' | 'live': which forecast was frozen
+    entry        TEXT,               -- JSON: structured trade-action log (what I did)
+    entry_updated_at TEXT            -- when the entry was last edited
 );
 CREATE INDEX IF NOT EXISTS ix_journal_created ON journal_snapshots(created_at);
 """
+
+#: columns added after v7 to the (pre-existing) journal_snapshots table. Applied
+#: idempotently by ``init_schema`` via ALTER TABLE — SQLite has no
+#: ``ADD COLUMN IF NOT EXISTS``, so we guard on PRAGMA table_info.
+_JOURNAL_ADDED_COLUMNS = {
+    "forecast_kind": "TEXT",
+    "entry": "TEXT",
+    "entry_updated_at": "TEXT",
+}
 
 
 class Database:
@@ -379,6 +391,7 @@ class Database:
         conn = conn or self.connect()
         try:
             conn.executescript(_SCHEMA)
+            self._add_missing_journal_columns(conn)
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('schema_version', ?)\n"
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -401,6 +414,18 @@ class Database:
             raise
         finally:
             conn.close()
+
+    @staticmethod
+    def _add_missing_journal_columns(conn: sqlite3.Connection) -> None:
+        """Additively add post-v7 journal_snapshots columns to a DB that already
+        has the older table (the executescript above skips existing tables).
+        Idempotent: guarded on the current column set. Preserves all rows."""
+        have = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(journal_snapshots)").fetchall()}
+        for col, decl in _JOURNAL_ADDED_COLUMNS.items():
+            if col not in have:
+                conn.execute(
+                    f"ALTER TABLE journal_snapshots ADD COLUMN {col} {decl}")
 
     def schema_version(self) -> int | None:
         conn = self.connect()

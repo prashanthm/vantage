@@ -971,6 +971,27 @@ class Store:
             "narrative": _db.loads(row["narrative"], None) if row["narrative"] else None,
         }
 
+    def load_spx_playbook_before(self, day: str) -> dict | None:
+        """The most recent playbook strictly BEFORE ``day`` (i.e. last night's /
+        the prior session's), or None. Same shape as ``load_spx_playbook``."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM spx_playbook WHERE date < ? "
+                "ORDER BY date DESC LIMIT 1", (day,)).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return {
+            "date": row["date"],
+            "session": row["session"],
+            "scaffold": _db.loads(row["scaffold"], {}),
+            "narrative": _db.loads(row["narrative"], None) if row["narrative"] else None,
+        }
+
     def save_spx_playbook_narrative(self, day: str, narrative) -> bool:
         """Attach the LLM narrative to an existing playbook row (lazy-fill on read).
         Returns True if a row was updated."""
@@ -1273,10 +1294,14 @@ class Store:
             cur = conn.execute(
                 "INSERT INTO journal_snapshots"
                 "(created_at, session, symbol, image_path, image_mime, note,"
-                " spot_at_snap, forecast) VALUES(?,?,?,?,?,?,?,?)",
+                " spot_at_snap, forecast, forecast_kind, entry, entry_updated_at)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (snap.get("created_at"), snap.get("session"), snap.get("symbol", "SPX"),
                  snap.get("image_path"), snap.get("image_mime"), snap.get("note"),
-                 snap.get("spot_at_snap"), _db.dumps(snap.get("forecast") or {})))
+                 snap.get("spot_at_snap"), _db.dumps(snap.get("forecast") or {}),
+                 snap.get("forecast_kind"),
+                 _db.dumps(snap["entry"]) if snap.get("entry") else None,
+                 snap.get("entry_updated_at")))
             return int(cur.lastrowid)
 
     def load_journal_snapshots(self) -> list[dict]:
@@ -1295,8 +1320,30 @@ class Store:
             d = dict(r)
             d["forecast"] = _db.loads(d.get("forecast"), {})
             d["scorecard"] = _db.loads(d.get("scorecard"), None)
+            d["entry"] = _db.loads(d.get("entry"), None)
             out.append(d)
         return out
+
+    def load_journal_snapshot_for_day(self, day: str) -> dict | None:
+        """The most recent auto/day snapshot whose created_at falls on ``day``
+        (YYYY-MM-DD), or None. Used to keep the daily entry idempotent — one per
+        trading day."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT * FROM journal_snapshots WHERE substr(created_at,1,10)=? "
+                "ORDER BY id DESC LIMIT 1", (day,)).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        d = dict(row)
+        d["forecast"] = _db.loads(d.get("forecast"), {})
+        d["scorecard"] = _db.loads(d.get("scorecard"), None)
+        d["entry"] = _db.loads(d.get("entry"), None)
+        return d
 
     def load_journal_snapshot(self, snap_id: int) -> dict | None:
         conn = self._backend._conn() if self.uses_sqlite else None
@@ -1312,6 +1359,7 @@ class Store:
         d = dict(row)
         d["forecast"] = _db.loads(d.get("forecast"), {})
         d["scorecard"] = _db.loads(d.get("scorecard"), None)
+        d["entry"] = _db.loads(d.get("entry"), None)
         return d
 
     def update_journal_scorecard(self, snap_id: int, scorecard: dict,
@@ -1322,6 +1370,30 @@ class Store:
             cur = conn.execute(
                 "UPDATE journal_snapshots SET scorecard=?, scored_at=? WHERE id=?",
                 (_db.dumps(scorecard), scored_at, snap_id))
+            return cur.rowcount > 0
+
+    def update_journal_image(self, snap_id: int, image_path: str,
+                             image_mime: str) -> bool:
+        """Attach / replace the reference image on an existing snapshot (the file
+        is already written to disk). Store-only write (ADR-010)."""
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "UPDATE journal_snapshots SET image_path=?, image_mime=? WHERE id=?",
+                (image_path, image_mime, snap_id))
+            return cur.rowcount > 0
+
+    def update_journal_entry(self, snap_id: int, entry: dict | None,
+                             updated_at: str) -> bool:
+        """Save the structured trade-action log ('what I did') for a snapshot.
+        Store-only write (ADR-010). A falsy entry clears it."""
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "UPDATE journal_snapshots SET entry=?, entry_updated_at=? WHERE id=?",
+                (_db.dumps(entry) if entry else None, updated_at, snap_id))
             return cur.rowcount > 0
 
     def delete_journal_snapshot(self, snap_id: int) -> bool:

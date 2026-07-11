@@ -37,7 +37,7 @@ const NAV = [
     { id: "options", label: "Options", icon: "◎" },
     { id: "playbook", label: "0DTE Playbook", icon: "🎯" },
     { id: "paper", label: "Paper Trading", icon: "📝" },
-    { id: "journal", label: "Chart Journal", icon: "📸" },
+    { id: "journal", label: "Trading Journal", icon: "📓" },
     { id: "futures", label: "Futures", icon: "📉" },
     { id: "trades", label: "Performance", icon: "🧮" },
   ]},

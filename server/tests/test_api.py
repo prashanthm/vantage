@@ -462,6 +462,8 @@ ALLOWED_WRITE_ROUTES = {
     "/api/journal/upload",
     "/api/journal/score",
     "/api/journal/delete",
+    "/api/journal/entry",
+    "/api/journal/ensure_today",
 }
 
 

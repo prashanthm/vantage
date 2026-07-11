@@ -973,14 +973,19 @@ export async function getJournal() {
   return v && v.available ? v : { available: false, note: v && v.note };
 }
 
-// Upload a chart image (File or Blob) + note; links to the live playbook forecast.
-export async function uploadJournal(fileOrBlob, note) {
+// Attach a reference chart to a journal entry. When `attachTo` (a snapshot id) is
+// given, the image attaches to THAT existing entry (drop today's chart onto
+// today's row) — no new entry. Otherwise a NEW entry is created, freezing the
+// forecast picked by `forecastKind`: "prior" (last night's) or "live" (today's).
+// `fileOrBlob` may be null for a data-only new entry.
+export async function uploadJournal(fileOrBlob, note, forecastKind = "prior", attachTo = null) {
   const base = backendBase();
   if (!base) return { available: false };
   const fd = new FormData();
-  const name = fileOrBlob.name || "chart.png";
-  fd.append("image", fileOrBlob, name);
+  if (fileOrBlob) fd.append("image", fileOrBlob, fileOrBlob.name || "chart.png");
   fd.append("note", note || "");
+  fd.append("forecast_kind", forecastKind);
+  if (attachTo != null) fd.append("attach_to", String(attachTo));
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 30000);
   try {
@@ -1008,8 +1013,14 @@ async function _journalPost(path, body) {
   } catch (e) { return { available: false }; }
 }
 
+// Ensure today's entry exists (auto-created, last night's forecast frozen) and
+// is re-scored against live price. Call on page open; idempotent (one per day).
+export const ensureTodayJournal = () => _journalPost("ensure_today", {});
 export const scoreJournal = () => _journalPost("score", {});
 export const deleteJournal = (id) => _journalPost("delete", { id });
+// Save the structured trade-action log for a snapshot. `entry` is an object of
+// {action, entry, exit, result, lesson, notes}. Passing an empty object clears it.
+export const saveJournalEntry = (id, entry) => _journalPost("entry", { id, entry });
 // The image URL for a snapshot (served by the backend).
 export const journalImageUrl = (id) => `${backendBase()}/api/journal/image/${id}`;
 

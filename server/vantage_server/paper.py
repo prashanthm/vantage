@@ -33,6 +33,14 @@ ET = ZoneInfo("America/New_York")
 STOP_PAD_PCT = 0.20   # stop sits this % beyond the signal level (SPX terms)
 DEFAULT_SHARES = 100  # notional share size for the paper P&L
 
+#: a zone counts as "broken" once price closes beyond it by this fraction of
+#: price. Kept in sync with journal._BREAK_PCT so the paper break-setups and the
+#: journal's held/broke scoring agree on what "broke" means.
+BREAK_PCT = 0.0015    # ~0.15% ≈ 11pt at SPX 7500
+#: keep counter-trend tickets visible (flagged), rather than dropping them. Flip
+#: to True to suppress tickets that fight the higher-timeframe trend.
+SUPPRESS_COUNTER_TREND = False
+
 
 # ── SPX → SPY translation ────────────────────────────────────────────────────
 
@@ -61,23 +69,140 @@ def nearest_strike(spy_price: float, step: float = 1.0) -> float:
     return round(round(spy_price / step) * step, 2)
 
 
+# ── demand/supply enrichments (trend filter, breaks, freshness, OTM) ─────────
+
+def _session_range(symbol: str = "^GSPC"):
+    """(low, high, last) over TODAY's RTH session, or None. The same price inputs
+    the journal scores levels against — used here to tell whether price has traded
+    THROUGH a zone (a break setup) vs. is merely resting near it."""
+    from . import spx_playbook as sp
+    df = sp._fetch_15m(symbol)
+    if df is None or getattr(df, "empty", True):
+        return None
+    today = _dt.datetime.now(ET).date().isoformat()
+    lows, highs, closes = [], [], []
+    for ts, row in df.iterrows():
+        if ts.to_pydatetime().date().isoformat() != today:
+            continue
+        lows.append(float(row["Low"])); highs.append(float(row["High"]))
+        closes.append(float(row["Close"]))
+    if not closes:
+        return None
+    return min(lows), max(highs), closes[-1]
+
+
+def _is_counter_trend(side: str, state: str | None, gamma: str | None) -> bool:
+    """Does this ticket FIGHT the higher-timeframe trend? A long (buy dip) fights a
+    downtrend; a short (fade rally) fights an uptrend. A positive-gamma (mean-revert)
+    regime or a non-trending/unclear structure is NOT counter-trend — reversion
+    setups belong there. NOTE: `state` is the 10-session swing read (playbook
+    timeframe), not the 1-3-5min entry timeframe; this gates 'don't fade the daily
+    trend', not the doc's intrabar trigger."""
+    if gamma == "positive":
+        return False
+    if side == "long" and state == "downtrend":
+        return True
+    if side == "short" and state == "uptrend":
+        return True
+    return False
+
+
+def _durable_bands(scaffold: dict) -> list[dict]:
+    return [b for b in (scaffold.get("durable") or []) if b.get("lo") is not None]
+
+
+def _freshness_for_zone(zone: dict, bands: list[dict]) -> tuple[str, str]:
+    """Tag a zone fresh/strong/tested/weak from durable-level memory. `respected`
+    is a rejection count and `sessions` the appearance count on the matching durable
+    band; freshness ≈ respected/sessions. A fresh (never-recorded) base is treated
+    as strong — that's the demand/supply premise (untested bases react best).
+    Returns (freshness, note)."""
+    price = zone.get("price")
+    band = None
+    for b in bands:
+        # band overlap (same pattern as spx_playbook _durable_at)
+        if b["lo"] - 0.5 <= price <= b["hi"] + 0.5:
+            band = b
+            break
+    if band is None:
+        return "fresh", "fresh — no prior tests on record"
+    sessions = int(band.get("sessions") or 0)
+    respected = int(band.get("respected") or 0)
+    if sessions <= 1:
+        return "fresh", "fresh — barely tested yet"
+    ratio = respected / sessions if sessions else 0.0
+    note = f"respected {respected}/{sessions} sessions"
+    if ratio >= 0.6:
+        return "strong", note + " — strong"
+    if ratio >= 0.3:
+        return "tested", note + " — tested, still reacting"
+    return "weak", note + " — tested often, weakening"
+
+
+#: the doc's time-of-day OTM rule (SPX points OTM), CST cutoffs converted to ET
+#: (ET = CST + 1h). Wider OTM early (more time for a far strike to pay), tighter
+#: into the afternoon as 0DTE gamma accelerates.
+def _otm_points(now_et: _dt.datetime) -> tuple[float, str]:
+    """(SPX points OTM, label) for the current ET time, per the doc's rule:
+    ~25pt before noon CST (13:00 ET), ~12pt after 1-2pm CST (14:00-15:00 ET)."""
+    mins = now_et.hour * 60 + now_et.minute
+    if mins < 13 * 60:            # before 12:00 CST / 13:00 ET
+        return 25.0, "morning ≈25pt OTM"
+    if mins < 14 * 60:            # 13:00-14:00 ET (noon-1pm CST)
+        return 18.0, "early-afternoon ≈18pt OTM"
+    return 12.0, "afternoon ≈12pt OTM"
+
+
+def _otm_strike(entry_spy: float, side: str, ratio: float,
+                now_et: _dt.datetime) -> tuple[float, str]:
+    """A time-of-day OTM SPY strike suggestion alongside the ATM ref_strike. OTM =
+    above entry for a call (long), below for a put (short). SPX points → SPY via
+    the live ratio (SPY strikes ~$1). Suggestion only — not IV/delta aware."""
+    pts, label = _otm_points(now_et)
+    offset_spy = pts / ratio if ratio else pts / 10.0
+    raw = entry_spy + offset_spy if side == "long" else entry_spy - offset_spy
+    return nearest_strike(raw), label
+
+
 # ── ticket generation from the playbook scaffold ─────────────────────────────
 
-def build_tickets(scaffold: dict, spy_price: float, ratio: float) -> list[dict]:
-    """Turn the playbook's confluence zones into SPY trade tickets. A SUPPORT
-    zone below spot → a 'buy dip' (long); a RESISTANCE zone above → a 'fade
-    rally' (short). Target = the next opposing playbook level; stop = just beyond
-    the signal level. Only zones within a tradeable distance of spot are shown."""
+def build_tickets(scaffold: dict, spy_price: float, ratio: float,
+                  session_range: tuple | None = None,
+                  now_et: _dt.datetime | None = None) -> list[dict]:
+    """Turn the playbook's confluence zones into SPY trade tickets — the four
+    demand/supply setups from the methodology:
+
+      TEST (A/B): a SUPPORT zone below spot → 'buy dip' (long); a RESISTANCE zone
+        above → 'fade rally' (short). Reversion at the untested/holding level.
+      BREAK (C/D): a zone price has CLOSED THROUGH today flips polarity — a broken
+        resistance becomes support to buy the reclaim; a broken support becomes
+        resistance to fade the breakdown retest. Flagged experts_only.
+
+    Each ticket carries: target = next opposing level; stop = just beyond the
+    signal level; a TREND flag (does it fight the higher-timeframe trend?); a
+    FRESHNESS tag (from durable-level memory); and a time-of-day OTM strike
+    suggestion alongside the ATM ref_strike.
+
+    ``session_range`` = today's (low, high, last); ``now_et`` = current ET time —
+    both injectable for testing (default: fetched / now)."""
     spx_spot = (scaffold.get("regime") or {}).get("spot")
     conf = scaffold.get("confluence") or []
     if not conf or spx_spot is None:
         return []
+    if now_et is None:
+        now_et = _dt.datetime.now(ET)
+    if session_range is None:
+        session_range = _session_range()
+    # higher-timeframe trend read (playbook timeframe, not 1-3-5min) for the filter
+    trend_state = ((scaffold.get("chart") or {}).get("structure") or {}).get("state")
+    gamma = (scaffold.get("regime") or {}).get("gamma")
+    bands = _durable_bands(scaffold)
     # SPX levels sorted for target-picking
     supports = sorted([z for z in conf if z["role"] == "support"], key=lambda z: -z["price"])
     resistances = sorted([z for z in conf if z["role"] == "resistance"], key=lambda z: z["price"])
     tickets: list[dict] = []
 
-    def _mk(zone, side):
+    def _mk(zone, side, setup="test"):
         lvl = zone["price"]
         # ENTRY is the signal LEVEL (you buy the dip AT support / fade the rally AT
         # resistance) — a resting order, not a market order at spot. Target = the
@@ -95,10 +220,22 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float) -> list[dict]:
         risk = abs(entry_spy - stop_spy)
         reward = abs(tgt_spy - entry_spy) if tgt_spy is not None else None
         rr = round(reward / risk, 2) if (reward and risk) else None
+        counter = _is_counter_trend(side, trend_state, gamma)
+        freshness, freshness_note = _freshness_for_zone(zone, bands)
+        otm, otm_note = _otm_strike(entry_spy, side, ratio, now_et)
+        if setup == "break":
+            sig = (("breakout retest above " if side == "long" else "breakdown retest below ")
+                   + f"{to_spy(lvl, ratio):.2f}")
+        else:
+            sig = (("buy the dip near " if side == "long" else "fade the rally near ")
+                   + f"{to_spy(lvl, ratio):.2f}")
+        trend_note = ("⚠ fades the " + (trend_state or "") + " — lower-probability"
+                      if counter else "aligns with trend / regime")
         return {
-            "signal": ("buy the dip near " if side == "long" else "fade the rally near ")
-                      + f"{to_spy(lvl, ratio):.2f}",
+            "signal": sig,
             "side": side,
+            "setup": setup,                    # "test" | "break"
+            "experts_only": setup == "break",
             "symbol": "SPY",
             "spx_level": round(lvl, 1),
             "spy_level": to_spy(lvl, ratio),
@@ -108,17 +245,41 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float) -> list[dict]:
             "spy_stop": round(stop_spy, 2),
             "shares": DEFAULT_SHARES,
             "ref_strike": nearest_strike(entry_spy),
+            "otm_strike": otm,                 # time-of-day OTM suggestion
+            "otm_note": otm_note,
             "reward_risk": rr,
+            "trend_state": trend_state,
+            "counter_trend": counter,
+            "trend_note": trend_note,
+            "freshness": freshness,            # fresh | strong | tested | weak
+            "freshness_note": freshness_note,
             "kinds": zone.get("kinds", []),
         }
 
-    # nearest support below + nearest resistance above spot are the actionable ones
+    # TEST setups (A/B): nearest support below + nearest resistance above spot
     below = [z for z in supports if z["price"] < spx_spot][:2]
     above = [z for z in resistances if z["price"] > spx_spot][:2]
     for z in below:
         tickets.append(_mk(z, "long"))
     for z in above:
         tickets.append(_mk(z, "short"))
+
+    # BREAK setups (C/D): a zone price has CLOSED THROUGH today flips polarity.
+    # Reuses the journal's break test (close beyond by BREAK_PCT, on the right
+    # side of the level). Needs today's session range; skipped without it.
+    if session_range:
+        lo, hi, last = session_range
+        for z in conf:
+            p = z["price"]; brk = p * BREAK_PCT
+            if z["role"] == "resistance" and hi > p + brk and last > p:
+                # broken resistance now acts as support → buy the reclaim (long)
+                tickets.append(_mk(z, "long", setup="break"))
+            elif z["role"] == "support" and lo < p - brk and last < p:
+                # broken support now acts as resistance → fade the breakdown (short)
+                tickets.append(_mk(z, "short", setup="break"))
+
+    if SUPPRESS_COUNTER_TREND:
+        tickets = [t for t in tickets if not t["counter_trend"]]
     return tickets
 
 

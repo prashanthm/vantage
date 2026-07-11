@@ -14,6 +14,9 @@ const usd = (v) => (v == null ? "—" : `${v < 0 ? "-" : ""}$${Math.abs(Math.rou
 const pct = (v) => (v == null ? "—" : `${Math.round(100 * v)}%`);
 const px = (v) => (v == null ? "—" : Number(v).toFixed(2));
 
+// zone-freshness badge tone: strong=good, tested=warn, weak=bad, fresh=info
+const FRESH_TONE = { strong: "good", fresh: "info", tested: "warn", weak: "bad" };
+
 function EquityCurve({ curve }) {
   if (!curve || curve.length < 2) return null;
   const W = 640, H = 110, pad = 6;
@@ -107,6 +110,16 @@ export function PaperView({ refreshNonce }) {
                       {t.side === "long" ? "BUY" : "SELL"}
                     </span>{" "}
                     <b>{t.signal}</b>
+                    {t.setup === "break" && (
+                      <span className="vg-badge warn" style={{ marginLeft: 6, fontSize: 10 }}>BREAK — experts</span>
+                    )}
+                    {t.counter_trend && (
+                      <span className="vg-badge bad" style={{ marginLeft: 6, fontSize: 10 }}>⚠ counter-trend</span>
+                    )}
+                    {t.freshness && (
+                      <span className={cls("vg-badge", FRESH_TONE[t.freshness] || "plain")}
+                        style={{ marginLeft: 6, fontSize: 10 }}>{t.freshness}</span>
+                    )}
                   </div>
                   <button className="vg-btn-sm" disabled={busy === "open"} onClick={() => doOpen(t)}>
                     Paper trade
@@ -115,8 +128,15 @@ export function PaperView({ refreshNonce }) {
                 <div className="vg-note" style={{ fontSize: 12, marginTop: 4 }}>
                   Entry <b>{px(t.spy_entry)}</b> · target <b>{px(t.spy_target)}</b> · stop <b>{px(t.spy_stop)}</b>
                   {t.reward_risk != null && <> · <Term k="reward_risk">R:R</Term> {t.reward_risk}</>}
-                  {" · "}~{px(t.ref_strike)} 0DTE strike{t.spx_level ? ` · SPX ${Math.round(t.spx_level)}` : ""}
+                  {" · "}~{px(t.ref_strike)} 0DTE
+                  {t.otm_strike != null && <> · ~{px(t.otm_strike)} OTM</>}
+                  {t.spx_level ? ` · SPX ${Math.round(t.spx_level)}` : ""}
                 </div>
+                {(t.freshness_note || t.trend_note || t.otm_note) && (
+                  <div className="vg-note" style={{ fontSize: 11, marginTop: 2, opacity: 0.85 }}>
+                    {[t.trend_note, t.freshness_note, t.otm_note].filter(Boolean).join(" · ")}
+                  </div>
+                )}
               </div>
             ))}
           </div>
