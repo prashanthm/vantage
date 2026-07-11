@@ -713,13 +713,39 @@ def analyze(fills: list[dict], orders: list[dict], balances: dict,
 
 # ── playbook-alignment lens (NQ bars, reuse spx_playbook chart dims) ──────────
 
-def playbook_alignment(fills: list[dict]) -> dict:
+def _projected_gex_sr(store, contract: str = "NQ") -> tuple[list[float], list[float]]:
+    """(support, resistance) from the QQQ 0DTE playbook's GEX levels — put wall /
+    gamma flip as support, call wall as resistance — projected into NQ points. The
+    dealer-gamma regime for the Nasdaq-100 lives in the QQQ/NDX options, so an NQ
+    entry near a projected put wall in a positive-gamma regime is a real
+    mean-reversion 'with' the playbook, not just a pivot coincidence. Best-effort:
+    empty lists when no ETF playbook / ratio is available (never fabricated)."""
+    if store is None:
+        return [], []
+    try:
+        from . import futures_projection as fp
+        proj = fp.project_for_store(store, contract)
+        if not proj.get("available"):
+            return [], []
+        sup, res = [], []
+        for lv in proj.get("levels") or []:
+            p, role = lv.get("price"), lv.get("role")
+            if p is None:
+                continue
+            (sup if role == "support" else res if role == "resistance" else sup).append(p)
+        return sup, res
+    except Exception:  # noqa: BLE001 — GEX augmentation is optional context
+        return [], []
+
+
+def playbook_alignment(fills: list[dict], store=None) -> dict:
     """For each distinct entry timestamp, classify whether the entry agreed with
-    the generic playbook (buy dips/sell rips toward S/R while mean-reverting vs
-    fading momentum). Returns ``{entry_time: 'with'|'against'|'neutral'}``. Best-
-    effort: if NQ bars aren't fetchable, returns {} and the dimension is omitted
-    (never fabricated). Uses NQ=F 15m bars + the same VWAP/fractal-S/R dims as the
-    SPX playbook."""
+    the playbook (buy dips/sell rips toward S/R while mean-reverting vs fading
+    momentum). Returns ``{entry_time: 'with'|'against'|'neutral'}``. Best-effort:
+    if NQ bars aren't fetchable, returns {} and the dimension is omitted (never
+    fabricated). Uses NQ=F 15m VWAP/fractal-S/R AND — when ``store`` is given — the
+    QQQ 0DTE playbook's GEX walls/flip projected into NQ points, so the grading
+    respects the actual Nasdaq-100 dealer-gamma regime, not just NQ pivots."""
     try:
         from . import spx_playbook as sp
         df = sp._fetch_15m("NQ=F")
@@ -742,6 +768,10 @@ def playbook_alignment(fills: list[dict]) -> dict:
         ph, pl = sp._fractal_pivots(H, L, n=2)
         res = [z[0] for z in sp._cluster([H[i] for i in ph]) if z[1] >= 2]
         sup = [z[0] for z in sp._cluster([L[i] for i in pl]) if z[1] >= 2]
+        # augment with the projected QQQ GEX walls/flip (the dealer-gamma regime)
+        gex_sup, gex_res = _projected_gex_sr(store, "NQ")
+        sup = sup + gex_sup
+        res = res + gex_res
     except Exception:  # noqa: BLE001
         return {}
 
@@ -843,7 +873,7 @@ def analysis_from_store(store: Store, *, contract: str | None = None,
     meta = store.load_futures_meta()
     balances = meta.get("balances") or {}
     positions = meta.get("positions") or []
-    align = playbook_alignment(fills) if (with_alignment and fills) else {}
+    align = playbook_alignment(fills, store=store) if (with_alignment and fills) else {}
     return analyze(fills, orders, balances, positions, align=align,
                    with_watch=with_alignment)
 

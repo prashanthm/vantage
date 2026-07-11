@@ -83,6 +83,25 @@ def test_rty_point_values_registered():
     assert fut.POINT_VALUES["RTY"] == 50.0 and fut.POINT_VALUES["M2K"] == 5.0
 
 
+def test_projected_gex_sr_from_store(tmp_path, monkeypatch):
+    """The GEX-aware alignment helper pulls the QQQ playbook's put/call walls,
+    projected into NQ points, as support/resistance."""
+    from vantage_server import futures_projection as fp
+    store = _sqlite_store(tmp_path)
+    store.upsert_spx_playbook("2026-07-13", _etf_scaffold(500.0), symbol="QQQ")
+    monkeypatch.setattr(fp, "_future_last", lambda c: 20500.0)   # NQ ~ 41x QQQ
+    sup, res = fut._projected_gex_sr(store, "NQ")
+    # QQQ 495 support -> ~20295 NQ; QQQ 505 resistance -> ~20705 NQ
+    assert any(abs(s - 20295.0) < 5 for s in sup)
+    assert any(abs(r - 20705.0) < 5 for r in res)
+
+
+def test_projected_gex_sr_empty_without_playbook(tmp_path):
+    store = _sqlite_store(tmp_path)          # no QQQ playbook stored
+    assert fut._projected_gex_sr(store, "NQ") == ([], [])
+    assert fut._projected_gex_sr(None, "NQ") == ([], [])
+
+
 # ------------------------------------------------------------ parse by header NAME
 
 _FILLED = (
