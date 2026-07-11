@@ -8,7 +8,7 @@
 // full session): which levels held/broke, was the regime call right. The chart
 // image is reference only — never analyzed. Journal/analysis only — no orders
 // (ADR-010).
-import { cls } from "./util.jsx";
+import { cls, SymbolSwitcher } from "./util.jsx";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
@@ -50,24 +50,26 @@ function dayTone(snap) {
 export function JournalView({ refreshNonce }) {
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState("");
+  const [sym, setSym] = useState("SPX");     // SPX | QQQ | IWM
   const [selDay, setSelDay] = useState(todayISO());
   // which month the calendar is showing: {y, m} (m 0-based)
   const now = new Date();
   const [view, setView] = useState({ y: now.getFullYear(), m: now.getMonth() });
 
-  const jv = useLive(() => getJournal(), null, [refreshNonce, nonce]);
+  const jv = useLive(() => getJournal(sym), null, [refreshNonce, nonce, sym]);
   const d = jv.data;
   const reload = () => setNonce((n) => n + 1);
 
-  // On open, ensure today's entry exists (auto-created, last night's forecast)
-  // and re-score it, then reload. Idempotent — one entry per day (backend).
-  const ensuredRef = useRef(false);
+  // On open (and whenever the underlying changes), ensure that underlying's entry
+  // for today exists (auto-created, last night's forecast) + re-score, then
+  // reload. Idempotent — one entry per underlying per day (backend).
+  const ensuredRef = useRef({});
   useEffect(() => {
-    if (ensuredRef.current) return;
-    ensuredRef.current = true;
-    (async () => { await ensureTodayJournal(); reload(); })();
+    if (ensuredRef.current[sym]) return;
+    ensuredRef.current[sym] = true;
+    (async () => { await ensureTodayJournal(sym); reload(); })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [sym]);
 
   const snaps = (d && d.snapshots) || [];
   const acc = (d && d.accuracy) || {};
@@ -108,8 +110,11 @@ export function JournalView({ refreshNonce }) {
           <h2 style={{ margin: 0, fontSize: 19 }}>Trading journal
             <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}> · last night's forecast vs. today · what I did</span>
           </h2>
-          <div className="vg-note">
-            {d ? `${snaps.length} day${snaps.length === 1 ? "" : "s"} journaled` : "loading…"}
+          <div className="vg-row" style={{ gap: 10, marginTop: 6, alignItems: "center" }}>
+            <SymbolSwitcher value={sym} onChange={setSym} />
+            <span className="vg-note">
+              {d ? `${snaps.length} ${sym} day${snaps.length === 1 ? "" : "s"} journaled` : "loading…"}
+            </span>
           </div>
         </div>
         {acc.n_scored > 0 && (

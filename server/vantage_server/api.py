@@ -262,54 +262,58 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, symbol=symbol.upper(), history=trail)
 
     @app.get("/api/spx/playbook")
-    def spx_playbook(date: str | None = Query(None)):
-        """The daily 0DTE SPX playbook (written by `python -m
-        vantage_server.spx_playbook`, which fuses Sentinel's GEX/zones/breadth/
-        macro with SPX 15m chart dimensions). ``{scaffold, narrative, session,
-        date}`` — latest when no date. Empty state (available:false) when nothing
-        has been generated. Context, not a signal (ADR-008); places no orders."""
+    def spx_playbook(date: str | None = Query(None),
+                     symbol: str = Query("SPX")):
+        """The daily 0DTE playbook for ``symbol`` (SPX|QQQ|IWM; written by `python
+        -m vantage_server.spx_playbook --symbol`, fusing that underlying's GEX with
+        its 15m chart dimensions). ``{scaffold, narrative, session, date}`` —
+        latest when no date. Empty state (available:false) when nothing generated.
+        Context, not a signal (ADR-008); places no orders."""
         snap = state.snapshot()
-        row = store.load_spx_playbook(date)
+        sym = (symbol or "SPX").upper()
+        row = store.load_spx_playbook(date, symbol=sym)
         if row is None:
             return envelope(snap, available=False,
-                            note="No SPX playbook generated yet — run "
-                                 "`python -m vantage_server.spx_playbook`.")
+                            note=f"No {sym} playbook generated yet — run "
+                                 f"`python -m vantage_server.spx_playbook --symbol {sym}`.")
         return envelope(snap, available=True, date=row["date"], session=row["session"],
-                        scaffold=row["scaffold"], narrative=row["narrative"])
+                        symbol=sym, scaffold=row["scaffold"], narrative=row["narrative"])
 
     @app.get("/api/spx/playbook/pine")
-    def spx_playbook_pine(date: str | None = Query(None)):
-        """The 0DTE SPX playbook as a copy-paste TradingView Pine v5 indicator:
-        every level marked, the setup zones shaded, and conditional buy/sell
+    def spx_playbook_pine(date: str | None = Query(None),
+                          symbol: str = Query("SPX")):
+        """The 0DTE playbook for ``symbol`` as a copy-paste TradingView Pine v5
+        indicator: every level marked, setup zones shaded, conditional buy/sell
         arrows keyed to the gamma-flip regime. Rendered from the stored scaffold
-        (latest when no date). Context, not a signal (ADR-008) — the arrows are
-        conditional and the GEX read is 0DTE-blind (caveats are in the script)."""
+        (latest when no date). Context, not a signal (ADR-008)."""
         from . import playbook_pine
         snap = state.snapshot()
-        row = store.load_spx_playbook(date)
+        sym = (symbol or "SPX").upper()
+        row = store.load_spx_playbook(date, symbol=sym)
         if row is None:
             return envelope(snap, available=False,
-                            note="No SPX playbook generated yet.")
+                            note=f"No {sym} playbook generated yet.")
         script = playbook_pine.build_playbook_pine(row["scaffold"] or {})
         return envelope(snap, available=bool(script), date=row["date"],
                         session=row["session"], script=script)
 
     @app.post("/api/spx/playbook/recompute")
     def spx_playbook_recompute(body: dict = Body(default={})):
-        """Regenerate the SPX playbook NOW from the latest data (fresh SPX bars +
-        Sentinel artifacts), outside the nightly job. Writes only our own store
-        (no broker / fund path — ADR-010 read-only doctrine holds). Returns the
-        new ``{scaffold, session, date}``. Optional ``{as_of: 'YYYY-MM-DD'}``."""
+        """Regenerate the playbook NOW for the requested ``symbol`` (SPX|QQQ|IWM)
+        from the latest data, outside the nightly job. Writes only our own store
+        (no broker / fund path — ADR-010 holds). Returns the new ``{scaffold,
+        session, date}``. Body: ``{as_of?: 'YYYY-MM-DD', symbol?: 'SPX'}``."""
         import datetime as _dt
         from . import spx_playbook as _pb
         as_of = (body or {}).get("as_of")
+        sym = ((body or {}).get("symbol") or "SPX").upper()
         today = _dt.date.fromisoformat(as_of) if as_of else _dt.date.today()
-        scaffold = _pb.build_playbook(today, store=store)
-        store.upsert_spx_playbook(scaffold["generated_for"], scaffold)
+        scaffold = _pb.build_playbook(today, store=store, underlying=sym)
+        store.upsert_spx_playbook(scaffold["generated_for"], scaffold, symbol=sym)
         _pb.write_pine_file(scaffold)  # refresh the vantage/pine copy-paste artifact
         snap = state.snapshot()
         return envelope(snap, available=True, date=scaffold["generated_for"],
-                        session=scaffold["session"], scaffold=scaffold)
+                        symbol=sym, session=scaffold["session"], scaffold=scaffold)
 
     @app.get("/api/futures/analysis")
     def futures_analysis(contract: str | None = Query(None),

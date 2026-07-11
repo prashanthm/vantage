@@ -4,7 +4,7 @@
 // one click, and it auto-closes when SPY touches target or stop. Builds an honest
 // track record of whether trading the levels works — before risking real money.
 // Places NO real orders (ADR-010). Not financial advice.
-import { cls } from "./util.jsx";
+import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
 import { useLive, getPaper, openPaperTrade, settlePaper, closePaperTrade } from "./live.js";
 
@@ -38,16 +38,17 @@ function EquityCurve({ curve }) {
 export function PaperView({ refreshNonce }) {
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState("");   // which action is in flight
-  const pv = useLive(() => getPaper(), null, [refreshNonce, nonce]);
+  const [sym, setSym] = useState("SPX");  // SPX | QQQ | IWM
+  const pv = useLive(() => getPaper(sym), null, [refreshNonce, nonce, sym]);
   const d = pv.data;
 
   const reload = () => setNonce((n) => n + 1);
   const doOpen = async (t) => { setBusy("open"); await openPaperTrade(t); setBusy(""); reload(); };
-  const doSettle = async () => { setBusy("settle"); await settlePaper(); setBusy(""); reload(); };
+  const doSettle = async () => { setBusy("settle"); await settlePaper(sym); setBusy(""); reload(); };
   const doClose = async (row) => {
     // close at the target-side reference (best available without a live quote here)
     setBusy(`close${row.id}`);
-    await closePaperTrade(row.id, row.spy_target || row.spy_entry);
+    await closePaperTrade(row.id, row.spy_target || row.spy_entry, sym);
     setBusy(""); reload();
   };
 
@@ -69,10 +70,13 @@ export function PaperView({ refreshNonce }) {
     <div className="vg-pane-body vg-playbook">
       <div className="vg-pb-head">
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Paper trading <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}>· SPY proxy · no money</span></h2>
+          <h2 style={{ margin: 0, fontSize: 19 }}>Paper trading <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}>· no money</span></h2>
+          <div className="vg-row" style={{ gap: 10, marginTop: 6, marginBottom: 4, alignItems: "center" }}>
+            <SymbolSwitcher value={sym} onChange={setSym} />
+          </div>
           <div className="vg-note">
             {d ? `${open.length} open · ${closed.length} closed` : "loading…"}
-            {d && d.session ? ` · from the ${d.session} playbook` : ""}
+            {d && d.session ? ` · from the ${d.session} ${sym} playbook` : ""}
           </div>
           <div className="vg-row" style={{ gap: 6, marginTop: 8 }}>
             <button className="vg-btn-sm" disabled={busy === "settle"} onClick={doSettle}>

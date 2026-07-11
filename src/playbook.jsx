@@ -5,7 +5,7 @@
 // scaffold), and collapsible structured sections (level ladder, conditional
 // setups, lookback edges). Refreshed nightly by the Vantage batch; the view
 // reads the latest. Context, not a signal (ADR-008) — no orders placed.
-import { cls } from "./util.jsx";
+import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
 import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook } from "./live.js";
 
@@ -26,24 +26,26 @@ function levelTone(kind) {
 export function PlaybookView({ refreshNonce }) {
   // Local reload nonce so Recompute re-pulls without a full app refresh.
   const [nonce, setNonce] = useState(0);
+  const [sym, setSym] = useState("SPX");     // SPX | QQQ | IWM
   const [pine, setPine] = useState(null);   // {loading|script|error} for the export modal
   const [busy, setBusy] = useState(false);  // recompute in flight
 
   // After a recompute we must re-pull with refresh=true so Mira busts its cached
   // (stale) narrative + scaffold and picks up the freshly-recomputed GEX.
   const [didRecompute, setDidRecompute] = useState(false);
-  const pb = useLive(() => getPlaybook(undefined, { refresh: didRecompute }), null, [refreshNonce, nonce]);
+  const pb = useLive(() => getPlaybook(undefined, { refresh: didRecompute, symbol: sym }),
+                     null, [refreshNonce, nonce, sym]);
   const p = pb.data;
 
   const exportPine = async () => {
     setPine({ loading: true });
-    const res = await getPlaybookPine();
+    const res = await getPlaybookPine(undefined, sym);
     setPine(res && res.available ? { script: res.script } : { error: true });
   };
   const recompute = async () => {
     if (busy) return;
     setBusy(true);
-    await recomputePlaybook();  // writes the Vantage store (fresh GEX + durable)
+    await recomputePlaybook(undefined, sym);  // writes the store (fresh GEX + durable)
     setBusy(false);
     setDidRecompute(true);      // next getPlaybook re-narrates off the fresh scaffold
     setNonce((n) => n + 1);     // re-pull the (now fresh) playbook + narrative
@@ -83,7 +85,10 @@ export function PlaybookView({ refreshNonce }) {
       {/* ---- pinned summary ---- */}
       <div className="vg-pb-head">
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>0DTE SPX Playbook</h2>
+          <h2 style={{ margin: 0, fontSize: 19 }}>0DTE {sym} Playbook</h2>
+          <div className="vg-row" style={{ gap: 10, marginTop: 6, marginBottom: 4, alignItems: "center" }}>
+            <SymbolSwitcher value={sym} onChange={setSym} />
+          </div>
           <div className="vg-note">
             {p ? `for ${p.session || "the next session"}` : "loading…"}
             {reg.gamma ? ` · gamma ${reg.gamma}` : ""}

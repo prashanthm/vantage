@@ -79,6 +79,20 @@
   function StatTile({ label, value, delta, deltaDir, note }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, label), /* @__PURE__ */ React.createElement("div", { className: "val" }, value), delta != null && /* @__PURE__ */ React.createElement("div", { className: cls("delta", deltaDir) }, delta), note && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, note));
   }
+  var UNDERLYINGS = ["SPX", "QQQ", "IWM"];
+  function SymbolSwitcher({ value, onChange, options = UNDERLYINGS }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-symsw", role: "tablist", "aria-label": "underlying" }, options.map((s) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: s,
+        role: "tab",
+        "aria-selected": s === value,
+        className: cls("vg-symsw-btn", s === value && "on"),
+        onClick: () => onChange(s)
+      },
+      s
+    )));
+  }
 
   // src/live.js
   async function getJson(url, { timeoutMs = 2500 } = {}) {
@@ -682,12 +696,13 @@
       clearTimeout(t);
     }
   }
-  async function getPlaybook(date, { refresh = false } = {}) {
+  async function getPlaybook(date, { refresh = false, symbol = "SPX" } = {}) {
     const params = [];
     if (date) params.push(`date=${encodeURIComponent(date)}`);
+    if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
     if (refresh) params.push("refresh=1");
     const q = params.length ? `?${params.join("&")}` : "";
-    const mira = miraBase();
+    const mira = symbol === "SPX" ? miraBase() : null;
     if (mira) {
       try {
         const res = await fetch(`${mira}/playbook${q}`, { signal: _timeout(9e4) });
@@ -707,22 +722,28 @@
     setTimeout(() => c.abort(), ms);
     return c.signal;
   }
-  async function getPlaybookPine(date) {
-    const q = date ? `?date=${encodeURIComponent(date)}` : "";
+  async function getPlaybookPine(date, symbol = "SPX") {
+    const params = [];
+    if (date) params.push(`date=${encodeURIComponent(date)}`);
+    if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
+    const q = params.length ? `?${params.join("&")}` : "";
     const v = await getJson(`${backendBase()}/api/spx/playbook/pine${q}`, { timeoutMs: 2e4 });
     if (v && v.available) return { available: true, session: v.session, script: v.script };
     return { available: false };
   }
-  async function recomputePlaybook(asOf) {
+  async function recomputePlaybook(asOf, symbol = "SPX") {
     const base = backendBase();
     if (!base) return null;
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 9e4);
     try {
+      const body = {};
+      if (asOf) body.as_of = asOf;
+      if (symbol && symbol !== "SPX") body.symbol = symbol;
       const res = await fetch(`${base}/api/spx/playbook/recompute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(asOf ? { as_of: asOf } : {}),
+        body: JSON.stringify(body),
         signal: ctrl.signal
       });
       if (!res.ok) return null;
@@ -807,8 +828,9 @@
       tzNote: p.tz_note || ""
     };
   }
-  async function getPaper() {
-    const v = await getJson(`${backendBase()}/api/paper`, { timeoutMs: 3e4 });
+  async function getPaper(symbol = "SPX") {
+    const q = symbol && symbol !== "SPX" ? `?symbol=${encodeURIComponent(symbol)}` : "";
+    const v = await getJson(`${backendBase()}/api/paper${q}`, { timeoutMs: 3e4 });
     return v && v.available ? v : { available: false, note: v && v.note };
   }
   async function _paperPost(path, body) {
@@ -832,19 +854,21 @@
     }
   }
   var openPaperTrade = (ticket) => _paperPost("open", ticket);
-  var settlePaper = () => _paperPost("settle", {});
-  var closePaperTrade = (id, spyExit) => _paperPost("close", { id, spy_exit: spyExit });
-  async function getJournal() {
-    const v = await getJson(`${backendBase()}/api/journal`, { timeoutMs: 2e4 });
+  var settlePaper = (symbol = "SPX") => _paperPost("settle", { symbol });
+  var closePaperTrade = (id, spyExit, symbol = "SPX") => _paperPost("close", { id, spy_exit: spyExit, symbol });
+  async function getJournal(symbol = "SPX") {
+    const q = symbol && symbol !== "SPX" ? `?symbol=${encodeURIComponent(symbol)}` : "";
+    const v = await getJson(`${backendBase()}/api/journal${q}`, { timeoutMs: 2e4 });
     return v && v.available ? v : { available: false, note: v && v.note };
   }
-  async function uploadJournal(fileOrBlob, note, forecastKind = "prior", attachTo = null) {
+  async function uploadJournal(fileOrBlob, note, forecastKind = "prior", attachTo = null, symbol = "SPX") {
     const base = backendBase();
     if (!base) return { available: false };
     const fd = new FormData();
     if (fileOrBlob) fd.append("image", fileOrBlob, fileOrBlob.name || "chart.png");
     fd.append("note", note || "");
     fd.append("forecast_kind", forecastKind);
+    fd.append("symbol", symbol || "SPX");
     if (attachTo != null) fd.append("attach_to", String(attachTo));
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 3e4);
@@ -876,7 +900,7 @@
       return { available: false };
     }
   }
-  var ensureTodayJournal = () => _journalPost("ensure_today", {});
+  var ensureTodayJournal = (symbol) => _journalPost("ensure_today", symbol ? { symbol } : {});
   var deleteJournal = (id) => _journalPost("delete", { id });
   var saveJournalEntry = (id, entry) => _journalPost("entry", { id, entry });
   var journalImageUrl = (id) => `${backendBase()}/api/journal/image/${id}`;
@@ -1822,20 +1846,25 @@
   }
   function PlaybookView({ refreshNonce }) {
     const [nonce, setNonce] = useState4(0);
+    const [sym, setSym] = useState4("SPX");
     const [pine, setPine] = useState4(null);
     const [busy, setBusy] = useState4(false);
     const [didRecompute, setDidRecompute] = useState4(false);
-    const pb = useLive(() => getPlaybook(void 0, { refresh: didRecompute }), null, [refreshNonce, nonce]);
+    const pb = useLive(
+      () => getPlaybook(void 0, { refresh: didRecompute, symbol: sym }),
+      null,
+      [refreshNonce, nonce, sym]
+    );
     const p = pb.data;
     const exportPine = async () => {
       setPine({ loading: true });
-      const res = await getPlaybookPine();
+      const res = await getPlaybookPine(void 0, sym);
       setPine(res && res.available ? { script: res.script } : { error: true });
     };
     const recompute = async () => {
       if (busy) return;
       setBusy(true);
-      await recomputePlaybook();
+      await recomputePlaybook(void 0, sym);
       setBusy(false);
       setDidRecompute(true);
       setNonce((n) => n + 1);
@@ -1856,7 +1885,7 @@
     if (p && p.available === false) {
       return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "0DTE SPX Playbook"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No playbook generated yet. Run ", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.spx_playbook"), " ", "(nightly, after Sentinel's GEX/zone snapshot). It fuses dealer-gamma, S/R, breadth/VIX, Fed/macro, and SPX chart structure into a daily read."));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "0DTE SPX Playbook"), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, p ? `for ${p.session || "the next session"}` : "loading\u2026", reg.gamma ? ` \xB7 gamma ${reg.gamma}` : "", reg.vix != null ? ` \xB7 VIX ${fmtP(reg.vix)}${reg.vix_band ? ` (${reg.vix_band})` : ""}` : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: exportPine }, "Export to Pine"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "0DTE ", sym, " Playbook"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 6, marginBottom: 4, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym })), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, p ? `for ${p.session || "the next session"}` : "loading\u2026", reg.gamma ? ` \xB7 gamma ${reg.gamma}` : "", reg.vix != null ? ` \xB7 VIX ${fmtP(reg.vix)}${reg.vix_band ? ` (${reg.vix_band})` : ""}` : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: exportPine }, "Export to Pine"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",
@@ -2102,7 +2131,8 @@
   function PaperView({ refreshNonce }) {
     const [nonce, setNonce] = useState6(0);
     const [busy, setBusy] = useState6("");
-    const pv = useLive(() => getPaper(), null, [refreshNonce, nonce]);
+    const [sym, setSym] = useState6("SPX");
+    const pv = useLive(() => getPaper(sym), null, [refreshNonce, nonce, sym]);
     const d = pv.data;
     const reload = () => setNonce((n) => n + 1);
     const doOpen = async (t) => {
@@ -2113,13 +2143,13 @@
     };
     const doSettle = async () => {
       setBusy("settle");
-      await settlePaper();
+      await settlePaper(sym);
       setBusy("");
       reload();
     };
     const doClose = async (row) => {
       setBusy(`close${row.id}`);
-      await closePaperTrade(row.id, row.spy_target || row.spy_entry);
+      await closePaperTrade(row.id, row.spy_target || row.spy_entry, sym);
       setBusy("");
       reload();
     };
@@ -2130,7 +2160,7 @@
     const open = d && d.open || [];
     const closed = d && d.closed || [];
     const stats = d && d.stats || {};
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Paper trading ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, "\xB7 SPY proxy \xB7 no money")), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, d ? `${open.length} open \xB7 ${closed.length} closed` : "loading\u2026", d && d.session ? ` \xB7 from the ${d.session} playbook` : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy === "settle", onClick: doSettle }, busy === "settle" ? "Checking\u2026" : "Check fills (settle)"))), stats.n > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(Tile, { label: "Win rate", value: pct2(stats.win_rate), tone: stats.win_rate >= 0.5 ? "good" : "bad", termKey: "win_rate" }), /* @__PURE__ */ React.createElement(Tile, { label: "Net P&L", value: usd3(stats.total_pnl), tone: stats.total_pnl >= 0 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile, { label: "Profit factor", value: stats.profit_factor ?? "\u2014", tone: stats.profit_factor >= 1.3 ? "good" : "warn", termKey: "profit_factor" }), /* @__PURE__ */ React.createElement(Tile, { label: "Closed", value: stats.n }))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, margin: "2px 0 4px" } }, "Signals from today's playbook, priced on SPY. Log one and it auto-closes when SPY hits the ", /* @__PURE__ */ React.createElement(Term, { k: "fade" }, "target or stop"), ". No real orders are ever placed."), tickets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's trade tickets (SPY)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, marginTop: 8 } }, tickets.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-setup" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Paper trading ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, "\xB7 no money")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 6, marginBottom: 4, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym })), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, d ? `${open.length} open \xB7 ${closed.length} closed` : "loading\u2026", d && d.session ? ` \xB7 from the ${d.session} ${sym} playbook` : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy === "settle", onClick: doSettle }, busy === "settle" ? "Checking\u2026" : "Check fills (settle)"))), stats.n > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(Tile, { label: "Win rate", value: pct2(stats.win_rate), tone: stats.win_rate >= 0.5 ? "good" : "bad", termKey: "win_rate" }), /* @__PURE__ */ React.createElement(Tile, { label: "Net P&L", value: usd3(stats.total_pnl), tone: stats.total_pnl >= 0 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile, { label: "Profit factor", value: stats.profit_factor ?? "\u2014", tone: stats.profit_factor >= 1.3 ? "good" : "warn", termKey: "profit_factor" }), /* @__PURE__ */ React.createElement(Tile, { label: "Closed", value: stats.n }))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, margin: "2px 0 4px" } }, "Signals from today's playbook, priced on SPY. Log one and it auto-closes when SPY hits the ", /* @__PURE__ */ React.createElement(Term, { k: "fade" }, "target or stop"), ". No real orders are ever placed."), tickets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's trade tickets (SPY)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8, marginTop: 8 } }, tickets.map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-setup" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", t.side === "long" ? "good" : "bad"),
@@ -2200,21 +2230,22 @@
   function JournalView({ refreshNonce }) {
     const [nonce, setNonce] = useState7(0);
     const [busy, setBusy] = useState7("");
+    const [sym, setSym] = useState7("SPX");
     const [selDay, setSelDay] = useState7(todayISO());
     const now = /* @__PURE__ */ new Date();
     const [view, setView] = useState7({ y: now.getFullYear(), m: now.getMonth() });
-    const jv = useLive(() => getJournal(), null, [refreshNonce, nonce]);
+    const jv = useLive(() => getJournal(sym), null, [refreshNonce, nonce, sym]);
     const d = jv.data;
     const reload = () => setNonce((n) => n + 1);
-    const ensuredRef = useRef2(false);
+    const ensuredRef = useRef2({});
     useEffect4(() => {
-      if (ensuredRef.current) return;
-      ensuredRef.current = true;
+      if (ensuredRef.current[sym]) return;
+      ensuredRef.current[sym] = true;
       (async () => {
-        await ensureTodayJournal();
+        await ensureTodayJournal(sym);
         reload();
       })();
-    }, []);
+    }, [sym]);
     const snaps = d && d.snapshots || [];
     const acc = d && d.accuracy || {};
     const byDay = useMemo4(() => {
@@ -2248,7 +2279,7 @@
     if (d && d.available === false) {
       return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "Trading journal"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, d.note || "Journal needs the SQLite backend + a generated playbook."));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Trading journal", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, " \xB7 last night's forecast vs. today \xB7 what I did")), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, d ? `${snaps.length} day${snaps.length === 1 ? "" : "s"} journaled` : "loading\u2026")), acc.n_scored > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(Tile2, { label: "Level accuracy", value: pct3(acc.avg_level_accuracy), tone: acc.avg_level_accuracy >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Regime calls right", value: pct3(acc.regime_hit_rate), tone: acc.regime_hit_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Scored", value: acc.n_scored }))), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Trading journal", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, " \xB7 last night's forecast vs. today \xB7 what I did")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym }), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, d ? `${snaps.length} ${sym} day${snaps.length === 1 ? "" : "s"} journaled` : "loading\u2026"))), acc.n_scored > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(Tile2, { label: "Level accuracy", value: pct3(acc.avg_level_accuracy), tone: acc.avg_level_accuracy >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Regime calls right", value: pct3(acc.regime_hit_rate), tone: acc.regime_hit_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Scored", value: acc.n_scored }))), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(
       Calendar,
       {
         view,

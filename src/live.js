@@ -784,15 +784,17 @@ export async function analyzeSymbol(symbol, question) {
 // draft + LLM plain-English polish); falls back to Vantage's /api/spx/playbook
 // (scaffold only) when Mira is down so the level ladder + setups still render.
 // Returns {available, narrative, draft, scaffold, session} or {available:false}.
-export async function getPlaybook(date, { refresh = false } = {}) {
+export async function getPlaybook(date, { refresh = false, symbol = "SPX" } = {}) {
   // Mira caches the narrated playbook in-memory keyed by date (no TTL). After a
   // Vantage recompute, pass refresh=true so Mira re-fetches the fresh scaffold +
   // re-narrates — otherwise the UI reads Mira's stale cache and shows old GEX.
   const params = [];
   if (date) params.push(`date=${encodeURIComponent(date)}`);
+  if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
   if (refresh) params.push("refresh=1");
   const q = params.length ? `?${params.join("&")}` : "";
-  const mira = miraBase();
+  // Mira only narrates SPX; QQQ/IWM read the Vantage scaffold directly.
+  const mira = symbol === "SPX" ? miraBase() : null;
   if (mira) {
     try {
       const res = await fetch(`${mira}/playbook${q}`, { signal: _timeout(90000) });
@@ -817,8 +819,11 @@ function _timeout(ms) {
 
 // The playbook as a TradingView Pine v5 script (rendered by Vantage from the
 // stored scaffold). Returns {available, session, script} or {available:false}.
-export async function getPlaybookPine(date) {
-  const q = date ? `?date=${encodeURIComponent(date)}` : "";
+export async function getPlaybookPine(date, symbol = "SPX") {
+  const params = [];
+  if (date) params.push(`date=${encodeURIComponent(date)}`);
+  if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
+  const q = params.length ? `?${params.join("&")}` : "";
   // 20s timeout: the endpoint renders the full Pine script from the scaffold and
   // a cold call can trigger a quote re-fetch — the default 2.5s can abort it and
   // surface a spurious "no script" error in the export modal.
@@ -830,16 +835,19 @@ export async function getPlaybookPine(date) {
 // Regenerate the playbook NOW from the latest data (fresh bars + Sentinel
 // artifacts), outside the nightly job. POST; returns the new scaffold via
 // mapPlaybook, or null on failure.
-export async function recomputePlaybook(asOf) {
+export async function recomputePlaybook(asOf, symbol = "SPX") {
   const base = backendBase();
   if (!base) return null;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 90000); // fresh bar fetch can be slow
   try {
+    const body = {};
+    if (asOf) body.as_of = asOf;
+    if (symbol && symbol !== "SPX") body.symbol = symbol;
     const res = await fetch(`${base}/api/spx/playbook/recompute`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(asOf ? { as_of: asOf } : {}),
+      body: JSON.stringify(body),
       signal: ctrl.signal,
     });
     if (!res.ok) return null;
@@ -938,8 +946,9 @@ export function mapFuturesAnalysis(p) {
 
 // ── paper trading (SPY proxy, no money) ──────────────────────────────────────
 
-export async function getPaper() {
-  const v = await getJson(`${backendBase()}/api/paper`, { timeoutMs: 30000 });
+export async function getPaper(symbol = "SPX") {
+  const q = symbol && symbol !== "SPX" ? `?symbol=${encodeURIComponent(symbol)}` : "";
+  const v = await getJson(`${backendBase()}/api/paper${q}`, { timeoutMs: 30000 });
   return v && v.available ? v : { available: false, note: v && v.note };
 }
 
@@ -962,14 +971,18 @@ async function _paperPost(path, body) {
   }
 }
 
+// The ticket carries its own `underlying`; settle/close take a symbol so the
+// returned view is for the underlying currently shown.
 export const openPaperTrade = (ticket) => _paperPost("open", ticket);
-export const settlePaper = () => _paperPost("settle", {});
-export const closePaperTrade = (id, spyExit) => _paperPost("close", { id, spy_exit: spyExit });
+export const settlePaper = (symbol = "SPX") => _paperPost("settle", { symbol });
+export const closePaperTrade = (id, spyExit, symbol = "SPX") =>
+  _paperPost("close", { id, spy_exit: spyExit, symbol });
 
 // ── chart-snapshot journal (forecast vs outcome) ─────────────────────────────
 
-export async function getJournal() {
-  const v = await getJson(`${backendBase()}/api/journal`, { timeoutMs: 20000 });
+export async function getJournal(symbol = "SPX") {
+  const q = symbol && symbol !== "SPX" ? `?symbol=${encodeURIComponent(symbol)}` : "";
+  const v = await getJson(`${backendBase()}/api/journal${q}`, { timeoutMs: 20000 });
   return v && v.available ? v : { available: false, note: v && v.note };
 }
 
@@ -978,13 +991,14 @@ export async function getJournal() {
 // today's row) — no new entry. Otherwise a NEW entry is created, freezing the
 // forecast picked by `forecastKind`: "prior" (last night's) or "live" (today's).
 // `fileOrBlob` may be null for a data-only new entry.
-export async function uploadJournal(fileOrBlob, note, forecastKind = "prior", attachTo = null) {
+export async function uploadJournal(fileOrBlob, note, forecastKind = "prior", attachTo = null, symbol = "SPX") {
   const base = backendBase();
   if (!base) return { available: false };
   const fd = new FormData();
   if (fileOrBlob) fd.append("image", fileOrBlob, fileOrBlob.name || "chart.png");
   fd.append("note", note || "");
   fd.append("forecast_kind", forecastKind);
+  fd.append("symbol", symbol || "SPX");
   if (attachTo != null) fd.append("attach_to", String(attachTo));
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 30000);
@@ -1014,8 +1028,9 @@ async function _journalPost(path, body) {
 }
 
 // Ensure today's entry exists (auto-created, last night's forecast frozen) and
-// is re-scored against live price. Call on page open; idempotent (one per day).
-export const ensureTodayJournal = () => _journalPost("ensure_today", {});
+// is re-scored against live price. Call on page open; idempotent (one per
+// underlying/day). Pass a symbol for one underlying, or omit for all three.
+export const ensureTodayJournal = (symbol) => _journalPost("ensure_today", symbol ? { symbol } : {});
 export const scoreJournal = () => _journalPost("score", {});
 export const deleteJournal = (id) => _journalPost("delete", { id });
 // Save the structured trade-action log for a snapshot. `entry` is an object of

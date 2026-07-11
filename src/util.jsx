@@ -108,3 +108,20 @@ export function heatTint(pct) {
   const a = Math.min(0.08 + (Math.abs(pct) / 5) * 0.3, 0.38);
   return pct > 0 ? `rgba(5,150,105,${a.toFixed(3)})` : `rgba(220,38,38,${a.toFixed(3)})`;
 }
+
+// the underlyings the 0DTE playbook / paper / journal cover (SPX default).
+export const UNDERLYINGS = ["SPX", "QQQ", "IWM"];
+
+// A compact SPX/QQQ/IWM segmented toggle. `value` is the selected key; `onChange`
+// gets the new key. Used on the Playbook, Paper, and Journal pages.
+export function SymbolSwitcher({ value, onChange, options = UNDERLYINGS }) {
+  return (
+    <div className="vg-symsw" role="tablist" aria-label="underlying">
+      {options.map((s) => (
+        <button key={s} role="tab" aria-selected={s === value}
+          className={cls("vg-symsw-btn", s === value && "on")}
+          onClick={() => onChange(s)}>{s}</button>
+      ))}
+    </div>
+  );
+}

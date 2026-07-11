@@ -334,18 +334,19 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     @mcp.tool(
         name="vantage.spx_playbook",
         annotations=_READ_ONLY,
-        description="The daily 0DTE SPX PLAYBOOK (written nightly by `python -m "
-                    "vantage_server.spx_playbook`; fuses Sentinel's dealer-gamma "
-                    "GEX/zones/breadth/VIX/Fed-macro with SPX 15m chart dimensions). "
+        description="The daily 0DTE PLAYBOOK for an index (`symbol`: SPX default, "
+                    "or QQQ / IWM; written nightly by `python -m "
+                    "vantage_server.spx_playbook --symbol`; fuses that underlying's "
+                    "dealer-gamma GEX with its 15m chart dimensions). "
                     "Returns {available, session, scaffold:{regime, level_ladder:"
                     "[{price,kind,source}], setups:[{trigger,bias,structure,levels}], "
                     "catalysts, opex, edges, caveats}, narrative}. Every setup is "
                     "CONDITIONAL on a real level. Context, not a signal (ADR-008); "
                     "the GEX read is 0DTE-blind. no_playbook=true when none generated.",
     )
-    def spx_playbook(date: str | None = None) -> dict:
+    def spx_playbook(date: str | None = None, symbol: str = "SPX") -> dict:
         snap = snapshot()
-        row = store.load_spx_playbook(date)
+        row = store.load_spx_playbook(date, symbol=(symbol or "SPX").upper())
         return envelope("spx_playbook", snap, available=row is not None,
                         playbook=row, no_playbook=row is None)
 
