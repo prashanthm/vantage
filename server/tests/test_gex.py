@@ -85,6 +85,38 @@ def test_store_snapshot_and_history_round_trip(tmp_path):
     assert len(store.load_gex_history()) == 1
 
 
+def test_gex_per_symbol_no_collision(tmp_path):
+    """SPX, QQQ, IWM GEX snapshots + history coexist keyed by symbol — storing one
+    must not overwrite another (the v9 re-keying)."""
+    store = _sqlite_store(tmp_path)
+    for sym, spot in [("^SPX", 6000.0), ("QQQ", 500.0), ("IWM", 220.0)]:
+        snap = gex.compute_gex(_book(), spot)
+        snap.update({"date": "2026-07-10", "symbol": sym, "source": "test"})
+        store.put_gex_snapshot(snap)
+        store.record_gex_history(snap)
+    assert store.load_gex_snapshot("^SPX")["spot"] == 6000.0
+    assert store.load_gex_snapshot("QQQ")["spot"] == 500.0
+    assert store.load_gex_snapshot("IWM")["spot"] == 220.0
+    assert len(store.load_gex_history("QQQ")) == 1
+    assert len(store.load_gex_history("IWM")) == 1
+
+
+def test_spy_proxy_fallback_is_spx_only(tmp_path, monkeypatch):
+    """A thin QQQ/IWM book must NOT be hijacked by the SPY chain — the proxy
+    fallback is SPX-only. Simulate a thin book and assert no SPY substitution."""
+    thin = [{"strike": 500.0, "iv": 0.15, "t": 7 / 365, "oi": 100.0, "is_call": True}]
+    calls = []
+    def fake_fetch(sym, *a, **k):
+        calls.append(sym)
+        return (500.0, thin)
+    monkeypatch.setattr(gex, "fetch_book", fake_fetch)
+    snap = gex.build_snapshot("QQQ")
+    # QQQ stayed QQQ; SPY was never fetched as a fallback
+    assert snap["symbol"] == "QQQ"
+    assert "SPY" not in calls
+    assert snap["source"] == "QQQ"
+
+
 def test_bridge_prefers_native_gex(tmp_path):
     from vantage_server import sentinel_bridge as sb
     store = _sqlite_store(tmp_path)

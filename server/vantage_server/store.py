@@ -1191,29 +1191,31 @@ class Store:
     # ── native GEX snapshot + history (SQLite-only) ──────────────────────────
 
     def put_gex_snapshot(self, snap: dict) -> None:
-        """Store the latest GEX snapshot (full computed dict as JSON)."""
+        """Store the latest GEX snapshot per underlying (keyed by snap['symbol'];
+        default '^SPX'). Full computed dict as JSON."""
         if not self.uses_sqlite:
             raise RuntimeError("put_gex_snapshot requires the SQLite backend")
         with self._sqlite_txn() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO gex_snapshot(id, date, symbol, snapshot) "
-                "VALUES(1,?,?,?)",
-                (snap.get("date"), snap.get("symbol"), _db.dumps(snap)))
+                "INSERT OR REPLACE INTO gex_snapshot(symbol, date, snapshot) "
+                "VALUES(?,?,?)",
+                (snap.get("symbol") or "^SPX", snap.get("date"), _db.dumps(snap)))
 
-    def load_gex_snapshot(self) -> dict | None:
-        """The latest GEX snapshot dict, or None."""
+    def load_gex_snapshot(self, symbol: str = "^SPX") -> dict | None:
+        """The latest GEX snapshot dict for ``symbol``, or None."""
         if not self.uses_sqlite:
             return None
         conn = self._backend._conn()
         try:
-            row = conn.execute("SELECT snapshot FROM gex_snapshot WHERE id=1").fetchone()
+            row = conn.execute(
+                "SELECT snapshot FROM gex_snapshot WHERE symbol=?", (symbol,)).fetchone()
         finally:
             conn.close()
         return _db.loads(row["snapshot"], None) if row else None
 
     def record_gex_history(self, snap: dict) -> None:
-        """Append one nightly GEX row (idempotent per session date) so the
-        regime→next-day-range edge keeps working."""
+        """Append one nightly GEX row (idempotent per (date, symbol)) so the
+        regime→next-day-range edge keeps working per underlying."""
         if not self.uses_sqlite:
             raise RuntimeError("record_gex_history requires the SQLite backend")
         with self._sqlite_txn() as conn:
@@ -1221,19 +1223,20 @@ class Store:
                 "INSERT OR REPLACE INTO gex_history"
                 "(date, symbol, spot, net_gex_bn, regime, gamma_flip, call_wall,"
                 " put_wall, max_pain, call_share_pct) VALUES(?,?,?,?,?,?,?,?,?,?)",
-                (snap.get("date"), snap.get("symbol"), snap.get("spot"),
+                (snap.get("date"), snap.get("symbol") or "^SPX", snap.get("spot"),
                  snap.get("net_gex_bn"), snap.get("regime"), snap.get("gamma_flip"),
                  snap.get("call_wall"), snap.get("put_wall"), snap.get("max_pain"),
                  snap.get("call_share_pct")))
 
-    def load_gex_history(self) -> list[dict]:
-        """Every recorded nightly GEX row, oldest first."""
+    def load_gex_history(self, symbol: str = "^SPX") -> list[dict]:
+        """Every recorded nightly GEX row for ``symbol``, oldest first."""
         if not self.uses_sqlite:
             return []
         conn = self._backend._conn()
         try:
             rows = conn.execute(
-                "SELECT * FROM gex_history ORDER BY date ASC").fetchall()
+                "SELECT * FROM gex_history WHERE symbol=? ORDER BY date ASC",
+                (symbol,)).fetchall()
         finally:
             conn.close()
         return [dict(r) for r in rows]

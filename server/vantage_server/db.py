@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 8  # v8: journal_snapshots.entry — structured trade-action log
+SCHEMA_VERSION = 9  # v9: per-symbol GEX + (date,symbol) playbook — multi-underlying
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -131,10 +131,12 @@ CREATE TABLE IF NOT EXISTS analysis (
 );
 
 CREATE TABLE IF NOT EXISTS spx_playbook (
-    date      TEXT PRIMARY KEY,   -- generated_for (YYYY-MM-DD)
+    date      TEXT NOT NULL,      -- generated_for (YYYY-MM-DD)
+    symbol    TEXT NOT NULL DEFAULT 'SPX',  -- underlying (SPX | QQQ | IWM)
     session   TEXT,               -- the session the playbook is for
     scaffold  TEXT,               -- JSON: the deterministic playbook scaffold
-    narrative TEXT                -- JSON/text: the LLM narrative (filled lazily; may be null)
+    narrative TEXT,               -- JSON/text: the LLM narrative (filled lazily; may be null)
+    PRIMARY KEY (date, symbol)
 );
 
 CREATE TABLE IF NOT EXISTS roundtrips (
@@ -280,15 +282,14 @@ CREATE INDEX IF NOT EXISTS ix_futures_orders_status ON futures_orders(contract, 
 -- the full computed dict lives in `snapshot` JSON. `gex_history` accrues one row
 -- per session so the playbook's regime→next-day-range edge keeps working.
 CREATE TABLE IF NOT EXISTS gex_snapshot (
-    id        INTEGER PRIMARY KEY CHECK (id = 1),  -- single latest
+    symbol    TEXT PRIMARY KEY,                    -- one latest snapshot per underlying
     date      TEXT,                                -- YYYY-MM-DD (ET)
-    symbol    TEXT,
     snapshot  TEXT                                 -- JSON: full compute_gex dict
 );
 
 CREATE TABLE IF NOT EXISTS gex_history (
-    date            TEXT PRIMARY KEY,   -- one row per session (ET date)
-    symbol          TEXT,
+    date            TEXT NOT NULL,      -- session (ET date)
+    symbol          TEXT NOT NULL,      -- underlying
     spot            REAL,
     net_gex_bn      REAL,
     regime          TEXT,
@@ -296,7 +297,8 @@ CREATE TABLE IF NOT EXISTS gex_history (
     call_wall       REAL,
     put_wall        REAL,
     max_pain        REAL,
-    call_share_pct  REAL
+    call_share_pct  REAL,
+    PRIMARY KEY (date, symbol)
 );
 
 -- Paper trades: a NO-MONEY track record of the 0DTE playbook's signals traded on
@@ -392,6 +394,7 @@ class Database:
         try:
             conn.executescript(_SCHEMA)
             self._add_missing_journal_columns(conn)
+            self._migrate_multi_underlying(conn)
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('schema_version', ?)\n"
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
@@ -426,6 +429,57 @@ class Database:
             if col not in have:
                 conn.execute(
                     f"ALTER TABLE journal_snapshots ADD COLUMN {col} {decl}")
+
+    @staticmethod
+    def _migrate_multi_underlying(conn: sqlite3.Connection) -> None:
+        """v8→v9: re-key gex_snapshot / gex_history / spx_playbook to include
+        ``symbol`` in their primary key, so SPX/QQQ/IWM coexist. ``CREATE TABLE IF
+        NOT EXISTS`` skips existing tables, so rebuild any that still carry the old
+        single-underlying PK. Idempotent (guarded on the live PK); preserves rows,
+        stamping legacy rows with their stored symbol (default 'SPX'/'^SPX')."""
+        def _pk_cols(table: str) -> list[str]:
+            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            return [r["name"] for r in rows if r["pk"]]
+
+        # gex_snapshot: old PK = [id]; new PK = [symbol]
+        if _pk_cols("gex_snapshot") == ["id"]:
+            conn.executescript("""
+                ALTER TABLE gex_snapshot RENAME TO gex_snapshot_old;
+                CREATE TABLE gex_snapshot (
+                    symbol TEXT PRIMARY KEY, date TEXT, snapshot TEXT);
+                INSERT OR REPLACE INTO gex_snapshot(symbol, date, snapshot)
+                    SELECT COALESCE(symbol, '^SPX'), date, snapshot FROM gex_snapshot_old;
+                DROP TABLE gex_snapshot_old;
+            """)
+
+        # gex_history: old PK = [date]; new PK = [date, symbol]
+        if _pk_cols("gex_history") == ["date"]:
+            conn.executescript("""
+                ALTER TABLE gex_history RENAME TO gex_history_old;
+                CREATE TABLE gex_history (
+                    date TEXT NOT NULL, symbol TEXT NOT NULL, spot REAL,
+                    net_gex_bn REAL, regime TEXT, gamma_flip REAL, call_wall REAL,
+                    put_wall REAL, max_pain REAL, call_share_pct REAL,
+                    PRIMARY KEY (date, symbol));
+                INSERT OR REPLACE INTO gex_history
+                    SELECT date, COALESCE(symbol, '^SPX'), spot, net_gex_bn, regime,
+                           gamma_flip, call_wall, put_wall, max_pain, call_share_pct
+                    FROM gex_history_old;
+                DROP TABLE gex_history_old;
+            """)
+
+        # spx_playbook: old PK = [date]; new PK = [date, symbol]
+        if _pk_cols("spx_playbook") == ["date"]:
+            conn.executescript("""
+                ALTER TABLE spx_playbook RENAME TO spx_playbook_old;
+                CREATE TABLE spx_playbook (
+                    date TEXT NOT NULL, symbol TEXT NOT NULL DEFAULT 'SPX',
+                    session TEXT, scaffold TEXT, narrative TEXT,
+                    PRIMARY KEY (date, symbol));
+                INSERT OR REPLACE INTO spx_playbook(date, symbol, session, scaffold, narrative)
+                    SELECT date, 'SPX', session, scaffold, narrative FROM spx_playbook_old;
+                DROP TABLE spx_playbook_old;
+            """)
 
     def schema_version(self) -> int | None:
         conn = self.connect()

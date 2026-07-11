@@ -254,7 +254,11 @@ def build_snapshot(symbol: str = "^SPX", *, now: _dt.datetime | None = None) -> 
     spot, book = fetch_book(symbol)
     source = symbol
     scale_note = ""
-    if len(book) < MIN_BOOK_CONTRACTS:
+    # The SPY-chain proxy exists ONLY because yahoo's ^SPX OI is unusable; it must
+    # never hijack a thin QQQ/IWM book (those have deep native chains and their own
+    # strikes — scaling them by SPX/SPY would be nonsense). Restrict to SPX forms.
+    is_spx = symbol.upper() in ("^SPX", "^GSPC", "SPX")
+    if is_spx and len(book) < MIN_BOOK_CONTRACTS:
         spx_spot = spot
         spy_spot, book = fetch_book("SPY")
         snap = compute_gex(book, spy_spot)
@@ -266,6 +270,8 @@ def build_snapshot(symbol: str = "^SPX", *, now: _dt.datetime | None = None) -> 
         snap["spot"] = round(spx_spot, 2)
     else:
         snap = compute_gex(book, spot)
+        if len(book) < MIN_BOOK_CONTRACTS:
+            scale_note = (f" Thin chain ({len(book)} contracts) — levels less reliable.")
     snap["narrative"] = build_narrative(snap)
     snap.update({
         "generated_at": now.isoformat(),
