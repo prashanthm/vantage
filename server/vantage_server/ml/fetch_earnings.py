@@ -99,6 +99,73 @@ def fetch_and_cache(
     return _dates_from(earnings)
 
 
+def has_future_date(data_dir: str | Path, symbol: str, today: str) -> bool:
+    """True when the cache already holds an earnings date on/after ``today``.
+
+    The nightly fetch's skip predicate: a cache whose dates are all in the past
+    is stale by definition (the next report exists, we just don't have it yet),
+    while a cache with a future date needs no broker call."""
+    cached = load_cached(data_dir, symbol)
+    if cached is None:
+        return False
+    return any(str(d)[:10] >= today for d in (cached.get("dates") or []))
+
+
+def main(argv=None) -> int:
+    """Refresh the earnings-date cache for held symbols (nightly-friendly).
+
+    Default mode is CONDITIONAL: a symbol is re-fetched only when its cache has
+    no date on/after today — otherwise each nightly run would re-hit the broker
+    for every symbol for no gain. ``--refresh`` forces an unconditional
+    re-fetch. READ-ONLY against the broker, like the rest of the ml layer.
+    """
+    import argparse
+
+    from ..brokers import get_connection
+    from ..store import Store, resolve_data_dir
+
+    parser = argparse.ArgumentParser(
+        description="Fetch/refresh cached earnings dates for held symbols")
+    parser.add_argument("--broker", default="robinhood")
+    parser.add_argument("--data-dir", default=None)
+    parser.add_argument("--symbols", default="",
+                        help="comma-separated symbols (default: from held lots)")
+    parser.add_argument("--from-lots", action="store_true",
+                        help="derive symbols from held lots (default when --symbols absent)")
+    parser.add_argument("--refresh", action="store_true",
+                        help="re-fetch every symbol, even with a future date cached")
+    args = parser.parse_args(argv)
+
+    data_dir = resolve_data_dir(args.data_dir)
+    today = _dt.date.today().isoformat()
+
+    if args.symbols.strip():
+        symbols = sorted({s.strip().upper() for s in args.symbols.split(",") if s.strip()})
+    else:
+        symbols = sorted({lot.symbol.upper() for lot in Store(data_dir).load_lots()})
+    if not symbols:
+        print("no symbols to fetch (no lots and no --symbols)")
+        return 0
+
+    conn = get_connection(args.broker)()
+    fetch = getattr(conn, "fetch_earnings", None)
+    if fetch is None:
+        print(f"{args.broker}: no earnings capability — nothing fetched")
+        return 0
+
+    fetched, skipped = [], []
+    for sym in symbols:
+        if not args.refresh and has_future_date(data_dir, sym, today):
+            skipped.append(sym)
+            continue
+        dates = fetch_and_cache(data_dir, sym, fetch=fetch, as_of=today, refresh=True)
+        fetched.append(f"{sym}({len(dates)})")
+    print(f"earnings: fetched {len(fetched)} symbol(s)"
+          + (f" [{', '.join(fetched)}]" if fetched else "")
+          + f", skipped {len(skipped)} with future dates cached")
+    return 0
+
+
 def load_earnings_by_symbol(
     data_dir: str | Path, symbols, *, fetch=None, as_of: str,
     refresh: bool = False,
@@ -122,3 +189,7 @@ def load_earnings_by_symbol(
             out[raw] = fetch_and_cache(
                 data_dir, raw, fetch=fetch, as_of=as_of, refresh=refresh)
     return out
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

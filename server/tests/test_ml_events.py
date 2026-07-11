@@ -79,3 +79,33 @@ def test_multiple_earnings_before_and_during():
         ["2026-03-07", "2026-03-18"], window_days=5)
     assert r["before_entry"] is True   # 2026-03-07
     assert r["during_hold"] is True    # 2026-03-18
+
+
+# ------------------------------------------------------------ next_earnings
+
+def test_next_earnings_forward_and_backward():
+    r = events.next_earnings(["2026-05-05", "2026-08-04"], "2026-07-11")
+    assert r["next_date"] == "2026-08-04"
+    assert r["days_until"] == 24
+    assert r["last_date"] == "2026-05-05"
+    assert r["days_since"] == 67
+
+
+def test_next_earnings_today_counts_as_future():
+    r = events.next_earnings(["2026-07-11"], "2026-07-11")
+    assert r["next_date"] == "2026-07-11"
+    assert r["days_until"] == 0
+
+
+def test_next_earnings_past_only_cache_has_no_future_date():
+    r = events.next_earnings(["2026-02-03", "2026-05-05"], "2026-07-11")
+    assert r["next_date"] is None
+    assert r["days_until"] is None
+    assert r["last_date"] == "2026-05-05"  # stale-cache signal, not "no earnings"
+
+
+def test_next_earnings_empty_or_unparseable_is_unknown():
+    assert events.next_earnings([], "2026-07-11")["next_date"] is None
+    r = events.next_earnings(["not-a-date"], "2026-07-11")
+    assert r == {"next_date": None, "days_until": None,
+                 "last_date": None, "days_since": None}

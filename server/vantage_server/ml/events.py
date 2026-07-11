@@ -93,3 +93,35 @@ def earnings_within(
         "during_hold": during_hold,
         "nearest_days": nearest_days,
     }
+
+
+def next_earnings(earnings_dates, today) -> dict:
+    """Forward calendar read from a list of earnings dates — the analyst's
+    "is a report imminent?" question, same pure-kernel contract as
+    :func:`earnings_within`.
+
+    Returns::
+
+        {next_date, days_until, last_date, days_since}
+
+    ``next_date``/``days_until`` cover the nearest date on/after ``today``;
+    ``last_date``/``days_since`` the most recent one before it. All None when
+    no dates parse. ``next_date`` None with ``last_date`` set means "no future
+    date IN THIS LIST" — the caller must not read it as "no earnings scheduled"
+    (broker caches go stale the day after each report)."""
+    ref = _parse_date(today)
+    dates = sorted(d for e in (earnings_dates or []) if (d := _parse_date(e)) is not None)
+    if ref is None or not dates:
+        return {"next_date": None, "days_until": None,
+                "last_date": None, "days_since": None}
+
+    future = [d for d in dates if d >= ref]
+    past = [d for d in dates if d < ref]
+    nxt = future[0] if future else None
+    last = past[-1] if past else None
+    return {
+        "next_date": nxt.isoformat() if nxt else None,
+        "days_until": (nxt - ref).days if nxt else None,
+        "last_date": last.isoformat() if last else None,
+        "days_since": (ref - last).days if last else None,
+    }

@@ -22,6 +22,10 @@ EXPECTED_TOOLS = {
     "vantage.bars",
     "vantage.fundamentals",
     "vantage.news",
+    "vantage.growth",
+    "vantage.expectations",
+    "vantage.earnings",
+    "vantage.ticker_plan",
     "vantage.spx_playbook",
     "vantage.signals",
     "vantage.history",
@@ -641,3 +645,143 @@ def test_bars_tool_empty_state_on_fixture(data_dir):
     payload = tool_payload(run_with_client(mcp, interact))
     assert payload["no_bars"] is True
     assert payload["provenance"]["source_type"] == "vantage"
+
+
+# ------------------------------------------------------------ analyst tools
+# Engine math is covered by server/tests (test_growth, test_expectations,
+# test_ml_events); these round-trips pin the TOOL wiring — envelope, symbol
+# threading, no_data semantics — with the engine monkeypatched.
+
+_GROWTH = {
+    "symbol": "PLTR", "revenue_ttm": 3_800e6, "revenue_yoy": 0.33,
+    "revenue_yoy_basis": "ttm", "gross_margin": 0.80, "operating_margin": 0.14,
+    "fcf_ttm": 1_200e6, "fcf_margin": 0.32, "sbc_ttm": 600e6,
+    "sbc_pct_revenue": 0.16, "rule_of_40": 65.0,
+    "rule_of_40_basis": "yoy_growth_plus_fcf_margin", "period_end": "2026-03-31",
+}
+_FUND = {
+    "symbol": "PLTR", "market_cap": 300_000e6, "enterprise_value": 296_000e6,
+    "shares_outstanding": 2_400e6,
+}
+
+
+def test_growth_tool_round_trip(mcp, monkeypatch):
+    import vantage_server.growth as growth_mod
+
+    monkeypatch.setattr(growth_mod, "growth", lambda sym, dd: dict(_GROWTH, symbol=sym))
+
+    async def interact(client):
+        return await client.call_tool("vantage.growth", {"symbol": "pltr"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["symbol"] == "PLTR"
+    assert payload["no_data"] is False
+    assert payload["growth"]["rule_of_40"] == 65.0
+    assert payload["growth"]["rule_of_40_basis"] == "yoy_growth_plus_fcf_margin"
+    assert payload["provenance"]["source_id"].endswith("#growth")
+
+
+def test_growth_tool_no_data_for_etf(mcp, monkeypatch):
+    import vantage_server.growth as growth_mod
+
+    monkeypatch.setattr(growth_mod, "growth", lambda sym, dd: None)
+
+    async def interact(client):
+        return await client.call_tool("vantage.growth", {"symbol": "VOO"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_data"] is True
+    assert payload["growth"] is None
+
+
+def test_expectations_tool_round_trip(mcp, monkeypatch):
+    import vantage_server.fundamentals as fund_mod
+    import vantage_server.growth as growth_mod
+
+    monkeypatch.setattr(fund_mod, "fundamentals", lambda sym, dd: dict(_FUND))
+    monkeypatch.setattr(growth_mod, "growth", lambda sym, dd: dict(_GROWTH))
+
+    async def interact(client):
+        return await client.call_tool("vantage.expectations", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_data"] is False
+    assert payload["inputs"]["value_basis"] == "enterprise_value"
+    assert payload["implied"]["status"] == "ok"
+    assert payload["implied"]["fcf_growth_10y"] is not None
+    assert payload["assumptions"]["model"] == "two_stage_fcf_reverse_dcf"
+    assert [s["growth"] for s in payload["scenarios"]] == [0.0, 0.10, 0.20, 0.30]
+    assert payload["provenance"]["source_id"].endswith("#expectations")
+
+
+def test_expectations_tool_negative_fcf_is_undefined(mcp, monkeypatch):
+    import vantage_server.fundamentals as fund_mod
+    import vantage_server.growth as growth_mod
+
+    monkeypatch.setattr(fund_mod, "fundamentals", lambda sym, dd: dict(_FUND))
+    monkeypatch.setattr(growth_mod, "growth",
+                        lambda sym, dd: dict(_GROWTH, fcf_ttm=-100e6))
+
+    async def interact(client):
+        return await client.call_tool("vantage.expectations", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_data"] is True
+    assert payload["implied"]["status"] == "negative_fcf"
+    assert payload["implied"]["fcf_growth_10y"] is None
+
+
+def test_earnings_tool_forward_calendar(mcp, monkeypatch):
+    import vantage_server.ml.fetch_earnings as fe
+
+    # fixture snapshot as_of is 2026-07-05 -> 2026-07-08 is 3 days out
+    monkeypatch.setattr(fe, "load_cached", lambda dd, sym: {
+        "symbol": "PLTR", "as_of": "2026-07-04",
+        "earnings": [
+            {"date": "2026-05-05", "eps_estimate": 0.08, "eps_actual": 0.10},
+            {"date": "2026-07-08", "eps_estimate": 0.09, "eps_actual": None},
+        ],
+        "dates": ["2026-05-05", "2026-07-08"],
+    })
+
+    async def interact(client):
+        return await client.call_tool("vantage.earnings", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    e = payload["earnings"]
+    assert e["next_date"] == "2026-07-08"
+    assert e["days_until"] == 3
+    assert e["future_date_known"] is True
+    assert e["recent"][0]["date"] == "2026-07-08"
+    assert e["dates_as_of"] == "2026-07-04"
+
+
+def test_earnings_tool_stale_cache_is_not_no_earnings(mcp, monkeypatch):
+    import vantage_server.ml.fetch_earnings as fe
+
+    monkeypatch.setattr(fe, "load_cached", lambda dd, sym: {
+        "symbol": "PLTR", "as_of": "2026-05-06",
+        "earnings": [{"date": "2026-05-05", "eps_estimate": 0.08, "eps_actual": 0.10}],
+        "dates": ["2026-05-05"],
+    })
+
+    async def interact(client):
+        return await client.call_tool("vantage.earnings", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    e = payload["earnings"]
+    assert e["next_date"] is None
+    assert e["future_date_known"] is False  # stale cache, NOT "no earnings"
+    assert e["last_date"] == "2026-05-05"
+
+
+def test_ticker_plan_no_plan_shape_on_fixture(mcp):
+    """JSON fixture backend has no ticker_plan table — graceful has_plan=false."""
+    async def interact(client):
+        return await client.call_tool("vantage.ticker_plan", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["has_plan"] is False
+    assert payload["plan"] is None
+    assert payload["journal"] == []
+    assert payload["provenance"]["source_id"].endswith("#ticker_plan")

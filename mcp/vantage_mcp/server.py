@@ -332,6 +332,126 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                         no_news=data is None)
 
     @mcp.tool(
+        name="vantage.growth",
+        annotations=_READ_ONLY,
+        description="GROWTH/QUALITY read for one ticker from its financial "
+                    "statements (yfinance, cached ~weekly): revenue_ttm, "
+                    "revenue_yoy (+basis ttm|annual), gross/operating margin, "
+                    "fcf_ttm, fcf_margin, sbc_ttm, sbc_pct_revenue, rule_of_40 "
+                    "(+basis, growth+FCF-margin variant). The complement to "
+                    "vantage.fundamentals: ratios say what the market pays, this "
+                    "says what the business is doing. Every field nullable — "
+                    "ETFs have no statements (no_data=true); never fabricated.",
+    )
+    def growth(symbol: str = "") -> dict:
+        from vantage_server import growth as growth_mod  # noqa: PLC0415
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("growth", snap, symbol="", growth=None, no_data=True)
+        data = growth_mod.growth(symbol.upper(), store.data_dir)
+        return envelope("growth", snap, symbol=symbol.upper(), growth=data,
+                        no_data=data is None)
+
+    @mcp.tool(
+        name="vantage.expectations",
+        annotations=_READ_ONLY,
+        description="REVERSE DCF for one ticker — what 10y FCF growth the "
+                    "current price already implies (compare against "
+                    "vantage.growth revenue_yoy to see if the bar is realistic). "
+                    "Two-stage model; assumptions echoed in the payload "
+                    "(discount_rate, terminal_growth, horizon) — always cite "
+                    "them when quoting implied growth. implied.status explains "
+                    "any null: negative_fcf means implied growth is undefined "
+                    "(say so, don't guess); scenarios[] shows fair value at "
+                    "0/10/20/30% growth vs the current price. Model-derived "
+                    "context, not a price target.",
+    )
+    def expectations(symbol: str = "") -> dict:
+        from vantage_server import expectations as exp_mod  # noqa: PLC0415
+        from vantage_server import fundamentals as fund  # noqa: PLC0415
+        from vantage_server import growth as growth_mod  # noqa: PLC0415
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("expectations", snap, symbol="", inputs=None,
+                            assumptions=None, implied=None, scenarios=[],
+                            no_data=True)
+        sym = symbol.upper()
+        quote = snap.quotes.get(sym)
+        price = quote.price if quote else None
+        data = exp_mod.expectations(
+            fund.fundamentals(sym, store.data_dir),
+            growth_mod.growth(sym, store.data_dir),
+            price,
+        )
+        data["symbol"] = sym
+        return envelope("expectations", snap,
+                        no_data=data["implied"]["status"] != "ok", **data)
+
+    @mcp.tool(
+        name="vantage.earnings",
+        annotations=_READ_ONLY,
+        description="EARNINGS CALENDAR for one ticker from the cached broker "
+                    "dates (refreshed nightly): next_date/days_until, last_date/"
+                    "days_since, recent report rows (est vs actual EPS). "
+                    "days_until<=7 means a report is imminent — an 'act now' "
+                    "recommendation should be conditional on it. "
+                    "future_date_known=false means the CACHE has no upcoming "
+                    "date (it may be stale) — NEVER read it as 'no earnings "
+                    "scheduled'. ETFs/indexes legitimately have no earnings "
+                    "(no_data=true).",
+    )
+    def earnings(symbol: str = "") -> dict:
+        from vantage_server.engine import parse_as_of  # noqa: PLC0415
+        from vantage_server.ml import events as events_mod  # noqa: PLC0415
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("earnings", snap, symbol="", earnings=None,
+                            no_data=True)
+        sym = symbol.upper()
+        record = store.load_earnings(sym)
+        if record is None or not (record.get("dates") or record.get("earnings")):
+            return envelope("earnings", snap, symbol=sym, earnings=None,
+                            no_data=True)
+        today = parse_as_of(snap.as_of).date()
+        calendar = events_mod.next_earnings(record.get("dates") or [], today)
+        rows = sorted(
+            (e for e in (record.get("earnings") or []) if e.get("date")),
+            key=lambda e: str(e["date"]), reverse=True,
+        )[:8]
+        return envelope("earnings", snap, symbol=sym, no_data=False, earnings={
+            **calendar,
+            "recent": [{"date": str(e.get("date"))[:10],
+                        "eps_estimate": e.get("eps_estimate"),
+                        "eps_actual": e.get("eps_actual")} for e in rows],
+            "dates_as_of": record.get("as_of"),
+            "future_date_known": calendar["next_date"] is not None,
+        })
+
+    @mcp.tool(
+        name="vantage.ticker_plan",
+        annotations=_READ_ONLY,
+        description="The operator's stored THESIS for one ticker — why the "
+                    "position is held, price target, stop/invalidation level, "
+                    "notes, plus recent journal entries. Weigh any sell/close "
+                    "recommendation against this before endorsing it: a "
+                    "technical signal that contradicts an intact thesis needs "
+                    "the stronger case stated. has_plan=false means no thesis "
+                    "is on file (say so — never invent one). Written only via "
+                    "the Vantage UI; this surface is read-only.",
+    )
+    def ticker_plan(symbol: str = "", journal_limit: int = 5) -> dict:
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("ticker_plan", snap, symbol="", has_plan=False,
+                            plan=None, journal=[])
+        sym = symbol.upper()
+        plan = store.load_ticker_plan(sym)
+        journal = store.load_ticker_journal(sym, limit=max(0, int(journal_limit)))
+        return envelope("ticker_plan", snap, symbol=sym,
+                        has_plan=plan is not None, plan=plan,
+                        journal=to_jsonable(journal))
+
+    @mcp.tool(
         name="vantage.spx_playbook",
         annotations=_READ_ONLY,
         description="The daily 0DTE PLAYBOOK for an index (`symbol`: SPX default, "

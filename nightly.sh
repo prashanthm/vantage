@@ -39,6 +39,13 @@ echo "[$STAMP] nightly: EOD bar snapshot (--from-lots ${1:-})"
 echo "[$STAMP] nightly: position analysis"
 "$PY" -m vantage_server.analyze 2>&1 | grep -v 'Session termination' || true
 
+# Earnings-calendar refresh for held symbols (read-only broker). Conditional:
+# only symbols with no cached FUTURE date are re-fetched, so quiet nights cost
+# zero broker calls. Keeps vantage.earnings' forward calendar fresh.
+echo "[$STAMP] nightly: earnings calendar refresh"
+"$PY" -m vantage_server.ml.fetch_earnings --broker robinhood --from-lots 2>&1 \
+  | grep -v 'Session termination' || true
+
 # Per-ticker journal snapshot (price + P&L + recommendation per held underlying)
 # so each notebook's timeline accrues nightly. Idempotent per day; never fails
 # the pipeline.

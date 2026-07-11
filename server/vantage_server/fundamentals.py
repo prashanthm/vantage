@@ -26,6 +26,8 @@ _FIELDS = {
     "name": ("shortName", "longName"),
     "sector": ("sector",),
     "market_cap": ("marketCap",),
+    "enterprise_value": ("enterpriseValue",),
+    "shares_outstanding": ("sharesOutstanding",),
     "pe": ("trailingPE",),
     "forward_pe": ("forwardPE",),
     "week52_low": ("fiftyTwoWeekLow",),
