@@ -6,8 +6,9 @@
 # backend container (which also has the Robinhood token mounted). So the nightly
 # refresh MUST run inside that container to land in the DB the UI actually reads.
 # This wrapper does exactly that, in order:
-#   bars -> position analysis -> notebook journal -> GEX (native) ->
-#   0DTE SPX playbook -> futures re-import.
+#   bars -> position analysis -> notebook journal ->
+#   per-underlying GEX + 0DTE playbook (SPX, QQQ, IWM) -> futures re-import ->
+#   paper settle.
 #
 #   ./nightly-docker.sh            run the pipeline now
 #   ./nightly-docker.sh --backfill deep-refresh all held tickers first (one-off)
@@ -57,15 +58,18 @@ run "position analysis" vantage_server.analyze
 # 3) Per-ticker journal snapshot so each notebook timeline accrues nightly.
 run "notebook journal snapshot" vantage_server.snapshot_journal
 
-# 4) Dealer-gamma (GEX) snapshot — computed NATIVELY in Vantage from the yfinance
-#    option chain (no longer depends on Sentinel writing its file first). Runs
-#    BEFORE the playbook so the playbook bakes fresh GEX. OI-based, blind to 0DTE.
-run "GEX snapshot (native)" vantage_server.gex
-
-# 5) Daily 0DTE SPX playbook — fuses Vantage's own GEX (step 4) with SPX 15m chart
-#    structure + Sentinel's zones/breadth/macro (mounted read-only at /sentinel).
-#    Runs after GEX + bars so it reads the freshest of both.
-run "0DTE SPX playbook" vantage_server.spx_playbook
+# 4+5) Per-underlying dealer-gamma (GEX) + 0DTE playbook, for SPX, QQQ, IWM.
+#    GEX is computed NATIVELY from each underlying's own yfinance option chain
+#    (SPX via ^SPX with a SPY-proxy fallback; QQQ/IWM from their own chains), then
+#    the playbook fuses it with that underlying's 15m chart structure. SPX runs
+#    first (the default view). Per-underlying failures are non-fatal — one bad
+#    chain must not abort the rest of the night. OI-based, blind to 0DTE.
+#    Columns: "<canonical key>:<GEX chain symbol>".
+for PAIR in "SPX:^SPX" "QQQ:QQQ" "IWM:IWM"; do
+  KEY="${PAIR%%:*}"; CHAIN="${PAIR##*:}"
+  run "GEX snapshot ($KEY)" vantage_server.gex --symbol "$CHAIN" || true
+  run "0DTE playbook ($KEY)" vantage_server.spx_playbook --symbol "$KEY" || true
+done
 
 # 6) Futures analysis — re-import the AMP CSV export in /data/ampfutures (if any)
 #    so stored fills stay current. Idempotent (Order-ID dedupe); a no-op when the
