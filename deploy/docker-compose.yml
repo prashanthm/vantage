@@ -132,11 +132,13 @@ services:
       # with no tag 404s and the advisor returns empty. Override in .env.
       LLM_MODEL: "${LLM_MODEL:-qwen2.5:7b}"
       LLM_API_KEY: "${LLM_API_KEY:-ollama}"
-      # Per-task model override (node-level, not an event bus): the /analyze
-      # synthesis node runs the stronger model for grounded multi-facet prose,
-      # while facet inference (deterministic) and general /turn stay on
-      # LLM_MODEL. Unset to run synthesis on LLM_MODEL. See MIRA model_routing.
-      MIRA_SYNTHESIS_MODEL: "${MIRA_SYNTHESIS_MODEL:-}"
+      # Model-tier routing (ADR-052). MODEL_ROUTES maps capability tiers to
+      # concrete models against LLM_BASE_URL: /analyze synthesis asks for the
+      # `deep` tier (strong model, grounded multi-domain prose), the playbook
+      # narrator and facets ride `light`. Unset = no router, everything on
+      # LLM_MODEL. ENABLE_TIER_ESCALATION adds the one-retry quality escalator.
+      MODEL_ROUTES: "${MODEL_ROUTES:-}"
+      ENABLE_TIER_ESCALATION: "${ENABLE_TIER_ESCALATION:-}"
     extra_hosts:
       # Linux needs this mapping for host.docker.internal (no-op on Docker Desktop).
       - "host.docker.internal:host-gateway"
