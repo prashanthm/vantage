@@ -353,26 +353,27 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, imported=res, **analysis)
 
     @app.get("/api/paper")
-    def paper_view():
-        """Paper-trading tracker for the 0DTE playbook on SPY (no money, no
-        orders — a simulation for learning + strategy validation). Returns today's
-        SPY trade tickets (from the latest playbook), open positions, the closed
-        track record + stats + equity curve. ADR-010: places no orders."""
+    def paper_view(symbol: str = Query("SPX")):
+        """Paper-trading tracker for the 0DTE playbook (no money, no orders — a
+        simulation for learning + strategy validation), for ``symbol`` (SPX|QQQ|
+        IWM). Returns today's tickets (from that underlying's latest playbook),
+        open positions, the closed track record + stats. ADR-010: no orders."""
         from . import paper as _paper
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False,
                             note="Paper trading requires the SQLite backend.")
-        row = store.load_spx_playbook()
+        sym = (symbol or "SPX").upper()
+        row = store.load_spx_playbook(symbol=sym)
         scaffold = (row or {}).get("scaffold") if row else None
-        view = _paper.build_analysis(store, scaffold)
+        view = _paper.build_analysis(store, scaffold, underlying=sym)
         return envelope(snap, available=True, session=(row or {}).get("session"),
                         **view)
 
     @app.post("/api/paper/open")
     def paper_open(body: dict = Body(default={})):
         """Log a paper trade from a ticket (no real order — ADR-010). Body is the
-        ticket dict (side/spy_entry/spy_target/spy_stop/shares/...)."""
+        ticket dict (side/spy_entry/spy_target/spy_stop/shares/underlying/...)."""
         from . import paper as _paper
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
@@ -380,28 +381,32 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         ticket = body or {}
         if not ticket.get("side") or ticket.get("spy_entry") is None:
             return envelope(snap, available=False, note="ticket needs side + spy_entry")
-        row = store.load_spx_playbook()
+        sym = (ticket.get("underlying") or "SPX").upper()
+        row = store.load_spx_playbook(symbol=sym)
         tid = _paper.open_paper_trade(store, ticket,
                                       session=(row or {}).get("session"), source="manual")
         return envelope(snap, available=True, opened_id=tid,
-                        **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None))
+                        **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None,
+                                                underlying=sym))
 
     @app.post("/api/paper/settle")
     def paper_settle(body: dict = Body(default={})):
-        """Auto-close open paper trades that hit target/stop (checks SPY bars).
-        Writes only our store; no broker path (ADR-010)."""
+        """Auto-close open paper trades that hit target/stop (checks each proxy's
+        bars). Writes only our store; no broker path (ADR-010)."""
         from . import paper as _paper
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="SQLite backend required.")
         res = _paper.settle_open(store)
-        row = store.load_spx_playbook()
+        sym = ((body or {}).get("symbol") or "SPX").upper()
+        row = store.load_spx_playbook(symbol=sym)
         return envelope(snap, available=True, settled=res,
-                        **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None))
+                        **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None,
+                                                underlying=sym))
 
     @app.post("/api/paper/close")
     def paper_close(body: dict = Body(default={})):
-        """Manually close an open paper trade at the current SPY price."""
+        """Manually close an open paper trade at the current proxy price."""
         from . import paper as _paper
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
@@ -411,9 +416,11 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         if tid is None or spy_exit is None:
             return envelope(snap, available=False, note="need id + spy_exit")
         ok = _paper.close_manually(store, int(tid), float(spy_exit))
-        row = store.load_spx_playbook()
+        sym = ((body or {}).get("symbol") or "SPX").upper()
+        row = store.load_spx_playbook(symbol=sym)
         return envelope(snap, available=True, closed=ok,
-                        **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None))
+                        **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None,
+                                                underlying=sym))
 
     @app.get("/api/journal")
     def journal_view(symbol: str | None = Query(None)):

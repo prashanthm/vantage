@@ -42,16 +42,22 @@ BREAK_PCT = 0.0015    # ~0.15% ≈ 11pt at SPX 7500
 SUPPRESS_COUNTER_TREND = False
 
 
-# ── SPX → SPY translation ────────────────────────────────────────────────────
+# ── underlying → proxy translation ───────────────────────────────────────────
 
 def _fetch_spy_15m():
     from . import spx_playbook as sp
     return sp._fetch_15m("SPY")
 
 
+def _fetch_proxy_15m(proxy_symbol: str):
+    from . import spx_playbook as sp
+    return sp._fetch_15m(proxy_symbol)
+
+
 def spy_price_and_ratio(spx_spot: float | None):
     """Live SPY price (latest 15m close) and the SPX/SPY ratio. Returns
-    ``(spy_price, ratio, bars)`` — bars kept for settlement. ratio ~10."""
+    ``(spy_price, ratio, bars)`` — bars kept for settlement. ratio ~10.
+    (Back-compat SPX helper; ``proxy_price_and_ratio`` generalizes it.)"""
     df = _fetch_spy_15m()
     if df is None or getattr(df, "empty", True):
         return None, None, df
@@ -60,7 +66,25 @@ def spy_price_and_ratio(spx_spot: float | None):
     return spy, ratio, df
 
 
+def proxy_price_and_ratio(underlying: str, spot: float | None):
+    """Live proxy price + (underlying / proxy) ratio for any underlying. For SPX
+    the proxy is SPY (ratio ~10); for QQQ/IWM the proxy IS the underlying, so the
+    ratio is 1 and the proxy price is the ETF's own last. Returns
+    ``(proxy_price, ratio, bars)`` — bars kept for settlement."""
+    from . import underlyings as _u
+    cfg = _u.get(underlying)
+    df = _fetch_proxy_15m(cfg["proxy_symbol"])
+    if df is None or getattr(df, "empty", True):
+        return None, None, df
+    proxy = float(df["Close"].iloc[-1])
+    if cfg["self_proxy"]:
+        return proxy, 1.0, df
+    ratio = (spot / proxy) if (spot and proxy) else 10.0
+    return proxy, ratio, df
+
+
 def to_spy(spx_level: float, ratio: float) -> float:
+    """Convert an underlying level to proxy price via the ratio (1.0 for ETFs)."""
     return round(spx_level / ratio, 2)
 
 
@@ -139,36 +163,40 @@ def _freshness_for_zone(zone: dict, bands: list[dict]) -> tuple[str, str]:
     return "weak", note + " — tested often, weakening"
 
 
-#: the doc's time-of-day OTM rule (SPX points OTM), CST cutoffs converted to ET
-#: (ET = CST + 1h). Wider OTM early (more time for a far strike to pay), tighter
-#: into the afternoon as 0DTE gamma accelerates.
-def _otm_points(now_et: _dt.datetime) -> tuple[float, str]:
-    """(SPX points OTM, label) for the current ET time, per the doc's rule:
-    ~25pt before noon CST (13:00 ET), ~12pt after 1-2pm CST (14:00-15:00 ET)."""
+#: the doc's time-of-day OTM rule, as a FRACTION of price so it scales to any
+#: underlying (25pt at SPX 7500 ≈ 0.33%). CST cutoffs → ET (ET = CST + 1h). Wider
+#: OTM early (more time for a far strike to pay), tighter into the afternoon as
+#: 0DTE gamma accelerates.
+def _otm_pct(now_et: _dt.datetime) -> tuple[float, str]:
+    """(OTM fraction of price, label) for the current ET time, per the doc's rule
+    (~0.33% before noon CST, ~0.16% after 1-2pm CST — 25pt / 12pt at SPX 7500)."""
     mins = now_et.hour * 60 + now_et.minute
     if mins < 13 * 60:            # before 12:00 CST / 13:00 ET
-        return 25.0, "morning ≈25pt OTM"
+        return 0.0033, "morning (wider OTM)"
     if mins < 14 * 60:            # 13:00-14:00 ET (noon-1pm CST)
-        return 18.0, "early-afternoon ≈18pt OTM"
-    return 12.0, "afternoon ≈12pt OTM"
+        return 0.0024, "early-afternoon OTM"
+    return 0.0016, "afternoon (tighter OTM)"
 
 
-def _otm_strike(entry_spy: float, side: str, ratio: float,
-                now_et: _dt.datetime) -> tuple[float, str]:
-    """A time-of-day OTM SPY strike suggestion alongside the ATM ref_strike. OTM =
-    above entry for a call (long), below for a put (short). SPX points → SPY via
-    the live ratio (SPY strikes ~$1). Suggestion only — not IV/delta aware."""
-    pts, label = _otm_points(now_et)
-    offset_spy = pts / ratio if ratio else pts / 10.0
-    raw = entry_spy + offset_spy if side == "long" else entry_spy - offset_spy
-    return nearest_strike(raw), label
+def _otm_strike(entry_proxy: float, side: str, now_et: _dt.datetime,
+                strike_step: float = 1.0) -> tuple[float, str]:
+    """A time-of-day OTM strike suggestion (in the proxy's own price) alongside the
+    ATM ref_strike. OTM = above entry for a call (long), below for a put (short).
+    Expressed as a % of price so it's right for SPY/QQQ/IWM alike. Suggestion only
+    — not IV/delta aware."""
+    frac, label = _otm_pct(now_et)
+    offset = entry_proxy * frac
+    raw = entry_proxy + offset if side == "long" else entry_proxy - offset
+    pts = round(offset)
+    return nearest_strike(raw, strike_step), f"≈{pts}pt OTM · {label}"
 
 
 # ── ticket generation from the playbook scaffold ─────────────────────────────
 
 def build_tickets(scaffold: dict, spy_price: float, ratio: float,
                   session_range: tuple | None = None,
-                  now_et: _dt.datetime | None = None) -> list[dict]:
+                  now_et: _dt.datetime | None = None,
+                  underlying: str = "SPX") -> list[dict]:
     """Turn the playbook's confluence zones into SPY trade tickets — the four
     demand/supply setups from the methodology:
 
@@ -185,6 +213,9 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
 
     ``session_range`` = today's (low, high, last); ``now_et`` = current ET time —
     both injectable for testing (default: fetched / now)."""
+    from . import underlyings as _u
+    cfg = _u.get(underlying)
+    key = (underlying or "SPX").upper()
     spx_spot = (scaffold.get("regime") or {}).get("spot")
     conf = scaffold.get("confluence") or []
     if not conf or spx_spot is None:
@@ -192,7 +223,7 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
     if now_et is None:
         now_et = _dt.datetime.now(ET)
     if session_range is None:
-        session_range = _session_range()
+        session_range = _session_range(cfg["bar_symbol"])
     # higher-timeframe trend read (playbook timeframe, not 1-3-5min) for the filter
     trend_state = ((scaffold.get("chart") or {}).get("structure") or {}).get("state")
     gamma = (scaffold.get("regime") or {}).get("gamma")
@@ -222,7 +253,7 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
         rr = round(reward / risk, 2) if (reward and risk) else None
         counter = _is_counter_trend(side, trend_state, gamma)
         freshness, freshness_note = _freshness_for_zone(zone, bands)
-        otm, otm_note = _otm_strike(entry_spy, side, ratio, now_et)
+        otm, otm_note = _otm_strike(entry_spy, side, now_et)
         if setup == "break":
             sig = (("breakout retest above " if side == "long" else "breakdown retest below ")
                    + f"{to_spy(lvl, ratio):.2f}")
@@ -236,7 +267,8 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
             "side": side,
             "setup": setup,                    # "test" | "break"
             "experts_only": setup == "break",
-            "symbol": "SPY",
+            "symbol": cfg["proxy_symbol"],     # SPY for SPX; the ETF itself else
+            "underlying": key,
             "spx_level": round(lvl, 1),
             "spy_level": to_spy(lvl, ratio),
             "spy_entry": round(entry_spy, 2),
@@ -289,12 +321,13 @@ def open_paper_trade(store: Store, ticket: dict, *, session: str | None = None,
                      source: str = "manual", now: _dt.datetime | None = None) -> int:
     """Log a paper trade from a ticket at its entry price."""
     now = now or _dt.datetime.now(ET)
+    proxy = ticket.get("symbol") or "SPY"
     return store.record_paper_trade({
         "opened_at": now.isoformat(),
         "session": session,
         "signal": ticket["signal"],
         "side": ticket["side"],
-        "symbol": "SPY",
+        "symbol": proxy,
         "spx_level": ticket.get("spx_level"),
         "spy_entry": ticket["spy_entry"],
         "spy_target": ticket.get("spy_target"),
@@ -303,7 +336,7 @@ def open_paper_trade(store: Store, ticket: dict, *, session: str | None = None,
         "ref_strike": ticket.get("ref_strike"),
         "source": source,
         "status": "open",
-        "opened_price_src": "SPY 15m close",
+        "opened_price_src": f"{proxy} 15m close",
     })
 
 
@@ -349,16 +382,21 @@ def _settle_one(trade: dict, bars) -> dict | None:
 
 
 def settle_open(store: Store) -> dict:
-    """Check every OPEN paper trade against fresh SPY bars; close the ones that
-    hit target or stop. Returns ``{checked, closed}``."""
+    """Check every OPEN paper trade against fresh bars of ITS OWN proxy (SPY / QQQ
+    / IWM); close the ones that hit target or stop. Returns ``{checked, closed}``.
+    Bars are fetched once per distinct proxy symbol."""
     open_trades = store.load_paper_trades("open")
     if not open_trades:
         return {"checked": 0, "closed": 0}
-    df = _fetch_spy_15m()
-    if df is None or getattr(df, "empty", True):
-        return {"checked": len(open_trades), "closed": 0}
+    bars_by_proxy: dict[str, object] = {}
     closed = 0
     for t in open_trades:
+        proxy = t.get("symbol") or "SPY"
+        if proxy not in bars_by_proxy:
+            bars_by_proxy[proxy] = _fetch_proxy_15m(proxy)
+        df = bars_by_proxy[proxy]
+        if df is None or getattr(df, "empty", True):
+            continue
         res = _settle_one(t, df)
         if res and store.close_paper_trade(
                 t["id"], spy_exit=res["spy_exit"], exit_reason=res["exit_reason"],
@@ -420,25 +458,37 @@ def equity_curve(closed: list[dict]) -> list[dict]:
     return out
 
 
-def build_analysis(store: Store, scaffold: dict | None = None) -> dict:
-    """The full paper-trading view: today's tickets (if a scaffold is given),
-    open positions, closed track record + stats. Read-path for the API + CLI."""
+def build_analysis(store: Store, scaffold: dict | None = None,
+                   underlying: str = "SPX") -> dict:
+    """The full paper-trading view for ``underlying``: today's tickets (if a
+    scaffold is given), open positions, closed track record + stats. Read-path for
+    the API + CLI. Open/closed trades are filtered to the underlying's proxy."""
+    from . import underlyings as _u
+    cfg = _u.get(underlying)
+    proxy = cfg["proxy_symbol"]
     tickets = []
     if scaffold:
-        spx_spot = (scaffold.get("regime") or {}).get("spot")
-        spy, ratio, _ = spy_price_and_ratio(spx_spot)
-        if spy:
-            tickets = build_tickets(scaffold, spy, ratio)
-    open_trades = store.load_paper_trades("open")
-    closed = store.load_paper_trades("closed")
+        spot = (scaffold.get("regime") or {}).get("spot")
+        px, ratio, _ = proxy_price_and_ratio(underlying, spot)
+        if px:
+            tickets = build_tickets(scaffold, px, ratio, underlying=underlying)
+    # filter the track record to this underlying's proxy (back-compat: legacy
+    # rows have symbol 'SPY', which is SPX's proxy, so SPX still sees them).
+    open_trades = [t for t in store.load_paper_trades("open")
+                   if (t.get("symbol") or "SPY") == proxy]
+    closed = [t for t in store.load_paper_trades("closed")
+              if (t.get("symbol") or "SPY") == proxy]
     return {
         "tickets": tickets,
+        "underlying": cfg["label"],
         "open": open_trades,
         "closed": closed,
         "stats": paper_stats(closed),
         "equity_curve": equity_curve(closed),
-        "note": ("Paper trades on SPY as an SPX proxy — no real money, no orders. "
-                 "P&L is on SPY shares; the 0DTE strike is reference only."),
+        "note": (f"Paper trades on {proxy}"
+                 + (" as an SPX proxy" if not cfg["self_proxy"] else "")
+                 + " — no real money, no orders. P&L is on shares; the 0DTE strike "
+                 "is reference only."),
     }
 
 
@@ -450,7 +500,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Paper-trade the 0DTE playbook on SPY (no money, no orders). "
                     "Build tickets, or settle open trades against SPY bars.")
     p.add_argument("--data-dir", help="override the data directory")
-    p.add_argument("--tickets", action="store_true", help="print today's SPY trade tickets")
+    p.add_argument("--symbol", default="SPX", help="underlying: SPX | QQQ | IWM")
+    p.add_argument("--tickets", action="store_true", help="print today's trade tickets")
     p.add_argument("--settle", action="store_true", help="auto-close open trades that hit target/stop")
     return p
 
@@ -461,12 +512,13 @@ def _run(args: argparse.Namespace) -> int:
         print("error: paper trading requires the SQLite backend", file=sys.stderr)
         return EXIT_USER_ERROR
     if args.settle:
-        res = settle_open(store)
+        res = settle_open(store)   # settles ALL open trades, any underlying
         print(f"paper: checked {res['checked']} open, closed {res['closed']}")
     if args.tickets or not args.settle:
-        row = store.load_spx_playbook()
+        key = args.symbol.upper()
+        row = store.load_spx_playbook(symbol=key)
         scaffold = (row or {}).get("scaffold") if row else None
-        view = build_analysis(store, scaffold)
+        view = build_analysis(store, scaffold, underlying=key)
         for t in view["tickets"]:
             print(f"  [{t['side']:>5}] {t['signal']} | entry {t['spy_entry']} "
                   f"target {t['spy_target']} stop {t['spy_stop']} "

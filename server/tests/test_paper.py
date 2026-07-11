@@ -45,6 +45,30 @@ _NOON = _dt.datetime(2026, 7, 10, 10, 0, tzinfo=paper.ET)
 _QUIET = (7540.0, 7548.0, 7543.0)   # range hugging spot — breaks nothing
 
 
+def _qqq_scaffold():
+    return {
+        "regime": {"spot": 500.0},
+        "confluence": [
+            {"price": 505.0, "role": "resistance", "kinds": ["resistance"]},
+            {"price": 495.0, "role": "support", "kinds": ["fib"]},
+        ],
+    }
+
+
+def test_qqq_tickets_self_proxy_ratio_one():
+    """QQQ is its own proxy: ratio 1, entries at the QQQ level itself, symbol=QQQ,
+    OTM strike in QQQ dollars (a few $ off, not SPX-scaled)."""
+    qr = (498.0, 506.0, 502.0)   # quiet-ish range; nothing broken through
+    tickets = paper.build_tickets(_qqq_scaffold(), spy_price=500.0, ratio=1.0,
+                                  session_range=qr, now_et=_NOON, underlying="QQQ")
+    short = next(t for t in tickets if t["side"] == "short" and t["setup"] == "test")
+    assert short["symbol"] == "QQQ" and short["underlying"] == "QQQ"
+    assert short["spy_entry"] == 505.0                 # entry AT the QQQ level
+    assert short["spy_stop"] > 505.0 > short["spy_target"]
+    # OTM put strike is below entry and within a few dollars (not 25 pts SPX-style)
+    assert 500.0 < short["otm_strike"] < 505.0
+
+
 def test_build_tickets_entry_at_level_and_rr():
     tickets = paper.build_tickets(_scaffold(), spy_price=754.3, ratio=10.0,
                                   session_range=_QUIET, now_et=_NOON)
