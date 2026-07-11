@@ -159,6 +159,29 @@ def test_confluence_merges_two_dimensions():
     assert set(z["dims"]) == {"fib", "sr"}
 
 
+def test_level_ladder_round_step_is_per_underlying():
+    # SPX uses 50pt round numbers; QQQ uses 5 — the ladder must honor the scale.
+    chart = {"available": True, "last": 725.0, "fib": {}, "poc": None,
+             "resistance": [], "support": []}
+    gex = {"available": False}
+    spx_ladder = pb.build_level_ladder(gex, {"available": True, "last": 7250.0,
+                                             "fib": {}, "poc": None,
+                                             "resistance": [], "support": []})
+    qqq_ladder = pb.build_level_ladder(gex, chart, scale={"round_step": 5, "cluster_tol": 0.6})
+    spx_rounds = sorted(r["price"] for r in spx_ladder if r["kind"] == "round number")
+    qqq_rounds = sorted(r["price"] for r in qqq_ladder if r["kind"] == "round number")
+    assert spx_rounds == [7200.0, 7250.0, 7300.0]      # 50-wide
+    assert qqq_rounds == [720.0, 725.0, 730.0]         # 5-wide
+
+
+def test_underlyings_registry():
+    from vantage_server import underlyings as u
+    assert u.get("QQQ")["bar_symbol"] == "QQQ" and u.get("QQQ")["self_proxy"] is True
+    assert u.get("SPX")["proxy_symbol"] == "SPY" and u.get("SPX")["self_proxy"] is False
+    assert u.get("iwm")["gex_symbol"] == "IWM"          # case-insensitive
+    assert u.get("bogus")["label"] == "SPX"             # unknown → SPX default
+
+
 def test_confluence_stays_tight_not_a_megazone():
     # a run of evenly-spaced (>tol apart) levels must NOT chain into one wide zone
     ladder = [{"price": 7500.0 - i * 12, "kind": f"fib {i}", "source": "chart"}

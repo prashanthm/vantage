@@ -195,9 +195,11 @@ def _recent_window(spx15, sessions=RECENT_SESSIONS):
     return spx15[[t.date() in set(days) for t in spx15.index]]
 
 
-def _chart_dimensions(spx15, spyvol_by_ts) -> dict:
+def _chart_dimensions(spx15, spyvol_by_ts, scale: dict | None = None) -> dict:
     """Fib grid, VWAP regime, volume profile, S/R clusters from the RECENT 15m
-    window (last N sessions) — the swing that actually frames the next session."""
+    window (last N sessions) — the swing that actually frames the next session.
+    ``scale`` supplies the per-underlying ``cluster_tol`` (defaults to SPX)."""
+    tol = (scale or {}).get("cluster_tol", 6.0)
     if spx15 is None or spx15.empty:
         return {"available": False}
     spx15 = _recent_window(spx15)
@@ -218,8 +220,8 @@ def _chart_dimensions(spx15, spyvol_by_ts) -> dict:
               else "below VWAP (sellers in control)" if vwap else "n/a")
 
     ph, pl = _fractal_pivots(H, L, n=2)
-    res = [z for z in _cluster([H[i] for i in ph]) if z[1] >= 2]
-    sup = [z for z in _cluster([L[i] for i in pl]) if z[1] >= 2]
+    res = [z for z in _cluster([H[i] for i in ph], tol=tol) if z[1] >= 2]
+    sup = [z for z in _cluster([L[i] for i in pl], tol=tol) if z[1] >= 2]
     poc, hvn, lvn = _volume_profile(C, vols)
     volume_read = _volume_read(C, O, vols)
     structure = _structure_read(H, L, C)
@@ -356,9 +358,11 @@ def day_time_edges(spx15) -> dict:
 
 # ============================================================ level ladder + setups
 
-def build_level_ladder(gex: dict, chart: dict) -> list[dict]:
+def build_level_ladder(gex: dict, chart: dict, scale: dict | None = None) -> list[dict]:
     """One price axis: flip / walls / max-pain / fib / PoC / S-R / round numbers,
-    each tagged with its kind, sorted high→low. The 'if price reaches X' anchors."""
+    each tagged with its kind, sorted high→low. The 'if price reaches X' anchors.
+    ``scale`` supplies the per-underlying ``round_step`` (defaults to SPX 50)."""
+    round_step = (scale or {}).get("round_step", ROUND_LEVELS_STEP)
     rows: list[dict] = []
     if gex.get("available"):
         for key, kind in (("call_wall", "GEX call wall (resistance)"),
@@ -380,8 +384,8 @@ def build_level_ladder(gex: dict, chart: dict) -> list[dict]:
         # round numbers near spot
         last = chart.get("last")
         if last:
-            base = int(last // ROUND_LEVELS_STEP) * ROUND_LEVELS_STEP
-            for rn in (base - ROUND_LEVELS_STEP, base, base + ROUND_LEVELS_STEP):
+            base = int(last // round_step) * round_step
+            for rn in (base - round_step, base, base + round_step):
                 rows.append({"price": float(rn), "kind": "round number", "source": "psych"})
     # dedup by (price rounded to 2, keep first/strongest-source order) + sort
     seen = set(); uniq = []
@@ -570,9 +574,11 @@ def build_durable_levels(history: list[dict], spot: float | None,
     return out[:max_out]
 
 
-def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict) -> list[dict]:
+def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict,
+                 label: str = "SPX") -> list[dict]:
     """Explicit CONDITIONAL 0DTE setups keyed to real levels. Every one is
-    'IF <level/condition> THEN <structure with strikes from the ladder>'."""
+    'IF <level/condition> THEN <structure with strikes from the ladder>'.
+    ``label`` names the underlying in the trigger text (SPX | QQQ | IWM)."""
     setups: list[dict] = []
     if not gex.get("available"):
         return setups
@@ -596,7 +602,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict) -> list[di
         # Positive-gamma (spot above flip): calmer tape, expect a range
         if regime == "positive":
             setups.append({
-                "trigger": f"SPX stays above the {flip:.0f} line",
+                "trigger": f"{label} stays above the {flip:.0f} line",
                 "bias": "calm, range-bound day — moves tend to fade",
                 "structure": f"Play the range: buy dips near {put_w:.0f}, "
                              f"sell rallies near {call_w:.0f}. Price likely bounces "
@@ -604,7 +610,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict) -> list[di
                 "levels": {"put_wall": put_w, "call_wall": call_w, "flip": flip},
             })
             setups.append({
-                "trigger": f"SPX drops below the {flip:.0f} line",
+                "trigger": f"{label} drops below the {flip:.0f} line",
                 "bias": "day speeds up — moves can run instead of fading",
                 "structure": f"Stop buying dips. Below {flip:.0f} the tape can trend "
                              f"down; {put_w:.0f} becomes the next downside target.",
@@ -612,7 +618,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict) -> list[di
             })
         else:
             setups.append({
-                "trigger": f"SPX stays below the {flip:.0f} line",
+                "trigger": f"{label} stays below the {flip:.0f} line",
                 "bias": "faster, trendier day — go with the move",
                 "structure": f"Trade with the move, not against it. {put_w:.0f} is the "
                              f"next downside target; a move back above {flip:.0f} means "
@@ -620,7 +626,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict) -> list[di
                 "levels": {"flip": flip, "put_wall": put_w},
             })
             setups.append({
-                "trigger": f"SPX climbs back above the {flip:.0f} line",
+                "trigger": f"{label} climbs back above the {flip:.0f} line",
                 "bias": "calming down — back to a range",
                 "structure": f"Above {flip:.0f}, expect a range again — sell rallies "
                              f"near {call_w:.0f}.",
@@ -750,26 +756,42 @@ def _next_session(today: _dt.date) -> _dt.date:
     return d
 
 
-def build_playbook(today: _dt.date | None = None, store: Any = None) -> dict:
-    """The full deterministic scaffold. Pure numbers + conditional setups; no prose.
+def build_playbook(today: _dt.date | None = None, store: Any = None,
+                   underlying: str = "SPX") -> dict:
+    """The full deterministic scaffold for ``underlying`` (SPX | QQQ | IWM). Pure
+    numbers + conditional setups; no prose.
 
     When ``store`` is a SQLite-backed Store, this session's levels are recorded to
     ``level_history`` (building the cross-session memory) and durable levels are
-    read back from history and folded into the scaffold."""
+    read back from history and folded into the scaffold. Per-underlying data
+    symbols + price-scale constants come from the underlyings registry."""
+    from . import underlyings as _u
+    cfg = _u.get(underlying)
+    key = underlying.upper() if underlying else "SPX"
+    scale = {"round_step": cfg["round_step"], "cluster_tol": cfg["cluster_tol"]}
     today = today or _dt.date.today()
     nxt = _next_session(today)
-    bundle = sb.pull_all(today.isoformat(), nxt.isoformat(), store=store)
+    bundle = sb.pull_all(today.isoformat(), nxt.isoformat(), store=store,
+                         gex_symbol=cfg["gex_symbol"])
 
-    spx15 = _fetch_15m("^GSPC")
-    spy15 = _fetch_15m("SPY")
-    spyvol = {t: float(v) for t, v in zip(spy15.index, spy15["Volume"])} if spy15 is not None and not spy15.empty else {}
+    bars = _fetch_15m(cfg["bar_symbol"])
+    if cfg["self_proxy"]:
+        # ETF bars carry their own volume; no SPY-volume trick needed.
+        vol_by_ts = ({t: float(v) for t, v in zip(bars.index, bars["Volume"])}
+                     if bars is not None and not bars.empty and "Volume" in bars else {})
+    else:
+        spy15 = _fetch_15m("SPY")   # SPX index has no volume — borrow SPY's
+        vol_by_ts = ({t: float(v) for t, v in zip(spy15.index, spy15["Volume"])}
+                     if spy15 is not None and not spy15.empty else {})
+    spx15 = bars   # keep the local name the rest of the body uses
 
-    chart = _chart_dimensions(spx15, spyvol)
+    chart = _chart_dimensions(spx15, vol_by_ts, scale=scale)
     opex = opex_layer(today)
     vol_edge = gex_regime_vol_edge(bundle.get("gex_history", []), spx15)
     edges = day_time_edges(spx15)
-    ladder = build_level_ladder(bundle["gex"], chart)
-    setups = build_setups(bundle["gex"], chart, bundle["catalysts"], opex)
+    ladder = build_level_ladder(bundle["gex"], chart, scale=scale)
+    setups = build_setups(bundle["gex"], chart, bundle["catalysts"], opex,
+                          label=cfg["label"])
 
     gex = bundle["gex"]
     mc = bundle["market_context"]
@@ -796,9 +818,9 @@ def build_playbook(today: _dt.date | None = None, store: Any = None) -> dict:
                     day = {"high": round(float(td["High"].max()), 2),
                            "low": round(float(td["Low"].min()), 2),
                            "close": round(float(td["Close"].iloc[-1]), 2)}
-            store.record_levels(today.isoformat(), "SPX",
+            store.record_levels(today.isoformat(), key,
                                 session_levels_for_history(chart, gex), day=day)
-            hist = store.load_level_history("SPX")
+            hist = store.load_level_history(key)
             durable = build_durable_levels(hist, spot)
         except Exception:  # noqa: BLE001 — memory is additive, not load-bearing
             durable = []
@@ -806,7 +828,8 @@ def build_playbook(today: _dt.date | None = None, store: Any = None) -> dict:
     confluence = build_confluence(ladder, spot)
     table = build_table(ladder, confluence, gex, chart, regime, durable)
     return {
-        "symbol": "SPX",
+        "symbol": key,
+        "proxy": cfg["proxy_symbol"],
         "session": nxt.isoformat(),
         "generated_for": today.isoformat(),
         "regime": regime,
@@ -827,8 +850,8 @@ def build_playbook(today: _dt.date | None = None, store: Any = None) -> dict:
         "missing": bundle["missing"],
         "caveats": [
             "The dealer-gamma (GEX) read is computed from overnight open interest and is "
-            "BLIND to 0DTE positioning — roughly half of SPX option volume. Treat it as "
-            "context, not a guarantee.",
+            f"BLIND to 0DTE positioning — roughly half of {cfg['label']} option volume. Treat "
+            "it as context, not a guarantee.",
             "Context for reading the tape, NOT a signal (ADR-008). Places no orders "
             "(ADR-010). Not financial advice.",
         ],
@@ -843,11 +866,13 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Daily 0DTE SPX playbook scaffold (reads Sentinel intel + SPX 15m "
                     "bars; writes the playbook to the store). Context, not a signal.")
     p.add_argument("--data-dir", help="override the data directory")
+    p.add_argument("--symbol", default="SPX",
+                   help="underlying: SPX (default) | QQQ | IWM")
     p.add_argument("--as-of", help="ISO date to generate for (default: today ET)")
     p.add_argument("--dry-run", action="store_true", help="print the scaffold, write nothing")
     p.add_argument("--backfill-days", type=int, metavar="N",
                    help="seed level_history with ~N days of price-based levels "
-                        "recomputed from historical SPX bars, then exit")
+                        "recomputed from historical bars, then exit")
     return p
 
 
@@ -859,19 +884,24 @@ def main(argv: list[str] | None = None) -> int:
     from .store import Store
     store = Store(data_dir)
 
+    from . import underlyings as _u
+    cfg = _u.get(args.symbol)
+    key = args.symbol.upper()
+
     if args.backfill_days:
         if not getattr(store, "uses_sqlite", False):
             print("--backfill-days requires the SQLite backend (a vantage.db)")
             return EXIT_USER_ERROR
-        n = backfill_price_levels(store, days=args.backfill_days, until=today)
-        print(f"seeded level_history with {n} level rows across the last "
+        n = backfill_price_levels(store, days=args.backfill_days, until=today,
+                                  symbol=cfg["bar_symbol"], record_as=key)
+        print(f"seeded {key} level_history with {n} level rows across the last "
               f"~{args.backfill_days} days")
         return EXIT_OK
 
-    scaffold = build_playbook(today, store=store)
+    scaffold = build_playbook(today, store=store, underlying=key)
 
     reg = scaffold["regime"]
-    print(f"SPX 0DTE playbook for {scaffold['session']} "
+    print(f"{key} 0DTE playbook for {scaffold['session']} "
           f"(gamma {reg['gamma']}, spot {reg['spot']}, VIX {reg['vix']}):")
     for r in scaffold["level_ladder"]:
         print(f"  {r['price']:>8.1f}  {r['kind']}")
@@ -885,8 +915,8 @@ def main(argv: list[str] | None = None) -> int:
         print("[dry-run] nothing written")
         return EXIT_OK
 
-    store.upsert_spx_playbook(scaffold["generated_for"], scaffold)
-    print(f"wrote SPX playbook for {scaffold['generated_for']} to the store")
+    store.upsert_spx_playbook(scaffold["generated_for"], scaffold, symbol=key)
+    print(f"wrote {key} playbook for {scaffold['generated_for']} to the store")
     path = write_pine_file(scaffold)
     if path:
         print(f"wrote Pine indicator to {path}")
@@ -908,7 +938,8 @@ def _fetch_daily_range(symbol: str, days: int):
 
 
 def backfill_price_levels(store, days: int = 90, until: _dt.date | None = None,
-                          symbol: str = "^GSPC", window: int = 20) -> int:
+                          symbol: str = "^GSPC", window: int = 20,
+                          record_as: str = "SPX") -> int:
     """Seed ``level_history`` with PRICE-based durable levels recomputed per
     historical session from daily SPX bars. For each session in the window we
     take the trailing ``window`` daily bars and derive: fractal S/R shelves (with
@@ -953,7 +984,7 @@ def backfill_price_levels(store, days: int = 90, until: _dt.date | None = None,
                        "kind": "swing low", "source": "chart"})
         day = {"high": round(float(H[i]), 2), "low": round(float(L[i]), 2),
                "close": round(float(C[i]), 2)}
-        written += store.record_levels(d.isoformat(), "SPX", levels, day=day)
+        written += store.record_levels(d.isoformat(), record_as, levels, day=day)
     return written
 
 
@@ -974,9 +1005,11 @@ def write_pine_file(scaffold: dict) -> str | None:
     else:
         # server/vantage_server/spx_playbook.py -> repo root is 3 parents up
         base = Path(__file__).resolve().parents[2] / "pine"
+    sym = (scaffold.get("symbol") or "SPX").lower()
+    fname = "spx_playbook.pine" if sym == "spx" else f"{sym}_playbook.pine"
     try:
         base.mkdir(parents=True, exist_ok=True)
-        out = base / "spx_playbook.pine"
+        out = base / fname
         out.write_text(script, encoding="utf-8")
         return str(out)
     except OSError:

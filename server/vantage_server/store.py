@@ -935,72 +935,74 @@ class Store:
 
     # ── SPX 0DTE playbook (single latest, SQLite-only like the notebook) ──────
 
-    def upsert_spx_playbook(self, day: str, scaffold: dict, narrative=None) -> None:
-        """Insert/replace the SPX playbook scaffold (+ optional narrative) for a day."""
+    def upsert_spx_playbook(self, day: str, scaffold: dict, narrative=None,
+                            symbol: str = "SPX") -> None:
+        """Insert/replace the playbook scaffold (+ optional narrative) for a
+        (day, underlying). ``symbol`` keys the row so SPX/QQQ/IWM coexist."""
         if not self.uses_sqlite:
             raise RuntimeError("upsert_spx_playbook requires the SQLite backend")
         with self._sqlite_txn() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO spx_playbook(date, session, scaffold, narrative) "
-                "VALUES(?,?,?,?)",
-                (day, scaffold.get("session"), _db.dumps(scaffold),
+                "INSERT OR REPLACE INTO spx_playbook(date, symbol, session, scaffold, narrative) "
+                "VALUES(?,?,?,?,?)",
+                (day, symbol, scaffold.get("session"), _db.dumps(scaffold),
                  _db.dumps(narrative) if narrative is not None else None),
             )
 
-    def load_spx_playbook(self, day: str | None = None) -> dict | None:
-        """The playbook for ``day`` (latest when None), or None. Returns
-        ``{date, session, scaffold, narrative}`` with parsed JSON."""
+    @staticmethod
+    def _playbook_row(row) -> dict:
+        return {
+            "date": row["date"],
+            "symbol": row["symbol"] if "symbol" in row.keys() else "SPX",
+            "session": row["session"],
+            "scaffold": _db.loads(row["scaffold"], {}),
+            "narrative": _db.loads(row["narrative"], None) if row["narrative"] else None,
+        }
+
+    def load_spx_playbook(self, day: str | None = None,
+                          symbol: str = "SPX") -> dict | None:
+        """The playbook for ``(day, symbol)`` (latest for that symbol when day is
+        None), or None. Returns ``{date, symbol, session, scaffold, narrative}``."""
         if not self.uses_sqlite:
             return None
         conn = self._backend._conn()
         try:
             if day is None:
                 row = conn.execute(
-                    "SELECT * FROM spx_playbook ORDER BY date DESC LIMIT 1").fetchone()
+                    "SELECT * FROM spx_playbook WHERE symbol=? "
+                    "ORDER BY date DESC LIMIT 1", (symbol,)).fetchone()
             else:
                 row = conn.execute(
-                    "SELECT * FROM spx_playbook WHERE date=?", (day,)).fetchone()
+                    "SELECT * FROM spx_playbook WHERE date=? AND symbol=?",
+                    (day, symbol)).fetchone()
         finally:
             conn.close()
-        if row is None:
-            return None
-        return {
-            "date": row["date"],
-            "session": row["session"],
-            "scaffold": _db.loads(row["scaffold"], {}),
-            "narrative": _db.loads(row["narrative"], None) if row["narrative"] else None,
-        }
+        return self._playbook_row(row) if row is not None else None
 
-    def load_spx_playbook_before(self, day: str) -> dict | None:
-        """The most recent playbook strictly BEFORE ``day`` (i.e. last night's /
-        the prior session's), or None. Same shape as ``load_spx_playbook``."""
+    def load_spx_playbook_before(self, day: str, symbol: str = "SPX") -> dict | None:
+        """The most recent ``symbol`` playbook strictly BEFORE ``day`` (last
+        night's / the prior session's), or None."""
         if not self.uses_sqlite:
             return None
         conn = self._backend._conn()
         try:
             row = conn.execute(
-                "SELECT * FROM spx_playbook WHERE date < ? "
-                "ORDER BY date DESC LIMIT 1", (day,)).fetchone()
+                "SELECT * FROM spx_playbook WHERE date < ? AND symbol=? "
+                "ORDER BY date DESC LIMIT 1", (day, symbol)).fetchone()
         finally:
             conn.close()
-        if row is None:
-            return None
-        return {
-            "date": row["date"],
-            "session": row["session"],
-            "scaffold": _db.loads(row["scaffold"], {}),
-            "narrative": _db.loads(row["narrative"], None) if row["narrative"] else None,
-        }
+        return self._playbook_row(row) if row is not None else None
 
-    def save_spx_playbook_narrative(self, day: str, narrative) -> bool:
-        """Attach the LLM narrative to an existing playbook row (lazy-fill on read).
-        Returns True if a row was updated."""
+    def save_spx_playbook_narrative(self, day: str, narrative,
+                                    symbol: str = "SPX") -> bool:
+        """Attach the LLM narrative to an existing (day, symbol) playbook row
+        (lazy-fill on read). Returns True if a row was updated."""
         if not self.uses_sqlite:
             return False
         with self._sqlite_txn() as conn:
             cur = conn.execute(
-                "UPDATE spx_playbook SET narrative=? WHERE date=?",
-                (_db.dumps(narrative), day))
+                "UPDATE spx_playbook SET narrative=? WHERE date=? AND symbol=?",
+                (_db.dumps(narrative), day, symbol))
             return cur.rowcount > 0
 
     # ── durable level memory (SQLite-only) ───────────────────────────────────
