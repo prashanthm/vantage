@@ -940,6 +940,7 @@ export function mapFuturesAnalysis(p) {
     recommendations: p.recommendations || { rules: [], coaching: [], watch: [] },
     reconciliation: p.reconciliation || {},
     roundtrips: Array.isArray(p.roundtrips) ? p.roundtrips : [],
+    projection: p.projection || { available: false },
     tzNote: p.tz_note || "",
   };
 }

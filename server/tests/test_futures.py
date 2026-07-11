@@ -32,6 +32,57 @@ def test_normalize_symbol_unknown_root_raises():
         fut.normalize_symbol("F.US.ESZ26")   # ES not in our map — must fail loud
 
 
+# ------------------------------------------------------------ ETF -> future projection
+
+def _etf_scaffold(spot=500.0):
+    return {
+        "regime": {"spot": spot, "gamma": "positive"},
+        "confluence": [
+            {"lo": 504.0, "hi": 506.0, "price": 505.0, "role": "resistance",
+             "kinds": ["call wall"], "strength": 2},
+            {"lo": 494.0, "hi": 496.0, "price": 495.0, "role": "support",
+             "kinds": ["put wall"], "strength": 2},
+        ],
+        "table": {"rows": [
+            {"price": 505.0, "label": "call wall", "role": "resistance",
+             "expect": "sell rallies", "key": "A"},
+            {"price": 495.0, "label": "put wall", "role": "support",
+             "expect": "buy dips", "key": "B"},
+        ]},
+    }
+
+
+def test_projection_rescales_etf_levels_to_futures_points():
+    from vantage_server import futures_projection as fp
+    p = fp.project_levels("NQ", _etf_scaffold(500.0), ratio=41.0)
+    assert p["available"] and p["contract"] == "NQ" and p["etf"] == "QQQ"
+    assert p["spot"] == 20500.0                       # 500 * 41
+    res = next(z for z in p["zones"] if z["role"] == "resistance")
+    assert res["price"] == 20705.0                    # 505 * 41
+    lvl_b = next(l for l in p["levels"] if l["key"] == "B")
+    assert lvl_b["price"] == 20295.0 and lvl_b["expect"] == "buy dips"
+
+
+def test_projection_maps_contracts_to_etfs():
+    from vantage_server import futures_projection as fp
+    assert fp.future_etf("NQ") == "QQQ" and fp.future_etf("MNQ") == "QQQ"
+    assert fp.future_etf("RTY") == "IWM" and fp.future_etf("M2K") == "IWM"
+    assert fp.future_etf("ES") is None               # unmapped
+
+
+def test_projection_unavailable_without_ratio_or_scaffold(monkeypatch):
+    from vantage_server import futures_projection as fp
+    # no live ratio available → projection unavailable (network stubbed out)
+    monkeypatch.setattr(fp, "_future_last", lambda c: None)
+    assert fp.project_levels("NQ", _etf_scaffold()).get("available") is not True
+    # no scaffold → unavailable regardless of ratio
+    assert fp.project_levels("NQ", {}, ratio=41.0).get("available") is False
+
+
+def test_rty_point_values_registered():
+    assert fut.POINT_VALUES["RTY"] == 50.0 and fut.POINT_VALUES["M2K"] == 5.0
+
+
 # ------------------------------------------------------------ parse by header NAME
 
 _FILLED = (

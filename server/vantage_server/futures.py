@@ -40,10 +40,10 @@ class FuturesError(Exception):
 
 # ── contract normalization ───────────────────────────────────────────────────
 
-#: normalized contract -> dollars per 1.00 index point (E-mini NQ vs Micro NQ).
-POINT_VALUES = {"NQ": 20.0, "MNQ": 2.0}
+#: normalized contract -> dollars per 1.00 index point (E-mini vs Micro).
+POINT_VALUES = {"NQ": 20.0, "MNQ": 2.0, "RTY": 50.0, "M2K": 5.0}
 #: CQG root -> our normalized contract.
-_ROOT_MAP = {"ENQ": "NQ", "MNQ": "MNQ"}
+_ROOT_MAP = {"ENQ": "NQ", "MNQ": "MNQ", "RTY": "RTY", "M2K": "M2K"}
 #: CME month letter -> month number.
 _MONTH_CODE = {"F": 1, "G": 2, "H": 3, "J": 4, "K": 5, "M": 6,
                "N": 7, "Q": 8, "U": 9, "V": 10, "X": 11, "Z": 12}

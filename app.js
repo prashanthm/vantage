@@ -825,6 +825,7 @@
       recommendations: p.recommendations || { rules: [], coaching: [], watch: [] },
       reconciliation: p.reconciliation || {},
       roundtrips: Array.isArray(p.roundtrips) ? p.roundtrips : [],
+      projection: p.projection || { available: false },
       tzNote: p.tz_note || ""
     };
   }
@@ -2030,6 +2031,7 @@
     const recs = a && a.recommendations || { rules: [], coaching: [], watch: [] };
     const ob = a && a.orderBehavior || {};
     const baseline = a && a.baselineWinRate;
+    const proj = a && a.projection || { available: false };
     const byDim = {};
     for (const b of a && a.buckets || []) {
       if (b.dimension === "__baseline__") continue;
@@ -2086,7 +2088,14 @@
         value: `${risk.median_hold_min}m`,
         note: risk.longest_loser_hold_min ? `longest loser held ${Math.round(risk.longest_loser_hold_min)}m` : ""
       }
-    ))), recs.watch && recs.watch.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Next-session watch (generic NQ playbook)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, marginTop: 6, fontSize: 13, lineHeight: 1.5 } }, recs.watch.map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: i === recs.watch.length - 1 ? "vg-note" : "" }, w.text)))), DIM_ORDER.filter((d) => byDim[d] && byDim[d].length).map((d) => /* @__PURE__ */ React.createElement("details", { key: d, className: "vg-card", open: d === "exit_type" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, DIM_LABEL[d] || d), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, byDim[d].sort((x, y) => y.n - x.n).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+    ))), recs.watch && recs.watch.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Next-session watch (generic NQ playbook)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 4, marginTop: 6, fontSize: 13, lineHeight: 1.5 } }, recs.watch.map((w, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: i === recs.watch.length - 1 ? "vg-note" : "" }, w.text)))), proj.available && (proj.zones || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, proj.contract, " levels \u2014 from the ", proj.etf, " 0DTE playbook (\xD7", proj.ratio, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, proj.zones.sort((x, y) => (y.price || 0) - (x.price || 0)).map((z, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        className: cls("vg-badge", z.role === "resistance" ? "bad" : z.role === "support" ? "good" : "plain"),
+        style: { minWidth: 74, textAlign: "center" }
+      },
+      z.role
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontVariantNumeric: "tabular-nums" } }, Math.round(z.lo), "\u2013", Math.round(z.hi)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, (z.kinds || []).join(" \xB7 "))))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, marginTop: 6, lineHeight: 1.5 } }, proj.note)), DIM_ORDER.filter((d) => byDim[d] && byDim[d].length).map((d) => /* @__PURE__ */ React.createElement("details", { key: d, className: "vg-card", open: d === "exit_type" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, DIM_LABEL[d] || d), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, byDim[d].sort((x, y) => y.n - x.n).map((b, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", b.win_rate >= (baseline || 0.5) ? "good" : "bad"),

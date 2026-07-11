@@ -333,7 +333,13 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                                  "or POST /api/futures/import.")
         analysis = _fut.analysis_from_store(store, contract=contract,
                                             with_alignment=alignment)
-        return envelope(snap, available=True, contract=contract, **analysis)
+        # forward projection: today's ETF 0DTE levels rescaled into this contract's
+        # futures points (NQ<-QQQ, RTY<-IWM). Reference/context only (ADR-010).
+        from . import futures_projection as _fp
+        proj_contract = (contract or "NQ").upper()
+        projection = _fp.project_for_store(store, proj_contract)
+        return envelope(snap, available=True, contract=contract,
+                        projection=projection, **analysis)
 
     @app.post("/api/futures/import")
     def futures_import(body: dict = Body(default={})):

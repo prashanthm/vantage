@@ -92,6 +92,7 @@ export function FuturesView({ refreshNonce }) {
   const recs = (a && a.recommendations) || { rules: [], coaching: [], watch: [] };
   const ob = (a && a.orderBehavior) || {};
   const baseline = a && a.baselineWinRate;
+  const proj = (a && a.projection) || { available: false };
 
   const byDim = {};
   for (const b of (a && a.buckets) || []) {
@@ -197,6 +198,32 @@ export function FuturesView({ refreshNonce }) {
             {recs.watch.map((w, i) => (
               <div key={i} className={i === recs.watch.length - 1 ? "vg-note" : ""}>{w.text}</div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* projected 0DTE levels from the ETF playbook (NQ<-QQQ, RTY<-IWM) */}
+      {proj.available && (proj.zones || []).length > 0 && (
+        <div className="vg-card">
+          <div className="vg-kicker">
+            {proj.contract} levels — from the {proj.etf} 0DTE playbook (×{proj.ratio})
+          </div>
+          <div className="vg-pb-ladder" style={{ marginTop: 6 }}>
+            {proj.zones.sort((x, y) => (y.price || 0) - (x.price || 0)).map((z, i) => (
+              <div key={i} className="vg-pb-lvl">
+                <span className={cls("vg-badge", z.role === "resistance" ? "bad" : z.role === "support" ? "good" : "plain")}
+                  style={{ minWidth: 74, textAlign: "center" }}>{z.role}</span>
+                <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                  {Math.round(z.lo)}–{Math.round(z.hi)}
+                </span>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                  {(z.kinds || []).join(" · ")}
+                </span>
+              </div>
+            ))}
+          </div>
+          <div className="vg-note" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+            {proj.note}
           </div>
         </div>
       )}
