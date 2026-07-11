@@ -134,7 +134,7 @@ export function PaperView({ refreshNonce }) {
                   {t.reward_risk != null && <> · <Term k="reward_risk">R:R</Term> {t.reward_risk}</>}
                   {" · "}~{px(t.ref_strike)} 0DTE
                   {t.otm_strike != null && <> · ~{px(t.otm_strike)} OTM</>}
-                  {t.spx_level ? ` · SPX ${Math.round(t.spx_level)}` : ""}
+                  {t.spx_level ? ` · ${t.underlying || "SPX"} ${Math.round(t.spx_level)}` : ""}
                 </div>
                 {(t.freshness_note || t.trend_note || t.otm_note) && (
                   <div className="vg-note" style={{ fontSize: 11, marginTop: 2, opacity: 0.85 }}>
