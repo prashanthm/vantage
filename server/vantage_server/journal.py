@@ -65,8 +65,10 @@ def forecast_from_scaffold(scaffold: dict) -> dict:
     }
 
 
-def pick_forecast(store: Store, day: str, kind: str = "prior") -> tuple[dict, dict, str]:
-    """Choose which playbook forecast to freeze into a new journal entry.
+def pick_forecast(store: Store, day: str, kind: str = "prior",
+                  symbol: str = "SPX") -> tuple[dict, dict, str]:
+    """Choose which playbook forecast to freeze into a new journal entry, for the
+    given ``symbol`` (SPX | QQQ | IWM).
 
     ``kind="prior"`` (default) freezes LAST NIGHT'S / the prior session's playbook
     — so the entry compares "yesterday's levels vs today's action". Falls back to
@@ -78,12 +80,12 @@ def pick_forecast(store: Store, day: str, kind: str = "prior") -> tuple[dict, di
     row = None
     resolved = kind
     if kind == "prior":
-        row = store.load_spx_playbook_before(day)
+        row = store.load_spx_playbook_before(day, symbol)
         if row is None:  # no earlier session — fall back to whatever's live
-            row = store.load_spx_playbook()
+            row = store.load_spx_playbook(symbol=symbol)
             resolved = "live"
     else:
-        row = store.load_spx_playbook()
+        row = store.load_spx_playbook(symbol=symbol)
         resolved = "live"
     scaffold = (row or {}).get("scaffold") or {}
     forecast = forecast_from_scaffold(scaffold) if scaffold else {}
@@ -214,15 +216,24 @@ def score_forecast(forecast: dict, price_low: float, price_high: float,
     }
 
 
-def score_snapshot(snap: dict, symbol: str = "^GSPC") -> dict | None:
+def _bar_symbol_for(underlying: str | None) -> str:
+    """Map a journal snapshot's stored underlying (SPX | QQQ | IWM) to the
+    yfinance bar symbol its price action is scored against."""
+    from . import underlyings as _u
+    return _u.get(underlying)["bar_symbol"]
+
+
+def score_snapshot(snap: dict, symbol: str | None = None) -> dict | None:
     """Compute the scorecard for one snapshot against price action.
 
     Scores against the FULL RTH session of the snapshot's day (open→close), so
     opening the page midday or after the close still reads the whole session, not
-    just bars printed after you looked. Returns the scorecard, or None if no bars
-    fall on that day yet."""
+    just bars printed after you looked. The bar symbol is derived from the
+    snapshot's own underlying (SPX→^GSPC, QQQ→QQQ, IWM→IWM) unless ``symbol`` is
+    given explicitly. Returns the scorecard, or None if no bars that day yet."""
+    bar_sym = symbol or _bar_symbol_for(snap.get("symbol"))
     day = (snap.get("created_at") or "")[:10]
-    rng = _price_range_for_day(symbol, day) if day else None
+    rng = _price_range_for_day(bar_sym, day) if day else None
     if rng is None:
         return None
     low, high, last, n = rng
@@ -232,13 +243,14 @@ def score_snapshot(snap: dict, symbol: str = "^GSPC") -> dict | None:
     return sc
 
 
-def score_all_open(store: Store, symbol: str = "^GSPC") -> dict:
-    """(Re)score every snapshot that has bars since capture. Returns counts."""
+def score_all_open(store: Store, symbol: str | None = None) -> dict:
+    """(Re)score every snapshot that has bars since capture, each against its own
+    underlying's bars. Returns counts."""
     snaps = store.load_journal_snapshots()
     now = _dt.datetime.now(ET).isoformat()
     scored = 0
     for s in snaps:
-        sc = score_snapshot(s, symbol)
+        sc = score_snapshot(s, symbol)   # symbol=None → per-snapshot underlying
         if sc and store.update_journal_scorecard(s["id"], sc, now):
             scored += 1
     return {"snapshots": len(snaps), "scored": scored}
@@ -264,50 +276,67 @@ def journal_accuracy(snaps: list[dict]) -> dict:
     }
 
 
-def ensure_today_entry(store: Store, symbol: str = "^GSPC") -> dict:
-    """Make sure a journal entry exists for TODAY, then keep it current.
+def ensure_today_entry(store: Store, underlying: str = "SPX") -> dict:
+    """Make sure a journal entry exists for TODAY for ``underlying``, then keep it
+    current.
 
     On the first open of a trading day this auto-creates one entry (idempotent —
-    one per day) freezing LAST NIGHT'S forecast, so you arrive to a ready row and
-    just drop your chart + log what you did. On every open it re-scores today's
-    entry against live price (until the day's bars stop printing), so the
-    "today's action" column stays fresh. Store/disk-only writes (ADR-010).
+    one per underlying per day) freezing LAST NIGHT'S forecast, so you arrive to a
+    ready row and just drop your chart + log what you did. On every open it
+    re-scores today's entry against live price (until the day's bars stop
+    printing). Store/disk-only writes (ADR-010).
 
     Returns ``{created: bool, id, rescored: bool}``."""
     if not getattr(store, "uses_sqlite", False):
         return {"created": False, "id": None, "rescored": False}
+    key = (underlying or "SPX").upper()
     now = _dt.datetime.now(ET)
     today = now.date().isoformat()
-    existing = store.load_journal_snapshot_for_day(today)
+    existing = store.load_journal_snapshot_for_day(today, key)
     created = False
     if existing is None:
-        scaffold, forecast, resolved = pick_forecast(store, today, "prior")
+        scaffold, forecast, resolved = pick_forecast(store, today, "prior", key)
         sid = store.record_journal_snapshot({
             "created_at": now.isoformat(),
             "session": forecast.get("session") or scaffold.get("session"),
-            "symbol": "SPX", "image_path": None, "image_mime": None, "note": None,
+            "symbol": key, "image_path": None, "image_mime": None, "note": None,
             "spot_at_snap": (scaffold.get("regime") or {}).get("spot"),
             "forecast": forecast, "forecast_kind": resolved,
         })
         created = True
         existing = store.load_journal_snapshot(sid)
-    # re-score today's entry against live price (no-op if no bars yet)
+    # re-score today's entry against its own underlying's live price
     rescored = False
     if existing:
-        sc = score_snapshot(existing, symbol)
+        sc = score_snapshot(existing)   # bar symbol derived from the snapshot
         if sc and store.update_journal_scorecard(existing["id"], sc, now.isoformat()):
             rescored = True
     return {"created": created, "id": existing["id"] if existing else None,
             "rescored": rescored}
 
 
-def build_journal(store: Store) -> dict:
-    """The full journal view: every snapshot (metadata + forecast + scorecard) and
-    the running accuracy. Image bytes are served separately via the image route."""
-    snaps = store.load_journal_snapshots()
+def ensure_all_underlyings(store: Store) -> list[dict]:
+    """Ensure today's entry for every tracked underlying (SPX/QQQ/IWM). Best-
+    effort per underlying so one bad symbol can't block the others."""
+    from . import underlyings as _u
+    out = []
+    for key in _u.UNDERLYING_KEYS:
+        try:
+            out.append({"symbol": key, **ensure_today_entry(store, key)})
+        except Exception:  # noqa: BLE001 — additive, never block the journal
+            out.append({"symbol": key, "created": False, "id": None, "rescored": False})
+    return out
+
+
+def build_journal(store: Store, symbol: str | None = None) -> dict:
+    """The journal view for ``symbol`` (all underlyings when None): every snapshot
+    (metadata + forecast + scorecard) and the running accuracy. Image bytes are
+    served separately via the image route."""
+    snaps = store.load_journal_snapshots(symbol)
     return {
         "snapshots": snaps,
         "accuracy": journal_accuracy(snaps),
+        "symbol": symbol,
         "note": ("Each entry pairs a playbook forecast (last night's by default) "
                  "with what price actually did; today's entry is created for you "
                  "and re-scored on open. Journal/analysis only — no orders (ADR-010)."),

@@ -1309,15 +1309,21 @@ class Store:
                  snap.get("entry_updated_at")))
             return int(cur.lastrowid)
 
-    def load_journal_snapshots(self) -> list[dict]:
-        """All journal snapshots, newest first, with forecast/scorecard parsed."""
+    def load_journal_snapshots(self, symbol: str | None = None) -> list[dict]:
+        """Journal snapshots, newest first, with forecast/scorecard parsed. When
+        ``symbol`` is given, only that underlying's entries (else all)."""
         if not self.uses_sqlite:
             return []
         conn = self._backend._conn()
         try:
-            rows = conn.execute(
-                "SELECT * FROM journal_snapshots ORDER BY created_at DESC, id DESC"
-            ).fetchall()
+            if symbol is None:
+                rows = conn.execute(
+                    "SELECT * FROM journal_snapshots ORDER BY created_at DESC, id DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM journal_snapshots WHERE symbol=? "
+                    "ORDER BY created_at DESC, id DESC", (symbol,)).fetchall()
         finally:
             conn.close()
         out = []
@@ -1329,17 +1335,18 @@ class Store:
             out.append(d)
         return out
 
-    def load_journal_snapshot_for_day(self, day: str) -> dict | None:
-        """The most recent auto/day snapshot whose created_at falls on ``day``
-        (YYYY-MM-DD), or None. Used to keep the daily entry idempotent — one per
-        trading day."""
+    def load_journal_snapshot_for_day(self, day: str,
+                                      symbol: str = "SPX") -> dict | None:
+        """The most recent auto/day snapshot for ``(day, symbol)``, or None. Keys
+        the daily-entry idempotency per underlying so SPX/QQQ/IWM each get one."""
         if not self.uses_sqlite:
             return None
         conn = self._backend._conn()
         try:
             row = conn.execute(
-                "SELECT * FROM journal_snapshots WHERE substr(created_at,1,10)=? "
-                "ORDER BY id DESC LIMIT 1", (day,)).fetchone()
+                "SELECT * FROM journal_snapshots "
+                "WHERE substr(created_at,1,10)=? AND symbol=? "
+                "ORDER BY id DESC LIMIT 1", (day, symbol)).fetchone()
         finally:
             conn.close()
         if not row:

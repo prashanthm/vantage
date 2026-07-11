@@ -179,6 +179,44 @@ def test_ensure_today_is_idempotent(tmp_path, monkeypatch):
     assert len(store.load_journal_snapshots()) == 1    # still just one
 
 
+def test_ensure_today_per_underlying(tmp_path, monkeypatch):
+    """Each underlying gets its OWN daily entry (idempotent per (day, symbol)) —
+    SPX, QQQ, IWM don't suppress each other."""
+    store = _sqlite_store(tmp_path)
+    for sym, spot in [("SPX", 7500.0), ("QQQ", 500.0), ("IWM", 220.0)]:
+        sc = _scaffold(); sc["session"] = "2000-01-03"; sc["regime"]["spot"] = spot
+        store.upsert_spx_playbook("2000-01-03", sc, symbol=sym)
+    monkeypatch.setattr(j, "score_snapshot", lambda snap, symbol=None: None)
+
+    res = j.ensure_all_underlyings(store)
+    assert all(r["created"] for r in res)               # all three created
+    assert len(store.load_journal_snapshots()) == 3
+    # each entry froze its own underlying's forecast + is tagged with its symbol
+    by_sym = {s["symbol"]: s for s in store.load_journal_snapshots()}
+    assert by_sym["QQQ"]["forecast"]["spot"] == 500.0
+    assert by_sym["IWM"]["forecast"]["spot"] == 220.0
+    # re-open: no duplicates per underlying
+    res2 = j.ensure_all_underlyings(store)
+    assert not any(r["created"] for r in res2)
+    assert len(store.load_journal_snapshots()) == 3
+    # symbol-filtered view returns just that underlying
+    assert len(j.build_journal(store, "QQQ")["snapshots"]) == 1
+
+
+def test_score_snapshot_bar_symbol_from_underlying(monkeypatch):
+    """score_snapshot derives the bar symbol from the snapshot's own underlying
+    (QQQ→QQQ, not the SPX default)."""
+    seen = {}
+    def fake_range(sym, day):
+        seen["sym"] = sym
+        return (498.0, 505.0, 503.0, 10)
+    monkeypatch.setattr(j, "_price_range_for_day", fake_range)
+    snap = {"symbol": "QQQ", "created_at": "2026-07-10T09:35:00-04:00",
+            "forecast": {"levels": []}, "spot_at_snap": 500.0}
+    sc = j.score_snapshot(snap)
+    assert seen["sym"] == "QQQ" and sc["price_high"] == 505.0
+
+
 def test_ensure_today_rescores(tmp_path, monkeypatch):
     """On open, today's entry is re-scored against a (stubbed) price read."""
     store = _sqlite_store(tmp_path)

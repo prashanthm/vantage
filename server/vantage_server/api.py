@@ -416,16 +416,17 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         **_paper.build_analysis(store, (row or {}).get("scaffold") if row else None))
 
     @app.get("/api/journal")
-    def journal_view():
-        """The chart-snapshot journal: every saved chart image (metadata + the
-        forecast that was live when captured + the forecast-vs-outcome scorecard)
-        and the running accuracy. Image bytes served via /api/journal/image/{id}.
-        Journal/analysis only — no orders (ADR-010)."""
+    def journal_view(symbol: str | None = Query(None)):
+        """The chart-snapshot journal for ``symbol`` (SPX|QQQ|IWM; all when
+        omitted): each saved chart (metadata + the forecast live when captured +
+        the forecast-vs-outcome scorecard) and the running accuracy. Image bytes
+        served via /api/journal/image/{id}. Journal/analysis only (ADR-010)."""
         from . import journal as _j
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="SQLite backend required.")
-        return envelope(snap, available=True, **_j.build_journal(store))
+        sym = symbol.upper() if symbol else None
+        return envelope(snap, available=True, **_j.build_journal(store, sym))
 
     @app.post("/api/journal/upload")
     async def journal_upload(image: UploadFile = File(default=None),
@@ -472,33 +473,39 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         pass
                 store.update_journal_image(int(attach_to), fname, mime)
             return envelope(snap, available=True, id=int(attach_to),
-                            **_j.build_journal(store))
+                            **_j.build_journal(store, (row.get("symbol") or "SPX")))
 
         # otherwise: a fresh entry freezing the chosen forecast (prior by default)
+        sym = (symbol or "SPX").upper()
         scaffold, forecast, resolved = _j.pick_forecast(
-            store, today, "live" if forecast_kind == "live" else "prior")
+            store, today, "live" if forecast_kind == "live" else "prior", sym)
         sid = store.record_journal_snapshot({
             "created_at": now.isoformat(),
             "session": forecast.get("session") or (scaffold.get("session")),
-            "symbol": symbol, "image_path": fname,
+            "symbol": sym, "image_path": fname,
             "image_mime": mime, "note": note,
             "spot_at_snap": (scaffold.get("regime") or {}).get("spot"),
             "forecast": forecast, "forecast_kind": resolved,
         })
-        return envelope(snap, available=True, id=sid, **_j.build_journal(store))
+        return envelope(snap, available=True, id=sid, **_j.build_journal(store, sym))
 
     @app.post("/api/journal/ensure_today")
     def journal_ensure_today(body: dict = Body(default={})):
-        """Ensure today's journal entry exists (auto-create, freezing last night's
-        forecast — idempotent, one per day) and re-score it against live price.
-        The Journal page calls this on open so you arrive to a ready, current row.
-        Store/disk-only writes (ADR-010)."""
+        """Ensure today's journal entry exists for the requested underlying, or for
+        ALL of them (SPX/QQQ/IWM) when no ``symbol`` is given — auto-create freezing
+        last night's forecast (idempotent, one per underlying per day) and re-score
+        against live price. The Journal page calls this on open. ADR-010."""
         from . import journal as _j
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="SQLite backend required.")
-        res = _j.ensure_today_entry(store)
-        return envelope(snap, available=True, ensured=res, **_j.build_journal(store))
+        sym = ((body or {}).get("symbol") or "").upper() or None
+        if sym:
+            res = _j.ensure_today_entry(store, sym)
+        else:
+            res = _j.ensure_all_underlyings(store)
+        return envelope(snap, available=True, ensured=res,
+                        **_j.build_journal(store, sym))
 
     @app.post("/api/journal/entry")
     def journal_entry(body: dict = Body(default={})):
