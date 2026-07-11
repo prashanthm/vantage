@@ -55,6 +55,12 @@ fi
 # 2) Position analysis -> decision journal (what the UI's AI recommendations read).
 run "position analysis" vantage_server.analyze
 
+# 2b) Earnings-calendar refresh for held underlyings (read-only broker).
+#     Conditional: only underlyings with no cached FUTURE date are re-fetched,
+#     so quiet nights cost zero broker calls. Feeds vantage.earnings (the
+#     analyze flow's catalyst gate).
+run "earnings calendar refresh" vantage_server.ml.fetch_earnings --broker robinhood --from-lots
+
 # 3) Per-ticker journal snapshot so each notebook timeline accrues nightly.
 run "notebook journal snapshot" vantage_server.snapshot_journal
 

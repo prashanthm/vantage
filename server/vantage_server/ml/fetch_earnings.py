@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import re
 from pathlib import Path
 
 
@@ -111,6 +112,31 @@ def has_future_date(data_dir: str | Path, symbol: str, today: str) -> bool:
     return any(str(d)[:10] >= today for d in (cached.get("dates") or []))
 
 
+# Plausible equity ticker: letters (optionally a class-share dot), 1-7 chars.
+# Filters what _underlying passes through untouched — broker option symbols
+# ("-ALAB260710C400"), CUSIP rows ("089693105") — so a lots-derived fetch never
+# burns a broker call on a symbol that cannot have earnings.
+_EQUITY_TICKER = re.compile(r"[A-Z]{1,6}(\.[A-Z])?")
+
+
+def underlyings_from_lots(data_dir: str | Path) -> list[str]:
+    """The distinct equity underlyings currently held, sorted.
+
+    Lot symbols carry options ("ACN 2028-01-21 160C" -> ACN), sleeves
+    (CASH/CRYPTO -> dropped), broker option ids and CUSIPs (dropped) — only
+    plausible equity tickers survive, so the earnings fetch hits the broker
+    once per real underlying."""
+    from ..snapshot_bars import _underlying
+    from ..store import Store
+
+    out: set[str] = set()
+    for lot in Store(data_dir).load_lots():
+        underlying = _underlying(lot.symbol)
+        if underlying and _EQUITY_TICKER.fullmatch(underlying):
+            out.add(underlying)
+    return sorted(out)
+
+
 def main(argv=None) -> int:
     """Refresh the earnings-date cache for held symbols (nightly-friendly).
 
@@ -122,16 +148,17 @@ def main(argv=None) -> int:
     import argparse
 
     from ..brokers import get_connection
-    from ..store import Store, resolve_data_dir
+    from ..store import resolve_data_dir
 
     parser = argparse.ArgumentParser(
-        description="Fetch/refresh cached earnings dates for held symbols")
+        description="Fetch/refresh cached earnings dates for held underlyings")
     parser.add_argument("--broker", default="robinhood")
     parser.add_argument("--data-dir", default=None)
     parser.add_argument("--symbols", default="",
-                        help="comma-separated symbols (default: from held lots)")
+                        help="comma-separated symbols (default: underlyings from held lots)")
     parser.add_argument("--from-lots", action="store_true",
-                        help="derive symbols from held lots (default when --symbols absent)")
+                        help="derive equity underlyings from held lots "
+                             "(default when --symbols absent)")
     parser.add_argument("--refresh", action="store_true",
                         help="re-fetch every symbol, even with a future date cached")
     args = parser.parse_args(argv)
@@ -142,7 +169,7 @@ def main(argv=None) -> int:
     if args.symbols.strip():
         symbols = sorted({s.strip().upper() for s in args.symbols.split(",") if s.strip()})
     else:
-        symbols = sorted({lot.symbol.upper() for lot in Store(data_dir).load_lots()})
+        symbols = underlyings_from_lots(data_dir)
     if not symbols:
         print("no symbols to fetch (no lots and no --symbols)")
         return 0

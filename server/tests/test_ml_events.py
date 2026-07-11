@@ -109,3 +109,34 @@ def test_next_earnings_empty_or_unparseable_is_unknown():
     r = events.next_earnings(["not-a-date"], "2026-07-11")
     assert r == {"next_date": None, "days_until": None,
                  "last_date": None, "days_since": None}
+
+
+# ------------------------------------------------------------ underlyings_from_lots
+
+def test_underlyings_from_lots_normalizes_and_filters(tmp_path):
+    import json
+
+    from vantage_server.ml.fetch_earnings import underlyings_from_lots
+
+    # JSON-backend lots file: plain tickers, option display symbols, sleeves,
+    # broker option ids and CUSIPs — only real equity underlyings survive.
+    (tmp_path / "accounts.json").write_text(json.dumps([
+        {"id": "rh-margin", "name": "RH", "broker": "robinhood", "taxable": True},
+    ]))
+    (tmp_path / "lots.json").write_text(json.dumps([
+        {"account": "rh-margin", "symbol": "ACN", "date": "2026-01-05",
+         "shares": 10, "cost_per_share": 300.0},
+        {"account": "rh-margin", "symbol": "ACN 2028-01-21 160C", "date": "2026-01-05",
+         "shares": 1, "cost_per_share": 12.0},
+        {"account": "rh-margin", "symbol": "pltr", "date": "2026-02-01",
+         "shares": 5, "cost_per_share": 120.0},
+        {"account": "rh-margin", "symbol": "CASH", "date": "2026-01-01",
+         "shares": 1000, "cost_per_share": 1.0},
+        {"account": "rh-margin", "symbol": "CRYPTO", "date": "2026-01-01",
+         "shares": 1, "cost_per_share": 50.0},
+        {"account": "rh-margin", "symbol": "-ALAB260710C400", "date": "2026-03-01",
+         "shares": 1, "cost_per_share": 4.0},
+        {"account": "rh-margin", "symbol": "089693105", "date": "2026-03-01",
+         "shares": 10, "cost_per_share": 9.0},
+    ]))
+    assert underlyings_from_lots(tmp_path) == ["ACN", "PLTR"]
