@@ -74,7 +74,12 @@ DEFAULT_PARAMS = {
     "underlyings": ["SPX", "QQQ", "IWM"],
     "date_min": None,              # ISO date — only trade sessions >= this
     "date_max": None,              # ISO date — only trade sessions <= this
+    "trigger_interval": "15m",     # bar interval for trigger detection + settlement
 }
+
+#: intervals the multi-cache freezes. 1m excluded: yfinance caps it at ~30 days,
+#: which would break window parity with the other intervals.
+MULTI_INTERVALS = ["2m", "5m", "15m", "30m", "60m"]
 
 
 # ── frozen bar cache ──────────────────────────────────────────────────────────
@@ -103,6 +108,69 @@ def freeze_bars(cache_path: str) -> dict:
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(payload))
     return counts
+
+
+def _fetch_interval(symbol: str, interval: str):
+    """15m-style RTH fetch at an arbitrary intraday interval (60d window)."""
+    import yfinance as yf
+
+    df = yf.Ticker(symbol).history(period="60d", interval=interval)
+    if df.empty:
+        return df
+    idx = df.index.tz_convert("America/New_York")
+    df = df.copy()
+    df.index = idx
+    mins = idx.hour * 60 + idx.minute
+    return df[(mins >= 570) & (mins < 960)]
+
+
+def _df_to_cols(df) -> dict:
+    return {
+        "ts": [t.isoformat() for t in df.index],
+        "open": [round(float(v), 4) for v in df["Open"]],
+        "high": [round(float(v), 4) for v in df["High"]],
+        "low": [round(float(v), 4) for v in df["Low"]],
+        "close": [round(float(v), 4) for v in df["Close"]],
+        "volume": [float(v) for v in df.get("Volume", [0.0] * len(df))],
+    }
+
+
+def freeze_multi(cache_path: str, intervals: list[str] | None = None) -> dict:
+    """Fetch RTH bars for every cache symbol at every interval and write one
+    JSON cache. Returns {interval: {symbol: rows}} counts."""
+    intervals = intervals or MULTI_INTERVALS
+    out: dict[str, dict] = {}
+    counts: dict[str, dict] = {}
+    for iv in intervals:
+        out[iv] = {}
+        counts[iv] = {}
+        for sym in CACHE_SYMBOLS:
+            df = _fetch_interval(sym, iv)
+            if df is None or getattr(df, "empty", True):
+                raise RuntimeError(f"no {iv} bars for {sym} — cannot freeze")
+            out[iv][sym] = _df_to_cols(df)
+            counts[iv][sym] = len(df)
+    payload = {"frozen_at": _dt.datetime.now(ET).isoformat(), "intervals": out}
+    p = Path(cache_path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload))
+    return counts
+
+
+def _cols_to_df(cols: dict):
+    import pandas as pd
+
+    idx = pd.DatetimeIndex([pd.Timestamp(t) for t in cols["ts"]])
+    return pd.DataFrame({"Open": cols["open"], "High": cols["high"],
+                         "Low": cols["low"], "Close": cols["close"],
+                         "Volume": cols["volume"]}, index=idx)
+
+
+def load_multi(cache_path: str) -> dict:
+    """{interval: {symbol: DataFrame}} from a freeze_multi cache."""
+    raw = json.loads(Path(cache_path).read_text())
+    return {iv: {sym: _cols_to_df(cols) for sym, cols in syms.items()}
+            for iv, syms in raw["intervals"].items()}
 
 
 def load_bars(cache_path: str) -> dict:
@@ -355,8 +423,26 @@ def day_tickets(scaffold: dict, day_bars, ratio: float, underlying: str,
                 if k not in seen:
                     seen.add(k)
                     t["start_idx"] = i + 1   # actionable from the NEXT bar
+                    # wall-clock spawn time, so a finer/coarser fill frame can
+                    # map "actionable from here" onto its own bars
+                    t["start_ts"] = (ts[i + 1].isoformat() if i + 1 < len(ts)
+                                     else "9999")
                     out.append(t)
     return out
+
+
+def _idx_from_ts(day_bars, iso_ts: str | None) -> int:
+    """First bar index of ``day_bars`` at/after ``iso_ts`` (len = never)."""
+    if not iso_ts:
+        return 0
+    if iso_ts == "9999":
+        return len(day_bars)
+    import pandas as pd
+    cut = pd.Timestamp(iso_ts)
+    for i, t in enumerate(day_bars.index):
+        if t >= cut:
+            return i
+    return len(day_bars)
 
 
 def _atr(bars, period: int = 14) -> float | None:
@@ -421,9 +507,15 @@ def _apply_filters(tickets: list[dict], params: dict,
 
 # ── the replay ───────────────────────────────────────────────────────────────
 
-def run_backtest(bars_by_symbol: dict, params: dict | None = None) -> dict:
+def run_backtest(bars_by_symbol: dict, params: dict | None = None,
+                 fill_bars_by_symbol: dict | None = None) -> dict:
     """Replay every warm session for every configured underlying and score the
-    trades. Deterministic given the frozen cache + params."""
+    trades. Deterministic given the frozen cache + params.
+
+    ``fill_bars_by_symbol`` (optional) supplies a DIFFERENT bar interval for
+    trigger detection + settlement: scaffolds, tickets, and break-spawn walks
+    stay on the 15m frames in ``bars_by_symbol``; fills run on the given
+    frames, with break spawn times mapped by wall clock."""
     p = dict(DEFAULT_PARAMS)
     p.update(params or {})
     trades: list[dict] = []
@@ -475,13 +567,33 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None) -> dict:
                         atr = _atr(_upto(proxy_bars, day)) if p["stop_atr_mult"] else None
                         tickets = _apply_filters(tickets, p, atr=atr)
                         counts["sessions"] += 1
+                        fill_frame = None
+                        if fill_bars_by_symbol is not None:
+                            ff = fill_bars_by_symbol.get(cfg["proxy_symbol"])
+                            if ff is not None:
+                                fill_frame = _day_slice(ff, trade_day)
+                                if fill_frame.empty:
+                                    counts["no_fill_frame"] = counts.get(
+                                        "no_fill_frame", 0) + 1
+                                    fill_frame = None
                         for t in tickets:
                             counts["tickets"] += 1
                             if t.get("spy_target") is None:
                                 counts["no_target"] += 1
                                 continue
-                            start = max(t.get("start_idx", 0), int(p["skip_open_bars"]))
-                            res = simulate_fill(t, pday, start,
+                            if fill_frame is not None:
+                                # map 15m spawn/skip onto the fill frame by wall clock
+                                start = _idx_from_ts(fill_frame, t.get("start_ts"))
+                                skip = int(p["skip_open_bars"])
+                                if skip > 0 and len(pday) > skip:
+                                    start = max(start, _idx_from_ts(
+                                        fill_frame, pday.index[skip].isoformat()))
+                                sim_bars = fill_frame
+                            else:
+                                start = max(t.get("start_idx", 0),
+                                            int(p["skip_open_bars"]))
+                                sim_bars = pday
+                            res = simulate_fill(t, sim_bars, start,
                                                 entry_mode=p["entry_mode"],
                                                 time_stop_bars=p["time_stop_bars"])
                             if res is None:
@@ -546,7 +658,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="python -m vantage_server.backtest",
         description="Replay the playbook paper strategies against frozen 15m bars. "
                     "Research tooling — writes nothing, places no orders (ADR-010).")
-    p.add_argument("--cache", required=True, help="path to the frozen bar cache JSON")
+    p.add_argument("--cache", help="path to the frozen 15m bar cache JSON")
+    p.add_argument("--multi-cache", help="path to a frozen MULTI-interval cache; "
+                   "params.trigger_interval picks the fill frame (15m scaffolds)")
     p.add_argument("--freeze", action="store_true",
                    help="fetch fresh bars and (over)write the cache, then exit")
     p.add_argument("--params", help="JSON dict of experiment overrides")
@@ -556,16 +670,31 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    path = args.multi_cache or args.cache
+    if not path:
+        print("error: --cache or --multi-cache required", file=sys.stderr)
+        return EXIT_USER_ERROR
     if args.freeze:
-        counts = freeze_bars(args.cache)
+        counts = freeze_multi(path) if args.multi_cache else freeze_bars(path)
         print("frozen:", json.dumps(counts))
         return EXIT_OK
-    if not Path(args.cache).exists():
-        print(f"error: cache not found: {args.cache} (run --freeze first)",
+    if not Path(path).exists():
+        print(f"error: cache not found: {path} (run --freeze first)",
               file=sys.stderr)
         return EXIT_USER_ERROR
     overrides = json.loads(args.params) if args.params else {}
-    result = run_backtest(load_bars(args.cache), overrides)
+    if args.multi_cache:
+        multi = load_multi(path)
+        iv = (overrides.get("trigger_interval")
+              or DEFAULT_PARAMS["trigger_interval"])
+        if iv not in multi:
+            print(f"error: interval {iv} not in cache ({sorted(multi)})",
+                  file=sys.stderr)
+            return EXIT_USER_ERROR
+        fill = multi[iv] if iv != "15m" else None
+        result = run_backtest(multi["15m"], overrides, fill_bars_by_symbol=fill)
+    else:
+        result = run_backtest(load_bars(args.cache), overrides)
     view = {k: v for k, v in result.items() if k != "trades"}
     print(json.dumps(view, indent=2))
     if args.trades:
