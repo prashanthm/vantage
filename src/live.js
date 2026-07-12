@@ -57,7 +57,7 @@ export const health = () => getJson(`${backendBase()}/api/health`);
 // GET /api/accounts -> {accounts: [{id, short, type, value, last_synced, ...}]}
 // or null. Each account now carries last_synced (from the store's meta) so the
 // rail can show "synced 5m ago".
-export const accounts = () => getJson(`${backendBase()}/api/accounts`);
+export const accounts = () => getJson(`${backendBase()}/api/accounts`, { timeoutMs: 30000 });
 
 // POST /api/refresh — THE deliberate write. Re-pull one account's (or, with no
 // account, every API-broker account's) holdings + transactions into the store.

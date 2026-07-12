@@ -703,3 +703,8 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-pine-box { width: 100%; box-sizing: border-box; font-family: var(--vg-font-data);
   font-size: var(--vg-text-xs); line-height: 1.4; padding: 10px; border: 1px solid var(--vg-hairline);
   border-radius: var(--vg-r-sm); background: #0d1117; color: #e6edf3; resize: vertical; white-space: pre; }
+
+/* Wider modals — the Settings/Accounts management table needs room. Caps at
+   viewport so it stays responsive on small screens. */
+.lk-modal { max-width: min(880px, 92vw) !important; width: min(880px, 92vw) !important; }
+.lk-modal__body { max-height: 78vh; overflow-y: auto; }

@@ -1678,22 +1678,31 @@ function AccountsSettings() {
     } catch (e) { setErr(String(e.message || e)); }
     setBusy("");
   };
+  const authOk = (st) => !!st && /valid|present|grant/i.test(st);
   const reauth = async (id) => {
     setBusy("auth:" + id); setErr("");
     try {
       const r = await live_.kiteLoginUrl();
       if (r && r.error) { setErr(r.error); setBusy(""); return; }
       // Open Kite login; the backend catches the redirect and saves the token.
-      window.open(r.login_url, "kite-auth", "width=480,height=640");
-      // Poll status until it flips (or the user gives up).
+      const win = window.open(r.login_url, "kite-auth", "width=480,height=640");
+      // Poll the LIVE status until it flips (the accounts endpoint can take
+      // ~15s cold, so accounts() now has a 30s timeout — a short poll would
+      // otherwise abort every fetch and never see the grant).
       let tries = 0;
       const timer = setInterval(async () => {
         tries += 1;
-        await load();
-        const rows2 = (await live_.accounts().catch(() => null));
-        const a = rows2 && rows2.accounts && rows2.accounts.find((x) => x.id === id);
-        const ok = a && a.auth_status && /valid|present|grant/i.test(a.auth_status);
-        if (ok || tries > 40) { clearInterval(timer); setBusy(""); }
+        const p2 = await live_.accounts().catch(() => null);
+        if (p2 && p2.accounts) {
+          setRows(p2.accounts);  // re-render with fresh status
+          const a = p2.accounts.find((x) => x.id === id);
+          if (authOk(a && a.auth_status)) { clearInterval(timer); setBusy(""); return; }
+        }
+        // Stop once the popup is closed AND we've had a chance to read status,
+        // or after ~2 min.
+        if ((win && win.closed && tries > 1) || tries > 40) {
+          clearInterval(timer); setBusy("");
+        }
       }, 3000);
     } catch (e) { setErr(String(e.message || e)); setBusy(""); }
   };
@@ -1718,7 +1727,7 @@ function AccountsSettings() {
               <td className="num">{a.currency || "USD"}</td>
               <td className="num">{a.jurisdiction || "US"}</td>
               <td>{a.auth_status
-                ? <span className={/valid|present|grant/i.test(a.auth_status) ? "vg-pos" : "vg-neg"}>{a.auth_status}</span>
+                ? <span className={authOk(a.auth_status) ? "vg-pos" : "vg-neg"}>{a.auth_status}</span>
                 : <span className="vg-note">—</span>}</td>
               <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                 {a.broker === "zerodha" && (

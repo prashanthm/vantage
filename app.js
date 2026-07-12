@@ -253,7 +253,7 @@
   var backendBase = () => (loadSettings().backendUrl || "").replace(/\/+$/, "");
   var miraBase = () => (loadSettings().miraUrl || "").replace(/\/+$/, "");
   var health = () => getJson(`${backendBase()}/api/health`);
-  var accounts = () => getJson(`${backendBase()}/api/accounts`);
+  var accounts = () => getJson(`${backendBase()}/api/accounts`, { timeoutMs: 3e4 });
   var createAccount = (body) => postJson(`${backendBase()}/api/accounts`, body);
   var editAccount = (id, body) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/edit`, body);
   var deleteAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/delete`, {});
@@ -3824,6 +3824,7 @@
       }
       setBusy("");
     };
+    const authOk = (st) => !!st && /valid|present|grant/i.test(st);
     const reauth = async (id) => {
       setBusy("auth:" + id);
       setErr("");
@@ -3834,15 +3835,21 @@
           setBusy("");
           return;
         }
-        window.open(r.login_url, "kite-auth", "width=480,height=640");
+        const win = window.open(r.login_url, "kite-auth", "width=480,height=640");
         let tries = 0;
         const timer = setInterval(async () => {
           tries += 1;
-          await load();
-          const rows2 = await live_.accounts().catch(() => null);
-          const a = rows2 && rows2.accounts && rows2.accounts.find((x) => x.id === id);
-          const ok = a && a.auth_status && /valid|present|grant/i.test(a.auth_status);
-          if (ok || tries > 40) {
+          const p2 = await live_.accounts().catch(() => null);
+          if (p2 && p2.accounts) {
+            setRows(p2.accounts);
+            const a = p2.accounts.find((x) => x.id === id);
+            if (authOk(a && a.auth_status)) {
+              clearInterval(timer);
+              setBusy("");
+              return;
+            }
+          }
+          if (win && win.closed && tries > 1 || tries > 40) {
             clearInterval(timer);
             setBusy("");
           }
@@ -3853,7 +3860,7 @@
       }
     };
     if (rows === null) return /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading accounts\u2026");
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Account"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Broker"), /* @__PURE__ */ React.createElement("th", null, "Ccy"), /* @__PURE__ */ React.createElement("th", null, "Juris."), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Status"), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, a.short || a.id), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, a.id)), /* @__PURE__ */ React.createElement("td", null, a.broker || /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "manual")), /* @__PURE__ */ React.createElement("td", { className: "num" }, a.currency || "USD"), /* @__PURE__ */ React.createElement("td", { className: "num" }, a.jurisdiction || "US"), /* @__PURE__ */ React.createElement("td", null, a.auth_status ? /* @__PURE__ */ React.createElement("span", { className: /valid|present|grant/i.test(a.auth_status) ? "vg-pos" : "vg-neg" }, a.auth_status) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", whiteSpace: "nowrap" } }, a.broker === "zerodha" && /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Account"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Broker"), /* @__PURE__ */ React.createElement("th", null, "Ccy"), /* @__PURE__ */ React.createElement("th", null, "Juris."), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Status"), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, a.short || a.id), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, a.id)), /* @__PURE__ */ React.createElement("td", null, a.broker || /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "manual")), /* @__PURE__ */ React.createElement("td", { className: "num" }, a.currency || "USD"), /* @__PURE__ */ React.createElement("td", { className: "num" }, a.jurisdiction || "US"), /* @__PURE__ */ React.createElement("td", null, a.auth_status ? /* @__PURE__ */ React.createElement("span", { className: authOk(a.auth_status) ? "vg-pos" : "vg-neg" }, a.auth_status) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", whiteSpace: "nowrap" } }, a.broker === "zerodha" && /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-linkbtn",
