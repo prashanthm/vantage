@@ -36,6 +36,10 @@ echo "[$STAMP] nightly: EOD bar snapshot (--from-lots ${1:-})"
 "$PY" -m vantage_server.snapshot_bars --broker robinhood --from-lots ${1:+"$1"} 2>&1 \
   | grep -v 'Session termination' || true
 
+echo "[$STAMP] nightly: benchmark bars (relative strength)"
+"$PY" -m vantage_server.snapshot_bars --source yfinance SPY XLK XLF XLC XLV XLE XLRE XLY 2>&1 \
+  | grep -v 'Session termination' || true
+
 echo "[$STAMP] nightly: position analysis"
 "$PY" -m vantage_server.analyze 2>&1 | grep -v 'Session termination' || true
 

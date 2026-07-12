@@ -432,24 +432,72 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         annotations=_READ_ONLY,
         description="The operator's stored THESIS for one ticker — why the "
                     "position is held, price target, stop/invalidation level, "
-                    "notes, plus recent journal entries. Weigh any sell/close "
-                    "recommendation against this before endorsing it: a "
-                    "technical signal that contradicts an intact thesis needs "
-                    "the stronger case stated. has_plan=false means no thesis "
-                    "is on file (say so — never invent one). Written only via "
-                    "the Vantage UI; this surface is read-only.",
+                    "notes, plus recent journal entries AND the computed "
+                    "risk_reward (upside/downside/rr_ratio at the current "
+                    "price; status stop_breached/target_reached when outside "
+                    "the band). Weigh any sell/close recommendation against "
+                    "this before endorsing it: a technical signal that "
+                    "contradicts an intact thesis needs the stronger case "
+                    "stated, and the R:R math is the bet's geometry. "
+                    "has_plan=false means no thesis is on file (say so — "
+                    "never invent one). Written only via the Vantage UI; "
+                    "this surface is read-only.",
     )
     def ticker_plan(symbol: str = "", journal_limit: int = 5) -> dict:
+        from vantage_server.risk_reward import risk_reward as rr  # noqa: PLC0415
         snap = snapshot()
         if not symbol.strip():
             return envelope("ticker_plan", snap, symbol="", has_plan=False,
-                            plan=None, journal=[])
+                            plan=None, journal=[], risk_reward=None)
         sym = symbol.upper()
         plan = store.load_ticker_plan(sym)
         journal = store.load_ticker_journal(sym, limit=max(0, int(journal_limit)))
+        quote = snap.quotes.get(sym)
         return envelope("ticker_plan", snap, symbol=sym,
                         has_plan=plan is not None, plan=plan,
-                        journal=to_jsonable(journal))
+                        journal=to_jsonable(journal),
+                        risk_reward=rr(plan, quote.price if quote else None))
+
+    @mcp.tool(
+        name="vantage.relative_strength",
+        annotations=_READ_ONLY,
+        description="FACTOR DECOMPOSITION for one ticker from the synced "
+                    "bars: trailing returns (1w/1m/3m) for the name vs SPY vs "
+                    "its sector ETF, beta vs SPY, and idio_r_1m (the move "
+                    "beta can't explain). Use it to distinguish 'the NAME is "
+                    "breaking down' from 'its sector/the market is selling "
+                    "off' before endorsing any technical signal. Benchmarks "
+                    "null when their bars aren't synced (benchmark_available) "
+                    "— never fabricated. no_data=true when the name has no "
+                    "bars.",
+    )
+    def relative_strength(symbol: str = "") -> dict:
+        from vantage_server import relative_strength as rs_mod  # noqa: PLC0415
+        snap = snapshot()
+        if not symbol.strip():
+            return envelope("relative_strength", snap, symbol="",
+                            relative_strength=None, no_data=True)
+        data = rs_mod.relative_strength(symbol.upper(), store.data_dir)
+        return envelope("relative_strength", snap, symbol=symbol.upper(),
+                        relative_strength=data, no_data=data is None)
+
+    @mcp.tool(
+        name="vantage.rec_scorecard",
+        annotations=_READ_ONLY,
+        description="The decision journal's OWN TRACK RECORD: every past "
+                    "recommendation scored against subsequent bars (+5d/+20d "
+                    "forward returns, per-rule hit rate under the pinned "
+                    "hit_basis). Weigh a firing rule's signal BY its record — "
+                    "a 50% rule is a coin flip, not a mandate. n_pending "
+                    "counts decisions too young to score (never "
+                    "extrapolated). no_data=true when nothing journaled yet.",
+    )
+    def rec_scorecard() -> dict:
+        from vantage_server import rec_scorecard as sc_mod  # noqa: PLC0415
+        snap = snapshot()
+        data = sc_mod.rec_scorecard(store.data_dir)
+        return envelope("rec_scorecard", snap, scorecard=data,
+                        no_data=data is None)
 
     @mcp.tool(
         name="vantage.spx_playbook",
@@ -520,6 +568,26 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
             want = symbol.upper()
             decisions = [d for d in decisions
                          if str(d.get("symbol", "")).upper() == want]
+        # Position context (analyst sizing read): weight vs book, multiple of
+        # the median position, value — from the same engine positions the
+        # /positions tool serves. Sizing is decision-critical for add/close
+        # calls, so it rides every action row.
+        rows = engine.positions(dataset.lots, snap.quotes, "all")
+        by_symbol = {p.symbol: p for p in rows}
+        values = sorted(p.value for p in rows if p.value > 0)
+        median_value = values[len(values) // 2] if values else None
+
+        def _context(sym: str) -> dict | None:
+            pos = by_symbol.get(str(sym or "").upper())
+            if pos is None:
+                return None
+            return {
+                "weight_pct": round(pos.weight, 2),  # engine weight is 0-100
+                "value": round(pos.value, 2),
+                "x_median_position": (round(pos.value / median_value, 1)
+                                      if median_value else None),
+            }
+
         actions = [
             {
                 "symbol": d.get("symbol"),
@@ -527,6 +595,7 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                 "recommendation": d.get("recommendation"),
                 "rationale": d.get("rationale"),
                 "action_detail": d.get("action_detail"),
+                "position_context": _context(d.get("symbol")),
             }
             for d in decisions
         ]

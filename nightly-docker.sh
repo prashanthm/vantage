@@ -52,6 +52,10 @@ else
     vantage_server.snapshot_bars --broker robinhood --from-lots
 fi
 
+# 1b) Benchmark bars for relative-strength decomposition (SPY + sector ETFs).
+run "benchmark bars (relative strength)" \
+  vantage_server.snapshot_bars --source yfinance SPY XLK XLF XLC XLV XLE XLRE XLY
+
 # 2) Position analysis -> decision journal (what the UI's AI recommendations read).
 run "position analysis" vantage_server.analyze
 

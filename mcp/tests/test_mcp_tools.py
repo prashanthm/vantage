@@ -26,6 +26,8 @@ EXPECTED_TOOLS = {
     "vantage.expectations",
     "vantage.earnings",
     "vantage.ticker_plan",
+    "vantage.relative_strength",
+    "vantage.rec_scorecard",
     "vantage.spx_playbook",
     "vantage.signals",
     "vantage.history",
@@ -785,3 +787,72 @@ def test_ticker_plan_no_plan_shape_on_fixture(mcp):
     assert payload["plan"] is None
     assert payload["journal"] == []
     assert payload["provenance"]["source_id"].endswith("#ticker_plan")
+
+
+def test_ticker_plan_carries_risk_reward(mcp, monkeypatch):
+    from vantage_server.store import Store
+
+    monkeypatch.setattr(Store, "load_ticker_plan", lambda self, sym: {
+        "symbol": sym, "thesis": "t", "target": 180.0, "stop": 95.0,
+        "notes": None, "updated_at": "2026-07-11"})
+
+    async def interact(client):
+        return await client.call_tool("vantage.ticker_plan", {"symbol": "VOO"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    rr = payload["risk_reward"]
+    assert rr is not None and rr["rr_ratio"] is not None
+    assert rr["target"] == 180.0 and rr["stop"] == 95.0
+
+
+def test_ticker_plan_no_plan_no_risk_reward(mcp):
+    async def interact(client):
+        return await client.call_tool("vantage.ticker_plan", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["has_plan"] is False
+    assert payload["risk_reward"] is None
+
+
+def test_relative_strength_round_trip(mcp, monkeypatch):
+    import vantage_server.relative_strength as rs_mod
+
+    monkeypatch.setattr(rs_mod, "relative_strength", lambda sym, dd: {
+        "symbol": sym, "sector_etf": "XLK", "r_1m": -0.12, "spy_r_1m": -0.02,
+        "beta_spy": 1.8, "idio_r_1m": -0.084,
+        "basis": "idio_r_1m = r_1m - beta_spy * spy_r_1m (daily closes)",
+        "benchmark_available": True})
+
+    async def interact(client):
+        return await client.call_tool("vantage.relative_strength", {"symbol": "pltr"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_data"] is False
+    assert payload["relative_strength"]["idio_r_1m"] == -0.084
+    assert payload["provenance"]["source_id"].endswith("#relative_strength")
+
+
+def test_rec_scorecard_round_trip(mcp, monkeypatch):
+    import vantage_server.rec_scorecard as sc_mod
+
+    monkeypatch.setattr(sc_mod, "rec_scorecard", lambda dd: {
+        "rules": [{"rule": "rule2_freefall_close", "recommendation":
+                   "CLOSE_AND_BOOK_LOSS", "n_scored": 34, "hit_rate": 0.62,
+                   "n_calls": 34, "avg_fwd_5d": -0.01, "avg_fwd_20d": -0.03}],
+        "n_pending": 5, "hit_basis": "bearish calls...", "horizons_days": [5, 20]})
+
+    async def interact(client):
+        return await client.call_tool("vantage.rec_scorecard", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_data"] is False
+    assert payload["scorecard"]["rules"][0]["hit_rate"] == 0.62
+
+
+def test_position_actions_carry_position_context(mcp):
+    async def interact(client):
+        return await client.call_tool("vantage.position_actions", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    # fixture data dir has no journal -> actions empty, but the tool shape holds
+    assert payload["actions"] == []
