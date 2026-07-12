@@ -714,6 +714,57 @@ class Store:
             )
         return True
 
+    def update_account(self, account_id: str, fields: dict) -> bool:
+        """Patch an existing account's editable fields (name/short/type/taxable/
+        currency/jurisdiction). Returns True when a row was updated. id and
+        last_sync are not editable here; unknown keys are ignored."""
+        editable = ("name", "short", "type", "taxable", "currency", "jurisdiction")
+        patch = {k: fields[k] for k in editable if k in fields}
+        if not patch:
+            return False
+        if not self.uses_sqlite:
+            path = self.data_dir / "accounts.json"
+            rows = _json_list(path)
+            hit = False
+            for r in rows:
+                if r.get("id") == account_id:
+                    if "taxable" in patch:
+                        patch["taxable"] = bool(patch["taxable"])
+                    r.update(patch)
+                    hit = True
+            if hit:
+                path.write_text(json.dumps(rows, indent=2) + "\n", encoding="utf-8")
+            return hit
+        sets, vals = [], []
+        for k, v in patch.items():
+            sets.append(f"{k}=?")
+            vals.append(1 if (k == "taxable" and v) else 0 if k == "taxable" else str(v))
+        vals.append(account_id)
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                f"UPDATE accounts SET {', '.join(sets)} WHERE id=?", vals)
+            return cur.rowcount > 0
+
+    def remove_account(self, account_id: str) -> bool:
+        """Delete an account and ITS lots (they cannot survive their account).
+        Returns True when the account existed. History/plans keyed to it are
+        left as-is (harmless orphans; re-adding the id reunites them)."""
+        if not self.uses_sqlite:
+            apath = self.data_dir / "accounts.json"
+            rows = _json_list(apath)
+            kept = [r for r in rows if r.get("id") != account_id]
+            existed = len(kept) != len(rows)
+            if existed:
+                apath.write_text(json.dumps(kept, indent=2) + "\n", encoding="utf-8")
+                lpath = self.data_dir / "lots.json"
+                lots = [l for l in _json_list(lpath) if l.get("account") != account_id]
+                lpath.write_text(json.dumps(lots, indent=2) + "\n", encoding="utf-8")
+            return existed
+        with self._sqlite_txn() as conn:
+            cur = conn.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+            conn.execute("DELETE FROM lots WHERE account=?", (account_id,))
+            return cur.rowcount > 0
+
     def _accounts_exist(self) -> bool:
         if self.uses_sqlite:
             return True  # table exists after schema init
@@ -1576,7 +1627,19 @@ class Store:
 
     def set_meta(self, key: str, value: str, *, conn=None) -> None:
         if not self.uses_sqlite:
-            return  # meta is a SQLite convenience; JSON has no equivalent
+            # JSON backend: persist meta in a small sidecar so cross-request
+            # facts (broker:<acct>, etc.) survive — needed for account setup on
+            # a JSON data dir.
+            path = self.data_dir / "meta.json"
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    data = {}
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                data = {}
+            data[key] = value
+            path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+            return
         if conn is not None:
             conn.execute(
                 "INSERT OR REPLACE INTO meta(key, value) VALUES(?,?)", (key, value))
@@ -1586,7 +1649,11 @@ class Store:
 
     def get_meta(self, key: str) -> str | None:
         if not self.uses_sqlite:
-            return None
+            try:
+                data = json.loads((self.data_dir / "meta.json").read_text(encoding="utf-8"))
+                return data.get(key) if isinstance(data, dict) else None
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                return None
         conn = self._backend._conn()
         try:
             row = conn.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()

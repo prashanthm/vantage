@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from . import analyze
 from . import bars_view
@@ -73,7 +73,10 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return {"as_of": snap.as_of, "source": snap.source, "stale": snap.stale, **data}
 
     def check_account(account: str) -> str:
-        if account != "all" and account not in {a.id for a in ds.accounts}:
+        # Validate against the LIVE store (not the startup snapshot) so an
+        # account created via the settings-page write surface is immediately
+        # addressable by edit/delete/sync in the same session.
+        if account != "all" and account not in {a.id for a in store.load_accounts()}:
             raise HTTPException(status_code=404, detail=f"unknown account '{account}'")
         return account
 
@@ -106,6 +109,11 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                 # or only re-import CSV — the rail's ⟳ honesty depends on this.
                 "broker": broker,
                 "refreshable": broker in _CONN,
+                # Connection auth state (API brokers only) + the one-time CLI
+                # command to grant it. Secrets NEVER travel to the browser —
+                # only the human-readable status + the command to run host-side.
+                "auth_status": _account_auth_status(broker),
+                "auth_hint": _account_auth_hint(broker),
             })
         return envelope(snap, accounts=rows)
 
@@ -716,6 +724,86 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         else:
             account = None  # omitted or "all" -> refresh every API-broker account
         results = refresh_accounts(store, account)
+        snap = state.snapshot()
+        return envelope(snap, results=[r.to_dict() for r in results])
+
+    # ==================================================================
+    # ACCOUNT MANAGEMENT — the settings-page write surface. Creates/edits/
+    # removes accounts and triggers a sync. Writes touch ONLY our own store
+    # (accounts + lots), never a fund-moving path (ADR-010). Broker SECRETS are
+    # NOT handled here — they live host-side (env/token file); this surface only
+    # reports auth status and the CLI command to grant it.
+    # ==================================================================
+    from .brokers.base import CONNECTIONS as _ALL_CONN
+
+    def _account_auth_status(broker: str | None) -> str | None:
+        if not broker or broker not in _ALL_CONN:
+            return None
+        try:
+            return _ALL_CONN[broker]().auth_status()
+        except Exception:  # noqa: BLE001 — a status probe never breaks the list
+            return "unknown"
+
+    def _account_auth_hint(broker: str | None) -> str | None:
+        """The host-side one-time-auth command for an API broker (no secrets)."""
+        if not broker or broker not in _ALL_CONN:
+            return None
+        return (f"python -m vantage_server.importer --broker {broker} --auth"
+                if broker != "robinhood"
+                else "python -m vantage_server.importer --broker robinhood --auth")
+
+    @app.post("/api/accounts")
+    def create_account(body: dict = Body(...)):
+        """Create an account (manual or as a target for an API broker's sync).
+        Requires id + name; currency/jurisdiction default USD/US. 409 if the id
+        exists."""
+        acct_id = str((body or {}).get("id", "")).strip()
+        name = str((body or {}).get("name", "")).strip()
+        if not acct_id or not name:
+            return JSONResponse({"error": "id and name are required"}, status_code=400)
+        account = {
+            "id": acct_id, "name": name,
+            "short": str(body.get("short") or name)[:12],
+            "type": str(body.get("type") or "brokerage"),
+            "taxable": bool(body.get("taxable", True)),
+            "last_sync": "never",
+            "currency": str(body.get("currency") or "USD").upper(),
+            "jurisdiction": str(body.get("jurisdiction") or "US").upper(),
+        }
+        if not store.add_account(account):
+            return JSONResponse({"error": f"account '{acct_id}' already exists"},
+                                status_code=409)
+        broker = str(body.get("broker") or "").strip()
+        if broker:
+            store.set_meta(f"broker:{acct_id}", broker)
+        snap = state.snapshot()
+        return envelope(snap, account=account, created=True)
+
+    @app.post("/api/accounts/{account_id}/edit")
+    def edit_account(account_id: str, body: dict = Body(...)):
+        """Patch editable fields (name/short/type/taxable/currency/jurisdiction)."""
+        check_account(account_id)
+        if not store.update_account(account_id, body or {}):
+            return JSONResponse({"error": "no editable fields changed"}, status_code=400)
+        if body and body.get("broker") is not None:
+            store.set_meta(f"broker:{account_id}", str(body["broker"]).strip())
+        snap = state.snapshot()
+        return envelope(snap, account_id=account_id, updated=True)
+
+    @app.post("/api/accounts/{account_id}/delete")
+    def delete_account(account_id: str):
+        """Remove an account and its lots."""
+        check_account(account_id)
+        removed = store.remove_account(account_id)
+        snap = state.snapshot()
+        return envelope(snap, account_id=account_id, removed=removed)
+
+    @app.post("/api/accounts/{account_id}/sync")
+    def sync_account(account_id: str):
+        """Pull live positions for ONE API-broker account (same read-only broker
+        path as /api/refresh, scoped to this account)."""
+        check_account(account_id)
+        results = refresh_accounts(store, account_id)
         snap = state.snapshot()
         return envelope(snap, results=[r.to_dict() for r in results])
 

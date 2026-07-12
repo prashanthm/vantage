@@ -219,3 +219,51 @@ def test_migration_is_idempotent(tmp_path):
     store = _sqlite_store(jdir, db_path)
     assert len(store.load_lots()) == counts2["lots"] == 3
     assert len(store.load_history()) == 2  # no duplicates on re-run
+
+
+# ── account management writes (settings page) ────────────────────────────────
+
+
+def _seed_account(store, **over):
+    a = {"id": "a1", "name": "Acct One", "short": "A1", "type": "brokerage",
+         "taxable": True, "last_sync": "never", "currency": "USD", "jurisdiction": "US"}
+    a.update(over)
+    assert store.add_account(a)
+    return a
+
+
+def test_update_account_patches_editable_fields(two_backends):
+    for store in two_backends:
+        _seed_account(store)
+        assert store.update_account("a1", {"name": "Renamed", "currency": "INR",
+                                           "jurisdiction": "IN", "taxable": False})
+        a = next(x for x in store.load_accounts() if x.id == "a1")
+        assert a.name == "Renamed" and a.currency == "INR"
+        assert a.jurisdiction == "IN" and a.taxable is False
+
+
+def test_update_account_ignores_unknown_and_id(two_backends):
+    for store in two_backends:
+        _seed_account(store)
+        assert store.update_account("a1", {"id": "hacked", "bogus": 1}) is False
+        assert "a1" in {x.id for x in store.load_accounts()}
+
+
+def test_remove_account_drops_it_and_its_lots(two_backends):
+    for store in two_backends:
+        _seed_account(store)
+        store.upsert_lots(["a1"], [{"account": "a1", "symbol": "AAA",
+                                    "date": "2026-01-01", "shares": 10,
+                                    "cost_per_share": 100.0}])
+        assert any(l.account == "a1" for l in store.load_lots())
+        assert store.remove_account("a1") is True
+        assert all(x.id != "a1" for x in store.load_accounts())
+        assert all(l.account != "a1" for l in store.load_lots())
+        assert store.remove_account("a1") is False  # already gone
+
+
+def test_meta_sidecar_persists_on_json(two_backends):
+    jstore, _ = two_backends
+    jstore.set_meta("broker:zz", "zerodha")
+    from vantage_server.store import Store
+    assert Store(jstore.data_dir).get_meta("broker:zz") == "zerodha"

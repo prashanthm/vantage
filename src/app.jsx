@@ -1622,10 +1622,165 @@ function ExplainBlock({ explain }) {
   );
 }
 
+function AccountsSettings() {
+  const live_ = live;
+  const [rows, setRows] = useState(null);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const blank = { id: "", name: "", currency: "USD", jurisdiction: "US", taxable: true, broker: "" };
+  const [form, setForm] = useState(blank);
+
+  const load = async () => {
+    try {
+      const p = await live_.accounts();
+      setRows((p && p.accounts) || []);
+    } catch { setRows([]); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const startAdd = () => { setForm(blank); setEditId(null); setAdding(true); setErr(""); };
+  const startEdit = (a) => {
+    setForm({ id: a.id, name: a.name || a.short || a.id, currency: a.currency || "USD",
+              jurisdiction: a.jurisdiction || "US", taxable: a.taxable !== false,
+              broker: a.broker || "" });
+    setEditId(a.id); setAdding(true); setErr("");
+  };
+  const save = async () => {
+    setErr(""); setBusy("save");
+    try {
+      if (editId) {
+        await live_.editAccount(editId, { name: form.name, currency: form.currency,
+          jurisdiction: form.jurisdiction, taxable: form.taxable, broker: form.broker });
+      } else {
+        if (!form.id.trim() || !form.name.trim()) { setErr("id and name are required"); setBusy(""); return; }
+        const r = await live_.createAccount(form);
+        if (r && r.error) { setErr(r.error); setBusy(""); return; }
+      }
+      setAdding(false); await load();
+    } catch (e) { setErr(String(e.message || e)); }
+    setBusy("");
+  };
+  const remove = async (id) => {
+    if (!window.confirm(`Remove account "${id}" and its lots? This cannot be undone.`)) return;
+    setBusy("del:" + id);
+    try { await live_.deleteAccount(id); await load(); } catch (e) { setErr(String(e.message || e)); }
+    setBusy("");
+  };
+  const sync = async (id) => {
+    setBusy("sync:" + id); setErr("");
+    try {
+      const r = await live_.syncAccount(id);
+      const res = (r && r.results && r.results[0]) || {};
+      if (res.errors && res.errors.length) setErr(`${id}: ${res.errors.join("; ")}`);
+      await load();
+    } catch (e) { setErr(String(e.message || e)); }
+    setBusy("");
+  };
+
+  if (rows === null) return <p className="vg-note">Loading accounts…</p>;
+
+  return (
+    <div>
+      <table className="vg-table" style={{ width: "100%", fontSize: 13 }}>
+        <thead><tr>
+          <th style={{ textAlign: "left" }}>Account</th>
+          <th style={{ textAlign: "left" }}>Broker</th>
+          <th>Ccy</th><th>Juris.</th>
+          <th style={{ textAlign: "left" }}>Status</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          {rows.map((a) => (
+            <tr key={a.id}>
+              <td><b>{a.short || a.id}</b> <span className="vg-note">{a.id}</span></td>
+              <td>{a.broker || <span className="vg-note">manual</span>}</td>
+              <td className="num">{a.currency || "USD"}</td>
+              <td className="num">{a.jurisdiction || "US"}</td>
+              <td>{a.auth_status
+                ? <span className={/valid|present|grant/i.test(a.auth_status) ? "vg-pos" : "vg-neg"}>{a.auth_status}</span>
+                : <span className="vg-note">—</span>}</td>
+              <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                {a.refreshable && (
+                  <button className="vg-linkbtn" disabled={busy === "sync:" + a.id}
+                    onClick={() => sync(a.id)}>{busy === "sync:" + a.id ? "syncing…" : "Sync"}</button>
+                )}
+                <button className="vg-linkbtn" onClick={() => startEdit(a)}>Edit</button>
+                <button className="vg-linkbtn vg-neg" disabled={busy === "del:" + a.id}
+                  onClick={() => remove(a.id)}>Remove</button>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={6} className="vg-note">No accounts yet.</td></tr>}
+        </tbody>
+      </table>
+
+      {rows.some((a) => a.auth_hint) && (
+        <div className="vg-note" style={{ marginTop: 8, fontSize: 12 }}>
+          API brokers need a one-time host-side auth (your secret never enters the browser). Run:
+          <ul style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
+            {[...new Set(rows.filter((a) => a.auth_hint).map((a) => a.auth_hint))].map((h) => (
+              <li key={h}><code style={{ fontSize: 11 }}>{h}</code></li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {!adding && (
+        <div style={{ marginTop: 12 }}>
+          <Button variant="outline" onClick={startAdd}>+ Add account</Button>
+        </div>
+      )}
+
+      {adding && (
+        <div style={{ marginTop: 12, padding: 12, border: "1px solid var(--border, #ddd)", borderRadius: 8 }}>
+          <div className="vg-kicker">{editId ? `Edit ${editId}` : "New account"}</div>
+          {!editId && (
+            <FormField label="Account id (short, unique)" id="acc-id" value={form.id}
+              onChange={(e) => setForm({ ...form, id: e.target.value.trim() })} />
+          )}
+          <FormField label="Display name" id="acc-name" value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })} />
+          <FormField as="select" label="Currency" id="acc-ccy" value={form.currency}
+            onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+            {["USD", "INR", "GBP", "EUR", "CAD", "HKD", "JPY", "AUD"].map((c) => <option key={c} value={c}>{c}</option>)}
+          </FormField>
+          <FormField as="select" label="Tax jurisdiction" id="acc-juris" value={form.jurisdiction}
+            onChange={(e) => setForm({ ...form, jurisdiction: e.target.value })}>
+            {["US", "IN", "GB", "CA", "HK", "JP", "AU", "EU"].map((c) => <option key={c} value={c}>{c}</option>)}
+          </FormField>
+          <FormField as="select" label="Broker (live sync; manual = CSV/none)" id="acc-broker" value={form.broker}
+            onChange={(e) => setForm({ ...form, broker: e.target.value })}>
+            <option value="">manual</option>
+            <option value="zerodha">Zerodha (Kite)</option>
+            <option value="robinhood">Robinhood</option>
+          </FormField>
+          <label className="vg-check" style={{ display: "block", margin: "8px 0" }}>
+            <input type="checkbox" checked={form.taxable}
+              onChange={(e) => setForm({ ...form, taxable: e.target.checked })} /> Taxable account
+          </label>
+          {err && <div className="vg-neg" style={{ fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          <div className="vg-row" style={{ justifyContent: "flex-end", gap: 8 }}>
+            <Button variant="outline" onClick={() => setAdding(false)}>Cancel</Button>
+            <Button variant="primary" disabled={busy === "save"} onClick={save}>
+              {busy === "save" ? "Saving…" : (editId ? "Save changes" : "Create account")}
+            </Button>
+          </div>
+        </div>
+      )}
+      {err && !adding && <div className="vg-neg" style={{ fontSize: 12, marginTop: 8 }}>{err}</div>}
+    </div>
+  );
+}
+
 function SettingsModal({ settings, accounts = [], onSave, onClose }) {
   const [draft, setDraft] = useState(settings);
   return (
     <Modal title="Settings" open onClose={onClose}>
+      <div className="vg-kicker">Accounts</div>
+      <AccountsSettings />
+      <div className="vg-kicker" style={{ marginTop: 16 }}>Preferences</div>
       <FormField as="select" label="Default view" id="set-acct" value={draft.defaultAccount}
         onChange={(e) => setDraft({ ...draft, defaultAccount: e.target.value })}>
         <option value="all">All accounts</option>

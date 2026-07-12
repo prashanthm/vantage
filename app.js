@@ -1,4 +1,10 @@
 (() => {
+  var __defProp = Object.defineProperty;
+  var __export = (target, all) => {
+    for (var name in all)
+      __defProp(target, name, { get: all[name], enumerable: true });
+  };
+
   // src/data.js
   var NOTIF_TYPES = {
     tlh: { label: "Tax-loss harvesting", accent: "teal", icon: "\u{1F33E}" },
@@ -139,6 +145,79 @@
   }
 
   // src/live.js
+  var live_exports = {};
+  __export(live_exports, {
+    accounts: () => accounts,
+    allocation: () => allocation,
+    analyzeSymbol: () => analyzeSymbol,
+    closePaperTrade: () => closePaperTrade,
+    createAccount: () => createAccount,
+    deleteAccount: () => deleteAccount,
+    deleteJournal: () => deleteJournal,
+    editAccount: () => editAccount,
+    ensureTodayJournal: () => ensureTodayJournal,
+    getAnalysis: () => getAnalysis,
+    getBars: () => getBars,
+    getBarsOverlay: () => getBarsOverlay,
+    getExplanation: () => getExplanation,
+    getFuturesAnalysis: () => getFuturesAnalysis,
+    getHistory: () => getHistory,
+    getInsights: () => getInsights,
+    getJournal: () => getJournal,
+    getJson: () => getJson,
+    getNotebook: () => getNotebook,
+    getPaper: () => getPaper,
+    getPlaybook: () => getPlaybook,
+    getPlaybookPine: () => getPlaybookPine,
+    getRoundtrips: () => getRoundtrips,
+    getSignals: () => getSignals,
+    getStrategies: () => getStrategies,
+    getTradeStats: () => getTradeStats,
+    health: () => health,
+    importFutures: () => importFutures,
+    journalImageUrl: () => journalImageUrl,
+    lots: () => lots,
+    mapAllocation: () => mapAllocation,
+    mapAnalysis: () => mapAnalysis,
+    mapAnalyze: () => mapAnalyze,
+    mapBars: () => mapBars,
+    mapBarsOverlay: () => mapBarsOverlay,
+    mapByTicker: () => mapByTicker,
+    mapDecision: () => mapDecision,
+    mapFuturesAnalysis: () => mapFuturesAnalysis,
+    mapHistory: () => mapHistory,
+    mapInsights: () => mapInsights,
+    mapMarketBand: () => mapMarketBand,
+    mapNews: () => mapNews,
+    mapNotebook: () => mapNotebook,
+    mapPlaybook: () => mapPlaybook,
+    mapPositions: () => mapPositions,
+    mapSignals: () => mapSignals,
+    mapStrategies: () => mapStrategies,
+    mapTlh: () => mapTlh,
+    mapWash: () => mapWash,
+    miraHealth: () => miraHealth,
+    openPaperTrade: () => openPaperTrade,
+    positions: () => positions,
+    postJson: () => postJson,
+    postNote: () => postNote,
+    postPlan: () => postPlan,
+    quotes: () => quotes,
+    recomputePlaybook: () => recomputePlaybook,
+    refreshAccount: () => refreshAccount,
+    refreshAll: () => refreshAll,
+    saveJournalEntry: () => saveJournalEntry,
+    scoreJournal: () => scoreJournal,
+    settlePaper: () => settlePaper,
+    streamTurn: () => streamTurn,
+    symbolThreadId: () => symbolThreadId,
+    syncAccount: () => syncAccount,
+    threadId: () => threadId,
+    tlh: () => tlh,
+    uploadJournal: () => uploadJournal,
+    useLive: () => useLive,
+    wash: () => wash
+  });
   async function getJson(url, { timeoutMs = 2500 } = {}) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -174,10 +253,16 @@
   var miraBase = () => (loadSettings().miraUrl || "").replace(/\/+$/, "");
   var health = () => getJson(`${backendBase()}/api/health`);
   var accounts = () => getJson(`${backendBase()}/api/accounts`);
+  var createAccount = (body) => postJson(`${backendBase()}/api/accounts`, body);
+  var editAccount = (id, body) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/edit`, body);
+  var deleteAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/delete`, {});
+  var syncAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/sync`, {});
   var refreshAccount = (accountId) => postJson(`${backendBase()}/api/refresh`, { account: accountId });
   var refreshAll = () => postJson(`${backendBase()}/api/refresh`, {});
   var positions = (account = "all") => getJson(`${backendBase()}/api/positions?account=${encodeURIComponent(account)}`);
   var allocation = (account = "all") => getJson(`${backendBase()}/api/allocation?account=${encodeURIComponent(account)}`);
+  var lots = (account = "all") => getJson(`${backendBase()}/api/lots?account=${encodeURIComponent(account)}`);
+  var wash = () => getJson(`${backendBase()}/api/tax/wash`);
   var tlh = ({ thresholdUsd, thresholdPct } = {}) => {
     const q = new URLSearchParams();
     if (thresholdUsd != null) q.set("thresholdUsd", String(thresholdUsd));
@@ -268,6 +353,12 @@
         overlap: p.overlap || null
       };
     });
+  }
+  function mapWash(payload) {
+    if (!payload || !payload.wash) return null;
+    const out = {};
+    for (const [sym, w] of Object.entries(payload.wash)) out[sym] = mapWashStatus(w);
+    return out;
   }
   function mapTlh(payload) {
     if (!payload || !Array.isArray(payload.candidates)) return null;
@@ -957,6 +1048,7 @@
     }
   }
   var ensureTodayJournal = (symbol) => _journalPost("ensure_today", symbol ? { symbol } : {});
+  var scoreJournal = () => _journalPost("score", {});
   var deleteJournal = (id) => _journalPost("delete", { id });
   var saveJournalEntry = (id, entry) => _journalPost("entry", { id, entry });
   var journalImageUrl = (id) => `${backendBase()}/api/journal/image/${id}`;
@@ -3486,8 +3578,8 @@
     if (a.kind === "close") {
       const loss = a.unrealizedLoss != null ? `book $${Math.round(Math.abs(a.unrealizedLoss))}` : "book loss";
       const weeks = a.weeksToOffset != null ? `, ${a.weeksToOffset}wk to offset` : "";
-      const wash = a.washBlocked ? " \xB7 WASH BLOCKED" : "";
-      return `${loss}${weeks}${wash}`;
+      const wash2 = a.washBlocked ? " \xB7 WASH BLOCKED" : "";
+      return `${loss}${weeks}${wash2}`;
     }
     return d.rationale || "";
   }
@@ -3635,9 +3727,178 @@
     const ratio = typeof u.grounded_ratio === "number" ? u.grounded_ratio : null;
     return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)", fontSize: 12, lineHeight: 1.5 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11.5, marginBottom: 4 } }, ratio != null && /* @__PURE__ */ React.createElement(React.Fragment, null, "grounded ", Math.round(ratio * 100), "% \xB7 "), steps, " plan step", steps === 1 ? "" : "s", " \xB7 ", claims.length, " claim", claims.length === 1 ? "" : "s"), claims.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i }, "\xB7 ", c.statement, " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "(", c.source_type, ":", c.source_id, ")"))));
   }
+  function AccountsSettings() {
+    const live_ = live_exports;
+    const [rows, setRows] = useState8(null);
+    const [busy, setBusy] = useState8("");
+    const [err, setErr] = useState8("");
+    const [adding, setAdding] = useState8(false);
+    const [editId, setEditId] = useState8(null);
+    const blank = { id: "", name: "", currency: "USD", jurisdiction: "US", taxable: true, broker: "" };
+    const [form, setForm] = useState8(blank);
+    const load = async () => {
+      try {
+        const p = await live_.accounts();
+        setRows(p && p.accounts || []);
+      } catch {
+        setRows([]);
+      }
+    };
+    useEffect5(() => {
+      load();
+    }, []);
+    const startAdd = () => {
+      setForm(blank);
+      setEditId(null);
+      setAdding(true);
+      setErr("");
+    };
+    const startEdit = (a) => {
+      setForm({
+        id: a.id,
+        name: a.name || a.short || a.id,
+        currency: a.currency || "USD",
+        jurisdiction: a.jurisdiction || "US",
+        taxable: a.taxable !== false,
+        broker: a.broker || ""
+      });
+      setEditId(a.id);
+      setAdding(true);
+      setErr("");
+    };
+    const save = async () => {
+      setErr("");
+      setBusy("save");
+      try {
+        if (editId) {
+          await live_.editAccount(editId, {
+            name: form.name,
+            currency: form.currency,
+            jurisdiction: form.jurisdiction,
+            taxable: form.taxable,
+            broker: form.broker
+          });
+        } else {
+          if (!form.id.trim() || !form.name.trim()) {
+            setErr("id and name are required");
+            setBusy("");
+            return;
+          }
+          const r = await live_.createAccount(form);
+          if (r && r.error) {
+            setErr(r.error);
+            setBusy("");
+            return;
+          }
+        }
+        setAdding(false);
+        await load();
+      } catch (e) {
+        setErr(String(e.message || e));
+      }
+      setBusy("");
+    };
+    const remove = async (id) => {
+      if (!window.confirm(`Remove account "${id}" and its lots? This cannot be undone.`)) return;
+      setBusy("del:" + id);
+      try {
+        await live_.deleteAccount(id);
+        await load();
+      } catch (e) {
+        setErr(String(e.message || e));
+      }
+      setBusy("");
+    };
+    const sync = async (id) => {
+      setBusy("sync:" + id);
+      setErr("");
+      try {
+        const r = await live_.syncAccount(id);
+        const res = r && r.results && r.results[0] || {};
+        if (res.errors && res.errors.length) setErr(`${id}: ${res.errors.join("; ")}`);
+        await load();
+      } catch (e) {
+        setErr(String(e.message || e));
+      }
+      setBusy("");
+    };
+    if (rows === null) return /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading accounts\u2026");
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Account"), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Broker"), /* @__PURE__ */ React.createElement("th", null, "Ccy"), /* @__PURE__ */ React.createElement("th", null, "Juris."), /* @__PURE__ */ React.createElement("th", { style: { textAlign: "left" } }, "Status"), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, a.short || a.id), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, a.id)), /* @__PURE__ */ React.createElement("td", null, a.broker || /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "manual")), /* @__PURE__ */ React.createElement("td", { className: "num" }, a.currency || "USD"), /* @__PURE__ */ React.createElement("td", { className: "num" }, a.jurisdiction || "US"), /* @__PURE__ */ React.createElement("td", null, a.auth_status ? /* @__PURE__ */ React.createElement("span", { className: /valid|present|grant/i.test(a.auth_status) ? "vg-pos" : "vg-neg" }, a.auth_status) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", whiteSpace: "nowrap" } }, a.refreshable && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-linkbtn",
+        disabled: busy === "sync:" + a.id,
+        onClick: () => sync(a.id)
+      },
+      busy === "sync:" + a.id ? "syncing\u2026" : "Sync"
+    ), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => startEdit(a) }, "Edit"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-linkbtn vg-neg",
+        disabled: busy === "del:" + a.id,
+        onClick: () => remove(a.id)
+      },
+      "Remove"
+    )))), rows.length === 0 && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, className: "vg-note" }, "No accounts yet.")))), rows.some((a) => a.auth_hint) && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "API brokers need a one-time host-side auth (your secret never enters the browser). Run:", /* @__PURE__ */ React.createElement("ul", { style: { margin: "4px 0 0 0", paddingLeft: 18 } }, [...new Set(rows.filter((a) => a.auth_hint).map((a) => a.auth_hint))].map((h) => /* @__PURE__ */ React.createElement("li", { key: h }, /* @__PURE__ */ React.createElement("code", { style: { fontSize: 11 } }, h))))), !adding && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement(Button, { variant: "outline", onClick: startAdd }, "+ Add account")), adding && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, padding: 12, border: "1px solid var(--border, #ddd)", borderRadius: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, editId ? `Edit ${editId}` : "New account"), !editId && /* @__PURE__ */ React.createElement(
+      FormField,
+      {
+        label: "Account id (short, unique)",
+        id: "acc-id",
+        value: form.id,
+        onChange: (e) => setForm({ ...form, id: e.target.value.trim() })
+      }
+    ), /* @__PURE__ */ React.createElement(
+      FormField,
+      {
+        label: "Display name",
+        id: "acc-name",
+        value: form.name,
+        onChange: (e) => setForm({ ...form, name: e.target.value })
+      }
+    ), /* @__PURE__ */ React.createElement(
+      FormField,
+      {
+        as: "select",
+        label: "Currency",
+        id: "acc-ccy",
+        value: form.currency,
+        onChange: (e) => setForm({ ...form, currency: e.target.value })
+      },
+      ["USD", "INR", "GBP", "EUR", "CAD", "HKD", "JPY", "AUD"].map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))
+    ), /* @__PURE__ */ React.createElement(
+      FormField,
+      {
+        as: "select",
+        label: "Tax jurisdiction",
+        id: "acc-juris",
+        value: form.jurisdiction,
+        onChange: (e) => setForm({ ...form, jurisdiction: e.target.value })
+      },
+      ["US", "IN", "GB", "CA", "HK", "JP", "AU", "EU"].map((c) => /* @__PURE__ */ React.createElement("option", { key: c, value: c }, c))
+    ), /* @__PURE__ */ React.createElement(
+      FormField,
+      {
+        as: "select",
+        label: "Broker (live sync; manual = CSV/none)",
+        id: "acc-broker",
+        value: form.broker,
+        onChange: (e) => setForm({ ...form, broker: e.target.value })
+      },
+      /* @__PURE__ */ React.createElement("option", { value: "" }, "manual"),
+      /* @__PURE__ */ React.createElement("option", { value: "zerodha" }, "Zerodha (Kite)"),
+      /* @__PURE__ */ React.createElement("option", { value: "robinhood" }, "Robinhood")
+    ), /* @__PURE__ */ React.createElement("label", { className: "vg-check", style: { display: "block", margin: "8px 0" } }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "checkbox",
+        checked: form.taxable,
+        onChange: (e) => setForm({ ...form, taxable: e.target.checked })
+      }
+    ), " Taxable account"), err && /* @__PURE__ */ React.createElement("div", { className: "vg-neg", style: { fontSize: 12, marginBottom: 8 } }, err), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "flex-end", gap: 8 } }, /* @__PURE__ */ React.createElement(Button, { variant: "outline", onClick: () => setAdding(false) }, "Cancel"), /* @__PURE__ */ React.createElement(Button, { variant: "primary", disabled: busy === "save", onClick: save }, busy === "save" ? "Saving\u2026" : editId ? "Save changes" : "Create account"))), err && !adding && /* @__PURE__ */ React.createElement("div", { className: "vg-neg", style: { fontSize: 12, marginTop: 8 } }, err));
+  }
   function SettingsModal({ settings, accounts: accounts2 = [], onSave, onClose }) {
     const [draft, setDraft] = useState8(settings);
-    return /* @__PURE__ */ React.createElement(Modal, { title: "Settings", open: true, onClose }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement(Modal, { title: "Settings", open: true, onClose }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Accounts"), /* @__PURE__ */ React.createElement(AccountsSettings, null), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Preferences"), /* @__PURE__ */ React.createElement(
       FormField,
       {
         as: "select",

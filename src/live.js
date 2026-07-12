@@ -64,6 +64,14 @@ export const accounts = () => getJson(`${backendBase()}/api/accounts`);
 // Read broker tools only; the backend can never place an order. Resolves to
 // null when the backend is down (caller shows a quiet note), or a payload
 // {results: [{account, positions, new_transactions, cash, csv_only?, errors}]}.
+// Account management (settings-page write surface). Secrets are NEVER sent —
+// the backend only stores account metadata (name/currency/jurisdiction/broker)
+// and reports auth status + the host-side command to grant it.
+export const createAccount = (body) => postJson(`${backendBase()}/api/accounts`, body);
+export const editAccount = (id, body) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/edit`, body);
+export const deleteAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/delete`, {});
+export const syncAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/sync`, {});
+
 export const refreshAccount = (accountId) =>
   postJson(`${backendBase()}/api/refresh`, { account: accountId });
 export const refreshAll = () => postJson(`${backendBase()}/api/refresh`, {});

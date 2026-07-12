@@ -435,6 +435,11 @@ def test_trade_stats_unknown_account_404(client):
 @pytest.mark.parametrize("route", ALL_GET_ROUTES)
 @pytest.mark.parametrize("method", ["post", "put", "delete", "patch"])
 def test_no_mutating_method_exists(client, route, method):
+    # A GET route that ALSO has a deliberate write (e.g. POST /api/accounts is
+    # both the list read and the create write) is exempt — its write is in the
+    # ADR-010 allowlist below.
+    if method == "post" and route in ALLOWED_WRITE_ROUTES:
+        return
     r = getattr(client, method)(route)
     assert r.status_code == 405, f"{method.upper()} {route} must be rejected"
 
@@ -454,6 +459,10 @@ ALLOWED_WRITE_ROUTES = {
     "/api/futures/import",
     # Paper-trading simulation — logs/settles/closes NO-MONEY paper trades in our
     # own SQLite. Explicitly not a real order path (ADR-010 read-only doctrine).
+    "/api/accounts",
+    "/api/accounts/{account_id}/edit",
+    "/api/accounts/{account_id}/delete",
+    "/api/accounts/{account_id}/sync",
     "/api/paper/open",
     "/api/paper/settle",
     "/api/paper/close",
@@ -752,3 +761,68 @@ def test_bars_endpoints_absent_gracefully_on_fixture(client):
     """The fixture data dir has no bars/ directory -> clean 404, never a 500."""
     assert client.get("/api/bars", params={"symbol": "PLTR"}).status_code == 404
     assert client.get("/api/bars/overlay", params={"symbol": "PLTR"}).status_code == 404
+
+
+# ── account management (settings-page write surface) ────────────────────────
+
+
+@pytest.fixture()
+def mgmt_client(tmp_path, data_dir):
+    for name in ("accounts.json", "lots.json", "recent_buys.json",
+                 "auto_buys.json", "partner_map.json", "quotes.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    return TestClient(create_app(tmp_path))
+
+
+def test_create_account_with_currency_and_jurisdiction(mgmt_client):
+    r = mgmt_client.post("/api/accounts", json={
+        "id": "zerodha", "name": "Zerodha", "currency": "inr",
+        "jurisdiction": "in", "broker": "zerodha"})
+    assert r.status_code == 200
+    acct = r.json()["account"]
+    assert acct["currency"] == "INR" and acct["jurisdiction"] == "IN"
+    # it now appears in the accounts list
+    accts = mgmt_client.get("/api/accounts").json()["accounts"]
+    z = next(a for a in accts if a["id"] == "zerodha")
+    assert z["currency"] == "INR" and z["broker"] == "zerodha"
+    # auth status + a host-side (no-secret) command are surfaced
+    assert z["auth_status"] is not None
+    assert "--broker zerodha --auth" in z["auth_hint"]
+
+
+def test_create_account_requires_id_and_name(mgmt_client):
+    assert mgmt_client.post("/api/accounts", json={"name": "x"}).status_code == 400
+    assert mgmt_client.post("/api/accounts", json={"id": "x"}).status_code == 400
+
+
+def test_create_duplicate_id_conflicts(mgmt_client):
+    mgmt_client.post("/api/accounts", json={"id": "dup", "name": "A"})
+    assert mgmt_client.post("/api/accounts", json={"id": "dup", "name": "B"}).status_code == 409
+
+
+def test_edit_account_fields(mgmt_client):
+    mgmt_client.post("/api/accounts", json={"id": "e1", "name": "Old", "currency": "USD"})
+    r = mgmt_client.post("/api/accounts/e1/edit",
+                         json={"name": "New", "currency": "EUR", "taxable": False})
+    assert r.status_code == 200
+    a = next(x for x in mgmt_client.get("/api/accounts").json()["accounts"] if x["id"] == "e1")
+    assert a["name"] == "New" and a["currency"] == "EUR" and a["taxable"] is False
+
+
+def test_delete_account_removes_it(mgmt_client):
+    mgmt_client.post("/api/accounts", json={"id": "gone", "name": "Gone"})
+    assert mgmt_client.post("/api/accounts/gone/delete").json()["removed"] is True
+    ids = {a["id"] for a in mgmt_client.get("/api/accounts").json()["accounts"]}
+    assert "gone" not in ids
+
+
+def test_edit_and_delete_unknown_account_404(mgmt_client):
+    assert mgmt_client.post("/api/accounts/nope/edit", json={"name": "x"}).status_code == 404
+    assert mgmt_client.post("/api/accounts/nope/delete").status_code == 404
+
+
+def test_us_account_has_no_auth_hint(mgmt_client):
+    # a manual/CSV account (no API broker) exposes no auth command
+    accts = mgmt_client.get("/api/accounts").json()["accounts"]
+    manual = [a for a in accts if not a.get("refreshable")]
+    assert manual and all(a["auth_hint"] is None for a in manual)
