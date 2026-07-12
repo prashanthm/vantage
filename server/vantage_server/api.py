@@ -113,19 +113,21 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     def positions(account: str = Query("all")):
         check_account(account)
         snap = state.snapshot()
-        rows = engine.positions(ds.lots, snap.quotes, account)
+        rows = engine.positions(ds.lots, snap.quotes, account, accounts=ds.accounts)
         return envelope(snap, account=account, positions=to_jsonable(rows))
 
     @app.get("/api/allocation")
     def allocation(account: str = Query("all")):
         check_account(account)
         snap = state.snapshot()
-        alloc = engine.allocation(ds.lots, snap.quotes, account)
+        alloc = engine.allocation(ds.lots, snap.quotes, account, accounts=ds.accounts)
         by_class = {
             cls: {"value": v, "pct": (v / alloc.total * 100) if alloc.total else 0.0}
             for cls, v in alloc.by_class.items()
         }
-        return envelope(snap, account=account, total=alloc.total, by_class=by_class)
+        return envelope(snap, account=account, total=alloc.total, by_class=by_class,
+                        by_currency=alloc.by_currency or {"USD": alloc.total},
+                        currency=alloc.currency)
 
     @app.get("/api/lots")
     def lots(account: str = Query("all")):
@@ -147,6 +149,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                     recent_buys=ds.recent_buys,
                     auto_buys=ds.auto_buys,
                     today=today,
+                    lots=ds.lots,
                 )
             )
             for sym in held

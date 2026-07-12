@@ -136,6 +136,29 @@ def lot_cost(lot: Lot) -> float:
     return lot.shares * lot.cost_per_share
 
 
+def lot_currency(lot: Lot, accounts: Sequence[Account]) -> str:
+    """The currency a lot's value/cost are denominated in — its owning
+    account's currency (default USD). Lots never cross accounts, so a lot has
+    exactly one currency. This is the single fact every rollup groups by."""
+    for a in accounts:
+        if a.id == lot.account:
+            return a.currency
+    return "USD"
+
+
+def value_by_currency(
+    lots: Sequence[Lot], quotes: dict[str, Quote], accounts: Sequence[Account],
+) -> dict[str, float]:
+    """Total market value grouped by currency — the "never cross-sum" primitive.
+    A single-currency book returns one key (e.g. {"USD": ...}); mixed books
+    return one subtotal per currency, NEVER added together."""
+    out: dict[str, float] = {}
+    for lot in lots:
+        ccy = lot_currency(lot, accounts)
+        out[ccy] = out.get(ccy, 0.0) + lot_value(lot, quotes)
+    return out
+
+
 def lot_unrealized(lot: Lot, quotes: dict[str, Quote]) -> float:
     return lot_value(lot, quotes) - lot_cost(lot)
 
@@ -162,6 +185,17 @@ def wash_family(
     return (symbol,)
 
 
+def symbol_is_us(symbol: str, lots: Sequence[Lot], accounts: Sequence[Account]) -> bool:
+    """True unless the symbol is held ONLY in non-US accounts. A symbol held in
+    any US account keeps US wash-sale semantics (the §1091 look-back spans the
+    household); one held solely in an INR/foreign account is out of US scope."""
+    juris = {a.id: getattr(a, "jurisdiction", "US") for a in accounts}
+    holding = [juris.get(l.account, "US") for l in lots if l.symbol == symbol]
+    if not holding:
+        return True  # unknown -> assume US (unchanged behavior)
+    return any(j == "US" for j in holding)
+
+
 def wash_status(
     symbol: str,
     *,
@@ -171,12 +205,20 @@ def wash_status(
     today: datetime,
     window_days: int = WASH_WINDOW_DAYS,
     families: Iterable[tuple[str, ...]] = WASH_FAMILIES,
+    lots: Sequence[Lot] = (),
 ) -> WashStatus:
     """Wash-sale status across ALL accounts (util.jsx washStatus parity):
     look-back over actual buys of any family member in any account (incl.
     IRAs), plus look-forward on scheduled auto-buys — a future repurchase
     also washes the loss.
+
+    §1091 is US tax law; when ``lots`` are supplied and the symbol is held only
+    in non-US accounts, returns an unblocked status flagged non-US (no wash
+    rule applies) rather than fabricating a US wash window.
     """
+    if lots and not symbol_is_us(symbol, lots, accounts):
+        return WashStatus(symbol=symbol, blocked=False,
+                          reason="non-US account — no wash-sale rule")
     fam = wash_family(symbol, families)
     short = {a.id: a.short for a in accounts}
 
@@ -238,20 +280,29 @@ def positions(
     quotes: dict[str, Quote],
     account_id: str | None = None,
     groups: Iterable[Overlap] = OVERLAP_GROUPS,
+    accounts: Sequence[Account] = (),
 ) -> list[Position]:
     """Consolidated positions for one account or all, sorted by value desc.
-    Weight is relative to the selected scope's total (util.jsx positions parity);
-    overlap is always computed over the full lot table."""
+
+    Weight is relative to the position's OWN-CURRENCY scope total — a % of the
+    mixed all-accounts total would be meaningless across currencies, so each
+    position's weight is a share of the value in ITS currency. With no
+    ``accounts`` (or a single-currency book) this is identical to the old
+    single-total behavior (one currency bucket). Overlap is always computed
+    over the full lot table."""
     selected = select_lots(lots, account_id)
     by_sym: dict[str, list[Lot]] = {}
     for lot in selected:
         by_sym.setdefault(lot.symbol, []).append(lot)
 
-    total = sum(lot_value(l, quotes) for l in selected)
+    # per-currency scope totals (the weight denominators)
+    totals_by_ccy = value_by_currency(selected, quotes, accounts)
     out: list[Position] = []
     for symbol, sym_lots in by_sym.items():
         value = sum(lot_value(l, quotes) for l in sym_lots)
         cost = sum(lot_cost(l) for l in sym_lots)
+        ccy = lot_currency(sym_lots[0], accounts)  # one symbol, one account-set, one ccy
+        denom = totals_by_ccy.get(ccy, 0.0)
         out.append(
             Position(
                 symbol=symbol,
@@ -260,10 +311,11 @@ def positions(
                 cost=cost,
                 unrealized=value - cost,
                 day_pl=value * quote_for(symbol, quotes).day_pct / 100,
-                weight=(value / total) * 100 if total else 0.0,
+                weight=(value / denom) * 100 if denom else 0.0,
                 accounts=tuple(sorted({l.account for l in sym_lots})),
                 lots=tuple(sym_lots),
                 overlap=overlap_for(symbol, lots, groups),
+                currency=ccy,
             )
         )
     out.sort(key=lambda p: p.value, reverse=True)
@@ -274,18 +326,27 @@ def allocation(
     lots: Sequence[Lot],
     quotes: dict[str, Quote],
     account_id: str | None = None,
+    accounts: Sequence[Account] = (),
 ) -> Allocation:
-    # The four SPA classes are always present (zero when unheld); any OTHER
-    # asset class a quote declares (imported real portfolios carry "options",
-    # "crypto", "other" sleeves) is added as its own key instead of KeyError-ing.
+    """Asset-class allocation. ``by_class``/``total`` sum ONLY the base-currency
+    (USD) lots so the class breakdown is never a cross-currency mix; a
+    ``by_currency`` map carries every currency's subtotal for the SPA to render
+    side by side. A single-currency (USD) book is unchanged: by_currency has one
+    key equal to total."""
+    selected = select_lots(lots, account_id)
+    by_ccy = value_by_currency(selected, quotes, accounts)
+    base = "USD"
     by_class = {"usEquity": 0.0, "intlEquity": 0.0, "bonds": 0.0, "cash": 0.0}
     total = 0.0
-    for lot in select_lots(lots, account_id):
+    for lot in selected:
+        if lot_currency(lot, accounts) != base:
+            continue  # non-base lots are summed only into by_currency
         v = lot_value(lot, quotes)
         cls = quote_for(lot.symbol, quotes).asset_class
         by_class[cls] = by_class.get(cls, 0.0) + v
         total += v
-    return Allocation(by_class=by_class, total=total)
+    return Allocation(by_class=by_class, total=total,
+                      currency=base, by_currency=by_ccy)
 
 
 # --------------------------------------------------------------------- TLH
@@ -322,6 +383,13 @@ def tlh_candidates(
         if unrl >= 0:
             continue
         loss_pct = (-unrl / lot_cost(lot)) * 100
+        # US tax-loss-harvesting is §1091/US-tax-code specific: the USD
+        # thresholds and wash-sale rules don't apply to a non-US account.
+        # Gate it OFF (na) rather than produce wrong tax advice.
+        if getattr(acct, "jurisdiction", "US") != "US":
+            out.append(TlhCandidate(lot=lot, account=acct, unrealized=unrl,
+                                    loss_pct=loss_pct, status="na"))
+            continue
         past_threshold = (-unrl >= threshold_usd) or (loss_pct >= threshold_pct)
         if not acct.taxable:
             out.append(TlhCandidate(lot=lot, account=acct, unrealized=unrl,

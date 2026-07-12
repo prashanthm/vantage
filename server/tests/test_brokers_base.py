@@ -32,17 +32,19 @@ from vantage_server.brokers.base import (
 )
 from vantage_server.brokers.robinhood import RobinhoodConnection
 from vantage_server.brokers.schwab import SchwabConnection
+from vantage_server.brokers.zerodha import ZerodhaConnection
 
 AS_OF = "2026-07-05"
 
 
 # ---------------------------------------------------------------- registry
 
-def test_registry_holds_all_three_connections():
+def test_registry_holds_all_connections():
     assert CONNECTIONS == {
         "robinhood": RobinhoodConnection,
         "schwab-api": SchwabConnection,
         "fidelity-api": AggregatorFidelityConnection,
+        "zerodha": ZerodhaConnection,
     }
 
 

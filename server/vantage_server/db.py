@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 10  # v10: paper reclaim discipline — fill_status/entry_trigger columns
+SCHEMA_VERSION = 11  # v11: account currency + jurisdiction (multi-currency)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -50,7 +50,9 @@ CREATE TABLE IF NOT EXISTS accounts (
     type        TEXT NOT NULL,
     taxable     INTEGER NOT NULL,   -- 0/1 bool
     last_sync   TEXT NOT NULL,
-    seq         INTEGER              -- preserves source ordering
+    seq         INTEGER,             -- preserves source ordering
+    currency    TEXT NOT NULL DEFAULT 'USD',   -- ISO 4217 denomination
+    jurisdiction TEXT NOT NULL DEFAULT 'US'    -- tax jurisdiction (gates US tax)
 );
 
 CREATE TABLE IF NOT EXISTS lots (
@@ -409,6 +411,7 @@ class Database:
             conn.executescript(_SCHEMA)
             self._add_missing_journal_columns(conn)
             self._add_missing_paper_columns(conn)
+            self._add_missing_account_columns(conn)
             self._migrate_multi_underlying(conn)
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('schema_version', ?)\n"
@@ -444,6 +447,16 @@ class Database:
             if col not in have:
                 conn.execute(
                     f"ALTER TABLE journal_snapshots ADD COLUMN {col} {decl}")
+
+    @staticmethod
+    def _add_missing_account_columns(conn: sqlite3.Connection) -> None:
+        """v10->v11: additively add currency/jurisdiction; existing rows default
+        to USD/US (unchanged behavior)."""
+        have = {r["name"] for r in conn.execute("PRAGMA table_info(accounts)").fetchall()}
+        if "currency" not in have:
+            conn.execute("ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'USD'")
+        if "jurisdiction" not in have:
+            conn.execute("ALTER TABLE accounts ADD COLUMN jurisdiction TEXT NOT NULL DEFAULT 'US'")
 
     @staticmethod
     def _add_missing_paper_columns(conn: sqlite3.Connection) -> None:

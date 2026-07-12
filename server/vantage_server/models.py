@@ -19,6 +19,8 @@ class Account:
     type: str
     taxable: bool
     last_sync: str
+    currency: str = "USD"       # ISO 4217; the account's denomination
+    jurisdiction: str = "US"    # tax jurisdiction; gates US-only tax logic
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class Quote:
     price: float
     day_pct: float
     asset_class: str  # usEquity | intlEquity | bonds | cash
+    currency: str = "USD"  # the currency `price` is denominated in
 
 
 @dataclass(frozen=True)
@@ -79,10 +82,11 @@ class Position:
     cost: float
     unrealized: float
     day_pl: float
-    weight: float                 # % of the selected scope's total value
+    weight: float                 # % of the position's OWN-CURRENCY scope total
     accounts: tuple[str, ...]     # account ids contributing lots
     lots: tuple[Lot, ...]
     overlap: Overlap | None
+    currency: str = "USD"         # the currency value/cost/unrealized are in
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,8 @@ class TlhCandidate:
 class Allocation:
     by_class: dict[str, float]  # asset class -> market value
     total: float
+    currency: str = "USD"                    # the currency by_class/total are in
+    by_currency: dict[str, float] | None = None  # ccy -> subtotal (mixed scope)
 
 
 def to_jsonable(obj: Any) -> Any:

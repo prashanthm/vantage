@@ -149,6 +149,8 @@ class _JsonBackend:
                 type=_require(r, "type", str, str(path)),
                 taxable=_require(r, "taxable", bool, str(path)),
                 last_sync=_require(r, "last_sync", str, str(path)),
+                currency=str(r.get("currency", "USD") or "USD"),
+                jurisdiction=str(r.get("jurisdiction", "US") or "US"),
             )
             for r in rows
         )
@@ -284,7 +286,9 @@ class _SqliteBackend:
         conn = self._conn()
         try:
             rows = conn.execute(
-                "SELECT id, name, short, type, taxable, last_sync FROM accounts "
+                "SELECT id, name, short, type, taxable, last_sync, "
+                "COALESCE(currency,'USD') AS currency, "
+                "COALESCE(jurisdiction,'US') AS jurisdiction FROM accounts "
                 "ORDER BY seq, id"
             ).fetchall()
         finally:
@@ -293,6 +297,7 @@ class _SqliteBackend:
             Account(
                 id=r["id"], name=r["name"], short=r["short"], type=r["type"],
                 taxable=bool(r["taxable"]), last_sync=r["last_sync"],
+                currency=r["currency"], jurisdiction=r["jurisdiction"],
             )
             for r in rows
         )
@@ -675,10 +680,12 @@ class Store:
         for i, a in enumerate(accounts):
             conn.execute(
                 "INSERT OR REPLACE INTO accounts"
-                "(id, name, short, type, taxable, last_sync, seq) "
-                "VALUES(?,?,?,?,?,?,?)",
+                "(id, name, short, type, taxable, last_sync, seq, currency, jurisdiction) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 (str(a["id"]), str(a["name"]), str(a["short"]), str(a["type"]),
-                 1 if a.get("taxable") else 0, str(a.get("last_sync", "never")), i),
+                 1 if a.get("taxable") else 0, str(a.get("last_sync", "never")), i,
+                 str(a.get("currency", "USD") or "USD"),
+                 str(a.get("jurisdiction", "US") or "US")),
             )
 
     def add_account(self, account: dict) -> bool:
@@ -697,11 +704,13 @@ class Store:
             n = conn.execute("SELECT COUNT(*) AS c FROM accounts").fetchone()["c"]
             conn.execute(
                 "INSERT OR REPLACE INTO accounts"
-                "(id, name, short, type, taxable, last_sync, seq) "
-                "VALUES(?,?,?,?,?,?,?)",
+                "(id, name, short, type, taxable, last_sync, seq, currency, jurisdiction) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 (str(account["id"]), str(account["name"]), str(account["short"]),
                  str(account["type"]), 1 if account.get("taxable") else 0,
-                 str(account.get("last_sync", "never")), n),
+                 str(account.get("last_sync", "never")), n,
+                 str(account.get("currency", "USD") or "USD"),
+                 str(account.get("jurisdiction", "US") or "US")),
             )
         return True
 

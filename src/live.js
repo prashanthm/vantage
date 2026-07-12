@@ -212,6 +212,7 @@ export function mapPositions(payload) {
       unrl: p.unrealized,
       dayPl: p.day_pl,
       weight: p.weight,
+      currency: p.currency || "USD",
       accounts: p.accounts, // array; views spread it like the fixture Set
       lots: (p.lots || []).map((l) => ({ ...mapLot(l), price: perShare })),
       overlap: p.overlap || null,
@@ -255,7 +256,9 @@ export function mapAllocation(payload) {
   if (!payload || !payload.by_class) return null;
   const byClass = {};
   for (const [k, v] of Object.entries(payload.by_class)) byClass[k] = v.value;
-  return { byClass, total: payload.total };
+  return { byClass, total: payload.total,
+           currency: payload.currency || "USD",
+           byCurrency: payload.by_currency || { USD: payload.total } };
 }
 
 // /api/quotes -> a compact market band for the Dashboard's "how is the market

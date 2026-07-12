@@ -59,3 +59,13 @@ def test_decompose_full_and_degraded():
     bare = decompose("ZZZ", name, None, None, None)
     assert bare["benchmark_available"] is False
     assert bare["beta_spy"] is None and bare["idio_r_1m"] is None
+
+
+def test_non_us_symbol_gated():
+    from vantage_server.relative_strength import is_us_symbol, relative_strength
+    assert is_us_symbol("ACN") is True
+    assert is_us_symbol("RELIANCE.NS") is False
+    assert is_us_symbol("HDFC.BO") is False
+    # the store wrapper returns a structured na for a non-US listing
+    out = relative_strength("RELIANCE.NS", "/nonexistent")
+    assert out["no_data"] is True and "non-US" in out["reason"]

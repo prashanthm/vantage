@@ -4,7 +4,7 @@ import {
   NOTIF_TYPES, ALLOCATION_TARGETS, ASSET_CLASSES,
 } from "./data.js";
 import {
-  usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
+  usd, money, moneyByCcy, signUsd, signMoney, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
   isOptionSym, isSleeveSym, underlyingOf,
   loadSettings, SETTINGS_KEY, StatTile, syncedAgo,
   useTheme, THEME_ICON,
@@ -149,6 +149,7 @@ function App() {
       registerAccounts(p.accounts);
       return p.accounts.map((a) => ({
         id: a.id, short: a.short, type: a.type, value: a.value,
+        currency: a.currency || "USD",
         lastSynced: a.last_synced, broker: a.broker, refreshable: a.refreshable,
       }));
     }),
@@ -281,7 +282,7 @@ function App() {
                     <div>All accounts</div>
                     <div className="meta">{scopeAccounts.length} linked</div>
                   </div>
-                  <span className="bal">{usd(scopeAccounts.reduce((s, a) => s + a.value, 0))}</span>
+                  <span className="bal">{moneyByCcy(scopeAccounts.reduce((m, a) => { const c = a.currency || "USD"; m[c] = (m[c] || 0) + a.value; return m; }, {}))}</span>
                 </button>
                 {scopeAccounts.map((a) => {
                   // refreshable === false -> a CSV-only broker (no live API): the
@@ -301,7 +302,7 @@ function App() {
                           <div className="synced">synced {syncedAgo(a.lastSynced)}</div>
                         )}
                       </button>
-                      <span className="bal">{usd(a.value)}</span>
+                      <span className="bal">{money(a.value, a.currency || "USD")}</span>
                       <span className="actions">
                         <button
                           className={cls("vg-refresh", pending && "spinning")}
@@ -538,10 +539,15 @@ function DashboardView({
   const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
   const decisions = (analysis && analysis.decisions) || [];
 
-  const totalValue = alloc.total;
-  const dayPl = pos.reduce((s, p) => s + p.dayPl, 0);
-  const unrlPl = pos.reduce((s, p) => s + p.unrl, 0);
-  const harvestable = tlh.filter((c) => c.status === "clear");
+  const totalValue = alloc.total;  // USD base (allocation.total is USD-only)
+  const byCurrency = alloc.byCurrency || { USD: totalValue };
+  const isMixed = Object.keys(byCurrency).filter((k) => byCurrency[k] !== 0).length > 1;
+  // P/L grouped by the position's currency — never summed across currencies.
+  const dayPlByCcy = pos.reduce((m, p) => { const c = p.currency || "USD"; m[c] = (m[c] || 0) + p.dayPl; return m; }, {});
+  const unrlPlByCcy = pos.reduce((m, p) => { const c = p.currency || "USD"; m[c] = (m[c] || 0) + p.unrl; return m; }, {});
+  const dayPl = dayPlByCcy.USD || 0;   // USD-scope for the delta % (US book)
+  const unrlPl = unrlPlByCcy.USD || 0;
+  const harvestable = tlh.filter((c) => c.status === "clear");  // TLH is US-only (gated server-side)
   const harvestableLoss = harvestable.reduce((s, c) => s + -c.unrl, 0);
   const estBenefit = harvestableLoss * (settings.taxRate / 100);
   const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -623,11 +629,11 @@ function DashboardView({
       {/* ---------- Q2 · How is my portfolio doing today? ---------- */}
       <div className="vg-kicker" style={{ margin: "20px 2px 6px" }}>Portfolio today</div>
       <div className="vg-stats">
-        <StatTile label="Total value" value={usd(totalValue)} />
-        <StatTile label="Day P/L" value={signUsd(dayPl)} deltaDir={dirCls(dayPl)}
-          delta={signPct((dayPl / (totalValue - dayPl)) * 100)} />
-        <StatTile label="Unrealized P/L" value={signUsd(unrlPl)} deltaDir={dirCls(unrlPl)}
-          delta={signPct((unrlPl / (totalValue - unrlPl)) * 100)} />
+        <StatTile label="Total value" value={isMixed ? moneyByCcy(byCurrency) : usd(totalValue)} />
+        <StatTile label="Day P/L" value={isMixed ? Object.keys(dayPlByCcy).sort().map((c)=>signMoney(dayPlByCcy[c],c)).join(" · ") : signUsd(dayPl)} deltaDir={dirCls(dayPl)}
+          delta={totalValue ? signPct((dayPl / (totalValue - dayPl)) * 100) : ""} />
+        <StatTile label="Unrealized P/L" value={isMixed ? Object.keys(unrlPlByCcy).sort().map((c)=>signMoney(unrlPlByCcy[c],c)).join(" · ") : signUsd(unrlPl)} deltaDir={dirCls(unrlPl)}
+          delta={totalValue ? signPct((unrlPl / (totalValue - unrlPl)) * 100) : ""} />
         <StatTile label="Harvestable losses" value={usd(harvestableLoss)}
           note={`≈ ${usd(estBenefit)} est. benefit at ${settings.taxRate}%`} />
       </div>
@@ -683,7 +689,7 @@ function DashboardView({
               <div key={a.id} className={cls("vg-acctcard", accountId === a.id && "sel")}>
                 <button className="vg-acctcard-main" onClick={() => setAccountId(a.id)} title={`Scope to ${a.short}`}>
                   <div className="vg-acctcard-name">{a.short}</div>
-                  <div className="vg-acctcard-val">{usd(a.value)}</div>
+                  <div className="vg-acctcard-val">{money(a.value, a.currency || "USD")}</div>
                   <div className="vg-note">{a.type}{a.lastSynced !== undefined ? ` · synced ${syncedAgo(a.lastSynced)}` : ""}</div>
                 </button>
                 <button className={cls("vg-refresh", pending && "spinning")}
@@ -818,7 +824,8 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
       if (p.symbol === "CASH") continue;
       const key = underlyingOf(p.symbol);
       const g = (by[key] ||= { key, equity: null, options: [], sleeve: null,
-                               value: 0, dayPl: 0, unrl: 0, weight: 0 });
+                               value: 0, dayPl: 0, unrl: 0, weight: 0,
+                               currency: p.currency || "USD" });
       if (isOptionSym(p.symbol)) g.options.push(p);
       else if (p.symbol === "CRYPTO" || p.symbol === "FUTURES") g.sleeve = p;
       else g.equity = p;
@@ -929,9 +936,9 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
                     )}
                     {sleeve && <div className="vg-note">sleeve — value via broker portfolio</div>}
                   </td>
-                  <td className="num">{usd(g.value)}</td>
-                  <td className={cls("num", dirCls(g.dayPl))}>{g.dayPl ? signUsd(g.dayPl) : "—"}</td>
-                  <td className={cls("num", dirCls(g.unrl))}>{signUsd(g.unrl)}</td>
+                  <td className="num">{money(g.value, g.currency)}</td>
+                  <td className={cls("num", dirCls(g.dayPl))}>{g.dayPl ? signMoney(g.dayPl, g.currency) : "—"}</td>
+                  <td className={cls("num", dirCls(g.unrl))}>{signMoney(g.unrl, g.currency)}</td>
                   <td className="num">{g.weight.toFixed(1)}%</td>
                   <td>{sleeve ? <span className="vg-note">—</span> : <HoldingRec d={g._rec} onOpen={openChart} />}</td>
                 </tr>

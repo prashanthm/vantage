@@ -21,6 +21,10 @@ dev = [
 robinhood = [
     "mcp>=1.9",
 ]
+# Zerodha (Kite Connect) read-only position sync (brokers/zerodha.py). Lazy.
+zerodha = [
+    "kiteconnect>=5",
+]
 
 [project.scripts]
 

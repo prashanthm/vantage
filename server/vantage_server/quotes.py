@@ -88,8 +88,25 @@ def _snapshot_from_data(data: dict, source: str) -> QuoteSnapshot:
             price=float(q["price"]),
             day_pct=float(q.get("day_pct", 0)),
             asset_class=str(q["asset_class"]),
+            currency=currency_for_symbol(sym),
         )
     return QuoteSnapshot(quotes=quotes, as_of=str(data.get("as_of") or ""), source=source)
+
+
+#: Yahoo market suffix -> currency. A bare ticker is USD; a suffixed listing
+#: is quoted in its home currency (yfinance returns the local price).
+_SUFFIX_CCY = {".NS": "INR", ".BO": "INR", ".L": "GBP", ".TO": "CAD",
+               ".HK": "HKD", ".T": "JPY", ".AX": "AUD", ".DE": "EUR", ".PA": "EUR"}
+
+
+def currency_for_symbol(symbol: str) -> str:
+    """The currency a symbol's price is denominated in, from its market suffix
+    (default USD for a plain US ticker)."""
+    up = symbol.upper()
+    for suf, ccy in _SUFFIX_CCY.items():
+        if up.endswith(suf):
+            return ccy
+    return "USD"
 
 
 def base_snapshot(data_dir: str | os.PathLike[str] | None = None) -> QuoteSnapshot:
@@ -212,6 +229,7 @@ class YFinanceQuoteProvider:
                 symbol=sym, name=sym,
                 price=0.0 if listed else float(getattr(lot, "cost_per_share", 0.0) or 0.0),
                 day_pct=0.0, asset_class="usEquity" if listed else "cash",
+                currency=currency_for_symbol(sym),
             )
         return merged
 

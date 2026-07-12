@@ -90,6 +90,17 @@ def decompose(symbol: str, daily: list[dict],
     return out
 
 
+#: Yahoo market suffixes that mark a NON-US listing (its US-benchmark
+#: decomposition — SPY beta, US sector ETF — is inapplicable).
+NON_US_SUFFIXES = (".NS", ".BO", ".L", ".TO", ".HK", ".T", ".AX", ".SI", ".DE", ".PA")
+
+
+def is_us_symbol(symbol: str) -> bool:
+    """True for a plain US-listed ticker; False when it carries a foreign
+    market suffix. US benchmarks (SPY/sector ETFs) only make sense for True."""
+    return not any(symbol.upper().endswith(s) for s in NON_US_SUFFIXES)
+
+
 def relative_strength(
     symbol: str,
     data_dir: str | os.PathLike[str] | None = None,
@@ -106,6 +117,9 @@ def relative_strength(
         bars = data.get("daily") if isinstance(data, dict) else None
         return bars if isinstance(bars, list) and bars else None
 
+    if not is_us_symbol(sym):
+        return {"symbol": sym, "no_data": True,
+                "reason": "non-US listing — US benchmarks (SPY/sector ETF) inapplicable"}
     daily = daily_for(sym)
     if daily is None:
         return None

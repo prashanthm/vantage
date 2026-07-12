@@ -3,7 +3,21 @@
 /* ---------- formatting ---------- */
 export const usd = (n, digits = 0) =>
   n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits });
+// Currency-aware money formatter — INR uses the Indian (lakh/crore) grouping.
+const _LOCALE = { USD: "en-US", INR: "en-IN", GBP: "en-GB", EUR: "de-DE",
+                  CAD: "en-CA", HKD: "en-HK", JPY: "ja-JP", AUD: "en-AU" };
+export const money = (n, ccy = "USD", digits = 0) =>
+  n.toLocaleString(_LOCALE[ccy] || "en-US",
+    { style: "currency", currency: ccy, minimumFractionDigits: digits, maximumFractionDigits: digits });
+// Render a {currency: subtotal} map as side-by-side subtotals — NEVER summed
+// across currencies (the "never cross-sum" rule). Single-currency -> one value.
+export const moneyByCcy = (byCcy, digits = 0) => {
+  const keys = Object.keys(byCcy || {}).filter((k) => byCcy[k] !== 0);
+  if (keys.length === 0) return money(0, "USD", digits);
+  return keys.sort().map((k) => money(byCcy[k], k, digits)).join(" · ");
+};
 export const signUsd = (n) => `${n >= 0 ? "+" : "−"}${usd(Math.abs(n))}`;
+export const signMoney = (n, ccy = "USD") => `${n >= 0 ? "+" : "−"}${money(Math.abs(n), ccy)}`;
 export const signPct = (n, d = 2) => `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(d)}%`;
 export const cls = (...xs) => xs.filter(Boolean).join(" ");
 export const dirCls = (n) => (n > 0 ? "up" : n < 0 ? "down" : "");

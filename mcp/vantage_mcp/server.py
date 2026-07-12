@@ -79,7 +79,7 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     )
     def positions(account: str = "all") -> dict:
         snap = snapshot()
-        rows = engine.positions(dataset.lots, snap.quotes, account)
+        rows = engine.positions(dataset.lots, snap.quotes, account, accounts=dataset.accounts)
         return envelope("positions", snap, account=account, positions=to_jsonable(rows))
 
     @mcp.tool(
@@ -90,7 +90,7 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     )
     def allocation(account: str = "all") -> dict:
         snap = snapshot()
-        alloc = engine.allocation(dataset.lots, snap.quotes, account)
+        alloc = engine.allocation(dataset.lots, snap.quotes, account, accounts=dataset.accounts)
         by_class = {
             cls: {"value": v, "pct": (v / alloc.total * 100) if alloc.total else 0.0}
             for cls, v in alloc.by_class.items()
@@ -121,6 +121,7 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                     recent_buys=dataset.recent_buys,
                     auto_buys=dataset.auto_buys,
                     today=today,
+                    lots=dataset.lots,
                 )
             )
             for sym in symbols
@@ -378,7 +379,16 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
             return envelope("expectations", snap, symbol="", inputs=None,
                             assumptions=None, implied=None, scenarios=[],
                             no_data=True)
+        from vantage_server.relative_strength import is_us_symbol  # noqa: PLC0415
         sym = symbol.upper()
+        if not is_us_symbol(sym):
+            # US cost-of-capital / US-GDP terminal growth don't hold for a
+            # foreign-listed name; a reverse DCF under those assumptions is
+            # invalid, so gate it off rather than emit a wrong implied growth.
+            return envelope("expectations", snap, symbol=sym, inputs=None,
+                            assumptions=None, implied=None, scenarios=[],
+                            no_data=True,
+                            reason="non-US listing — US-cost-of-capital DCF inapplicable")
         quote = snap.quotes.get(sym)
         price = quote.price if quote else None
         data = exp_mod.expectations(
