@@ -76,6 +76,11 @@ export const GLOSSARY = {
     short: "The % of trades that were profitable. High win rate alone doesn't mean profitable — reward:risk matters too.",
     long: "Share of round-trips that made money. On its own it's misleading: a 40%-win system with big winners beats an 80%-win system with tiny winners that gives it all back on the losers. Read it alongside reward:risk and expectancy.",
   },
+  reclaim: {
+    label: "reclaim",
+    short: "Don't enter when price TOUCHES the level — wait for 3 consecutive 5-minute closes back through it first.",
+    long: "The entry discipline Vantage's backtesting program validated. Buying the instant price touches support gets stopped out by the routine overshoot ('catching a falling knife') — it lost in every regime tested, and beat the touch-entry in all 36 months of a 3-year validation. Instead, let price touch or pierce the level, then wait for THREE consecutive 5-minute candles to close back on your side of it (~15 rolling minutes of confirmation). Enter on that third close. You pay a slightly worse price and skip the days that never reclaim — those are precisely the trades that were going to lose.",
+  },
 };
 
 // <Term k="fade">fade</Term> — a dotted-underline word that shows the plain

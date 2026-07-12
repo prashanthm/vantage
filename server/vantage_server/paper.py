@@ -496,7 +496,7 @@ def build_analysis(store: Store, scaffold: dict | None = None,
                    if (t.get("symbol") or "SPY") == proxy]
     closed = [t for t in store.load_paper_trades("closed")
               if (t.get("symbol") or "SPY") == proxy]
-    return {
+    view = {
         "tickets": tickets,
         "underlying": cfg["label"],
         "open": open_trades,
@@ -508,6 +508,17 @@ def build_analysis(store: Store, scaffold: dict | None = None,
                  + " — no real money, no orders. P&L is on shares; the 0DTE strike "
                  "is reference only."),
     }
+    # IWM honesty (long-window validation, claudedocs/goals/long-window): over
+    # 3 backtested years IWM's confluence never produced a ticket with an
+    # opposing-zone target — the strategy has no edge to offer here yet, and a
+    # fallback target was tested and rejected at every scale. Say so rather
+    # than showing a silently empty list.
+    if cfg["label"] == "IWM" and not any(t.get("spy_target") for t in tickets):
+        view["ticket_note"] = (
+            "IWM rarely yields a tradeable ticket: its zones almost never have an "
+            "opposing target level (validated over a 3-year backtest). Trade SPX "
+            "or QQQ setups instead until IWM's level generation improves.")
+    return view
 
 
 # ============================================================ CLI

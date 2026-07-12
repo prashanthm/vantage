@@ -99,9 +99,19 @@ export function PaperView({ refreshNonce }) {
 
       {/* how it works */}
       <div className="vg-note" style={{ fontSize: 12, margin: "2px 0 4px" }}>
-        Signals from today's playbook, priced on SPY. Log one and it auto-closes when SPY
-        hits the <Term k="fade">target or stop</Term>. No real orders are ever placed.
+        Signals from today's playbook, priced on SPY. Wait for the{" "}
+        <Term k="reclaim">reclaim trigger</Term> — never enter on the touch — then log
+        the trade and it auto-closes when it hits the <Term k="fade">target or stop</Term>.
+        No real orders are ever placed.
       </div>
+
+      {/* why-no-tickets honesty (IWM: validated 3-year finding) */}
+      {d && d.ticket_note && (
+        <div className="vg-card">
+          <div className="vg-kicker">No tradeable tickets</div>
+          <div className="vg-note" style={{ fontSize: 12, marginTop: 6 }}>{d.ticket_note}</div>
+        </div>
+      )}
 
       {/* today's trade tickets */}
       {tickets.length > 0 && (
@@ -141,7 +151,7 @@ export function PaperView({ refreshNonce }) {
                 </div>
                 {t.entry_note && (
                   <div className="vg-note" style={{ fontSize: 11, marginTop: 3 }}>
-                    <b>Trigger:</b> {t.entry_note}
+                    <b><Term k="reclaim">Trigger</Term>:</b> {t.entry_note}
                   </div>
                 )}
                 {(t.freshness_note || t.trend_note || t.otm_note) && (
@@ -203,7 +213,7 @@ export function PaperView({ refreshNonce }) {
         </div>
       )}
 
-      <GlossaryCard terms={["fade", "reward_risk", "win_rate", "profit_factor"]} />
+      <GlossaryCard terms={["reclaim", "fade", "reward_risk", "win_rate", "profit_factor"]} />
 
       <div className="vg-pb-caveats">
         <div>SPY is a proxy for SPX; P&L is on SPY shares. A simulation for learning + strategy validation.</div>
