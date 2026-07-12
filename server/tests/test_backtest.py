@@ -78,3 +78,27 @@ def test_break_ticket_starts_mid_session():
     bars = _bars([(101, 101.5, 99.5, 100.5),      # would fill if active
                   (100.5, 101.0, 100.4, 100.9)])  # never reaches entry
     assert simulate_fill(_ticket(), bars, start_idx=1) is None
+
+
+def test_reclaim_waits_for_close_back_above_level():
+    # bar 0 dips through entry AND stop but closes back above entry -> fill at
+    # that bar's CLOSE (not the level), and the reclaim bar cannot stop it.
+    bars = _bars([(101, 101.5, 98.5, 100.6),      # knife + reclaim
+                  (100.6, 102.5, 100.4, 102.2)])  # target
+    res = simulate_fill(_ticket(), bars, entry_mode="reclaim")
+    assert res["reason"] == "target" and res["entry"] == pytest.approx(100.6)
+
+
+def test_reclaim_no_close_back_means_no_trade():
+    bars = _bars([(101, 101.5, 98.5, 99.2),       # breaks and STAYS below
+                  (99.2, 99.8, 97.5, 97.9)])
+    assert simulate_fill(_ticket(), bars, entry_mode="reclaim") is None
+
+
+def test_time_stop_exits_at_nth_bar_close():
+    bars = _bars([(101, 101.2, 100.0, 100.8),     # fill
+                  (100.8, 101.4, 100.5, 101.1),   # neither hit
+                  (101.1, 101.6, 100.9, 101.3),   # time stop here (N=2)
+                  (101.3, 103.0, 101.2, 102.8)])  # target would hit — too late
+    res = simulate_fill(_ticket(), bars, time_stop_bars=2)
+    assert res["reason"] == "time" and res["exit"] == pytest.approx(101.3)

@@ -62,6 +62,11 @@ DEFAULT_PARAMS = {
     "min_strength": None,          # confluence dimensions required (zones have >=2)
     "max_per_side": None,          # cap test tickets per side (prod takes 2)
     "target_r_multiple": None,     # override target to entry +/- R*risk
+    "entry_mode": "touch",         # "touch" | "reclaim" (close back through level)
+    "stop_atr_mult": None,         # stop = entry -/+ mult*ATR(14,15m) when set
+    "time_stop_bars": None,        # exit at close N bars after fill
+    "skip_open_bars": 0,           # tickets not actionable in the first N bars
+    "direction_gate": None,        # "structure": uptrend->longs, downtrend->shorts
     "underlyings": ["SPX", "QQQ", "IWM"],
 }
 
@@ -171,11 +176,23 @@ def history_rows_for(chart: dict, day, day_bars) -> list[dict]:
 
 # ── fill simulation ──────────────────────────────────────────────────────────
 
-def simulate_fill(ticket: dict, day_bars, start_idx: int = 0) -> dict | None:
+def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
+                  entry_mode: str = "touch",
+                  time_stop_bars: int | None = None) -> dict | None:
     """Simulate a resting-limit ticket against a session's proxy bars, starting
     at ``start_idx`` (break tickets spawn mid-day). Conservative rules: a bar
     touching both entry and stop is a stop-out; a target is never credited on
     the fill bar. Unclosed fills mark-to-close at the last bar ("eod").
+
+    ``entry_mode="reclaim"`` waits for confirmation instead of catching the
+    knife: after price touches the level, the fill happens at the close of the
+    first bar that closes back on the trade's side of the level (long: close
+    above; short: close below). No reclaim by EOD = no trade. The reclaim bar
+    itself cannot stop the trade (it closed on the right side by definition).
+
+    ``time_stop_bars=N`` exits at the close N bars after the fill bar when
+    neither target nor stop has hit (0DTE theta discipline).
+
     Returns ``{filled, entry, exit, reason, pnl_pct, fill_idx}`` or None when
     the ticket never fills."""
     side = ticket["side"]
@@ -189,21 +206,38 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0) -> dict | None:
     closes = list(day_bars["Close"])
     n = len(closes)
     fill_idx = None
-    for i in range(start_idx, n):
-        if side == "long" and lows[i] <= entry:
-            fill_idx = i; break
-        if side == "short" and highs[i] >= entry:
-            fill_idx = i; break
+    fill_px = entry
+    fill_bar_can_stop = True
+    if entry_mode == "reclaim":
+        touched = False
+        for i in range(start_idx, n):
+            if not touched:
+                touched = (lows[i] <= entry) if side == "long" else (highs[i] >= entry)
+            if touched:
+                reclaimed = (closes[i] > entry) if side == "long" else (closes[i] < entry)
+                if reclaimed:
+                    fill_idx, fill_px = i, closes[i]
+                    fill_bar_can_stop = False   # bar already closed on our side
+                    break
+    else:
+        for i in range(start_idx, n):
+            if side == "long" and lows[i] <= entry:
+                fill_idx = i; break
+            if side == "short" and highs[i] >= entry:
+                fill_idx = i; break
     if fill_idx is None:
         return None
-    # fill bar: conservative — stop can trigger, target cannot
-    if side == "long" and lows[fill_idx] <= stop:
-        exit_px, reason = stop, "stop"
-    elif side == "short" and highs[fill_idx] >= stop:
+    # fill bar: conservative — stop can trigger (touch mode), target cannot
+    stopped_on_fill = fill_bar_can_stop and (
+        (lows[fill_idx] <= stop) if side == "long" else (highs[fill_idx] >= stop))
+    if stopped_on_fill:
         exit_px, reason = stop, "stop"
     else:
         exit_px = reason = None
-        for i in range(fill_idx + 1, n):
+        last_bar = n - 1
+        if time_stop_bars is not None:
+            last_bar = min(last_bar, fill_idx + time_stop_bars)
+        for i in range(fill_idx + 1, last_bar + 1):
             hit_stop = (lows[i] <= stop) if side == "long" else (highs[i] >= stop)
             hit_tgt = (highs[i] >= tgt) if side == "long" else (lows[i] <= tgt)
             if hit_stop:                 # stop first on ambiguous bars
@@ -211,9 +245,10 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0) -> dict | None:
             if hit_tgt:
                 exit_px, reason = tgt, "target"; break
         if reason is None:
-            exit_px, reason = closes[-1], "eod"
-    pnl_pct = (exit_px - entry) / entry * 100 * direction
-    return {"filled": True, "entry": entry, "exit": round(exit_px, 4),
+            exit_px = closes[last_bar]
+            reason = "eod" if last_bar == n - 1 else "time"
+    pnl_pct = (exit_px - fill_px) / fill_px * 100 * direction
+    return {"filled": True, "entry": round(fill_px, 4), "exit": round(exit_px, 4),
             "reason": reason, "pnl_pct": round(pnl_pct, 4), "fill_idx": fill_idx}
 
 
@@ -275,11 +310,34 @@ def day_tickets(scaffold: dict, day_bars, ratio: float, underlying: str,
     return out
 
 
-def _apply_filters(tickets: list[dict], params: dict) -> list[dict]:
+def _atr(bars, period: int = 14) -> float | None:
+    """ATR over the tail of ``bars`` (15m true range, simple mean)."""
+    if bars is None or len(bars) < period + 1:
+        return None
+    highs = list(bars["High"])[-(period + 1):]
+    lows = list(bars["Low"])[-(period + 1):]
+    closes = list(bars["Close"])[-(period + 1):]
+    trs = [max(highs[i] - lows[i], abs(highs[i] - closes[i - 1]),
+               abs(lows[i] - closes[i - 1])) for i in range(1, len(closes))]
+    return sum(trs) / len(trs) if trs else None
+
+
+def _apply_filters(tickets: list[dict], params: dict,
+                   atr: float | None = None) -> list[dict]:
     """Harness-level experiment filters (candidate rules not yet in prod)."""
     out = []
     per_side: dict[str, int] = {}
     for t in tickets:
+        if params["direction_gate"] == "structure":
+            st = t.get("trend_state")
+            if st == "uptrend" and t["side"] != "long":
+                continue
+            if st == "downtrend" and t["side"] != "short":
+                continue
+        if params["stop_atr_mult"] is not None and atr:
+            sign = -1 if t["side"] == "long" else 1
+            t = dict(t)
+            t["spy_stop"] = round(t["spy_entry"] + sign * params["stop_atr_mult"] * atr, 4)
         if t.get("setup") == "test" and not params["include_tests"]:
             continue
         if params["exclude_counter_trend"] and t.get("counter_trend"):
@@ -340,14 +398,18 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None) -> dict:
                         ratio = 1.0 if cfg["self_proxy"] else (
                             (spot / prior_proxy) if (spot and prior_proxy) else 10.0)
                         tickets = day_tickets(scaffold, pday, ratio, key, p)
-                        tickets = _apply_filters(tickets, p)
+                        atr = _atr(_upto(proxy_bars, day)) if p["stop_atr_mult"] else None
+                        tickets = _apply_filters(tickets, p, atr=atr)
                         counts["sessions"] += 1
                         for t in tickets:
                             counts["tickets"] += 1
                             if t.get("spy_target") is None:
                                 counts["no_target"] += 1
                                 continue
-                            res = simulate_fill(t, pday, t.get("start_idx", 0))
+                            start = max(t.get("start_idx", 0), int(p["skip_open_bars"]))
+                            res = simulate_fill(t, pday, start,
+                                                entry_mode=p["entry_mode"],
+                                                time_stop_bars=p["time_stop_bars"])
                             if res is None:
                                 counts["no_fill"] += 1
                                 continue
