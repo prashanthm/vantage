@@ -95,24 +95,20 @@ MULTI_INTERVALS = ["2m", "5m", "15m", "30m", "60m"]
 
 # ── frozen bar cache ──────────────────────────────────────────────────────────
 
-def freeze_bars(cache_path: str) -> dict:
-    """Fetch 15m RTH bars for every cache symbol and write them to ``cache_path``
+def freeze_bars(cache_path: str, interval: str = "15m",
+                period: str = "60d") -> dict:
+    """Fetch RTH bars for every cache symbol and write them to ``cache_path``
     as plain JSON (ISO timestamps + OHLCV columns). Returns a per-symbol row
-    count. The ONLY network-touching entry point in this module."""
+    count. Defaults freeze the classic 15m/60d set; pass ``interval``/``period``
+    for other frozen sets (e.g. 60m × 730d for the long-window loop)."""
     out: dict[str, dict] = {}
     counts: dict[str, int] = {}
     for sym in CACHE_SYMBOLS:
-        df = sp._fetch_15m(sym)
+        df = (sp._fetch_15m(sym) if (interval, period) == ("15m", "60d")
+              else _fetch_interval(sym, interval, period))
         if df is None or getattr(df, "empty", True):
             raise RuntimeError(f"no bars for {sym} — cannot freeze")
-        out[sym] = {
-            "ts": [t.isoformat() for t in df.index],
-            "open": [round(float(v), 4) for v in df["Open"]],
-            "high": [round(float(v), 4) for v in df["High"]],
-            "low": [round(float(v), 4) for v in df["Low"]],
-            "close": [round(float(v), 4) for v in df["Close"]],
-            "volume": [float(v) for v in df.get("Volume", [0.0] * len(df))],
-        }
+        out[sym] = _df_to_cols(df)
         counts[sym] = len(df)
     payload = {"frozen_at": _dt.datetime.now(ET).isoformat(), "bars": out}
     p = Path(cache_path)
@@ -121,11 +117,11 @@ def freeze_bars(cache_path: str) -> dict:
     return counts
 
 
-def _fetch_interval(symbol: str, interval: str):
-    """15m-style RTH fetch at an arbitrary intraday interval (60d window)."""
+def _fetch_interval(symbol: str, interval: str, period: str = "60d"):
+    """15m-style RTH fetch at an arbitrary intraday interval + period."""
     import yfinance as yf
 
-    df = yf.Ticker(symbol).history(period="60d", interval=interval)
+    df = yf.Ticker(symbol).history(period=period, interval=interval)
     if df.empty:
         return df
     idx = df.index.tz_convert("America/New_York")
@@ -171,7 +167,10 @@ def freeze_multi(cache_path: str, intervals: list[str] | None = None) -> dict:
 def _cols_to_df(cols: dict):
     import pandas as pd
 
-    idx = pd.DatetimeIndex([pd.Timestamp(t) for t in cols["ts"]])
+    # utc=True handles caches whose span crosses a DST boundary (mixed
+    # -04:00/-05:00 offsets); converting back to ET restores wall-clock times.
+    idx = pd.DatetimeIndex(pd.to_datetime(cols["ts"], utc=True)).tz_convert(
+        "America/New_York")
     return pd.DataFrame({"Open": cols["open"], "High": cols["high"],
                          "Low": cols["low"], "Close": cols["close"],
                          "Volume": cols["volume"]}, index=idx)
@@ -189,14 +188,7 @@ def load_bars(cache_path: str) -> dict:
     import pandas as pd
 
     raw = json.loads(Path(cache_path).read_text())
-    out = {}
-    for sym, cols in raw["bars"].items():
-        idx = pd.DatetimeIndex([pd.Timestamp(t) for t in cols["ts"]])
-        df = pd.DataFrame({"Open": cols["open"], "High": cols["high"],
-                           "Low": cols["low"], "Close": cols["close"],
-                           "Volume": cols["volume"]}, index=idx)
-        out[sym] = df
-    return out
+    return {sym: _cols_to_df(cols) for sym, cols in raw["bars"].items()}
 
 
 # ── scaffold reconstruction (as-of a historical evening) ─────────────────────
@@ -710,6 +702,10 @@ def _build_parser() -> argparse.ArgumentParser:
                    "params.trigger_interval picks the fill frame (15m scaffolds)")
     p.add_argument("--freeze", action="store_true",
                    help="fetch fresh bars and (over)write the cache, then exit")
+    p.add_argument("--freeze-interval", default="15m",
+                   help="bar interval for --freeze --cache (default 15m)")
+    p.add_argument("--freeze-period", default="60d",
+                   help="lookback period for --freeze --cache (default 60d)")
     p.add_argument("--params", help="JSON dict of experiment overrides")
     p.add_argument("--trades", action="store_true", help="also print per-trade rows")
     return p
@@ -722,7 +718,8 @@ def main(argv: list[str] | None = None) -> int:
         print("error: --cache or --multi-cache required", file=sys.stderr)
         return EXIT_USER_ERROR
     if args.freeze:
-        counts = freeze_multi(path) if args.multi_cache else freeze_bars(path)
+        counts = (freeze_multi(path) if args.multi_cache
+                  else freeze_bars(path, args.freeze_interval, args.freeze_period))
         print("frozen:", json.dumps(counts))
         return EXIT_OK
     if not Path(path).exists():
