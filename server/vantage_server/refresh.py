@@ -224,17 +224,23 @@ def refresh_account(
         result.errors.append(f"broker '{broker}' is not a live API connection")
         return result
 
-    broker_account = broker_account or resolve_broker_account(store, account_id, broker)
-    if not broker_account:
-        result.errors.append(
-            f"no broker-side account number for '{account_id}' — import it once "
-            "with --broker-account, or the broker listing did not match"
-        )
-        return result
+    conn = get_connection(broker)()
+    # User-scoped connections (Kite) authenticate as the user and take no
+    # broker-side account number — skip the resolution the account-number
+    # brokers (Robinhood/Schwab) require.
+    if getattr(conn, "scoped_to_user", False):
+        broker_account = broker_account or account_id  # a non-empty placeholder
+    else:
+        broker_account = broker_account or resolve_broker_account(store, account_id, broker)
+        if not broker_account:
+            result.errors.append(
+                f"no broker-side account number for '{account_id}' — import it once "
+                "with --broker-account, or the broker listing did not match"
+            )
+            return result
 
     as_of = as_of or _dt.date.today().isoformat()
     result.as_of = as_of
-    conn = get_connection(broker)()
 
     try:
         positions = conn.fetch_positions(broker_account)

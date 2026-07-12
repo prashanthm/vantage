@@ -383,3 +383,35 @@ def test_refresh_never_calls_a_mutating_tool(store, monkeypatch):
     refresh_mod.refresh_account(store, "rh-margin", as_of=AS_OF)
     assert conn.calls  # something was called
     assert set(conn.calls) <= READ_METHODS  # and it was ALL reads
+
+
+# ── user-scoped connections (Kite) need no broker-side account number ────────
+
+
+class UserScopedConnection(RecordingConnection):
+    """A Kite-shaped connection: scopes to the authed user, so refresh must NOT
+    require a broker_account. account_number is ignored by fetch_positions."""
+    broker_id = "zerodha"
+    display_name = "Zerodha (stub)"
+    scoped_to_user = True
+
+
+def test_user_scoped_connection_syncs_without_broker_account(store, monkeypatch):
+    # a zerodha account with NO broker_account: meta seeded
+    store.add_account({"id": "zerodha", "name": "Zerodha", "short": "Z",
+                       "type": "brokerage", "taxable": True, "last_sync": "never",
+                       "currency": "INR", "jurisdiction": "IN"})
+    store.set_meta("broker:zerodha", "zerodha")
+    conn = UserScopedConnection(
+        positions=[{"symbol": "RELIANCE.NS", "shares": 20, "avg_cost": 2400.0,
+                    "current_price": 2550.0}],
+        portfolio={"total_value": 51000.0, "currency": "INR"})
+    _stub_connection(monkeypatch, conn)
+
+    result = refresh_mod.refresh_account(store, "zerodha", as_of=AS_OF)
+
+    # no "broker-side account number" error — it synced
+    assert result.errors == [], result.errors
+    assert result.positions == 1
+    assert any(l.symbol == "RELIANCE.NS" for l in store.load_lots())
+    assert set(conn.calls) <= READ_METHODS  # read-only doctrine holds

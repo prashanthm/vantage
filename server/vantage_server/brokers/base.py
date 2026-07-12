@@ -78,6 +78,13 @@ class BrokerConnection(Protocol):
     broker_id: ClassVar[str]      # importer --broker id, e.g. "robinhood"
     display_name: ClassVar[str]   # human name for messages, e.g. "Robinhood"
 
+    # OPTIONAL convention (not a required protocol member, so existing
+    # connections stay conformant): a connection MAY set
+    #   scoped_to_user: ClassVar[bool] = True
+    # to declare it authenticates as the user and needs NO broker-side account
+    # number (e.g. Kite). refresh reads it via getattr(..., False), so the
+    # account-number brokers (Robinhood/Schwab) simply omit it.
+
     def fetch_positions(self, account_number: str) -> list[dict]:
         """Current positions for the broker-side account, normalized to
         Position dicts ({symbol, shares, avg_cost, current_price?})."""

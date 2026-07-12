@@ -249,7 +249,7 @@ class YFinanceQuoteProvider:
         }
         symbols = sorted(fetchable)
 
-        cached = self._read_cache()
+        cached = self._read_cache(needed=fetchable)
         if cached is not None:
             live, as_of = cached
         else:
@@ -258,7 +258,7 @@ class YFinanceQuoteProvider:
             except Exception:
                 return replace(base, source=self.source, stale=True)
             as_of = self._clock().isoformat(timespec="seconds")
-            self._write_cache(live, as_of)
+            self._write_cache(live, as_of, requested=fetchable)
 
         quotes: dict[str, Quote] = {}
         missing = False
@@ -276,7 +276,8 @@ class YFinanceQuoteProvider:
 
     # ------------------------------------------------------------- cache
 
-    def _read_cache(self) -> tuple[dict[str, tuple[float, float]], str] | None:
+    def _read_cache(self, needed: set[str] | None = None
+                    ) -> tuple[dict[str, tuple[float, float]], str] | None:
         if self.ttl <= 0:
             return None
         try:
@@ -289,15 +290,25 @@ class YFinanceQuoteProvider:
                 str(sym): (float(pair[0]), float(pair[1]))
                 for sym, pair in dict(data["rows"]).items()
             }
+            # A cache that predates a freshly-imported symbol must MISS, or the
+            # new holding stays unpriced until TTL expiry. Compare against the
+            # REQUESTED set (what the cached fetch asked for) — a symbol Yahoo
+            # simply didn't return is still "covered" and won't force endless
+            # refetches; only a genuinely NEW symbol invalidates.
+            requested = set(str(x) for x in data.get("requested", rows.keys()))
+            if needed and not needed.issubset(requested):
+                return None
             return rows, fetched_at
         except Exception:
             return None
 
-    def _write_cache(self, rows: dict[str, tuple[float, float]], fetched_at: str) -> None:
+    def _write_cache(self, rows: dict[str, tuple[float, float]], fetched_at: str,
+                     requested: set[str] | None = None) -> None:
         if self.ttl <= 0:
             return
         try:
             payload = {"fetched_at": fetched_at,
+                       "requested": sorted(requested) if requested else sorted(rows),
                        "rows": {sym: list(pair) for sym, pair in rows.items()}}
             self._cache_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
         except OSError:

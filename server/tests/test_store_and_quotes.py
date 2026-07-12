@@ -312,3 +312,28 @@ def test_resolve_data_dir_prefers_env_and_local(monkeypatch, tmp_path):
     monkeypatch.setenv(store_mod.ENV_DATA_DIR, str(tmp_path / "explicit"))
     assert store_mod.resolve_data_dir() == tmp_path / "explicit"  # env wins over local
     assert store_mod.resolve_data_dir(tmp_path / "arg") == tmp_path / "arg"  # arg wins over all
+
+
+def test_new_symbol_invalidates_cache(live_dir, monkeypatch):
+    """A freshly-imported symbol must force a refetch even within TTL — the
+    cache from before it was held doesn't cover it (the Zerodha-import bug)."""
+    from vantage_server.store import Store
+    fetch1 = _stub_fetch(YF_ROWS)
+    YFinanceQuoteProvider(live_dir, fetch=fetch1, ttl=900, clock=lambda: T0).snapshot()
+
+    # add a new held lot for a symbol not in the cached fetch
+    Store(live_dir).upsert_lots(["fid-taxable"], [
+        {"account": "fid-taxable", "symbol": "RELIANCE.NS",
+         "date": "2026-01-01", "shares": 10, "cost_per_share": 1000.0}], mode="merge")
+
+    fetched = {}
+    def fetch2(symbols):
+        fetched["syms"] = set(symbols)
+        return {**YF_ROWS, "RELIANCE.NS": (1300.0, 1290.0)}
+
+    later = T0 + timedelta(seconds=10)  # still within TTL
+    snap = YFinanceQuoteProvider(live_dir, fetch=fetch2, ttl=900,
+                                 clock=lambda: later).snapshot()
+    assert "RELIANCE.NS" in fetched["syms"]           # it DID refetch
+    assert snap.quotes["RELIANCE.NS"].price == 1300.0  # and got a real price
+    assert snap.quotes["RELIANCE.NS"].currency == "INR"

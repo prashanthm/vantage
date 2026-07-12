@@ -87,6 +87,7 @@ class ZerodhaConnection:
     display_name = "Zerodha (Kite)"
     currency = "INR"
     jurisdiction = "IN"
+    scoped_to_user = True  # Kite scopes to the authed user — no account number
 
     def __init__(self) -> None:
         self._kite = None  # lazily built on first authed call
