@@ -18,4 +18,9 @@
   prod defaults change only for replicated winners; signature-extension
   refactors must keep E0 byte-identical.
 
-Status: **active** · started 2026-07-11
+Status: **achieved** · started 2026-07-11 · achieved 2026-07-11 ·
+outcome (a): fractal pivot width 2→3 adopted (WR 0.600→0.706,
+PF 1.387→2.990, orderly neighborhood, split-half replicated, transfers
+across symbols and triggers). All other design params stand at current
+values. 25 experiments (12 confirmed / 8 disproven / 3 mixed / 2
+inconclusive). Full record in log.md.

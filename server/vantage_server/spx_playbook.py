@@ -197,12 +197,18 @@ def _recent_window(spx15, sessions=RECENT_SESSIONS):
 
 def _chart_dimensions(spx15, spyvol_by_ts, scale: dict | None = None,
                       recent_sessions: int = RECENT_SESSIONS,
-                      pivot_n: int = 2, vp_bins: int = 40) -> dict:
+                      pivot_n: int = 3, vp_bins: int = 40) -> dict:
     """Fib grid, VWAP regime, volume profile, S/R clusters from the RECENT 15m
     window (last N sessions) — the swing that actually frames the next session.
     ``scale`` supplies the per-underlying ``cluster_tol`` (defaults to SPX).
     ``recent_sessions``/``pivot_n``/``vp_bins`` expose the design constants for
-    the backtest experiment loop; defaults preserve prod behavior exactly."""
+    the backtest experiment loop.
+
+    ``pivot_n=3`` (was 2) is the playbook-params loop's adopted finding
+    (claudedocs/goals/playbook-params): wider fractal pivots keep only the
+    swings the tape actually respects — WR 0.600→0.706, PF 1.39→2.99 under the
+    champion trigger, replicated across halves, orderly neighborhood (1: 1.14,
+    2: 1.39, 3: 2.99, 4: 1.48), transfers to QQQ and to the old trigger."""
     tol = (scale or {}).get("cluster_tol", 6.0)
     if spx15 is None or spx15.empty:
         return {"available": False}

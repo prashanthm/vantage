@@ -78,7 +78,7 @@ DEFAULT_PARAMS = {
     "confirm_closes": 1,           # reclaim needs N CONSECUTIVE closes beyond the level
     # ── playbook DESIGN params (scaffold side; prod defaults) ──
     "recent_sessions": 10,         # swing window the chart dims read
-    "pivot_n": 2,                  # fractal pivot width (bars each side)
+    "pivot_n": 3,                  # fractal pivot width (adopted 2→3; pass 2 to reproduce pre-adoption runs)
     "vp_bins": 40,                 # volume-profile bins
     "confluence_tol_pct": 0.15,    # zone clustering tolerance, % of spot
     "min_zone_dims": 2,            # distinct dimensions a zone needs
