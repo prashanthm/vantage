@@ -856,3 +856,26 @@ def test_position_actions_carry_position_context(mcp):
     payload = tool_payload(run_with_client(mcp, interact))
     # fixture data dir has no journal -> actions empty, but the tool shape holds
     assert payload["actions"] == []
+
+
+def test_ticker_plan_risk_reward_falls_back_to_last_close(mcp, monkeypatch):
+    """Options-only positions quote the option symbol, never the bare
+    underlying — the R:R price falls back to the last synced daily close."""
+    from vantage_server.store import Store
+
+    monkeypatch.setattr(Store, "load_ticker_plan", lambda self, sym: {
+        "symbol": sym, "thesis": "t", "target": 180.0, "stop": 95.0,
+        "notes": None, "updated_at": "2026-07-11"})
+    monkeypatch.setattr(Store, "load_bars", lambda self, sym: {
+        "daily": [{"date": "2026-07-10", "close": 126.79}]})
+
+    async def interact(client):
+        # PLTR has no quote in the fixture snapshot
+        return await client.call_tool("vantage.ticker_plan", {"symbol": "PLTR"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    rr = payload["risk_reward"]
+    assert rr["status"] == "ok"
+    assert rr["price"] == 126.79
+    assert rr["price_source"] == "last_close"
+    assert rr["rr_ratio"] == 1.67

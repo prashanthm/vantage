@@ -452,11 +452,23 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         sym = symbol.upper()
         plan = store.load_ticker_plan(sym)
         journal = store.load_ticker_journal(sym, limit=max(0, int(journal_limit)))
+        # Underlying price: live quote when the snapshot has it; otherwise the
+        # last synced daily close (an options-only position quotes the option
+        # symbol, never the bare underlying).
         quote = snap.quotes.get(sym)
+        price, price_source = (quote.price, "quote") if quote else (None, None)
+        if price is None:
+            bars = store.load_bars(sym)
+            daily = bars.get("daily") if isinstance(bars, dict) else None
+            if isinstance(daily, list) and daily and daily[-1].get("close"):
+                price, price_source = float(daily[-1]["close"]), "last_close"
+        geometry = rr(plan, price)
+        if isinstance(geometry, dict):
+            geometry["price_source"] = price_source
         return envelope("ticker_plan", snap, symbol=sym,
                         has_plan=plan is not None, plan=plan,
                         journal=to_jsonable(journal),
-                        risk_reward=rr(plan, quote.price if quote else None))
+                        risk_reward=geometry)
 
     @mcp.tool(
         name="vantage.relative_strength",
