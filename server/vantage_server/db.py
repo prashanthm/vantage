@@ -21,11 +21,20 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 9  # v9: per-symbol GEX + (date,symbol) playbook — multi-underlying
+SCHEMA_VERSION = 10  # v10: paper reclaim discipline — fill_status/entry_trigger columns
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
 #: keeps using the JSON backend and the parity goldens are untouched.
+#: Post-v9 paper_trades columns (reclaim discipline), added idempotently.
+_PAPER_ADDED_COLUMNS = {
+    "entry_trigger": "TEXT",
+    "entry_note": "TEXT",
+    "spy_level": "REAL",
+    "fill_status": "TEXT NOT NULL DEFAULT 'filled'",
+    "filled_at": "TEXT",
+}
+
 DB_FILENAME = "vantage.db"
 
 _SCHEMA = """
@@ -326,9 +335,14 @@ CREATE TABLE IF NOT EXISTS paper_trades (
     opened_price_src TEXT,           -- where the entry price came from
     closed_at    TEXT,               -- ISO close time
     spy_exit     REAL,               -- SPY price at close
-    exit_reason  TEXT,               -- 'target' | 'stop' | 'manual' | 'expired'
+    exit_reason  TEXT,               -- 'target' | 'stop' | 'manual' | 'expired' | 'never_filled'
     pnl          REAL,               -- (exit-entry)*shares signed by side
-    pnl_pct      REAL                -- % move on SPY
+    pnl_pct      REAL,               -- % move on SPY
+    entry_trigger TEXT,              -- 'reclaim-3x5m' | NULL (immediate fill)
+    entry_note   TEXT,               -- the ticket's entry discipline, verbatim
+    spy_level    REAL,               -- the signal level in proxy terms (reclaim gate)
+    fill_status  TEXT NOT NULL DEFAULT 'filled',  -- 'pending' | 'filled'
+    filled_at    TEXT                -- ISO time the reclaim fill happened
 );
 CREATE INDEX IF NOT EXISTS ix_paper_status ON paper_trades(status, opened_at);
 
@@ -394,6 +408,7 @@ class Database:
         try:
             conn.executescript(_SCHEMA)
             self._add_missing_journal_columns(conn)
+            self._add_missing_paper_columns(conn)
             self._migrate_multi_underlying(conn)
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('schema_version', ?)\n"
@@ -429,6 +444,17 @@ class Database:
             if col not in have:
                 conn.execute(
                     f"ALTER TABLE journal_snapshots ADD COLUMN {col} {decl}")
+
+    @staticmethod
+    def _add_missing_paper_columns(conn: sqlite3.Connection) -> None:
+        """v9->v10: additively add the paper reclaim-discipline columns.
+        Idempotent; existing rows default to fill_status='filled' (they were
+        opened under the immediate-fill regime)."""
+        have = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(paper_trades)").fetchall()}
+        for col, decl in _PAPER_ADDED_COLUMNS.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {decl}")
 
     @staticmethod
     def _migrate_multi_underlying(conn: sqlite3.Connection) -> None:

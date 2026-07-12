@@ -34,12 +34,24 @@ if [ -z "$CID" ]; then
   exit 1
 fi
 
+# Simple size-based rotation so logs never grow unbounded (launchd appends).
+for f in "$LOG_DIR"/*.log; do
+  [ -f "$f" ] || continue
+  if [ "$(wc -c < "$f")" -gt 5242880 ]; then mv "$f" "$f.1"; fi
+done
+
 # Run one pipeline step inside the container against the /data volume.
+# Failures are tolerated (a flaky broker fetch never aborts the night) but
+# RECORDED — the final line names every failed step instead of a false "done".
+FAILED_STEPS=""
 run() {
-  echo "[$STAMP] nightly-docker: $1"
-  shift
-  docker exec -e VANTAGE_DATA_DIR=/data "$CID" python -m "$@" 2>&1 \
-    | grep -v 'Session termination' || true
+  local label="$1"; shift
+  echo "[$STAMP] nightly-docker: $label"
+  local out rc
+  out=$(docker exec -e VANTAGE_DATA_DIR=/data "$CID" python -m "$@" 2>&1); rc=$?
+  printf '%s\n' "$out" | grep -v 'Session termination' || true
+  if [ "$rc" -ne 0 ]; then FAILED_STEPS="$FAILED_STEPS [$label]"; fi
+  return 0
 }
 
 # 1) EOD bars (read-only broker fetch) so the analyzer sees the latest close.
@@ -92,8 +104,36 @@ else
   echo "[$STAMP] nightly-docker: futures re-import skipped — no CSVs in /data/ampfutures"
 fi
 
-# 7) Settle open PAPER trades — check SPY bars for target/stop touches and close
-#    the ones that filled. No-money simulation; writes only our store (ADR-010).
+# 7) Settle open PAPER trades — fill pending reclaims (3x5m closes), expire
+#    the never-filled, close target/stop touches on 5m bars. Writes only our
+#    store (ADR-010).
 run "paper-trade settle" vantage_server.paper --data-dir /data --settle
 
-echo "[$STAMP] nightly-docker: done"
+# 8) ML trade-analysis build (round-trips -> condition/edge features), so
+#    Trade Analytics + the advisor's grounded lessons refresh in the SAME
+#    data dir the UI and MCP read (parity with the host nightly). The broker
+#    account number resolves from the imported history inside the container.
+ML_ACCOUNT="${ML_ACCOUNT:-rh-margin}"
+ML_BROKER_ACCOUNT="${ML_BROKER_ACCOUNT:-$(docker exec "$CID" python -c "
+from vantage_server.store import Store
+rows = []
+try: rows = Store('/data').load_history()
+except Exception: pass
+for r in rows:
+    if r.get('account') == '${ML_ACCOUNT:-rh-margin}' and r.get('broker_account'):
+        print(str(r['broker_account'])); break
+" 2>/dev/null || true)}"
+if [ -z "$ML_BROKER_ACCOUNT" ]; then
+  echo "[$STAMP] nightly-docker: ML build skipped — no broker account for '$ML_ACCOUNT'"
+else
+  run "ML round-trips build ($ML_ACCOUNT)" vantage_server.ml.build_roundtrips \
+    --broker robinhood --account "$ML_ACCOUNT" --broker-account "$ML_BROKER_ACCOUNT"
+  run "ML condition/edge features build ($ML_ACCOUNT)" vantage_server.ml.build_features \
+    --account "$ML_ACCOUNT" --from-roundtrips
+fi
+
+if [ -n "$FAILED_STEPS" ]; then
+  echo "[$STAMP] nightly-docker: done WITH FAILURES:$FAILED_STEPS"
+else
+  echo "[$STAMP] nightly-docker: done (all steps ok)"
+fi

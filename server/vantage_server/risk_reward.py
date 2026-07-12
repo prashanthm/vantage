@@ -34,18 +34,32 @@ def risk_reward(plan: dict | None, price: float | None) -> dict | None:
         "rr_ratio": None,
         "upside_pct": None,
         "downside_pct": None,
+        "direction": None,
         "status": "ok",
     }
     if px is None or target is None or stop is None:
         out["status"] = "incomplete_plan"
         return out
-    if px <= stop:
-        out["status"] = "stop_breached"
-    elif px >= target:
-        out["status"] = "target_reached"
 
-    upside = target - px
-    downside = px - stop
+    # Direction from the plan's own geometry: target above stop = long thesis;
+    # target below stop = short thesis. Both get directional math — a short
+    # plan must never report a negative "upside" as ok.
+    short = target < stop
+    out["direction"] = "short" if short else "long"
+    if short:
+        if px >= stop:
+            out["status"] = "stop_breached"
+        elif px <= target:
+            out["status"] = "target_reached"
+        upside = px - target
+        downside = stop - px
+    else:
+        if px <= stop:
+            out["status"] = "stop_breached"
+        elif px >= target:
+            out["status"] = "target_reached"
+        upside = target - px
+        downside = px - stop
     out["upside"] = round(upside, 2)
     out["downside"] = round(downside, 2)
     out["upside_pct"] = round(upside / px * 100.0, 1) if px else None

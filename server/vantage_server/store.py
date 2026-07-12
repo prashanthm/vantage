@@ -1251,12 +1251,15 @@ class Store:
             raise RuntimeError("record_paper_trade requires the SQLite backend")
         cols = ("opened_at", "session", "signal", "side", "symbol", "spx_level",
                 "spy_entry", "spy_target", "spy_stop", "shares", "ref_strike",
-                "source", "status", "opened_price_src")
+                "source", "status", "opened_price_src",
+                "entry_trigger", "entry_note", "spy_level", "fill_status",
+                "filled_at")
         with self._sqlite_txn() as conn:
             cur = conn.execute(
                 f"INSERT INTO paper_trades({','.join(cols)}) "
                 f"VALUES({','.join('?' for _ in cols)})",
-                tuple(trade.get(c) for c in cols))
+                tuple((trade.get(c) or "filled") if c == "fill_status"
+                      else trade.get(c) for c in cols))
             return int(cur.lastrowid)
 
     def load_paper_trades(self, status: str | None = None) -> list[dict]:
@@ -1274,6 +1277,20 @@ class Store:
         finally:
             conn.close()
         return [dict(r) for r in rows]
+
+    def fill_paper_trade(self, trade_id: int, *, spy_entry: float,
+                         filled_at: str) -> bool:
+        """Mark a PENDING paper trade filled at its reclaim price. Returns True
+        if updated (row must still be open + pending)."""
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "UPDATE paper_trades SET fill_status='filled', spy_entry=?, "
+                "filled_at=?, opened_price_src='reclaim 3x5m close' "
+                "WHERE id=? AND status='open' AND fill_status='pending'",
+                (spy_entry, filled_at, trade_id))
+            return cur.rowcount > 0
 
     def close_paper_trade(self, trade_id: int, *, spy_exit: float,
                           exit_reason: str, pnl: float, pnl_pct: float,

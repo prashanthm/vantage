@@ -335,11 +335,27 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
 
 # ── open + settle ────────────────────────────────────────────────────────────
 
+#: The validated entry discipline (strategy-winrate + reclaim-interval goals):
+#: a reclaim ticket FILLS only after this many consecutive 5m closes back
+#: through the level — never on the touch (touch-entry lost in every regime).
+RECLAIM_CLOSES = 3
+#: A pending reclaim that never fills within this window expires unfilled —
+#: no fill, no trade, exactly the discipline the ticket prints.
+PENDING_EXPIRE_HOURS = 48.0
+
+
 def open_paper_trade(store: Store, ticket: dict, *, session: str | None = None,
                      source: str = "manual", now: _dt.datetime | None = None) -> int:
-    """Log a paper trade from a ticket at its entry price."""
+    """Log a paper trade from a ticket.
+
+    A ticket carrying the reclaim trigger opens PENDING: the simulator holds
+    the entry until the reclaim confirms (see :func:`settle_open`), so the
+    track record measures the validated discipline, not the touch-entry the
+    backtests disproved. Tickets without a trigger fill immediately (legacy
+    behavior)."""
     now = now or _dt.datetime.now(ET)
     proxy = ticket.get("symbol") or "SPY"
+    pending = ticket.get("entry_trigger") == "reclaim-3x5m"
     return store.record_paper_trade({
         "opened_at": now.isoformat(),
         "session": session,
@@ -354,15 +370,46 @@ def open_paper_trade(store: Store, ticket: dict, *, session: str | None = None,
         "ref_strike": ticket.get("ref_strike"),
         "source": source,
         "status": "open",
-        "opened_price_src": f"{proxy} 15m close",
+        "opened_price_src": ("pending reclaim-3x5m" if pending
+                             else f"{proxy} 15m close"),
+        "entry_trigger": ticket.get("entry_trigger"),
+        "entry_note": ticket.get("entry_note"),
+        "spy_level": ticket.get("spy_level"),
+        "fill_status": "pending" if pending else "filled",
+        "filled_at": None if pending else now.isoformat(),
     })
+
+
+def _try_fill(trade: dict, bars) -> dict | None:
+    """Scan 5m bars after the open for the reclaim fill: RECLAIM_CLOSES
+    consecutive closes back through the level on the trade's side. Returns
+    ``{spy_entry, filled_at}`` at the confirming close, or None (still
+    pending). A close back on the wrong side resets the count — the whole
+    point of the discipline."""
+    opened = trade.get("opened_at") or ""
+    level = trade.get("spy_level")
+    if level is None:
+        return None
+    level = float(level)
+    long_side = trade.get("side") == "long"
+    streak = 0
+    for ts, row in bars.iterrows():
+        bar_iso = ts.to_pydatetime().isoformat()
+        if bar_iso <= opened:
+            continue
+        close = float(row["Close"])
+        reclaimed = close > level if long_side else close < level
+        streak = streak + 1 if reclaimed else 0
+        if streak >= RECLAIM_CLOSES:
+            return {"spy_entry": round(close, 2), "filled_at": bar_iso}
+    return None
 
 
 def _settle_one(trade: dict, bars) -> dict | None:
     """Scan SPY 15m bars AFTER the trade opened for the first touch of target or
     stop. Returns ``{spy_exit, exit_reason, pnl, pnl_pct, closed_at}`` or None if
     neither was hit yet (trade stays open). Target-or-stop, whichever bar first."""
-    opened = trade.get("opened_at") or ""
+    opened = trade.get("filled_at") or trade.get("opened_at") or ""
     side = trade["side"]
     entry = float(trade["spy_entry"])
     tgt = trade.get("spy_target")
@@ -400,27 +447,78 @@ def _settle_one(trade: dict, bars) -> dict | None:
 
 
 def settle_open(store: Store) -> dict:
-    """Check every OPEN paper trade against fresh bars of ITS OWN proxy (SPY / QQQ
-    / IWM); close the ones that hit target or stop. Returns ``{checked, closed}``.
-    Bars are fetched once per distinct proxy symbol."""
+    """Advance every OPEN paper trade against fresh 5m bars of ITS OWN proxy.
+
+    Three phases per trade, on the same 5m series the reclaim discipline is
+    defined on: (1) PENDING trades try to fill (3 consecutive 5m closes back
+    through the level) or expire unfilled after PENDING_EXPIRE_HOURS; (2)
+    filled trades scan for the first target/stop touch after their fill.
+    Returns ``{checked, filled, expired, closed}``."""
     open_trades = store.load_paper_trades("open")
     if not open_trades:
-        return {"checked": 0, "closed": 0}
+        return {"checked": 0, "filled": 0, "expired": 0, "closed": 0}
     bars_by_proxy: dict[str, object] = {}
-    closed = 0
+    filled = expired = closed = 0
     for t in open_trades:
         proxy = t.get("symbol") or "SPY"
         if proxy not in bars_by_proxy:
-            bars_by_proxy[proxy] = _fetch_proxy_15m(proxy)
+            bars_by_proxy[proxy] = _fetch_proxy_5m(proxy)
         df = bars_by_proxy[proxy]
         if df is None or getattr(df, "empty", True):
             continue
+        if (t.get("fill_status") or "filled") == "pending":
+            fill = _try_fill(t, df)
+            if fill and store.fill_paper_trade(
+                    t["id"], spy_entry=fill["spy_entry"],
+                    filled_at=fill["filled_at"]):
+                filled += 1
+                t = dict(t, spy_entry=fill["spy_entry"],
+                         filled_at=fill["filled_at"], fill_status="filled")
+            elif _pending_expired(t, df):
+                if store.close_paper_trade(
+                        t["id"], spy_exit=0.0, exit_reason="never_filled",
+                        pnl=0.0, pnl_pct=0.0,
+                        closed_at=str(df.index[-1].to_pydatetime().isoformat())):
+                    expired += 1
+                continue
+            else:
+                continue  # still waiting for the reclaim
         res = _settle_one(t, df)
         if res and store.close_paper_trade(
                 t["id"], spy_exit=res["spy_exit"], exit_reason=res["exit_reason"],
                 pnl=res["pnl"], pnl_pct=res["pnl_pct"], closed_at=res["closed_at"]):
             closed += 1
-    return {"checked": len(open_trades), "closed": closed}
+    return {"checked": len(open_trades), "filled": filled,
+            "expired": expired, "closed": closed}
+
+
+def _pending_expired(trade: dict, bars) -> bool:
+    """True when the newest bar is past the pending window — the reclaim never
+    confirmed, so the trade expires unfilled (no fill, no trade)."""
+    opened = trade.get("opened_at") or ""
+    try:
+        opened_dt = _dt.datetime.fromisoformat(opened)
+        last = bars.index[-1].to_pydatetime()
+        if opened_dt.tzinfo is None:
+            last = last.replace(tzinfo=None)
+        return (last - opened_dt).total_seconds() > PENDING_EXPIRE_HOURS * 3600
+    except Exception:  # noqa: BLE001 — malformed timestamps never expire a trade
+        return False
+
+
+def _fetch_proxy_5m(proxy_symbol: str):
+    """SPY/QQQ/IWM 5m RTH bars — the interval the reclaim discipline (and now
+    settlement) is defined on. Lazy yfinance; ~10 sessions of history."""
+    import yfinance as yf  # noqa: PLC0415
+
+    df = yf.Ticker(proxy_symbol).history(period="10d", interval="5m")
+    if df.empty:
+        return df
+    idx = df.index.tz_convert("America/New_York")
+    df = df.copy()
+    df.index = idx
+    mins = idx.hour * 60 + idx.minute
+    return df[(mins >= 570) & (mins < 960)]  # 09:30-16:00 ET
 
 
 def close_manually(store: Store, trade_id: int, spy_exit: float,

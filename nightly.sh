@@ -28,6 +28,11 @@ cd "$(dirname "$0")"
 PY=server/.venv/bin/python
 LOG_DIR=logs
 mkdir -p "$LOG_DIR"
+# Size-based rotation so logs never grow unbounded (launchd appends).
+for f in "$LOG_DIR"/*.log; do
+  [ -f "$f" ] || continue
+  if [ "$(wc -c < "$f")" -gt 5242880 ]; then mv "$f" "$f.1"; fi
+done
 STAMP="$(date +%Y-%m-%dT%H:%M:%S)"
 
 echo "[$STAMP] nightly: EOD bar snapshot (--from-lots ${1:-})"
@@ -55,6 +60,26 @@ echo "[$STAMP] nightly: earnings calendar refresh"
 # the pipeline.
 echo "[$STAMP] nightly: notebook journal snapshot"
 "$PY" -m vantage_server.snapshot_journal 2>&1 | grep -v 'Session termination' || true
+
+# GEX + 0DTE playbook per underlying (parity with nightly-docker.sh) so the
+# host data dir's strategy surface — and the committed pine/ artifacts —
+# refresh too. Per-underlying failures are non-fatal.
+for PAIR in "SPX:^SPX" "QQQ:QQQ" "IWM:IWM"; do
+  KEY="${PAIR%%:*}"; CHAIN="${PAIR##*:}"
+  echo "[$STAMP] nightly: GEX snapshot ($KEY)"
+  "$PY" -m vantage_server.gex --symbol "$CHAIN" 2>&1 | grep -v 'Session termination' || true
+  echo "[$STAMP] nightly: 0DTE playbook ($KEY)"
+  "$PY" -m vantage_server.spx_playbook --symbol "$KEY" 2>&1 | grep -v 'Session termination' || true
+done
+
+# Futures re-import (idempotent) when CSVs exist; paper settle (fill pending
+# reclaims / expire / close on 5m bars) — parity with nightly-docker.sh.
+if ls server/data-local/ampfutures/*.csv >/dev/null 2>&1; then
+  echo "[$STAMP] nightly: futures re-import (ampfutures)"
+  "$PY" -m vantage_server.futures --import ampfutures --no-alignment 2>&1 | grep -v 'Session termination' || true
+fi
+echo "[$STAMP] nightly: paper-trade settle"
+"$PY" -m vantage_server.paper --settle 2>&1 | grep -v 'Session termination' || true
 
 # ── ML trade-analysis build (round-trips → condition/edge features) ──────────
 # Read-only broker fetch for realized P/L, data-local writes to data-local/ml/.

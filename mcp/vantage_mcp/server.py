@@ -64,6 +64,9 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
             "as_of": snap.as_of,
             "source": snap.source,
             "stale": snap.stale,
+            # SQLite-only datasets read as empty on a JSON data dir; the flag
+            # lets a consumer tell "no data" from "wrong backend".
+            "backend": "sqlite" if store.uses_sqlite else "json",
             **data,
             "provenance": provenance(name),
         }

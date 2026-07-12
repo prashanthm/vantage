@@ -209,7 +209,7 @@ def _upto(df, day):
 def _chart_kwargs(params: dict | None) -> dict:
     p = params or {}
     return {"recent_sessions": int(p.get("recent_sessions", 10)),
-            "pivot_n": int(p.get("pivot_n", 2)),
+            "pivot_n": int(p.get("pivot_n", 3)),  # adopted default — never revert to 2
             "vp_bins": int(p.get("vp_bins", 40))}
 
 

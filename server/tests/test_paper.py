@@ -221,3 +221,93 @@ def test_close_manually_and_stats(tmp_path):
     assert closed[0]["pnl"] == 300.0
     stats = paper.paper_stats(closed)
     assert stats["n"] == 1 and stats["wins"] == 1 and stats["win_rate"] == 1.0
+
+
+# ── reclaim discipline (F1): pending fill, streak reset, expiry ──────────────
+
+
+def _pending_trade(store, side="long", level=750.0):
+    return paper.open_paper_trade(store, {
+        "signal": f"reclaim {level}", "side": side, "spx_level": level * 10,
+        "spy_level": level, "spy_entry": level, "spy_target": level + 5,
+        "spy_stop": level - 2, "shares": 100,
+        "entry_trigger": "reclaim-3x5m",
+        "entry_note": "enter after 3 consecutive 5m closes back above"},
+        now=_dt.datetime(2026, 7, 10, 10, 0))
+
+
+def _bars5(closes, start="2026-07-10 10:05"):
+    idx = pd.date_range(start, periods=len(closes), freq="5min")
+    return pd.DataFrame({
+        "High": [c + 0.5 for c in closes],
+        "Low": [c - 0.5 for c in closes],
+        "Close": closes}, index=idx)
+
+
+def test_reclaim_ticket_opens_pending_not_filled(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _pending_trade(store)
+    t = store.load_paper_trades("open")[0]
+    assert t["fill_status"] == "pending"
+    assert t["entry_trigger"] == "reclaim-3x5m"
+    assert t["filled_at"] is None
+
+
+def test_try_fill_requires_three_consecutive_closes(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _pending_trade(store)
+    t = store.load_paper_trades("open")[0]
+    # two closes above, one back below (reset), then only two above -> no fill
+    assert paper._try_fill(t, _bars5([750.5, 750.8, 749.9, 750.4, 750.6])) is None
+    # three consecutive closes above -> fill AT the third close
+    fill = paper._try_fill(t, _bars5([750.5, 749.9, 750.2, 750.7, 751.1]))
+    assert fill is not None
+    assert fill["spy_entry"] == 751.1  # the confirming (3rd consecutive) close
+
+
+def test_try_fill_short_side_needs_closes_below(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _pending_trade(store, side="short", level=760.0)
+    t = store.load_paper_trades("open")[0]
+    fill = paper._try_fill(t, _bars5([759.8, 759.5, 759.2]))
+    assert fill is not None and fill["spy_entry"] == 759.2
+
+
+def test_settle_open_fills_then_settles_on_5m(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    _pending_trade(store)  # level 750, target 755, stop 748
+    # fill at 3 consecutive closes above 750, then a bar tags the target
+    bars = _bars5([750.4, 750.6, 750.9, 752.0, 756.0])
+    monkeypatch.setattr(paper, "_fetch_proxy_5m", lambda proxy: bars)
+    out = paper.settle_open(store)
+    assert out["filled"] == 1 and out["closed"] == 1
+    t = store.load_paper_trades("closed")[0]
+    assert t["fill_status"] == "filled"
+    assert t["spy_entry"] == 750.9          # reclaim close, NOT the touch level
+    assert t["exit_reason"] == "target"
+    assert t["opened_price_src"] == "reclaim 3x5m close"
+
+
+def test_settle_open_expires_never_filled(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    _pending_trade(store)
+    # 3 days of closes that never reclaim -> expired unfilled, pnl 0
+    idx = pd.date_range("2026-07-10 10:05", periods=4, freq="1D")
+    bars = pd.DataFrame({"High": [749.5] * 4, "Low": [748.5] * 4,
+                         "Close": [749.0] * 4}, index=idx)
+    monkeypatch.setattr(paper, "_fetch_proxy_5m", lambda proxy: bars)
+    out = paper.settle_open(store)
+    assert out["expired"] == 1 and out["closed"] == 0
+    t = store.load_paper_trades("closed")[0]
+    assert t["exit_reason"] == "never_filled" and t["pnl"] == 0.0
+
+
+def test_tickets_still_carry_the_trigger_end_to_end(tmp_path):
+    store = _sqlite_store(tmp_path)
+    tid = paper.open_paper_trade(store, {
+        "signal": "s", "side": "long", "spy_entry": 750.0, "spy_level": 750.0,
+        "spy_target": 755.0, "spy_stop": 748.0, "shares": 100,
+        "entry_trigger": "reclaim-3x5m", "entry_note": "note"},
+        now=_dt.datetime(2026, 7, 10, 10, 0))
+    t = store.load_paper_trades("open")[0]
+    assert t["id"] == tid and t["entry_note"] == "note"

@@ -12,7 +12,7 @@ CORS allows http://localhost on any port — the SPA serves from :8642; this API
 listens on :8641. GET and POST are the only allowed methods (POST solely for
 /api/refresh); every other method answers 405.
 
-Every payload carries {"as_of": ..., "source": "fixture"|"stooq"} so the
+Every payload carries {"as_of": ..., "source": "fixture"|"yfinance"} so the
 client can always tell what data it is looking at.
 
 Run: uvicorn vantage_server.api:app --port 8641   (or `make run-api`)
@@ -238,7 +238,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     def analysis(date: str | None = Query(None),
                  symbol: str | None = Query(None)):
         """The nightly decision journal (written by `python -m
-        vantage_server.analyze`), read PER REQUEST from analysis/<date>.json
+        vantage_server.analyze`), read via store.load_analysis_day (SQLite-aware; JSON fallback)
         (or latest.json when no date). Optional ``date`` (YYYY-MM-DD) selects a
         day; ``symbol`` narrows to that underlying. A missing journal is an
         empty state (decisions: [])."""
@@ -737,21 +737,49 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
 
     @app.get("/api/ticker/{symbol}/notebook")
     def ticker_notebook(symbol: str):
-        """Everything the notebook panel needs in one call: the structured plan,
-        the running journal (newest first), valuation fundamentals, and recent
-        news (aggregated + sentiment lean)."""
+        """Everything the notebook panel needs in one call: the structured plan
+        (+ computed risk/reward geometry), the running journal (newest first),
+        valuation fundamentals, growth/quality, market-implied expectations,
+        relative strength, and recent news — the same analyst datasets the MCP
+        surface serves, so the product isn't blind to what the advisor sees."""
+        from . import expectations as exp_mod
         from . import fundamentals as fund
+        from . import growth as growth_mod
         from . import news as news_mod
+        from . import relative_strength as rs_mod
+        from .risk_reward import risk_reward as rr
         snap = state.snapshot()
         sym = symbol.upper()
+        plan = store.load_ticker_plan(sym)
+        quote = snap.quotes.get(sym)
+        price = quote.price if quote else None
+        if price is None:
+            bars = store.load_bars(sym)
+            daily = bars.get("daily") if isinstance(bars, dict) else None
+            if isinstance(daily, list) and daily and daily[-1].get("close"):
+                price = float(daily[-1]["close"])
+        fundamentals = fund.fundamentals(sym, store.data_dir)
+        grown = growth_mod.growth(sym, store.data_dir)
         return envelope(
             snap,
             symbol=sym,
-            plan=store.load_ticker_plan(sym),
+            plan=plan,
+            risk_reward=rr(plan, price),
             journal=store.load_ticker_journal(sym),
-            fundamentals=fund.fundamentals(sym, store.data_dir),
+            fundamentals=fundamentals,
+            growth=grown,
+            expectations=exp_mod.expectations(fundamentals, grown, price),
+            relative_strength=rs_mod.relative_strength(sym, store.data_dir),
             news=news_mod.news(sym, store.data_dir),
         )
+
+    @app.get("/api/rec_scorecard")
+    def api_rec_scorecard():
+        """The decision journal's own track record (per-rule forward-return hit
+        rates) — same dataset as the vantage.rec_scorecard MCP tool."""
+        from . import rec_scorecard as sc_mod
+        snap = state.snapshot()
+        return envelope(snap, scorecard=sc_mod.rec_scorecard(store.data_dir))
 
     @app.get("/api/ticker/{symbol}/fundamentals")
     def ticker_fundamentals(symbol: str):

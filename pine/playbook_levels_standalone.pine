@@ -39,7 +39,7 @@ showPoc    = input.bool(true, "Volume PoC", group=grpL)
 showSR     = input.bool(true, "Fractal S/R shelves", group=grpL)
 showRound  = input.bool(true, "Round numbers (auto-scaled)", group=grpL)
 showDurable= input.bool(true, "Durable memory levels (★)", group=grpL, tooltip="Shelves price kept revisiting across the FULL chart history — the 'traces back weeks' levels.")
-pivotLen   = input.int(2, "Pivot length", minval=1, maxval=10, group=grpL, tooltip="Williams fractal half-width. Higher = fewer, more significant swings (raise this on noisy futures).")
+pivotLen   = input.int(3, "Pivot length", minval=1, maxval=10, group=grpL, tooltip="Williams fractal half-width. Higher = fewer, more significant swings. Default 3 per the adopted playbook-params finding (2 was noisier in every tested regime).")
 clusterTolIn = input.float(0.0, "S/R cluster tolerance (0 = auto)", minval=0, group=grpL, tooltip="Points within which pivots merge into one shelf. 0 auto-scales to the instrument (~0.08% of price).")
 minTouch   = input.int(2, "Min touches to keep a shelf", minval=1, group=grpL)
 maxShelves = input.int(3, "Max S/R shelves per side", minval=1, maxval=10, group=grpL, tooltip="Keep only the strongest (most-tested), nearest N supports and N resistances — declutter.")
@@ -49,6 +49,7 @@ durableLookback = input.int(2000, "Durable memory lookback (bars)", minval=100, 
 maxDistPct = input.float(1.2, "Only draw levels within % of price", minval=0.1, maxval=50, group=grpL, tooltip="Hide levels farther than this from the current price so the chart shows only what's tradeable now. Set high to show all.")
 maxLevels  = input.int(10, "Max levels total (nearest kept)", minval=3, maxval=26, group=grpL, tooltip="Hard cap on how many levels reach the table + chart. The nearest-to-price N survive after near-duplicates are merged — the main declutter.")
 pocBins    = input.int(40, "Volume-profile bins", minval=10, maxval=100, group=grpL)
+confirmCloses = input.int(3, "Reclaim confirmation closes", minval=1, maxval=5, group=grpL, tooltip="Consecutive closes back through the level required before a BUY/SELL arrow fires — the validated reclaim discipline (3 consecutive 5m closes beat every alternative tested; set the chart to 5m to match). 1 = legacy single-bar behavior.")
 roundStepIn = input.float(0.0, "Round-number step (0 = auto)", minval=0, group=grpL, tooltip="Spacing of the round-number levels. 0 auto-scales to the instrument (a 'nice' value near 1% of price).")
 grpC = "Confluence"
 showConf   = input.bool(true, "Confluence zones (≥2 dims stack)", group=grpC, tooltip="Shade a band where 2+ different dimensions (fib / S-R / PoC / VWAP / round / durable) line up — the high-signal levels.")
@@ -618,18 +619,42 @@ nearSup := not na(pvL) ? pvL : nearSup
 resGate = not arrowsConfluenceOnly or (not na(nearRes) and f_inConf(nearRes))
 supGate = not arrowsConfluenceOnly or (not na(nearSup) and f_inConf(nearSup))
 
-// SELL — confirmed bar tags resistance (high >= it) but closes back below it.
+// SELL — price tags resistance, then confirmCloses CONSECUTIVE closes back
+// below it (the validated reclaim discipline; a close back above resets).
 var bool armedSell = true
-sellTrig = showArrows and confirmed and resGate and not na(nearRes) and high >= nearRes and close < nearRes
+var bool tagSell = false
+var int nSell = 0
+if confirmed and not na(nearRes)
+    if high >= nearRes
+        tagSell := true
+        nSell := close < nearRes ? 1 : 0
+    else
+        nSell := tagSell ? nSell + 1 : 0
+sellTrig = showArrows and confirmed and resGate and not na(nearRes) and tagSell and nSell >= confirmCloses
 fadeSell = sellTrig and armedSell
+if fadeSell
+    tagSell := false
+    nSell := 0
 armedSell := confirmed ? (fadeSell ? false : (high < nearRes * 0.999 ? true : armedSell)) : armedSell
 plotshape(fadeSell, title="fade resistance (sell)", location=location.abovebar, style=shape.triangledown, color=(isDark ? #EF5350 : #C62828), size=size.small, text="SELL")
 alertcondition(fadeSell, title="Fade resistance", message="Price got rejected at resistance — a good spot to sell the rally.")
 
-// BUY — confirmed bar tags support (low <= it) but closes back above it.
+// BUY — price tags support, then confirmCloses CONSECUTIVE closes back
+// above it (the validated reclaim discipline; a close back below resets).
 var bool armedBuy = true
-buyTrig = showArrows and confirmed and supGate and not na(nearSup) and low <= nearSup and close > nearSup
+var bool tagBuy = false
+var int nBuy = 0
+if confirmed and not na(nearSup)
+    if low <= nearSup
+        tagBuy := true
+        nBuy := close > nearSup ? 1 : 0
+    else
+        nBuy := tagBuy ? nBuy + 1 : 0
+buyTrig = showArrows and confirmed and supGate and not na(nearSup) and tagBuy and nBuy >= confirmCloses
 fadeBuy = buyTrig and armedBuy
+if fadeBuy
+    tagBuy := false
+    nBuy := 0
 armedBuy := confirmed ? (fadeBuy ? false : (low > nearSup * 1.001 ? true : armedBuy)) : armedBuy
 plotshape(fadeBuy, title="bounce support (buy)", location=location.belowbar, style=shape.triangleup, color=(isDark ? #26A69A : #1B7A70), size=size.small, text="BUY")
 alertcondition(fadeBuy, title="Bounce support", message="Price bounced off support — a good spot to buy the dip.")

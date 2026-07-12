@@ -141,10 +141,16 @@ def test_confluence_keyed_arrows():
     # SELL (resistance zone) + BUY (support zone; durable 7451.5 dedups into it) + BREAK
     assert s.count("plotshape(") == 3
     assert s.count("alertcondition(") == 3
-    # SELL keyed to the resistance confluence zone (7498), tagged (tag 1)
-    assert "lvlSell1 = 7498.0" in s and "high >= lvlSell1 and close < lvlSell1" in s
+    # SELL keyed to the resistance confluence zone (7498), tagged (tag 1),
+    # gated by the adopted reclaim discipline (N consecutive closes back
+    # through the level after the tag — playbook-params/reclaim-interval goals)
+    assert "lvlSell1 = 7498.0" in s and "if high >= lvlSell1" in s
+    assert "nSell1 >= confirmCloses" in s
     # BUY keyed to the support confluence zone (7451.5), tagged (tag 2)
-    assert "lvlBuy2 = 7451.5" in s and "low <= lvlBuy2 and close > lvlBuy2" in s
+    assert "lvlBuy2 = 7451.5" in s and "if low <= lvlBuy2" in s
+    assert "nBuy2 >= confirmCloses" in s
+    # the confirmation input ships with the validated default of 3
+    assert 'confirmCloses = input.int(3' in s
     assert "text=\"BUY\"" in s and "text=\"SELL\"" in s
     # BREAK is the gamma-flip regime break
     assert "momoBreak = showArrows and confirmed and close < flipLevel and wasAbove" in s

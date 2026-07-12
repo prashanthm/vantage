@@ -41,8 +41,13 @@ services:
       # (the playbook then reports a thinner read).
       - "${SENTINEL_LOGS_DIR:-/dev/null}:/sentinel/logs:ro"
       - "${SENTINEL_DATA_DIR:-/dev/null}:/sentinel/data:ro"
+      # The repo pine/ dir, read-write, so the nightly playbook job refreshes
+      # the generated TradingView artifacts (spx_playbook.pine etc.) instead of
+      # writing to an ephemeral container path.
+      - ../pine:/app/pine
     environment:
       VANTAGE_DB: /data/vantage.db
+      VANTAGE_PINE_DIR: /app/pine
       # The data dir IS the writable volume — so the yfinance quote cache
       # (quotes_cache_yf.json) persists there instead of a non-existent
       # /app/data-local, otherwise every request re-fetches Yahoo (~13s each).
@@ -70,6 +75,14 @@ services:
     image: vantage-mcp:local
     ports:
       - "8640:8640"
+    healthcheck:
+      # A bare GET to /mcp answers 406 (streamable-HTTP handshake required) —
+      # any HTTP response proves the server is up.
+      test: ["CMD", "python", "-c", "import urllib.request,urllib.error,sys\ntry:\n    urllib.request.urlopen('http://127.0.0.1:8640/mcp', timeout=5); sys.exit(0)\nexcept urllib.error.HTTPError:\n    sys.exit(0)\nexcept Exception:\n    sys.exit(1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15s
     # Run as the backend's uid so it can OPEN the shared vantage.db. SQLite in
     # WAL mode (db.py forces PRAGMA journal_mode=WAL on connect) needs WRITE
     # access to the db file to attach/create the -wal/-shm sidecars — a truly
@@ -112,7 +125,9 @@ services:
 
   mira:
     build:
-      context: ~/personal/mira
+      # Sibling checkout (vantage/ and mira/ side by side) — portable, unlike
+      # a home-absolute path.
+      context: ../../mira
       dockerfile: Dockerfile
     image: mira:local
     ports:
@@ -142,9 +157,15 @@ services:
     extra_hosts:
       # Linux needs this mapping for host.docker.internal (no-op on Docker Desktop).
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=10).status==200 else 1)"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 20s
     depends_on:
       vantage-mcp:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
 
 volumes:

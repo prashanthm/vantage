@@ -44,3 +44,17 @@ def test_no_downside_room_leaves_ratio_undefined():
 
 def test_missing_price_is_incomplete():
     assert risk_reward(_plan(), None)["status"] == "incomplete_plan"
+
+
+def test_short_thesis_directional_geometry():
+    out = risk_reward(_plan(target=95.0, stop=180.0), 126.79)  # short: target below
+    assert out["direction"] == "short"
+    assert out["status"] == "ok"
+    assert out["upside"] == 31.79    # px -> target (down)
+    assert out["downside"] == 53.21  # px -> stop (up)
+    assert out["rr_ratio"] == 0.6
+
+
+def test_short_thesis_breach_statuses():
+    assert risk_reward(_plan(target=95.0, stop=180.0), 185.0)["status"] == "stop_breached"
+    assert risk_reward(_plan(target=95.0, stop=180.0), 90.0)["status"] == "target_reached"

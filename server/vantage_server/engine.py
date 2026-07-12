@@ -119,7 +119,7 @@ def quote_for(symbol: str, quotes: dict[str, Quote], *, cost_per_share: float = 
     fixture table certainly doesn't). Rather than crashing the API, an unknown
     symbol is valued at its cost basis with day_pct 0 and classed usEquity —
     honest staleness the SPA can render, never a 500. Live quote providers
-    (VANTAGE_QUOTES=stooq) resolve real symbols and shrink this fallback path.
+    (VANTAGE_QUOTES=yfinance) resolve real symbols and shrink this fallback path.
     """
     quote = quotes.get(symbol)
     if quote is not None:

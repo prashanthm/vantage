@@ -179,14 +179,14 @@ cmd_cron_install_docker() {
     <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>4</integer></dict>
     <dict><key>Hour</key><integer>17</integer><key>Minute</key><integer>45</integer><key>Weekday</key><integer>5</integer></dict>
   </array>
-  <key>StandardOutPath</key><string>$repo/$LOG_DIR/nightly.log</string>
-  <key>StandardErrorPath</key><string>$repo/$LOG_DIR/nightly.log</string>
+  <key>StandardOutPath</key><string>$repo/$LOG_DIR/nightly-docker.log</string>
+  <key>StandardErrorPath</key><string>$repo/$LOG_DIR/nightly-docker.log</string>
 </dict>
 </plist>
 PLIST
   launchctl bootout "gui/$(id -u)/$CRON_LABEL_DOCKER" 2>/dev/null || true
   launchctl bootstrap "gui/$(id -u)" "$CRON_PLIST_DOCKER"
-  echo "installed $CRON_LABEL_DOCKER — weeknights 17:45 ET → nightly-docker.sh (bars + analyze in the backend container). Logs: $LOG_DIR/nightly.log"
+  echo "installed $CRON_LABEL_DOCKER — weeknights 17:45 ET → nightly-docker.sh (bars + analyze in the backend container). Logs: $LOG_DIR/nightly-docker.log"
 }
 
 cmd_cron_uninstall_docker() {

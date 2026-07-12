@@ -61,7 +61,7 @@ class QuoteSnapshot:
     """Quotes plus provenance: where they came from and how fresh they are."""
     quotes: dict[str, Quote]
     as_of: str            # ISO datetime the prices are 'as of'
-    source: str           # "fixture" | "stooq"
+    source: str           # "fixture" | "yfinance"
     stale: bool = False   # True when a live provider degraded to fixture data
 
 

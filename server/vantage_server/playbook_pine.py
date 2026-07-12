@@ -327,11 +327,13 @@ def _pine_row_markers(rows: list[dict]) -> list[str]:
 
 def _pine_fade_arrow(price: float, role: str, tag: str, label: str,
                      durable: bool = False) -> list[str]:
-    """One strict 'fade the level' arrow with its own armed-latch state (unique
-    ``tag`` so global identifiers don't collide). SUPPORT → BUY on a clean bounce
-    (wick into the level, close back above); RESISTANCE → SELL on a clean
-    rejection (wick above, close back below). ``durable`` levels get a bolder,
-    labeled marker so a memory-level signal stands out from a today-only one."""
+    """One 'fade the level' arrow gated by the VALIDATED reclaim discipline
+    (strategy-winrate + reclaim-interval goals): after price tags the level,
+    the arrow fires only on the Nth consecutive close back through it
+    (``confirmCloses`` input, default 3 — set the chart to 5m to match the
+    validated '3 consecutive 5m closes'). confirmCloses=1 reproduces the old
+    single-bar behavior. Each arrow keeps its own tag/streak/armed state
+    (unique ``tag`` so identifiers don't collide)."""
     p = f"{price:.1f}"
     size = "size.normal" if durable else "size.small"
     if role == "support":
@@ -340,14 +342,25 @@ def _pine_fade_arrow(price: float, role: str, tag: str, label: str,
         return [
             f"lvlBuy{tag} = {p}",
             f"var bool armedBuy{tag} = true",
-            f"buyTrig{tag} = showArrows and confirmed and low <= lvlBuy{tag} and close > lvlBuy{tag}",
+            f"var bool tagBuy{tag} = false",
+            f"var int nBuy{tag} = 0",
+            f"if confirmed",
+            f"    if low <= lvlBuy{tag}",
+            f"        tagBuy{tag} := true",
+            f"        nBuy{tag} := close > lvlBuy{tag} ? 1 : 0",
+            f"    else",
+            f"        nBuy{tag} := tagBuy{tag} ? nBuy{tag} + 1 : 0",
+            f"buyTrig{tag} = showArrows and confirmed and tagBuy{tag} and nBuy{tag} >= confirmCloses",
             f"fadeBuy{tag} = buyTrig{tag} and armedBuy{tag}",
+            f"if fadeBuy{tag}",
+            f"    tagBuy{tag} := false",
+            f"    nBuy{tag} := 0",
             f"armedBuy{tag} := confirmed ? (fadeBuy{tag} ? false : "
             f"(low > lvlBuy{tag} * 1.001 ? true : armedBuy{tag})) : armedBuy{tag}",
             f"plotshape(fadeBuy{tag}, title=\"{_sanitize(label)}\", location=location.belowbar, "
             f"style=shape.triangleup, color={col}, size={size}, text=\"{txt}\")",
             f"alertcondition(fadeBuy{tag}, title=\"{_sanitize(label)}\", "
-            f"message=\"SPX bounced {_sanitize(label)} — fade the dip.\")",
+            f"message=\"SPX reclaimed {_sanitize(label)} — reclaim entry confirmed.\")",
         ]
     # resistance / pivot → SELL
     col = "(isDark ? #EF5350 : #C62828)"
@@ -355,14 +368,25 @@ def _pine_fade_arrow(price: float, role: str, tag: str, label: str,
     return [
         f"lvlSell{tag} = {p}",
         f"var bool armedSell{tag} = true",
-        f"sellTrig{tag} = showArrows and confirmed and high >= lvlSell{tag} and close < lvlSell{tag}",
+        f"var bool tagSell{tag} = false",
+        f"var int nSell{tag} = 0",
+        f"if confirmed",
+        f"    if high >= lvlSell{tag}",
+        f"        tagSell{tag} := true",
+        f"        nSell{tag} := close < lvlSell{tag} ? 1 : 0",
+        f"    else",
+        f"        nSell{tag} := tagSell{tag} ? nSell{tag} + 1 : 0",
+        f"sellTrig{tag} = showArrows and confirmed and tagSell{tag} and nSell{tag} >= confirmCloses",
         f"fadeSell{tag} = sellTrig{tag} and armedSell{tag}",
+        f"if fadeSell{tag}",
+        f"    tagSell{tag} := false",
+        f"    nSell{tag} := 0",
         f"armedSell{tag} := confirmed ? (fadeSell{tag} ? false : "
         f"(high < lvlSell{tag} * 0.999 ? true : armedSell{tag})) : armedSell{tag}",
         f"plotshape(fadeSell{tag}, title=\"{_sanitize(label)}\", location=location.abovebar, "
         f"style=shape.triangledown, color={col}, size={size}, text=\"{txt}\")",
         f"alertcondition(fadeSell{tag}, title=\"{_sanitize(label)}\", "
-        f"message=\"SPX rejected {_sanitize(label)} — fade the rip.\")",
+        f"message=\"SPX lost {_sanitize(label)} — reclaim-short confirmed.\")",
     ]
 
 
@@ -420,6 +444,10 @@ def build_playbook_pine(scaffold: dict[str, Any]) -> str:
         "showGex = input.bool(true, \"Dealer-gamma (GEX) levels\")",
         "showTable = input.bool(true, \"Levels table\")",
         "showArrows = input.bool(true, \"Buy/Sell/Break arrows\")",
+        "confirmCloses = input.int(3, \"Reclaim confirmation closes\", minval=1, maxval=5, "
+        "tooltip=\"Consecutive closes back through a level required before an arrow fires — "
+        "the validated reclaim discipline (3 consecutive 5m closes; set the chart to 5m to "
+        "match). 1 = legacy single-bar behavior.\")",
         "showRegime = input.bool(true, \"Regime tint\") and not coexist",
         "",
     ]

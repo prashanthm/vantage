@@ -651,7 +651,7 @@ def _forward_watch() -> list[dict]:
     cum_pv = sum(tp[i] * (vol[i] or 0.0) for i in range(len(C)))
     cum_v = sum(vol[i] or 0.0 for i in range(len(C)))
     vwap = cum_pv / cum_v if cum_v else last
-    ph, pl = sp._fractal_pivots(H, L, n=2)
+    ph, pl = sp._fractal_pivots(H, L, n=3)  # adopted playbook-params width (2->3)
     res = sorted({round(z[0]) for z in sp._cluster([H[i] for i in ph]) if z[1] >= 2}, reverse=True)
     sup = sorted({round(z[0]) for z in sp._cluster([L[i] for i in pl]) if z[1] >= 2}, reverse=True)
     near_res = [r for r in res if r > last][:2]
@@ -765,7 +765,7 @@ def playbook_alignment(fills: list[dict], store=None) -> dict:
         for i in range(len(C)):
             cum_pv += tp[i] * (vol[i] or 0.0); cum_v += (vol[i] or 0.0)
             vwap_at.append(cum_pv / cum_v if cum_v else C[i])
-        ph, pl = sp._fractal_pivots(H, L, n=2)
+        ph, pl = sp._fractal_pivots(H, L, n=3)  # adopted playbook-params width (2->3)
         res = [z[0] for z in sp._cluster([H[i] for i in ph]) if z[1] >= 2]
         sup = [z[0] for z in sp._cluster([L[i] for i in pl]) if z[1] >= 2]
         # augment with the projected QQQ GEX walls/flip (the dealer-gamma regime)

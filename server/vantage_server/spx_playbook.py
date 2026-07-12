@@ -195,6 +195,11 @@ def _recent_window(spx15, sessions=RECENT_SESSIONS):
     return spx15[[t.date() in set(days) for t in spx15.index]]
 
 
+#: The adopted fractal pivot half-width (playbook-params goal: 2->3 on 15m).
+#: Prod passes this EXPLICITLY so the invariant never rides a function default.
+ADOPTED_PIVOT_N = 3
+
+
 def _chart_dimensions(spx15, spyvol_by_ts, scale: dict | None = None,
                       recent_sessions: int = RECENT_SESSIONS,
                       pivot_n: int = 3, vp_bins: int = 40) -> dict:
@@ -799,7 +804,7 @@ def build_playbook(today: _dt.date | None = None, store: Any = None,
                      if spy15 is not None and not spy15.empty else {})
     spx15 = bars   # keep the local name the rest of the body uses
 
-    chart = _chart_dimensions(spx15, vol_by_ts, scale=scale)
+    chart = _chart_dimensions(spx15, vol_by_ts, scale=scale, pivot_n=ADOPTED_PIVOT_N)
     opex = opex_layer(today)
     vol_edge = gex_regime_vol_edge(bundle.get("gex_history", []), spx15)
     edges = day_time_edges(spx15)

@@ -19,6 +19,7 @@ showLevels = input.bool(true, "Level lines + letter keys")
 showGex = input.bool(true, "Dealer-gamma (GEX) levels")
 showTable = input.bool(true, "Levels table")
 showArrows = input.bool(true, "Buy/Sell/Break arrows")
+confirmCloses = input.int(3, "Reclaim confirmation closes", minval=1, maxval=5, tooltip="Consecutive closes back through a level required before an arrow fires — the validated reclaim discipline (3 consecutive 5m closes; set the chart to 5m to match). 1 = legacy single-bar behavior.")
 showRegime = input.bool(true, "Regime tint") and not coexist
 
 confirmed = barstate.isconfirmed
@@ -27,11 +28,22 @@ aboveFlip = close > flipLevel
 bgcolor(showRegime and aboveFlip ? color.new(color.green, 96) : showRegime ? color.new(color.red, 96) : na)
 lvlSell1 = 7547.7
 var bool armedSell1 = true
-sellTrig1 = showArrows and confirmed and high >= lvlSell1 and close < lvlSell1
+var bool tagSell1 = false
+var int nSell1 = 0
+if confirmed
+    if high >= lvlSell1
+        tagSell1 := true
+        nSell1 := close < lvlSell1 ? 1 : 0
+    else
+        nSell1 := tagSell1 ? nSell1 + 1 : 0
+sellTrig1 = showArrows and confirmed and tagSell1 and nSell1 >= confirmCloses
 fadeSell1 = sellTrig1 and armedSell1
+if fadeSell1
+    tagSell1 := false
+    nSell1 := 0
 armedSell1 := confirmed ? (fadeSell1 ? false : (high < lvlSell1 * 0.999 ? true : armedSell1)) : armedSell1
 plotshape(fadeSell1, title="fade resistance zone", location=location.abovebar, style=shape.triangledown, color=(isDark ? #EF5350 : #C62828), size=size.small, text="SELL")
-alertcondition(fadeSell1, title="fade resistance zone", message="SPX rejected fade resistance zone — fade the rip.")
+alertcondition(fadeSell1, title="fade resistance zone", message="SPX lost fade resistance zone — reclaim-short confirmed.")
 var bool wasAbove = true
 momoBreak = showArrows and confirmed and close < flipLevel and wasAbove
 wasAbove := confirmed ? close > flipLevel : wasAbove
