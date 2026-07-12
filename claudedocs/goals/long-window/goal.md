@@ -22,4 +22,10 @@
   one frozen cache for every run; predictions pre-registered; prod changes
   only as guidance corrections for failed mechanisms.
 
-Status: **active** · started 2026-07-11
+Status: **achieved** · started 2026-07-11 · achieved 2026-07-11 ·
+verdict table delivered (log.md): reclaim/depth/tight-stops/confluence
+REPLICATE across 3 years (reclaim: 36/36 months); gate/counter-trend/
+breaks PARTIAL (regime-dependent); freshness filter FAILS; pivot-width
+and time-stop laws are TIME-SCALE facts, not universals. Two honesty
+corrections shipped to prod comments. 26 experiments (10 confirmed / 6
+disproven / 4 partial / 1 inconclusive).

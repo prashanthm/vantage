@@ -205,10 +205,14 @@ def _chart_dimensions(spx15, spyvol_by_ts, scale: dict | None = None,
     the backtest experiment loop.
 
     ``pivot_n=3`` (was 2) is the playbook-params loop's adopted finding
-    (claudedocs/goals/playbook-params): wider fractal pivots keep only the
-    swings the tape actually respects — WR 0.600→0.706, PF 1.39→2.99 under the
-    champion trigger, replicated across halves, orderly neighborhood (1: 1.14,
-    2: 1.39, 3: 2.99, 4: 1.48), transfers to QQQ and to the old trigger."""
+    (claudedocs/goals/playbook-params): on 15m bars, 3-bar pivots (45 min of
+    lookaround each side) keep only the swings the tape respects — WR
+    0.600→0.706, PF 1.39→2.99 under the champion trigger, replicated across
+    halves and symbols. The long-window loop (claudedocs/goals/long-window)
+    then showed the law is a TIME sweet spot (~45min-2h of lookaround), NOT
+    "wider is better": on hourly bars pivot_n 1-2 beats 3. The default of 3 is
+    correct for the 15m bars prod feeds this function — revisit if the input
+    granularity ever changes."""
     tol = (scale or {}).get("cluster_tol", 6.0)
     if spx15 is None or spx15.empty:
         return {"available": False}

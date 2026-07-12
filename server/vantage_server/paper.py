@@ -149,9 +149,11 @@ def _freshness_for_zone(zone: dict, bands: list[dict]) -> tuple[str, str]:
             band = b
             break
     if band is None:
-        # NOTE: the backtest loop DISPROVED "untested zones react best" — fresh
-        # zones were the biggest drag in every config; durable memory is the
-        # signal. Tag stays for display, but fresh ≠ strong.
+        # NOTE: the 60-day backtest loops DISPROVED "untested zones react best"
+        # — fresh zones dragged every config there. The 3-year hourly
+        # validation (claudedocs/goals/long-window) then found the durable-vs-
+        # fresh edge does NOT hold robustly across regimes: treat freshness as
+        # a weak hint, not a signal. Tag stays for display; fresh ≠ strong.
         return "fresh", "fresh — no prior record (unproven zone)"
     sessions = int(band.get("sessions") or 0)
     respected = int(band.get("respected") or 0)
