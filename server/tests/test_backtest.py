@@ -102,3 +102,24 @@ def test_time_stop_exits_at_nth_bar_close():
                   (101.3, 103.0, 101.2, 102.8)])  # target would hit — too late
     res = simulate_fill(_ticket(), bars, time_stop_bars=2)
     assert res["reason"] == "time" and res["exit"] == pytest.approx(101.3)
+
+
+def test_orb_long_breakout_target():
+    from vantage_server.backtest import simulate_orb
+    # OR = bars 0-1 (hi 101, lo 100); bar 2 breaks up -> long at 101,
+    # stop 100, target 102; bar 3 hits target.
+    bars = _bars([(100.5, 101.0, 100.0, 100.6),
+                  (100.6, 100.9, 100.2, 100.5),
+                  (100.5, 101.4, 100.4, 101.3),
+                  (101.3, 102.2, 101.1, 102.0)])
+    res = simulate_orb(bars, or_bars=2, target_mult=1.0)
+    assert res["side"] == "long" and res["reason"] == "target"
+    assert res["pnl_pct"] == pytest.approx((102.0 - 101.0) / 101.0 * 100)
+
+
+def test_orb_no_breakout_no_trade():
+    from vantage_server.backtest import simulate_orb
+    bars = _bars([(100.5, 101.0, 100.0, 100.6),
+                  (100.6, 100.9, 100.2, 100.5),
+                  (100.5, 100.95, 100.05, 100.4)])
+    assert simulate_orb(bars, or_bars=2) is None

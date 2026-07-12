@@ -15,7 +15,10 @@ const pct = (v) => (v == null ? "—" : `${Math.round(100 * v)}%`);
 const px = (v) => (v == null ? "—" : Number(v).toFixed(2));
 
 // zone-freshness badge tone: strong=good, tested=warn, weak=bad, fresh=info
-const FRESH_TONE = { strong: "good", fresh: "info", tested: "warn", weak: "bad" };
+// zone-freshness tones. NOTE: "fresh" was demoted from info to plain — the
+// backtest loop (claudedocs/goals/strategy-winrate) disproved "untested zones
+// react best"; durable cross-session memory (strong) is the real signal.
+const FRESH_TONE = { strong: "good", fresh: "plain", tested: "warn", weak: "bad" };
 
 function EquityCurve({ curve }) {
   if (!curve || curve.length < 2) return null;
@@ -136,6 +139,11 @@ export function PaperView({ refreshNonce }) {
                   {t.otm_strike != null && <> · ~{px(t.otm_strike)} OTM</>}
                   {t.spx_level ? ` · ${t.underlying || "SPX"} ${Math.round(t.spx_level)}` : ""}
                 </div>
+                {t.entry_note && (
+                  <div className="vg-note" style={{ fontSize: 11, marginTop: 3 }}>
+                    <b>Trigger:</b> {t.entry_note}
+                  </div>
+                )}
                 {(t.freshness_note || t.trend_note || t.otm_note) && (
                   <div className="vg-note" style={{ fontSize: 11, marginTop: 2, opacity: 0.85 }}>
                     {[t.trend_note, t.freshness_note, t.otm_note].filter(Boolean).join(" · ")}

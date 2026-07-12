@@ -62,12 +62,18 @@ DEFAULT_PARAMS = {
     "min_strength": None,          # confluence dimensions required (zones have >=2)
     "max_per_side": None,          # cap test tickets per side (prod takes 2)
     "target_r_multiple": None,     # override target to entry +/- R*risk
+    "target_r_fallback": None,     # R-target ONLY for tickets with no next-zone target
     "entry_mode": "touch",         # "touch" | "reclaim" (close back through level)
     "stop_atr_mult": None,         # stop = entry -/+ mult*ATR(14,15m) when set
     "time_stop_bars": None,        # exit at close N bars after fill
     "skip_open_bars": 0,           # tickets not actionable in the first N bars
     "direction_gate": None,        # "structure": uptrend->longs, downtrend->shorts
+    "strategies": [],              # extra families: "orb" (opening-range breakout)
+    "orb_bars": 2,                 # opening-range length in 15m bars (2 = 30min)
+    "orb_target_mult": 1.0,        # target = entry +/- mult * OR height
     "underlyings": ["SPX", "QQQ", "IWM"],
+    "date_min": None,              # ISO date — only trade sessions >= this
+    "date_max": None,              # ISO date — only trade sessions <= this
 }
 
 
@@ -252,6 +258,49 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
             "reason": reason, "pnl_pct": round(pnl_pct, 4), "fill_idx": fill_idx}
 
 
+def simulate_orb(day_bars, or_bars: int = 2, target_mult: float = 1.0,
+                 time_stop_bars: int | None = None) -> dict | None:
+    """Opening-range breakout for one session: the first ``or_bars`` bars set
+    the range; a stop-entry above the OR high (long) and below the OR low
+    (short) — first one triggered wins (one-cancels-other; a bar touching both
+    is ambiguous and skips the day). Stop = the opposite side of the range;
+    target = entry ± ``target_mult`` × range height; EOD mark-to-close.
+    Returns a trade dict (setup="orb") or None."""
+    highs = list(day_bars["High"]); lows = list(day_bars["Low"])
+    closes = list(day_bars["Close"])
+    n = len(closes)
+    if n <= or_bars:
+        return None
+    or_hi = max(highs[:or_bars]); or_lo = min(lows[:or_bars])
+    height = or_hi - or_lo
+    if height <= 0:
+        return None
+    side = fill_idx = None
+    for i in range(or_bars, n):
+        broke_up = highs[i] > or_hi
+        broke_dn = lows[i] < or_lo
+        if broke_up and broke_dn:
+            return None                       # ambiguous whipsaw bar — skip
+        if broke_up:
+            side, fill_idx = "long", i; break
+        if broke_dn:
+            side, fill_idx = "short", i; break
+    if side is None:
+        return None
+    entry = or_hi if side == "long" else or_lo
+    stop = or_lo if side == "long" else or_hi
+    sign = 1 if side == "long" else -1
+    tgt = entry + sign * target_mult * height
+    ticket = {"side": side, "spy_entry": entry, "spy_target": round(tgt, 4),
+              "spy_stop": stop}
+    res = simulate_fill(ticket, day_bars, fill_idx, entry_mode="touch",
+                        time_stop_bars=time_stop_bars)
+    if res is None:
+        return None
+    return {"setup": "orb", "side": side, "counter_trend": False,
+            "freshness": None, "rr": target_mult, **res}
+
+
 # ── ticket generation for a replayed day ─────────────────────────────────────
 
 @contextlib.contextmanager
@@ -355,8 +404,12 @@ def _apply_filters(tickets: list[dict], params: dict,
             if n >= params["max_per_side"]:
                 continue
             per_side[t["side"]] = n + 1
+        r = None
         if params["target_r_multiple"] is not None:
             r = params["target_r_multiple"]
+        elif params["target_r_fallback"] is not None and t.get("spy_target") is None:
+            r = params["target_r_fallback"]
+        if r is not None:
             risk = abs(t["spy_entry"] - t["spy_stop"])
             if risk > 0:
                 sign = 1 if t["side"] == "long" else -1
@@ -387,10 +440,31 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None) -> dict:
             for i, day in enumerate(days):
                 day_bars = _day_slice(bars, day)
                 # scaffold built on the EVENING of `day` trades day d+1
-                if i + 1 < len(days) and i + 1 >= WARMUP_SESSIONS:
+                in_window = True
+                if i + 1 < len(days):
+                    td_iso = days[i + 1].isoformat()
+                    if p["date_min"] and td_iso < p["date_min"]:
+                        in_window = False
+                    if p["date_max"] and td_iso > p["date_max"]:
+                        in_window = False
+                if i + 1 < len(days) and i + 1 >= WARMUP_SESSIONS and in_window:
                     trade_day = days[i + 1]
                     scaffold = scaffold_asof(bars, proxy_bars, day, cfg, history)
                     pday = _day_slice(proxy_bars, trade_day)
+                    if "orb" in p["strategies"] and not pday.empty:
+                        orb = simulate_orb(pday, int(p["orb_bars"]),
+                                           float(p["orb_target_mult"]),
+                                           time_stop_bars=p["time_stop_bars"])
+                        if orb is not None and p["direction_gate"] == "structure":
+                            st = (((scaffold or {}).get("chart") or {})
+                                  .get("structure") or {}).get("state")
+                            if (st == "uptrend" and orb["side"] != "long") or \
+                               (st == "downtrend" and orb["side"] != "short"):
+                                orb = None
+                        if orb is not None:
+                            counts["tickets"] += 1
+                            trades.append({"day": trade_day.isoformat(),
+                                           "underlying": key, **orb})
                     if scaffold and scaffold["confluence"] and not pday.empty:
                         spot = scaffold["regime"]["spot"]
                         prior_proxy = float(_day_slice(proxy_bars, day)["Close"].iloc[-1]) \

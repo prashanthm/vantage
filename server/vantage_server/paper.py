@@ -149,7 +149,10 @@ def _freshness_for_zone(zone: dict, bands: list[dict]) -> tuple[str, str]:
             band = b
             break
     if band is None:
-        return "fresh", "fresh — no prior tests on record"
+        # NOTE: the backtest loop DISPROVED "untested zones react best" — fresh
+        # zones were the biggest drag in every config; durable memory is the
+        # signal. Tag stays for display, but fresh ≠ strong.
+        return "fresh", "fresh — no prior record (unproven zone)"
     sessions = int(band.get("sessions") or 0)
     respected = int(band.get("respected") or 0)
     if sessions <= 1:
@@ -262,7 +265,18 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
                    + f"{to_spy(lvl, ratio):.2f}")
         trend_note = ("⚠ fades the " + (trend_state or "") + " — lower-probability"
                       if counter else "aligns with trend / regime")
+        # RECLAIM TRIGGER — the backtest loop's core finding (claudedocs/goals/
+        # strategy-winrate): entering on the TOUCH of a level lost in every
+        # regime (10% win rate); waiting for a 15m close back through the level
+        # before entering flipped the record to 50% win / PF 1.29, and made
+        # break setups the strongest family (PF 4.6). Guidance, not a gate —
+        # the ticket still shows; the discipline is on the entry.
+        entry_note = ("enter on the first 15m close back "
+                      + ("above" if side == "long" else "below")
+                      + f" {to_spy(lvl, ratio):.2f} — never on the touch")
         return {
+            "entry_trigger": "reclaim-15m",
+            "entry_note": entry_note,
             "signal": sig,
             "side": side,
             "setup": setup,                    # "test" | "break"

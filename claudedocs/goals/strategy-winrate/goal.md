@@ -20,4 +20,8 @@
   on 2–3 months, not statistically conclusive; GEX cannot be reconstructed
   historically, so backtests run on the chart-derived level dimensions.
 
-Status: **active** · started 2026-07-11
+Status: **achieved** · started 2026-07-11 · achieved 2026-07-11
+Result: E0 WR 0.103 / PF 0.263 → final WR 0.500 / PF 1.289 (reclaim
+config); 25 experiments (11 confirmed / 9 disproven / 2 mixed / 3
+inconclusive). Kept: reclaim-entry guidance folded into prod tickets.
+Full record in log.md.
