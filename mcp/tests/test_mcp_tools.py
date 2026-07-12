@@ -879,3 +879,45 @@ def test_ticker_plan_risk_reward_falls_back_to_last_close(mcp, monkeypatch):
     assert rr["price"] == 126.79
     assert rr["price_source"] == "last_close"
     assert rr["rr_ratio"] == 1.67
+
+
+def test_earnings_tool_carries_catalyst_path(mcp, monkeypatch):
+    """The earnings tool fuses ex-div + OpEx into an ordered forward path (V5)."""
+    import vantage_server.ml.fetch_earnings as fe
+    import vantage_server.fundamentals as fund_mod
+
+    monkeypatch.setattr(fe, "load_cached", lambda dd, sym: {
+        "symbol": "ACN", "as_of": "2026-07-04",
+        "earnings": [{"date": "2026-09-24", "eps_estimate": 3.0, "eps_actual": None}],
+        "dates": ["2026-09-24"]})
+    monkeypatch.setattr(fund_mod, "fundamentals", lambda sym, dd: {
+        "symbol": "ACN", "ex_dividend_date": "2026-07-20"})
+
+    async def interact(client):
+        return await client.call_tool("vantage.earnings", {"symbol": "ACN"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    path = payload["earnings"]["catalyst_path"]
+    kinds = [e["kind"] for e in path["events"]]
+    assert "ex_dividend" in kinds and "opex" in kinds
+    assert payload["earnings"]["next_catalyst"] is not None
+    # every event carries a real date + days_until
+    for e in path["events"]:
+        assert e["date"] and e["days_until"] >= 0
+
+
+def test_earnings_tool_serves_opex_without_earnings_cache(mcp, monkeypatch):
+    """No earnings cache still yields the OpEx path, not a blank no_data."""
+    import vantage_server.ml.fetch_earnings as fe
+    import vantage_server.fundamentals as fund_mod
+
+    monkeypatch.setattr(fe, "load_cached", lambda dd, sym: None)
+    monkeypatch.setattr(fund_mod, "fundamentals", lambda sym, dd: {})
+
+    async def interact(client):
+        return await client.call_tool("vantage.earnings", {"symbol": "NVDA"})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["no_data"] is False
+    kinds = [e["kind"] for e in payload["earnings"]["catalyst_path"]["events"]]
+    assert "opex" in kinds or "triple_witching" in kinds

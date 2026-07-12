@@ -35,6 +35,7 @@ _FIELDS = {
     "target_mean": ("targetMeanPrice",),
     "dividend_yield": ("dividendYield",),
     "beta": ("beta",),
+    "ex_dividend_ts": ("exDividendDate",),  # unix seconds; normalized in _shape
 }
 
 
@@ -71,6 +72,15 @@ def _shape(info: dict, symbol: str) -> dict:
         out[field] = val
     if out.get("name") is None:
         out["name"] = symbol.upper()
+    ts = out.pop("ex_dividend_ts", None)
+    if ts is not None:
+        try:
+            out["ex_dividend_date"] = _dt.datetime.fromtimestamp(
+                float(ts), _dt.timezone.utc).date().isoformat()
+        except (TypeError, ValueError, OSError):
+            out["ex_dividend_date"] = None
+    else:
+        out["ex_dividend_date"] = None
     return out
 
 

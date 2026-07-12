@@ -494,6 +494,11 @@ export function mapNotebook(payload) {
                                       kind: j.kind, payload: j.payload || {} }))
       : [],
     fundamentals: payload.fundamentals || null,
+    // Phase V analyst datasets (REST now serves them; pass through as-is).
+    riskReward: payload.risk_reward || null,
+    growth: payload.growth || null,
+    expectations: payload.expectations || null,
+    relativeStrength: payload.relative_strength || null,
     news: mapNews(payload.news),
   };
 }

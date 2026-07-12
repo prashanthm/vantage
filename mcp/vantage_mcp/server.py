@@ -393,15 +393,16 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     @mcp.tool(
         name="vantage.earnings",
         annotations=_READ_ONLY,
-        description="EARNINGS CALENDAR for one ticker from the cached broker "
-                    "dates (refreshed nightly): next_date/days_until, last_date/"
-                    "days_since, recent report rows (est vs actual EPS). "
-                    "days_until<=7 means a report is imminent — an 'act now' "
-                    "recommendation should be conditional on it. "
-                    "future_date_known=false means the CACHE has no upcoming "
-                    "date (it may be stale) — NEVER read it as 'no earnings "
-                    "scheduled'. ETFs/indexes legitimately have no earnings "
-                    "(no_data=true).",
+        description="CATALYST PATH for one ticker: the next earnings date "
+                    "(cached broker dates) PLUS the forward calendar — "
+                    "ex-dividend and monthly/quarterly OpEx — fused into "
+                    "catalyst_path.events (ordered, days_until each) with "
+                    "next_catalyst as the nearest. An 'act now' recommendation "
+                    "should be conditional on next_catalyst.days_until<=7. "
+                    "future_date_known=false means the earnings cache has no "
+                    "upcoming date (may be stale) — NEVER 'no earnings'. Every "
+                    "event has a real date; nothing is fabricated. no_data=true "
+                    "only when NO dated event (not even OpEx) is in the window.",
     )
     def earnings(symbol: str = "") -> dict:
         from vantage_server.engine import parse_as_of  # noqa: PLC0415
@@ -411,16 +412,47 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
             return envelope("earnings", snap, symbol="", earnings=None,
                             no_data=True)
         sym = symbol.upper()
-        record = store.load_earnings(sym)
-        if record is None or not (record.get("dates") or record.get("earnings")):
-            return envelope("earnings", snap, symbol=sym, earnings=None,
-                            no_data=True)
+        record = store.load_earnings(sym) or {}
+        if not (record.get("dates") or record.get("earnings")):
+            # No earnings cache yet — but OpEx (and any ex-div) are still a real
+            # forward path, so serve those rather than a blank no_data.
+            from vantage_server import catalysts as cat_mod  # noqa: PLC0415
+            from vantage_server import fundamentals as fund_mod  # noqa: PLC0415
+            from vantage_server.spx_playbook import opex_layer  # noqa: PLC0415
+            today = parse_as_of(snap.as_of).date()
+            fund = fund_mod.fundamentals(sym, store.data_dir) or {}
+            path = cat_mod.catalyst_path(
+                today, ex_dividend=fund.get("ex_dividend_date"),
+                opex=opex_layer(today))
+            has_any = bool(path["events"])
+            return envelope("earnings", snap, symbol=sym, no_data=not has_any,
+                            earnings={
+                                "next_date": None, "days_until": None,
+                                "last_date": None, "days_since": None,
+                                "recent": [], "dates_as_of": None,
+                                "future_date_known": False,
+                                "catalyst_path": path,
+                                "next_catalyst": path["next"],
+                            } if has_any else None)
+        from vantage_server import catalysts as cat_mod  # noqa: PLC0415
+        from vantage_server import fundamentals as fund_mod  # noqa: PLC0415
+        from vantage_server.spx_playbook import opex_layer  # noqa: PLC0415
         today = parse_as_of(snap.as_of).date()
         calendar = events_mod.next_earnings(record.get("dates") or [], today)
         rows = sorted(
             (e for e in (record.get("earnings") or []) if e.get("date")),
             key=lambda e: str(e["date"]), reverse=True,
         )[:8]
+        # Forward catalyst PATH beyond earnings: ex-dividend (yfinance) + the
+        # monthly/quarterly OpEx (deterministic), fused into one ordered
+        # timeline. Nothing fabricated — a source without a date drops out.
+        fund = fund_mod.fundamentals(sym, store.data_dir) or {}
+        path = cat_mod.catalyst_path(
+            today,
+            earnings_dates=record.get("dates") or [],
+            ex_dividend=fund.get("ex_dividend_date"),
+            opex=opex_layer(today),
+        )
         return envelope("earnings", snap, symbol=sym, no_data=False, earnings={
             **calendar,
             "recent": [{"date": str(e.get("date"))[:10],
@@ -428,6 +460,8 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                         "eps_actual": e.get("eps_actual")} for e in rows],
             "dates_as_of": record.get("as_of"),
             "future_date_known": calendar["next_date"] is not None,
+            "catalyst_path": path,          # ordered forward events (V5)
+            "next_catalyst": path["next"],  # the nearest — the act-now gate
         })
 
     @mcp.tool(

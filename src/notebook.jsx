@@ -36,6 +36,9 @@ const fmtWhen = (iso) => {
   const d = new Date(iso);
   return isNaN(d) ? String(iso) : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
+const pct1 = (x) => (x == null ? "—" : `${(x * 100).toFixed(1)}%`);
+const pct0 = (x) => (x == null ? "—" : `${(x * 100).toFixed(0)}%`);
+
 const numOrNull = (s) => {
   const t = String(s).trim();
   if (t === "") return null;
@@ -82,6 +85,10 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
   const isHeld = shares > 0 || held.length > 0;
 
   const f = notebookOr(nbData, "fundamentals");
+  const g = notebookOr(nbData, "growth");
+  const ex = notebookOr(nbData, "expectations");
+  const rs = notebookOr(nbData, "relativeStrength");
+  const rr = notebookOr(nbData, "riskReward");
   const news = notebookOr(nbData, "news");
   const decision = overlay ? overlay.analysis : null;
   const { res, sup } = price != null ? nearest(overlay && overlay.levels, price) : { res: null, sup: null };
@@ -190,7 +197,53 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
               {f.week52_low != null && f.week52_high != null && (
                 <span><span className="vg-note">52w</span> {usd(f.week52_low, 0)}–{usd(f.week52_high, 0)}</span>
               )}
+              {f.forward_pe != null && <span><span className="vg-note">Fwd P/E</span> {f.forward_pe.toFixed(1)}</span>}
               {f.dividend_yield != null && <span><span className="vg-note">Yield</span> {f.dividend_yield.toFixed(2)}%</span>}
+              {f.beta != null && <span><span className="vg-note">Beta</span> {f.beta.toFixed(2)}</span>}
+            </div>
+          )}
+
+          {g && g.growth && (
+            <div className="vg-nb-fund" style={{ marginTop: 10 }}>
+              {g.growth.revenue_yoy != null &&
+                <span><span className="vg-note">Rev YoY</span> {pct0(g.growth.revenue_yoy)}</span>}
+              {g.growth.gross_margin != null &&
+                <span><span className="vg-note">Gross mgn</span> {pct0(g.growth.gross_margin)}</span>}
+              {g.growth.fcf_margin != null &&
+                <span><span className="vg-note">FCF mgn</span> {pct0(g.growth.fcf_margin)}</span>}
+              {g.growth.rule_of_40 != null &&
+                <span><span className={g.growth.rule_of_40 >= 40 ? "vg-pos" : "vg-neg"}>Rule of 40</span> {g.growth.rule_of_40.toFixed(0)}</span>}
+              {g.growth.sbc_pct_revenue != null &&
+                <span><span className="vg-note">SBC/rev</span> {pct0(g.growth.sbc_pct_revenue)}</span>}
+            </div>
+          )}
+
+          {ex && ex.implied && ex.implied.status === "ok" && ex.implied.fcf_growth_10y != null && (
+            <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+              <span className="vg-note">Market implies</span>{" "}
+              <b>{pct0(ex.implied.fcf_growth_10y)}</b> FCF growth/yr for 10y
+              {ex.assumptions && ` (r ${pct0(ex.assumptions.discount_rate)}, term ${pct1(ex.assumptions.terminal_growth)})`}
+              {g && g.growth && g.growth.revenue_yoy != null && (
+                <span className="vg-note"> — vs {pct0(g.growth.revenue_yoy)} actual rev growth</span>
+              )}
+            </div>
+          )}
+          {ex && ex.implied && ex.implied.status === "negative_fcf" && (
+            <div className="vg-note" style={{ fontSize: 12, marginTop: 8 }}>
+              Implied growth undefined (negative FCF).
+            </div>
+          )}
+
+          {rs && rs.relative_strength && rs.relative_strength.idio_r_1m != null && (
+            <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+              <span className="vg-note">1m move</span>{" "}
+              <b className={rs.relative_strength.r_1m >= 0 ? "vg-pos" : "vg-neg"}>{signPct(rs.relative_strength.r_1m * 100, 1)}</b>
+              {rs.relative_strength.beta_spy != null && <span className="vg-note"> · β {rs.relative_strength.beta_spy.toFixed(2)}</span>}
+              {" · "}
+              <span className="vg-note">idiosyncratic</span>{" "}
+              <b className={rs.relative_strength.idio_r_1m >= 0 ? "vg-pos" : "vg-neg"}>{signPct(rs.relative_strength.idio_r_1m * 100, 1)}</b>
+              {rs.relative_strength.sector_etf && rs.relative_strength.sector_r_1m != null &&
+                <span className="vg-note"> (sector {rs.relative_strength.sector_etf} {signPct(rs.relative_strength.sector_r_1m * 100, 1)})</span>}
             </div>
           )}
         </Section>
@@ -198,7 +251,23 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
         {/* ---- News + headline sentiment lean (from the analyze/news pipeline) ---- */}
         <NewsSection news={news} />
 
-        <Section title="My plan" summary={nbData && nbData.plan && nbData.plan.thesis ? "set" : "empty"} plain>
+        <Section title="My plan"
+          summary={rr && rr.rr_ratio != null ? `R:R ${rr.rr_ratio.toFixed(2)}` : (nbData && nbData.plan && nbData.plan.thesis ? "set" : "empty")} plain>
+          {rr && rr.status === "ok" && rr.rr_ratio != null && (
+            <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 8 }}>
+              <span className="vg-note">Risk/reward</span>{" "}
+              <b>{rr.rr_ratio.toFixed(2)}:1</b>
+              {rr.direction === "short" && <span className="vg-note"> (short)</span>}
+              {" · "}<span className="vg-pos">+{usd(rr.upside, 2)}</span> to target
+              {" / "}<span className="vg-neg">−{usd(rr.downside, 2)}</span> to stop
+              {rr.upside_pct != null && <span className="vg-note"> ({signPct(rr.upside_pct, 0)} / {signPct(-rr.downside_pct, 0)})</span>}
+            </div>
+          )}
+          {rr && (rr.status === "stop_breached" || rr.status === "target_reached") && (
+            <div className="vg-note" style={{ fontSize: 12, marginBottom: 8 }}>
+              Plan {rr.status === "stop_breached" ? "stop breached" : "target reached"} at current price.
+            </div>
+          )}
           <PlanCard sym={sym} plan={nbData ? nbData.plan : null} price={price}
             onSaved={() => setSaveNonce((n) => n + 1)} embedded />
         </Section>
