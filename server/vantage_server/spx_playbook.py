@@ -195,14 +195,18 @@ def _recent_window(spx15, sessions=RECENT_SESSIONS):
     return spx15[[t.date() in set(days) for t in spx15.index]]
 
 
-def _chart_dimensions(spx15, spyvol_by_ts, scale: dict | None = None) -> dict:
+def _chart_dimensions(spx15, spyvol_by_ts, scale: dict | None = None,
+                      recent_sessions: int = RECENT_SESSIONS,
+                      pivot_n: int = 2, vp_bins: int = 40) -> dict:
     """Fib grid, VWAP regime, volume profile, S/R clusters from the RECENT 15m
     window (last N sessions) — the swing that actually frames the next session.
-    ``scale`` supplies the per-underlying ``cluster_tol`` (defaults to SPX)."""
+    ``scale`` supplies the per-underlying ``cluster_tol`` (defaults to SPX).
+    ``recent_sessions``/``pivot_n``/``vp_bins`` expose the design constants for
+    the backtest experiment loop; defaults preserve prod behavior exactly."""
     tol = (scale or {}).get("cluster_tol", 6.0)
     if spx15 is None or spx15.empty:
         return {"available": False}
-    spx15 = _recent_window(spx15)
+    spx15 = _recent_window(spx15, sessions=recent_sessions)
     H = list(spx15["High"]); L = list(spx15["Low"])
     C = list(spx15["Close"]); O = list(spx15["Open"])
     ts = list(spx15.index)
@@ -219,12 +223,12 @@ def _chart_dimensions(spx15, spyvol_by_ts, scale: dict | None = None) -> dict:
     regime = ("above VWAP (buyers in control)" if vwap and last > vwap
               else "below VWAP (sellers in control)" if vwap else "n/a")
 
-    ph, pl = _fractal_pivots(H, L, n=2)
+    ph, pl = _fractal_pivots(H, L, n=pivot_n)
     res = [z for z in _cluster([H[i] for i in ph], tol=tol) if z[1] >= 2]
     sup = [z for z in _cluster([L[i] for i in pl], tol=tol) if z[1] >= 2]
-    poc, hvn, lvn = _volume_profile(C, vols)
+    poc, hvn, lvn = _volume_profile(C, vols, bins=vp_bins)
     volume_read = _volume_read(C, O, vols)
-    structure = _structure_read(H, L, C)
+    structure = _structure_read(H, L, C, n=pivot_n)
 
     return {
         "available": True,
@@ -412,7 +416,7 @@ def _kind_dim(kind: str) -> tuple[str, str]:
 
 
 def build_confluence(ladder: list[dict], spot: float | None,
-                     tol_pct: float = 0.15) -> list[dict]:
+                     tol_pct: float = 0.15, min_dims: int = 2) -> list[dict]:
     """Cluster the ladder into confluence ZONES — a band where ≥2 DISTINCT
     dimensions stack (e.g. fib-50 + a support shelf, like today's 7423/7430).
     Only these get drawn on the chart; isolated levels live only in the table.
@@ -442,7 +446,7 @@ def build_confluence(ladder: list[dict], spot: float | None,
             d, lbl = _kind_dim(r["kind"])
             if d not in dims:
                 dims.append(d); labels.append(lbl)
-        if len(dims) < 2:            # confluence needs ≥2 distinct dimensions
+        if len(dims) < min_dims:     # confluence needs ≥min_dims distinct dimensions
             continue
         prices = [r["price"] for r in c]
         lo, hi = min(prices), max(prices)

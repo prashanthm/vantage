@@ -76,6 +76,16 @@ DEFAULT_PARAMS = {
     "date_max": None,              # ISO date — only trade sessions <= this
     "trigger_interval": "15m",     # bar interval for trigger detection + settlement
     "confirm_closes": 1,           # reclaim needs N CONSECUTIVE closes beyond the level
+    # ── playbook DESIGN params (scaffold side; prod defaults) ──
+    "recent_sessions": 10,         # swing window the chart dims read
+    "pivot_n": 2,                  # fractal pivot width (bars each side)
+    "vp_bins": 40,                 # volume-profile bins
+    "confluence_tol_pct": 0.15,    # zone clustering tolerance, % of spot
+    "min_zone_dims": 2,            # distinct dimensions a zone needs
+    "durable_tol_pct": 0.12,       # durable-level band width, % of spot
+    "durable_min_sessions": 3,     # sessions before a band is durable
+    "durable_max_dist_pct": 1.5,   # durable bands beyond this % of spot dropped
+    "ladder_exclude": [],          # drop ladder rows by kind: "round"|"fib"|"poc"
 }
 
 #: intervals the multi-cache freezes. 1m excluded: yfinance caps it at ~30 days,
@@ -204,11 +214,33 @@ def _upto(df, day):
     return df[[t.date() <= day for t in df.index]]
 
 
-def scaffold_asof(bars, proxy_bars, day, cfg, history_rows: list[dict]) -> dict | None:
+def _chart_kwargs(params: dict | None) -> dict:
+    p = params or {}
+    return {"recent_sessions": int(p.get("recent_sessions", 10)),
+            "pivot_n": int(p.get("pivot_n", 2)),
+            "vp_bins": int(p.get("vp_bins", 40))}
+
+
+def _ladder_filter(ladder: list[dict], params: dict | None) -> list[dict]:
+    excl = (params or {}).get("ladder_exclude") or []
+    if not excl:
+        return ladder
+    def _drop(kind: str) -> bool:
+        k = (kind or "").lower()
+        return (("round" in excl and "round" in k)
+                or ("fib" in excl and k.startswith("fib"))
+                or ("poc" in excl and "poc" in k))
+    return [r for r in ladder if not _drop(r["kind"])]
+
+
+def scaffold_asof(bars, proxy_bars, day, cfg, history_rows: list[dict],
+                  params: dict | None = None) -> dict | None:
     """The playbook scaffold as it would have been built on the EVENING of
     ``day`` (for trading the next session): chart dims over the trailing window
     ending at ``day``, confluence, durable levels from ``history_rows`` (all
-    sessions <= day). GEX is unavailable historically."""
+    sessions <= day). GEX is unavailable historically. ``params`` may override
+    the playbook DESIGN constants (defaults = prod behavior)."""
+    p = params or {}
     window = _upto(bars, day)
     if window is None or window.empty:
         return None
@@ -218,14 +250,22 @@ def scaffold_asof(bars, proxy_bars, day, cfg, history_rows: list[dict]) -> dict 
         volsrc = _upto(proxy_bars, day)
     vol_by_ts = {t: float(v) for t, v in zip(volsrc.index, volsrc["Volume"])}
     scale = {"round_step": cfg["round_step"], "cluster_tol": cfg["cluster_tol"]}
-    chart = sp._chart_dimensions(window, vol_by_ts, scale=scale)
+    chart = sp._chart_dimensions(window, vol_by_ts, scale=scale,
+                                 **_chart_kwargs(p))
     if not chart.get("available"):
         return None
     gex = {"available": False}
     spot = chart.get("last")
-    ladder = sp.build_level_ladder(gex, chart, scale=scale)
-    confluence = sp.build_confluence(ladder, spot)
-    durable = sp.build_durable_levels(history_rows, spot)
+    ladder = _ladder_filter(sp.build_level_ladder(gex, chart, scale=scale), p)
+    confluence = sp.build_confluence(
+        ladder, spot,
+        tol_pct=float(p.get("confluence_tol_pct", 0.15)),
+        min_dims=int(p.get("min_zone_dims", 2)))
+    durable = sp.build_durable_levels(
+        history_rows, spot,
+        tol_pct=float(p.get("durable_tol_pct", 0.12)),
+        min_sessions=int(p.get("durable_min_sessions", 3)),
+        max_dist_pct=float(p.get("durable_max_dist_pct", 1.5)))
     return {
         "regime": {"spot": spot, "gamma": None},
         "chart": chart,
@@ -545,7 +585,8 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                         in_window = False
                 if i + 1 < len(days) and i + 1 >= WARMUP_SESSIONS and in_window:
                     trade_day = days[i + 1]
-                    scaffold = scaffold_asof(bars, proxy_bars, day, cfg, history)
+                    scaffold = scaffold_asof(bars, proxy_bars, day, cfg, history,
+                                             params=p)
                     pday = _day_slice(proxy_bars, trade_day)
                     if "orb" in p["strategies"] and not pday.empty:
                         orb = simulate_orb(pday, int(p["orb_bars"]),
@@ -616,7 +657,8 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                 volsrc = window if cfg["self_proxy"] else _upto(proxy_bars, day)
                 vol_by_ts = {t: float(v) for t, v in zip(volsrc.index, volsrc["Volume"])}
                 scale = {"round_step": cfg["round_step"], "cluster_tol": cfg["cluster_tol"]}
-                chart_i = sp._chart_dimensions(window, vol_by_ts, scale=scale)
+                chart_i = sp._chart_dimensions(window, vol_by_ts, scale=scale,
+                                               **_chart_kwargs(p))
                 if chart_i.get("available"):
                     history.extend(history_rows_for(chart_i, day, day_bars))
     return {"params": p, "counts": counts, "metrics": score(trades),
