@@ -229,3 +229,22 @@ def test_table_text_sanitized():
     sc["table"]["read"] = 'a "quoted" read'
     s = build_playbook_pine(sc)
     assert '"quoted"' not in s                      # inner quotes stripped
+
+
+def test_pine_uses_the_scaffold_symbol_not_hardcoded_spx():
+    """A QQQ/IWM playbook exports as QQQ/IWM Pine, not SPX (the bug where the
+    0DTE QQQ export still showed SPX)."""
+    for sym in ("QQQ", "IWM"):
+        sc = dict(_scaffold(), symbol=sym)
+        s = build_playbook_pine(sc)
+        assert f'indicator("{sym} 0DTE Playbook' in s
+        assert f"Apply on a {sym} chart" in s
+        # no other index name leaks into the QQQ/IWM export
+        for other in ("SPX", "QQQ", "IWM"):
+            if other != sym:
+                assert f"{other} 0DTE Playbook" not in s
+
+
+def test_pine_defaults_to_spx_when_symbol_absent():
+    sc = {k: v for k, v in _scaffold().items() if k != "symbol"}
+    assert 'indicator("SPX 0DTE Playbook' in build_playbook_pine(sc)
