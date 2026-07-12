@@ -75,6 +75,7 @@ DEFAULT_PARAMS = {
     "date_min": None,              # ISO date — only trade sessions >= this
     "date_max": None,              # ISO date — only trade sessions <= this
     "trigger_interval": "15m",     # bar interval for trigger detection + settlement
+    "confirm_closes": 1,           # reclaim needs N CONSECUTIVE closes beyond the level
 }
 
 #: intervals the multi-cache freezes. 1m excluded: yfinance caps it at ~30 days,
@@ -252,7 +253,8 @@ def history_rows_for(chart: dict, day, day_bars) -> list[dict]:
 
 def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
                   entry_mode: str = "touch",
-                  time_stop_bars: int | None = None) -> dict | None:
+                  time_stop_bars: int | None = None,
+                  confirm_closes: int = 1) -> dict | None:
     """Simulate a resting-limit ticket against a session's proxy bars, starting
     at ``start_idx`` (break tickets spawn mid-day). Conservative rules: a bar
     touching both entry and stop is a stop-out; a target is never credited on
@@ -284,12 +286,14 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
     fill_bar_can_stop = True
     if entry_mode == "reclaim":
         touched = False
+        consec = 0
         for i in range(start_idx, n):
             if not touched:
                 touched = (lows[i] <= entry) if side == "long" else (highs[i] >= entry)
             if touched:
-                reclaimed = (closes[i] > entry) if side == "long" else (closes[i] < entry)
-                if reclaimed:
+                beyond = (closes[i] > entry) if side == "long" else (closes[i] < entry)
+                consec = consec + 1 if beyond else 0
+                if consec >= confirm_closes:
                     fill_idx, fill_px = i, closes[i]
                     fill_bar_can_stop = False   # bar already closed on our side
                     break
@@ -595,7 +599,8 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                                 sim_bars = pday
                             res = simulate_fill(t, sim_bars, start,
                                                 entry_mode=p["entry_mode"],
-                                                time_stop_bars=p["time_stop_bars"])
+                                                time_stop_bars=p["time_stop_bars"],
+                                                confirm_closes=int(p["confirm_closes"]))
                             if res is None:
                                 counts["no_fill"] += 1
                                 continue

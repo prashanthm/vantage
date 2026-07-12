@@ -123,3 +123,15 @@ def test_orb_no_breakout_no_trade():
                   (100.6, 100.9, 100.2, 100.5),
                   (100.5, 100.95, 100.05, 100.4)])
     assert simulate_orb(bars, or_bars=2) is None
+
+
+def test_confirm_closes_requires_consecutive_recloses():
+    # bar 0 touches + closes above (1 of 2); bar 1 closes BELOW (reset);
+    # bars 2-3 close above consecutively -> fill at bar 3's close.
+    bars = _bars([(101, 101.5, 99.8, 100.4),
+                  (100.4, 100.7, 99.7, 99.9),
+                  (99.9, 100.6, 99.8, 100.3),
+                  (100.3, 100.9, 100.1, 100.7),
+                  (100.7, 102.5, 100.5, 102.2)])
+    res = simulate_fill(_ticket(), bars, entry_mode="reclaim", confirm_closes=2)
+    assert res["fill_idx"] == 3 and res["entry"] == pytest.approx(100.7)

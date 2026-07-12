@@ -265,17 +265,19 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
                    + f"{to_spy(lvl, ratio):.2f}")
         trend_note = ("⚠ fades the " + (trend_state or "") + " — lower-probability"
                       if counter else "aligns with trend / regime")
-        # RECLAIM TRIGGER — the backtest loop's core finding (claudedocs/goals/
-        # strategy-winrate): entering on the TOUCH of a level lost in every
-        # regime (10% win rate); waiting for a 15m close back through the level
-        # before entering flipped the record to 50% win / PF 1.29, and made
-        # break setups the strongest family (PF 4.6). Guidance, not a gate —
-        # the ticket still shows; the discipline is on the entry.
-        entry_note = ("enter on the first 15m close back "
+        # RECLAIM TRIGGER — the backtest loops' core finding (claudedocs/goals/
+        # strategy-winrate + reclaim-interval): entering on the TOUCH of a level
+        # lost in every regime (10% win rate). The interval sweep then found the
+        # best confirmation is THREE CONSECUTIVE 5m closes back through the
+        # level (~15 rolling minutes: the depth of a 15m close, the entry price
+        # of a 5m close) — WR 0.60 / PF 1.39 vs 0.50 / 1.29 for a single 15m
+        # close, replicated across both halves of the window. Guidance, not a
+        # gate — the ticket still shows; the discipline is on the entry.
+        entry_note = ("enter after 3 consecutive 5m closes back "
                       + ("above" if side == "long" else "below")
                       + f" {to_spy(lvl, ratio):.2f} — never on the touch")
         return {
-            "entry_trigger": "reclaim-15m",
+            "entry_trigger": "reclaim-3x5m",
             "entry_note": entry_note,
             "signal": sig,
             "side": side,

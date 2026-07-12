@@ -20,4 +20,8 @@
 - **Constraints**: paper/backtest only (ADR-010); branch `goal/reclaim-interval`;
   identical frozen dataset per experiment; predictions pre-registered.
 
-Status: **active** · started 2026-07-11
+Status: **achieved** · started 2026-07-11 · achieved 2026-07-11 ·
+outcome (a): champion changed to 3 consecutive 5m closes (WR 0.500→0.600,
+PF 1.289→1.387, split-half replicated); adopted into prod ticket text.
+25 experiments (13 confirmed / 3 disproven / 4 mixed / 1 inconclusive).
+Full record in log.md.
