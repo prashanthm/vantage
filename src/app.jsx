@@ -7,6 +7,7 @@ import {
   usd, signUsd, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
   isOptionSym, isSleeveSym, underlyingOf,
   loadSettings, SETTINGS_KEY, StatTile, syncedAgo,
+  useTheme, THEME_ICON,
 } from "./util.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
 import { NotebookPanel } from "./notebook.jsx";
@@ -210,24 +211,23 @@ function App() {
         AI-generated analysis · Educational purposes only — not financial, investment, or tax advice
       </div>
 
-      <Navbar
-        brand="Vant" brandAccent="age"
-        links={[]}
-        cta={
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 18 }}>
-            <LiveStatusDots settings={settings} />
-            <Button variant="primary" onClick={() => setSettingsOpen(true)}>Settings</Button>
-          </span>
-        }
-      />
-
-      <div className="vg-ticker">
-        {marketBand && marketBand.indexes.map((t) => (
-          <span className="vg-tick" key={t.sym}>
-            <b>{t.label}</b> {t.price != null ? t.price.toFixed(2) : "—"}
-            <span className={dirCls(t.dayPct)}>{signPct(t.dayPct)}</span>
-          </span>
-        ))}
+      {/* terminal topbar: brand · market segments · status · theme · settings */}
+      <div className="vg-topbar">
+        <div className="brand">Vantage</div>
+        <div className="vg-ticker" style={{ flex: 1, borderBottom: "none" }}>
+          {marketBand && marketBand.indexes.map((t) => (
+            <span className="vg-tick" key={t.sym}>
+              <span className="vg-note" style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 }}>{t.label}</span>
+              <b>{t.price != null ? t.price.toFixed(2) : "—"}</b>
+              <span className={dirCls(t.dayPct)}>{signPct(t.dayPct)}</span>
+            </span>
+          ))}
+        </div>
+        <span style={{ padding: "0 14px" }}><LiveStatusDots settings={settings} /></span>
+        <div className="tools">
+          <ThemeButton />
+          <button className="tbtn" onClick={() => setSettingsOpen(true)}>Settings</button>
+        </div>
       </div>
 
       <div className="vg-studio">
@@ -413,6 +413,18 @@ function App() {
   );
 }
 
+/* ---------------- theme toggle (system → dark → light) ---------------- */
+function ThemeButton() {
+  const [theme, cycle] = useTheme();
+  const label = theme === "system" ? "System theme" : theme === "dark" ? "Dark theme" : "Light theme";
+  return (
+    <button className="tbtn" onClick={cycle} title={`${label} — click to switch`}
+      aria-label={`Theme: ${theme}. Click to switch.`}>
+      {THEME_ICON[theme]} {theme}
+    </button>
+  );
+}
+
 /* ---------------- live/demo status dots (Phase V4) ---------------- */
 function LiveStatusDots({ settings }) {
   const [st, setSt] = useState({ backend: null, mira: null });
@@ -425,8 +437,8 @@ function LiveStatusDots({ settings }) {
     return () => { alive = false; };
   }, [settings]);
   const dot = (ok) => ({
-    display: "inline-block", width: 8, height: 8, borderRadius: "50%", marginRight: 5,
-    background: ok ? "var(--vg-success-deep)" : "var(--color-grey)",
+    display: "inline-block", width: 7, height: 7, borderRadius: "50%", marginRight: 5,
+    background: ok ? "var(--vg-up)" : "var(--vg-faint)",
   });
   const aiOff = settings.aiBackend !== "mira";
   return (

@@ -42,7 +42,7 @@ function EquityCurve({ curve }) {
   const zeroY = y(0);
   const final = xs[xs.length - 1];
   const up = final >= 0;
-  const areaCol = up ? "#26A69A" : "#EF5350";
+  const areaCol = up ? "var(--vg-up)" : "var(--vg-down)";
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none"
       style={{ display: "block" }}>

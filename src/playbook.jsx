@@ -96,7 +96,7 @@ export function PlaybookView({ refreshNonce }) {
           </div>
           <div className="vg-row" style={{ gap: 6, marginTop: 8 }}>
             <button className="vg-btn-sm" onClick={exportPine}>Export to Pine</button>
-            <button className="vg-btn-sm" style={{ background: "#fff", color: "var(--color-primary)" }}
+            <button className="vg-btn-sm"
               disabled={busy} onClick={recompute}>{busy ? "Recomputing…" : "Recompute"}</button>
           </div>
         </div>

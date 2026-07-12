@@ -104,9 +104,44 @@ export function StatTile({ label, value, delta, deltaDir, note }) {
 }
 
 export function heatTint(pct) {
-  if (Math.abs(pct) < 0.15) return "#f1f5f9";
-  const a = Math.min(0.08 + (Math.abs(pct) / 5) * 0.3, 0.38);
-  return pct > 0 ? `rgba(5,150,105,${a.toFixed(3)})` : `rgba(220,38,38,${a.toFixed(3)})`;
+  // theme-aware: translucent semantic tints over the card tone; the neutral is a
+  // subtle raise so flat names read as "no move" on either ground.
+  const dark = document.documentElement.dataset.theme === "dark" ||
+    (!document.documentElement.dataset.theme &&
+      window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  if (Math.abs(pct) < 0.15) return dark ? "rgba(255,255,255,0.05)" : "rgba(19,26,42,0.04)";
+  const a = Math.min(0.10 + (Math.abs(pct) / 5) * 0.3, 0.42);
+  const up = dark ? "41,168,116" : "31,157,107";
+  const down = dark ? "246,70,93" : "217,59,78";
+  return pct > 0 ? `rgba(${up},${a.toFixed(3)})` : `rgba(${down},${a.toFixed(3)})`;
+}
+
+/* ---------- theme (light / dark / system) ---------- */
+// Persisted to localStorage and stamped as data-theme on <html> — index.html
+// stamps it pre-paint too, so there's no flash. "system" removes the stamp and
+// lets the prefers-color-scheme media query in app.css decide.
+export const THEME_KEY = "vantage.theme";
+const THEME_ORDER = ["system", "dark", "light"];
+export const THEME_ICON = { system: "◐", dark: "☾", light: "☀" };
+
+export function applyTheme(t) {
+  const root = document.documentElement;
+  if (t === "light" || t === "dark") root.dataset.theme = t;
+  else delete root.dataset.theme;
+}
+
+export function useTheme() {
+  const [theme, setTheme] = React.useState(() => {
+    const t = localStorage.getItem(THEME_KEY);
+    return THEME_ORDER.includes(t) ? t : "system";
+  });
+  const cycle = () => {
+    const next = THEME_ORDER[(THEME_ORDER.indexOf(theme) + 1) % THEME_ORDER.length];
+    setTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* private mode */ }
+    applyTheme(next);
+  };
+  return [theme, cycle];
 }
 
 // the underlyings the 0DTE playbook / paper / journal cover (SPX default).

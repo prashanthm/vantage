@@ -24,9 +24,37 @@ const TF_LIVE = [
 ];
 // Fallback (SVG) timeframes are bar-count windows over the simulated series.
 const TIMEFRAMES = [ { key: "1M", bars: 22 }, { key: "3M", bars: 66 }, { key: "6M", bars: 120 } ];
-const UP = "#059669", DOWN = "#dc2626";
-const STRIKE_COLOR = "#7c3aed", COST_COLOR = "#932cfa", PRICE_COLOR = "#0f172a";
 const MAX_LEVELS_PER_SIDE = 6; // cap the S/R ladder drawn so strength scaling reads clearly
+
+/* ---------- theme-aware chart colors ----------
+   Canvas (Lightweight Charts) can't consume var() strings, so read the resolved
+   theme tokens at chart-creation time. A chart picks up a theme change on its
+   next mount (navigate away/back or refresh). */
+const cssVar = (name, fallback) => {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+};
+const hexRgb = (hex) => {
+  const h = hex.replace("#", "");
+  const n = parseInt(h.length === 3 ? h.split("").map((c) => c + c).join("") : h, 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+};
+export function chartTheme() {
+  const up = cssVar("--vg-up", "#1F9D6B");
+  const down = cssVar("--vg-down", "#D93B4E");
+  const faint = cssVar("--vg-faint", "#8C95AB");
+  return {
+    up, down, upRgb: hexRgb(up), downRgb: hexRgb(down),
+    ink: cssVar("--vg-ink", "#131A2A"),
+    text: faint, faintRgb: hexRgb(faint),
+    grid: cssVar("--vg-hairline", "#E3E7F0"),
+    border: cssVar("--vg-rule", "#CDD4E3"),
+    accent: cssVar("--vg-accent", "#B97A16"),
+    // distinct identity colors for the strike / cost-basis lines (non-semantic
+    // series identities — the same purples read on both grounds)
+    strike: "#8b5cf6", cost: "#a855f7",
+  };
+}
 
 const fmtD = (d) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
@@ -36,12 +64,13 @@ const hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts
 
 /* ============================================================= badge helpers */
 
-// conviction.label -> display + color. Backend labels: strong|neutral|weak|freefall.
+// conviction.label -> display + semantic badge tone. Backend labels:
+// strong|neutral|weak|freefall.
 export const CONVICTION = {
-  strong:   { text: "STRONG",   fg: "#056645", bg: "#e7f6ef" },
-  neutral:  { text: "NEUTRAL",  fg: "#475569", bg: "#eef1f6" },
-  weak:     { text: "WEAK",     fg: "#92600a", bg: "#fdf0d9" },
-  freefall: { text: "FREEFALL", fg: "#a01818", bg: "#fdeaea" },
+  strong:   { text: "STRONG",   cls: "good" },
+  neutral:  { text: "NEUTRAL",  cls: "plain" },
+  weak:     { text: "WEAK",     cls: "warn" },
+  freefall: { text: "FREEFALL", cls: "bad" },
 };
 // recommendation -> human label for the badge.
 export const REC_LABEL = {
@@ -57,14 +86,8 @@ export function ConvictionBadge({ analysis }) {
   const rec = REC_LABEL[analysis.recommendation] || analysis.recommendation;
   return (
     <div className="vg-row" style={{ gap: 8, flexWrap: "wrap" }}>
-      <span style={{
-        fontSize: 12, fontWeight: 700, letterSpacing: 0.3, padding: "3px 10px",
-        borderRadius: 999, color: c.fg, background: c.bg,
-      }}>{c.text}</span>
-      <span style={{
-        fontSize: 12, fontWeight: 700, padding: "3px 10px", borderRadius: 999,
-        color: "#0f172a", background: "#eef1f6", border: "1px solid #dfe4ec",
-      }}>{rec}</span>
+      <span className={cls("vg-badge", c.cls)}>{c.text}</span>
+      <span className="vg-badge info">{rec}</span>
     </div>
   );
 }
@@ -88,10 +111,10 @@ function strikeLabel(action) {
 // A single support/resistance level -> createPriceLine options. Strength drives
 // width (1..4px) and opacity so a strength-5 shelf reads bold and a strength-1
 // touch reads faint.
-function levelLine(level, isSupport) {
+function levelLine(level, isSupport, th) {
   const strength = Math.max(1, Math.min(5, Number(level.strength) || 1));
   const width = Math.max(1, Math.round(strength / 1.5)); // 1..3
-  const base = isSupport ? [5, 150, 105] : [220, 38, 38]; // UP / DOWN rgb
+  const base = isSupport ? th.upRgb : th.downRgb;
   const opacity = 0.35 + (strength / 5) * 0.5; // 0.45..0.85
   const price = Number(level.price);
   return {
@@ -145,22 +168,23 @@ function LiveCandleChart({ symbol, setSymbol }) {
     const el = containerRef.current;
     if (!el || !hasLW()) return undefined;
     const LW = window.LightweightCharts;
+    const th = chartTheme();   // resolved theme tokens at mount
     const chart = LW.createChart(el, {
       autoSize: true,
-      layout: { background: { color: "transparent" }, textColor: "#64748b", fontSize: 11 },
-      grid: { vertLines: { color: "#f1f5f9" }, horzLines: { color: "#f1f5f9" } },
-      rightPriceScale: { borderColor: "#e2e8f0" },
-      timeScale: { borderColor: "#e2e8f0", timeVisible: false },
+      layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
+      grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
+      rightPriceScale: { borderColor: th.border },
+      timeScale: { borderColor: th.border, timeVisible: false },
       crosshair: { mode: LW.CrosshairMode.Normal },
     });
     const candle = chart.addCandlestickSeries({
-      upColor: UP, downColor: DOWN, wickUpColor: UP, wickDownColor: DOWN,
-      borderUpColor: UP, borderDownColor: DOWN,
+      upColor: th.up, downColor: th.down, wickUpColor: th.up, wickDownColor: th.down,
+      borderUpColor: th.up, borderDownColor: th.down,
     });
     const volume = chart.addHistogramSeries({
       priceFormat: { type: "volume" },
       priceScaleId: "vol",
-      color: "rgba(100,116,139,0.4)",
+      color: `rgba(${th.faintRgb.join(",")},0.4)`,
     });
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
     chartRef.current = chart;
@@ -180,9 +204,11 @@ function LiveCandleChart({ symbol, setSymbol }) {
     candle.setData(bars.bars.map((b) => ({
       time: b.time, open: b.open, high: b.high, low: b.low, close: b.close,
     })));
+    const th = chartTheme();
     volume.setData(bars.bars.map((b) => ({
       time: b.time, value: b.volume,
-      color: b.close >= b.open ? "rgba(5,150,105,0.35)" : "rgba(220,38,38,0.35)",
+      color: b.close >= b.open
+        ? `rgba(${th.upRgb.join(",")},0.35)` : `rgba(${th.downRgb.join(",")},0.35)`,
     })));
     if (chartRef.current) chartRef.current.timeScale().fitContent();
   }, [bars]);
@@ -195,6 +221,7 @@ function LiveCandleChart({ symbol, setSymbol }) {
     for (const pl of priceLinesRef.current) { try { candle.removePriceLine(pl); } catch (e) { /* series gone */ } }
     priceLinesRef.current = [];
     if (!overlay) return;
+    const th = chartTheme();
     const add = (opts) => { priceLinesRef.current.push(candle.createPriceLine(opts)); };
 
     // S/R for the active timeframe (bars.levels is the same series' S/R). The
@@ -202,15 +229,15 @@ function LiveCandleChart({ symbol, setSymbol }) {
     // strongest few per side so strength-scaling stays legible.
     const levels = (bars && bars.levels) || (overlay.levels && overlay.levels[tf]) || { support: [], resistance: [] };
     const topBy = (arr) => [...(arr || [])].sort((a, b) => (b.strength || 0) - (a.strength || 0)).slice(0, MAX_LEVELS_PER_SIDE);
-    topBy(levels.support).forEach((lv) => add(levelLine(lv, true)));
-    topBy(levels.resistance).forEach((lv) => add(levelLine(lv, false)));
+    topBy(levels.support).forEach((lv) => add(levelLine(lv, true, th)));
+    topBy(levels.resistance).forEach((lv) => add(levelLine(lv, false, th)));
 
     // Suggested covered-call strike (accented, distinct).
     const label = strikeLabel(overlay.analysis && overlay.analysis.action);
     if (label && overlay.analysis.action.suggestedStrike != null) {
       add({
         price: Number(overlay.analysis.action.suggestedStrike),
-        color: STRIKE_COLOR,
+        color: th.strike,
         lineWidth: 2,
         lineStyle: window.LightweightCharts.LineStyle.Solid,
         axisLabelVisible: true,
@@ -224,7 +251,7 @@ function LiveCandleChart({ symbol, setSymbol }) {
     if (cost != null) {
       add({
         price: Number(cost),
-        color: COST_COLOR,
+        color: th.cost,
         lineWidth: 1,
         lineStyle: window.LightweightCharts.LineStyle.Dotted,
         axisLabelVisible: true,
@@ -236,7 +263,7 @@ function LiveCandleChart({ symbol, setSymbol }) {
     if (overlay.currentPrice != null) {
       add({
         price: Number(overlay.currentPrice),
-        color: PRICE_COLOR,
+        color: th.ink,
         lineWidth: 1,
         lineStyle: window.LightweightCharts.LineStyle.Solid,
         axisLabelVisible: true,
@@ -284,10 +311,10 @@ function LiveCandleChart({ symbol, setSymbol }) {
         </div>
 
         <div className="vg-row" style={{ marginTop: 10, fontSize: 12, color: "var(--color-grey)", flexWrap: "wrap" }}>
-          <span><span className="vg-mk-swatch" style={{ background: UP }} /> support (by strength)</span>
-          <span><span className="vg-mk-swatch" style={{ background: DOWN }} /> resistance (by strength)</span>
-          <span><span className="vg-mk-swatch" style={{ background: STRIKE_COLOR }} /> suggested call strike</span>
-          <span><span className="vg-mk-swatch" style={{ background: COST_COLOR }} /> your cost basis</span>
+          <span><span className="vg-mk-swatch" style={{ background: "var(--vg-up)" }} /> support (by strength)</span>
+          <span><span className="vg-mk-swatch" style={{ background: "var(--vg-down)" }} /> resistance (by strength)</span>
+          <span><span className="vg-mk-swatch" style={{ background: "#8b5cf6" }} /> suggested call strike</span>
+          <span><span className="vg-mk-swatch" style={{ background: "#a855f7" }} /> your cost basis</span>
         </div>
       </div>
     </div>
@@ -426,7 +453,7 @@ export function ChartsRail({ symbol }) {
           <div>
             <div className="vg-spread" style={{ fontSize: 14 }}>
               <b>{heldShares.toLocaleString("en-US", { maximumFractionDigits: 2 })} sh · {usd(heldValue)}</b>
-              <span className={dirCls(heldUnrl)} style={{ color: heldUnrl >= 0 ? UP : DOWN, fontWeight: 600 }}>{signUsd(heldUnrl)}</span>
+              <span className={dirCls(heldUnrl)} style={{ color: heldUnrl >= 0 ? "var(--vg-up)" : "var(--vg-down)", fontWeight: 600 }}>{signUsd(heldUnrl)}</span>
             </div>
             {held.flatMap((p) => (p.accounts || []).map((acc, i) => (
               <div key={`${p.symbol}-${i}`} className="vg-note" style={{ marginTop: 6 }}>

@@ -30,7 +30,7 @@ function EquityCurve({ curve }) {
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block" }}>
       <line x1={pad} y1={y(0)} x2={W - pad} y2={y(0)} stroke="currentColor" strokeOpacity="0.2" />
       <path d={line(peaks)} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="3 3" />
-      <path d={line(xs)} fill="none" stroke={up ? "#26A69A" : "#EF5350"} strokeWidth="1.75" />
+      <path d={line(xs)} fill="none" stroke={up ? "var(--vg-up)" : "var(--vg-down)"} strokeWidth="1.75" />
     </svg>
   );
 }
@@ -79,7 +79,7 @@ export function PaperView({ refreshNonce }) {
             {d && d.session ? ` · from the ${d.session} ${sym} playbook` : ""}
           </div>
           <div className="vg-row" style={{ gap: 6, marginTop: 8 }}>
-            <button className="vg-btn-sm" disabled={busy === "settle"} onClick={doSettle}>
+            <button className="vg-btn-sm accent" disabled={busy === "settle"} onClick={doSettle}>
               {busy === "settle" ? "Checking…" : "Check fills (settle)"}
             </button>
           </div>
