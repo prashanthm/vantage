@@ -203,18 +203,18 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
             </div>
           )}
 
-          {g && g.growth && (
+          {g && (
             <div className="vg-nb-fund" style={{ marginTop: 10 }}>
-              {g.growth.revenue_yoy != null &&
-                <span><span className="vg-note">Rev YoY</span> {pct0(g.growth.revenue_yoy)}</span>}
-              {g.growth.gross_margin != null &&
-                <span><span className="vg-note">Gross mgn</span> {pct0(g.growth.gross_margin)}</span>}
-              {g.growth.fcf_margin != null &&
-                <span><span className="vg-note">FCF mgn</span> {pct0(g.growth.fcf_margin)}</span>}
-              {g.growth.rule_of_40 != null &&
-                <span><span className={g.growth.rule_of_40 >= 40 ? "vg-pos" : "vg-neg"}>Rule of 40</span> {g.growth.rule_of_40.toFixed(0)}</span>}
-              {g.growth.sbc_pct_revenue != null &&
-                <span><span className="vg-note">SBC/rev</span> {pct0(g.growth.sbc_pct_revenue)}</span>}
+              {g.revenue_yoy != null &&
+                <span><span className="vg-note">Rev YoY</span> {pct0(g.revenue_yoy)}</span>}
+              {g.gross_margin != null &&
+                <span><span className="vg-note">Gross mgn</span> {pct0(g.gross_margin)}</span>}
+              {g.fcf_margin != null &&
+                <span><span className="vg-note">FCF mgn</span> {pct0(g.fcf_margin)}</span>}
+              {g.rule_of_40 != null &&
+                <span><span className={g.rule_of_40 >= 40 ? "vg-pos" : "vg-neg"}>Rule of 40</span> {g.rule_of_40.toFixed(0)}</span>}
+              {g.sbc_pct_revenue != null &&
+                <span><span className="vg-note">SBC/rev</span> {pct0(g.sbc_pct_revenue)}</span>}
             </div>
           )}
 
@@ -223,8 +223,8 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
               <span className="vg-note">Market implies</span>{" "}
               <b>{pct0(ex.implied.fcf_growth_10y)}</b> FCF growth/yr for 10y
               {ex.assumptions && ` (r ${pct0(ex.assumptions.discount_rate)}, term ${pct1(ex.assumptions.terminal_growth)})`}
-              {g && g.growth && g.growth.revenue_yoy != null && (
-                <span className="vg-note"> — vs {pct0(g.growth.revenue_yoy)} actual rev growth</span>
+              {g && g.growth && g.revenue_yoy != null && (
+                <span className="vg-note"> — vs {pct0(g.revenue_yoy)} actual rev growth</span>
               )}
             </div>
           )}
@@ -234,16 +234,16 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
             </div>
           )}
 
-          {rs && rs.relative_strength && rs.relative_strength.idio_r_1m != null && (
+          {rs && rs.idio_r_1m != null && (
             <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
               <span className="vg-note">1m move</span>{" "}
-              <b className={rs.relative_strength.r_1m >= 0 ? "vg-pos" : "vg-neg"}>{signPct(rs.relative_strength.r_1m * 100, 1)}</b>
-              {rs.relative_strength.beta_spy != null && <span className="vg-note"> · β {rs.relative_strength.beta_spy.toFixed(2)}</span>}
+              <b className={rs.r_1m >= 0 ? "vg-pos" : "vg-neg"}>{signPct(rs.r_1m * 100, 1)}</b>
+              {rs.beta_spy != null && <span className="vg-note"> · β {rs.beta_spy.toFixed(2)}</span>}
               {" · "}
               <span className="vg-note">idiosyncratic</span>{" "}
-              <b className={rs.relative_strength.idio_r_1m >= 0 ? "vg-pos" : "vg-neg"}>{signPct(rs.relative_strength.idio_r_1m * 100, 1)}</b>
-              {rs.relative_strength.sector_etf && rs.relative_strength.sector_r_1m != null &&
-                <span className="vg-note"> (sector {rs.relative_strength.sector_etf} {signPct(rs.relative_strength.sector_r_1m * 100, 1)})</span>}
+              <b className={rs.idio_r_1m >= 0 ? "vg-pos" : "vg-neg"}>{signPct(rs.idio_r_1m * 100, 1)}</b>
+              {rs.sector_etf && rs.sector_r_1m != null &&
+                <span className="vg-note"> (sector {rs.sector_etf} {signPct(rs.sector_r_1m * 100, 1)})</span>}
             </div>
           )}
         </Section>
