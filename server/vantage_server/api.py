@@ -24,7 +24,7 @@ from dataclasses import dataclass
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from . import analyze
 from . import bars_view
@@ -806,6 +806,63 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         results = refresh_accounts(store, account_id)
         snap = state.snapshot()
         return envelope(snap, results=[r.to_dict() for r in results])
+
+    # ------------------------------------------------------------------
+    # Kite (Zerodha) one-click re-auth. The daily token expires ~06:00 IST;
+    # this replaces the CLI copy-paste. The backend catches the redirect (its
+    # published port IS the app's registered redirect URL), so no browser paste.
+    # SECRETS never leave the host: only the login URL out, request_token in.
+    # ------------------------------------------------------------------
+    def _kite_conn():
+        conn_cls = _ALL_CONN.get("zerodha")
+        if conn_cls is None:
+            raise HTTPException(status_code=404, detail="zerodha connector not available")
+        return conn_cls()
+
+    @app.get("/")
+    def root(request_token: str = Query(default="")):
+        """Root: forwards a Kite redirect (…/ ?request_token=…) to the callback
+        so the app's registered redirect URL can be the backend root. A bare
+        GET / (no token) is a friendly liveness line."""
+        if request_token:
+            return kite_callback(request_token=request_token)
+        return JSONResponse({"service": "vantage-backend", "ok": True})
+
+    @app.get("/api/kite/login-url")
+    def kite_login_url():
+        """The Kite login URL to open. The button opens this; after login Kite
+        redirects to /api/kite/callback with the request_token."""
+        try:
+            url = _kite_conn().login_url()
+        except Exception as exc:  # noqa: BLE001 — surface setup errors to the UI
+            return JSONResponse({"error": str(exc)}, status_code=400)
+        snap = state.snapshot()
+        return envelope(snap, login_url=url)
+
+    @app.get("/api/kite/callback")
+    def kite_callback(request_token: str = Query(default=""),
+                      status: str = Query(default="")):
+        """Kite's redirect target: exchange the request_token for the daily
+        access token and save it, then return a small self-closing HTML page.
+        Registered redirect URL in the Kite app must point here (or to the
+        published backend root that forwards here)."""
+        html_ok = ("<html><body style='font-family:system-ui;padding:40px'>"
+                   "<h2>Zerodha connected \u2713</h2><p>Access token saved. "
+                   "You can close this tab and return to Vantage.</p>"
+                   "<script>setTimeout(()=>window.close(),1500)</script>"
+                   "</body></html>")
+        html_err = ("<html><body style='font-family:system-ui;padding:40px'>"
+                    "<h2>Kite auth failed</h2><p>{msg}</p>"
+                    "<p>Return to Vantage and try Re-authenticate again.</p>"
+                    "</body></html>")
+        if not request_token:
+            return HTMLResponse(html_err.format(msg="No request_token in the "
+                                "redirect. Did the login complete?"), status_code=400)
+        try:
+            _kite_conn().exchange_request_token(request_token)
+        except Exception as exc:  # noqa: BLE001
+            return HTMLResponse(html_err.format(msg=str(exc)), status_code=400)
+        return HTMLResponse(html_ok)
 
     signal_seed = store.load_signals()
 

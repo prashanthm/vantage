@@ -71,6 +71,10 @@ export const createAccount = (body) => postJson(`${backendBase()}/api/accounts`,
 export const editAccount = (id, body) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/edit`, body);
 export const deleteAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/delete`, {});
 export const syncAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/sync`, {});
+// Kite one-click re-auth: fetch the login URL to open (the backend catches the
+// redirect and saves the daily token; no copy-paste). Returns {login_url} or
+// {error}.
+export const kiteLoginUrl = () => getJson(`${backendBase()}/api/kite/login-url`);
 
 export const refreshAccount = (accountId) =>
   postJson(`${backendBase()}/api/refresh`, { account: accountId });

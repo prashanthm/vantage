@@ -1678,6 +1678,25 @@ function AccountsSettings() {
     } catch (e) { setErr(String(e.message || e)); }
     setBusy("");
   };
+  const reauth = async (id) => {
+    setBusy("auth:" + id); setErr("");
+    try {
+      const r = await live_.kiteLoginUrl();
+      if (r && r.error) { setErr(r.error); setBusy(""); return; }
+      // Open Kite login; the backend catches the redirect and saves the token.
+      window.open(r.login_url, "kite-auth", "width=480,height=640");
+      // Poll status until it flips (or the user gives up).
+      let tries = 0;
+      const timer = setInterval(async () => {
+        tries += 1;
+        await load();
+        const rows2 = (await live_.accounts().catch(() => null));
+        const a = rows2 && rows2.accounts && rows2.accounts.find((x) => x.id === id);
+        const ok = a && a.auth_status && /valid|present|grant/i.test(a.auth_status);
+        if (ok || tries > 40) { clearInterval(timer); setBusy(""); }
+      }, 3000);
+    } catch (e) { setErr(String(e.message || e)); setBusy(""); }
+  };
 
   if (rows === null) return <p className="vg-note">Loading accounts…</p>;
 
@@ -1702,6 +1721,10 @@ function AccountsSettings() {
                 ? <span className={/valid|present|grant/i.test(a.auth_status) ? "vg-pos" : "vg-neg"}>{a.auth_status}</span>
                 : <span className="vg-note">—</span>}</td>
               <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                {a.broker === "zerodha" && (
+                  <button className="vg-linkbtn" disabled={busy === "auth:" + a.id}
+                    onClick={() => reauth(a.id)}>{busy === "auth:" + a.id ? "authorizing…" : "Re-authenticate"}</button>
+                )}
                 {a.refreshable && (
                   <button className="vg-linkbtn" disabled={busy === "sync:" + a.id}
                     onClick={() => sync(a.id)}>{busy === "sync:" + a.id ? "syncing…" : "Sync"}</button>

@@ -826,3 +826,61 @@ def test_us_account_has_no_auth_hint(mgmt_client):
     accts = mgmt_client.get("/api/accounts").json()["accounts"]
     manual = [a for a in accts if not a.get("refreshable")]
     assert manual and all(a["auth_hint"] is None for a in manual)
+
+
+# ── Kite one-click re-auth endpoints ─────────────────────────────────────────
+
+
+def test_kite_login_url_surfaces_setup_error_without_secrets(mgmt_client, monkeypatch):
+    # no KITE_API_KEY/SECRET -> a 400 with a setup message, never a 500/secret
+    monkeypatch.delenv("KITE_API_KEY", raising=False)
+    monkeypatch.delenv("KITE_API_SECRET", raising=False)
+    r = mgmt_client.get("/api/kite/login-url")
+    # a setup error (missing SDK or missing keys) is a 400 with a message —
+    # never a 500 and never a secret value.
+    assert r.status_code == 400
+    assert r.json()["error"]  # non-empty setup message
+
+
+def test_kite_login_url_returns_url(mgmt_client, monkeypatch):
+    from vantage_server.brokers import zerodha
+    monkeypatch.setattr(zerodha.ZerodhaConnection, "login_url",
+                        lambda self: "https://kite.zerodha.com/connect/login?api_key=x")
+    body = mgmt_client.get("/api/kite/login-url").json()
+    assert body["login_url"].startswith("https://kite.zerodha.com/connect/login")
+
+
+def test_kite_callback_exchanges_and_saves(mgmt_client, monkeypatch):
+    from vantage_server.brokers import zerodha
+    calls = {}
+    monkeypatch.setattr(zerodha.ZerodhaConnection, "exchange_request_token",
+                        lambda self, tok: calls.setdefault("tok", tok) or {"saved": True})
+    r = mgmt_client.get("/api/kite/callback", params={"request_token": "abc123"})
+    assert r.status_code == 200
+    assert "connected" in r.text.lower()
+    assert calls["tok"] == "abc123"
+
+
+def test_kite_callback_no_token_is_error_page(mgmt_client):
+    r = mgmt_client.get("/api/kite/callback")
+    assert r.status_code == 400 and "failed" in r.text.lower()
+
+
+def test_kite_callback_invalid_token_shows_error(mgmt_client, monkeypatch):
+    from vantage_server.brokers import zerodha
+    def boom(self, tok):
+        raise zerodha.BrokerConnectionError("Token is invalid or has expired.")
+    monkeypatch.setattr(zerodha.ZerodhaConnection, "exchange_request_token", boom)
+    r = mgmt_client.get("/api/kite/callback", params={"request_token": "bad"})
+    assert r.status_code == 400 and "invalid or has expired" in r.text
+
+
+def test_root_forwards_kite_redirect(mgmt_client, monkeypatch):
+    from vantage_server.brokers import zerodha
+    monkeypatch.setattr(zerodha.ZerodhaConnection, "exchange_request_token",
+                        lambda self, tok: {"saved": True})
+    # the Kite app's redirect can be the backend root -> forwards to callback
+    r = mgmt_client.get("/", params={"request_token": "xyz"})
+    assert r.status_code == 200 and "connected" in r.text.lower()
+    # bare GET / is a liveness line, not the callback
+    assert mgmt_client.get("/").json()["ok"] is True

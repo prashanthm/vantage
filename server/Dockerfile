@@ -2,7 +2,8 @@
 #
 # FastAPI on :8641. Reads/writes a single vantage.db (SQLite, WAL) under /data —
 # the mounted named volume it OWNS (POST /api/refresh writes broker holdings).
-# The [robinhood] extra pulls `mcp` so the read-only Robinhood connector used by
+# The [robinhood,zerodha] extras pull the read-only broker SDKs (mcp for
+# Robinhood, kiteconnect for Zerodha) used by /api/refresh and the account sync.
 # /api/refresh is importable. The RH OAuth token is NEVER baked in — it is
 # mounted at runtime and located via ROBINHOOD_TOKEN_FILE (see docker-compose).
 FROM python:3.12-slim AS base
@@ -17,7 +18,7 @@ WORKDIR /app
 # Dependency layer first for build caching: metadata + package, then install.
 COPY pyproject.toml README.md ./
 COPY vantage_server ./vantage_server
-RUN pip install ".[robinhood]"
+RUN pip install ".[robinhood,zerodha]"
 
 # Non-root runtime user; owns /data so the volume is writable (refresh + WAL).
 RUN useradd --create-home --uid 10001 vantage \

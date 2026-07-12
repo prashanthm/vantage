@@ -155,9 +155,10 @@ class ZerodhaConnection:
         )
         return {"total_value": round(total, 2), "currency": "INR"}
 
-    def interactive_auth(self) -> None:
-        """Daily one-time login: print the Kite login URL, exchange the pasted
-        request_token for an access_token, persist it."""
+    @staticmethod
+    def _kite_for_auth():
+        """A KiteConnect client for the login/exchange flow (needs api_key +
+        api_secret from host env)."""
         try:
             from kiteconnect import KiteConnect  # noqa: PLC0415
         except ImportError as exc:
@@ -167,14 +168,32 @@ class ZerodhaConnection:
         if not api_key or not api_secret:
             raise BrokerConnectionError(
                 f"set {ENV_API_KEY} and {ENV_API_SECRET} (from your Kite Connect app).")
-        kite = KiteConnect(api_key=api_key)
-        print(f"Open this URL, log in, and copy the request_token from the "
-              f"redirect:\n  {kite.login_url()}")
-        request_token = input("request_token: ").strip()
-        session = kite.generate_session(request_token, api_secret=api_secret)
+        return KiteConnect(api_key=api_key), api_secret
+
+    def login_url(self) -> str:
+        """The Kite login URL to open. After login Kite redirects to the app's
+        registered redirect URL with ?request_token=… — the web callback (or the
+        CLI paste) feeds that to :meth:`exchange_request_token`."""
+        kite, _ = self._kite_for_auth()
+        return kite.login_url()
+
+    def exchange_request_token(self, request_token: str) -> dict:
+        """Exchange a request_token for an access_token and persist it. Returns
+        a small non-secret status dict. Raises on an invalid/expired token."""
+        kite, api_secret = self._kite_for_auth()
+        session = kite.generate_session(request_token.strip(), api_secret=api_secret)
         _save_token({"access_token": session["access_token"],
                      "public_token": session.get("public_token"),
                      "login_time": str(session.get("login_time", ""))})
+        self._kite = None  # force a rebuild with the fresh token on next call
+        return {"login_time": str(session.get("login_time", "")), "saved": True}
+
+    def interactive_auth(self) -> None:
+        """CLI daily login: print the Kite login URL, read the pasted
+        request_token, exchange + persist it."""
+        print(f"Open this URL, log in, and copy the request_token from the "
+              f"redirect:\n  {self.login_url()}")
+        self.exchange_request_token(input("request_token: ").strip())
         print("Kite access token saved (valid until the next ~06:00 IST rollover).")
 
     def auth_status(self) -> str:
