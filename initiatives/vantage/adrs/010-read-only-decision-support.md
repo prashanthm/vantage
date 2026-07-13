@@ -18,7 +18,10 @@ ticket into Robinhood. Sentinel has been running the same Robinhood Agentic
 Trading MCP write path (review/place/cancel equity order) in production with
 dry-run defaults and env-gated live trading. The operator decided the
 retype step now adds error risk (fat-fingering a computed ticket) without
-adding safety, and asked to close the loop for THIS strategy only.
+adding safety, and asked to close the loop for THIS strategy only. Sentinel
+is being retired; vantage inherits its OAuth grant (`.robinhood_token.json`)
+as the grant's sole consumer, which is why the deploy mounts the token dir
+read-write (refresh rotates the refresh token).
 
 ## Decision Drivers
 

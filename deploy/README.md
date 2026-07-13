@@ -60,7 +60,7 @@ Two distinct network planes:
 
 ```bash
 cd /Users/pmuniraju/personal/vantage/deploy
-cp .env.example .env          # edit ROBINHOOD_TOKEN_FILE + LLM_* to taste
+cp .env.example .env          # edit ROBINHOOD_TOKEN_DIR + LLM_* to taste
 
 make seed                     # ONE-TIME: copy the host vantage.db into the volume
 make up                       # build + start (detached)
@@ -137,13 +137,18 @@ backend crash-loops with `attempt to write a readonly database`.
 
 ## The Robinhood token (secret handling)
 
-`POST /api/refresh` needs the Robinhood OAuth token. It is **never baked into the
-image**. The operator sets `ROBINHOOD_TOKEN_FILE` in `.env` to a **host path**
-(e.g. `~/personal/sentinel/.robinhood_token.json`, chmod 600). Compose mounts it
-**read-only** into the backend at `/run/secrets/robinhood_token.json`, and the
-backend's `ROBINHOOD_TOKEN_FILE` env points there. Reads work without a token;
-only refresh needs it. Leave `ROBINHOOD_TOKEN_FILE` unset to run fully read-only
-(it defaults to a harmless `/dev/null` mount).
+`POST /api/refresh` and `POST /api/ticket/execute` need the Robinhood OAuth
+token. It is **never baked into the image**. The operator sets
+`ROBINHOOD_TOKEN_DIR` in `.env` to the **host directory** containing
+`.robinhood_token.json` (e.g. `~/personal/sentinel` — vantage inherited the
+grant from the retired sentinel, chmod 600). Compose mounts the dir
+**read-write** into the backend at `/run/secrets/robinhood`, and the backend's
+`ROBINHOOD_TOKEN_FILE` env points at the file inside it. Read-write because
+vantage now owns the grant: token refresh rotates the refresh token, and the
+atomic save needs a writable parent dir (a single-file `:ro` mount can neither
+be replaced nor updated). Reads work without a token. Leave
+`ROBINHOOD_TOKEN_DIR` unset to run fully read-only (it defaults to a harmless
+`/dev/null` mount).
 
 ## Verifying a running stack
 

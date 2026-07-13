@@ -13,8 +13,9 @@
 # The named volume `vantage-data` starts EMPTY. Seed it once before first `up`
 # (see deploy/README.md "Seeding the database") or the backend serves an empty
 # portfolio. VANTAGE_QUOTES defaults to `yfinance` (real delayed quotes); set to `fixture` for
-# the live delayed feed. ROBINHOOD_TOKEN_FILE (host path) is REQUIRED only for
-# POST /api/refresh; reads work without it.
+# the live delayed feed. ROBINHOOD_TOKEN_DIR (host dir holding
+# .robinhood_token.json) is REQUIRED only for POST /api/refresh and
+# /api/ticket/execute; reads work without it.
 
 # Fixed project name so the volume is always `vantage_vantage-data` regardless
 # of the directory compose is invoked from (the seed helper relies on this).
@@ -31,10 +32,14 @@ services:
     volumes:
       # Read-write: the backend owns the db (refresh writes, WAL).
       - vantage-data:/data
-      # The Robinhood OAuth token, mounted read-only from a host path the
-      # operator sets in .env (never baked into the image). Reads work without
-      # it; only POST /api/refresh needs it.
-      - "${ROBINHOOD_TOKEN_FILE:-/dev/null}:/run/secrets/robinhood_token.json:ro"
+      # The DIRECTORY holding the Robinhood OAuth token (.robinhood_token.json),
+      # mounted READ-WRITE from a host path the operator sets in .env (never
+      # baked into the image). Vantage owns the grant now (inherited from the
+      # retired sentinel): refresh ROTATES the refresh token, and the atomic
+      # save (os.replace) needs a writable parent dir — a single-file :ro
+      # mount can neither be replaced nor updated. Reads work without it;
+      # POST /api/refresh and /api/ticket/execute need it.
+      - "${ROBINHOOD_TOKEN_DIR:-/dev/null}:/run/secrets/robinhood"
       # Sentinel's computed SPX intel (GEX/zones/breadth/macro), mounted READ-ONLY
       # so the nightly spx_playbook job can fuse it. Points at a host Sentinel
       # checkout via .env; /dev/null default keeps the stack bootable without it
@@ -53,7 +58,7 @@ services:
       # /app/data-local, otherwise every request re-fetches Yahoo (~13s each).
       VANTAGE_DATA_DIR: /data
       VANTAGE_QUOTES: "${VANTAGE_QUOTES:-yfinance}"
-      ROBINHOOD_TOKEN_FILE: /run/secrets/robinhood_token.json
+      ROBINHOOD_TOKEN_FILE: /run/secrets/robinhood/.robinhood_token.json
       # Zerodha (Kite Connect). The app key/secret come from YOUR host env/.env
       # (never baked in); the daily token file is the read-only mount above.
       KITE_API_KEY: "${KITE_API_KEY:-}"

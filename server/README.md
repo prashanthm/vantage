@@ -261,11 +261,18 @@ Drop `--dry-run` to write; `--as-of YYYY-MM-DD` overrides the lot date
   `get_option_positions`, `get_option_instruments`, `get_option_quotes`,
   `get_equity_orders`, `get_option_orders` — all read-only listings, see
   `brokers/robinhood.py`); anything else raises `ReadOnlyViolation` before
-  any network I/O. No order or transfer code path exists in this package.
-- **Grant reuse**: the token file resolves env `ROBINHOOD_TOKEN_FILE` >
-  `~/personal/sentinel/.robinhood_token.json` (an existing sentinel grant is
-  reused rather than creating a competing one) > `server/.robinhood_token.json`.
+  any network I/O. The SOLE exception (ADR-010 v2) is
+  `brokers/robinhood_execution.py`: a separate dispatcher with its own frozen
+  three-tool allowlist (`review_equity_order`, `place_equity_order`,
+  `cancel_equity_order`) reachable only through the server-recomputed reclaim
+  ticket (`POST /api/ticket/execute`), dry-run by default and live-gated by
+  `VANTAGE_LIVE_OK=1`. No transfer code path exists in this package.
+- **Grant ownership**: the token file resolves env `ROBINHOOD_TOKEN_FILE` >
+  `~/personal/sentinel/.robinhood_token.json` (vantage inherited the grant
+  from the retired sentinel) > `server/.robinhood_token.json`.
   Saved atomically with chmod 600; token values are never printed or logged.
+  Vantage is now the grant's only consumer and must be able to WRITE the file
+  (refresh rotates the refresh token).
 - **Average-cost limitation**: Robinhood returns one row per symbol with an
   AVERAGE buy price and no acquisition dates, so the sync writes ONE synthetic
   lot per position dated `--as-of`. Wash-sale/TLH math then runs on average
