@@ -895,6 +895,17 @@ export const exitsTick = () =>
 export const disarmExit = (id) =>
   postJson(`${backendBase()}/api/exits/${encodeURIComponent(id)}/disarm`, {});
 
+// Reclaim signal bot (Telegram): status, config (stored in OUR meta table;
+// container env wins when set), one poll pass, and the signal↔live
+// correlation report.
+export const getBotStatus = () => getJson(`${backendBase()}/api/reclaim-bot/status`);
+export const saveBotConfig = (body) =>
+  postJson(`${backendBase()}/api/reclaim-bot/config`, body);
+export const botPoll = () =>
+  postJson(`${backendBase()}/api/reclaim-bot/poll`, {}, { timeoutMs: 120000 });
+export const getBotPerformance = () =>
+  getJson(`${backendBase()}/api/reclaim-bot/performance`);
+
 // Regenerate the playbook NOW from the latest data (fresh bars + Sentinel
 // artifacts), outside the nightly job. POST; returns the new scaffold via
 // mapPlaybook, or null on failure.

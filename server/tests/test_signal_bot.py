@@ -27,7 +27,7 @@ def sent(monkeypatch):
     """Capture every outbound telegram message."""
     out: list[str] = []
     monkeypatch.setattr(signal_bot, "send_telegram",
-                        lambda text: (out.append(text), True)[1])
+                        lambda text, store=None: (out.append(text), True)[1])
     return out
 
 
@@ -159,3 +159,91 @@ def test_market_open_now_gates_weekends_and_nights():
     assert not signal_bot.market_open_now(_dt.datetime(2026, 7, 13, 20, 30, tzinfo=et))  # night
     assert signal_bot.market_open_now(_dt.datetime(2026, 7, 13, 9, 25, tzinfo=et))
     assert not signal_bot.market_open_now(_dt.datetime(2026, 7, 13, 16, 11, tzinfo=et))
+
+
+# ------------------------------------------------------------- store creds
+
+def test_store_creds_fallback_and_env_priority(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    monkeypatch.delenv(signal_bot.TOKEN_ENV, raising=False)
+    monkeypatch.delenv(signal_bot.CHAT_ENV, raising=False)
+    assert signal_bot.telegram_creds(store) == (None, None, "unconfigured")
+
+    store.set_meta(signal_bot.TOKEN_META, "STORETOK")
+    store.set_meta(signal_bot.CHAT_META, "99")
+    assert signal_bot.telegram_creds(store) == ("STORETOK", "99", "store")
+    assert signal_bot.telegram_configured(store)
+
+    monkeypatch.setenv(signal_bot.TOKEN_ENV, "ENVTOK")
+    monkeypatch.setenv(signal_bot.CHAT_ENV, "11")
+    assert signal_bot.telegram_creds(store) == ("ENVTOK", "11", "env")
+
+
+# ------------------------------------------------------------- correlation
+
+def _seed_signal(store, *, side="long", level=623.2, closed=False):
+    tid = store.record_paper_trade({
+        "opened_at": "2026-07-13T09:40:00-04:00", "session": "2026-07-13",
+        "signal": f"{side} reclaim {level}", "side": side, "symbol": "SPY",
+        "spy_entry": level, "spy_target": 625.3, "spy_stop": 622.15,
+        "shares": 100, "source": "auto", "status": "open",
+        "opened_price_src": "pending reclaim-3x5m",
+        "entry_trigger": "reclaim-3x5m", "spy_level": level,
+        "fill_status": "pending",
+    })
+    if closed:
+        store.fill_paper_trade(tid, spy_entry=level + 0.25,
+                               filled_at="2026-07-13T10:05:00-04:00")
+        store.close_paper_trade(tid, spy_exit=625.3, exit_reason="target",
+                                pnl=185.0, pnl_pct=0.3,
+                                closed_at="2026-07-13T11:20:00-04:00")
+    return tid
+
+
+def _seed_live(store, *, signal_paper_id=None, side="long", closed=True):
+    pid = store.record_managed_position({
+        "opened_at": "2026-07-13T10:06:00+00:00", "account_number": "A",
+        "symbol": "SPY", "side": side, "qty": 5.0, "entry_order_id": "e",
+        "entry_price": 623.5, "initial_stop": 622.15, "stop_price": 622.15,
+        "stop_order_id": "s", "exit_policy": "ladder", "target_price": 625.3,
+        "high_water": 623.5, "status": "closed" if closed else "active",
+        "last_checked": None, "note": "t", "signal_paper_id": signal_paper_id,
+    })
+    if closed:
+        store.update_managed_position(pid, status="closed",
+                                      exit_reason="target", exit_price=625.3,
+                                      closed_at="2026-07-13T11:20:00+00:00")
+    return pid
+
+
+def test_performance_joins_explicit_link_first(tmp_path):
+    store = _sqlite_store(tmp_path)
+    sig = _seed_signal(store, closed=True)
+    _seed_live(store, signal_paper_id=sig)
+    perf = signal_bot.performance(store)
+    row = perf["rows"][0]
+    assert row["signal"]["paper_id"] == sig
+    assert row["live"]["linked"] is True
+    assert row["live"]["pnl"] == pytest.approx(9.0)   # (625.3-623.5)*5
+    s = perf["summary"]
+    assert s["signals"] == 1 and s["live_taken"] == 1
+    assert s["paper_win_rate"] == 1.0 and s["paper_pnl"] == 185.0
+    assert s["live_pnl"] == pytest.approx(9.0)
+
+
+def test_performance_fallback_match_is_flagged_approximate(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _seed_signal(store, closed=True)
+    _seed_live(store, signal_paper_id=None)   # same symbol/side/date, no link
+    perf = signal_bot.performance(store)
+    assert perf["rows"][0]["live"]["linked"] is False
+    assert perf["summary"]["live_taken"] == 1
+
+
+def test_performance_untaken_signal_has_no_live(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _seed_signal(store, closed=True)
+    _seed_signal(store, side="short", level=628.4)   # still pending, untaken
+    perf = signal_bot.performance(store)
+    assert [r["live"] for r in perf["rows"]] == [None, None]
+    assert perf["summary"]["live_taken"] == 0

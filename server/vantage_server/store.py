@@ -1384,7 +1384,7 @@ class Store:
         cols = ("opened_at", "account_number", "symbol", "side", "qty",
                 "entry_order_id", "entry_price", "initial_stop", "stop_price",
                 "stop_order_id", "exit_policy", "target_price", "high_water",
-                "status", "last_checked", "note")
+                "status", "last_checked", "note", "signal_paper_id")
         with self._sqlite_txn() as conn:
             cur = conn.execute(
                 f"INSERT INTO managed_positions({','.join(cols)}) "

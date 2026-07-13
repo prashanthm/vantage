@@ -214,7 +214,8 @@ TERMINAL_STATES = frozenset({"filled", "cancelled", "rejected", "failed"})
 
 def execute_ticket(ticket: dict, account_number: str, *,
                    live: bool = False, exit_policy: str = "ladder",
-                   store=None, fill_wait_sec: float = 20.0) -> dict:
+                   store=None, fill_wait_sec: float = 20.0,
+                   signal_paper_id: int | None = None) -> dict:
     """Submit a staged reclaim ticket (order_ticket.build_ticket shape). THE
     only path that OPENS exposure (ADR-010 v2); everything after the fill is
     owned by execution_monitor (ADR-010 v3).
@@ -355,6 +356,9 @@ def execute_ticket(ticket: dict, account_number: str, *,
             "status": "active" if filled else "pending_entry",
             "last_checked": None,
             "note": f"reclaim ticket {group[:8]}",
+            # the signal this execution was taken from (paper_trades.id) —
+            # the signal↔live performance join key when the caller knows it
+            "signal_paper_id": signal_paper_id,
         })
     elif not dry_run:
         warnings.append("no store — position NOT recorded for the exit "

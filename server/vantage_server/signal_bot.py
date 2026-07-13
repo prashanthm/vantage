@@ -46,21 +46,39 @@ BOT_UNDERLYINGS = ("SPX", "QQQ", "IWM")
 
 TOKEN_ENV = "TELEGRAM_BOT_TOKEN"
 CHAT_ENV = "TELEGRAM_CHAT_ID"
+#: store.meta keys for UI-managed credentials (Settings on the Signals view).
+TOKEN_META = "telegram_bot_token"
+CHAT_META = "telegram_chat_id"
 
 
-def telegram_configured() -> bool:
-    return bool(os.environ.get(TOKEN_ENV)) and bool(os.environ.get(CHAT_ENV))
+def telegram_creds(store: Store | None = None) -> tuple[str | None, str | None, str]:
+    """(token, chat_id, source). Env wins (deploy-managed); the store's meta
+    table (UI-managed) is the fallback, so the bot is configurable from the
+    SPA without touching the container env."""
+    token, chat = os.environ.get(TOKEN_ENV), os.environ.get(CHAT_ENV)
+    if token and chat:
+        return token, chat, "env"
+    if store is not None and getattr(store, "uses_sqlite", False):
+        token = token or store.get_meta(TOKEN_META)
+        chat = chat or store.get_meta(CHAT_META)
+        if token and chat:
+            return token, chat, "store"
+    return None, None, "unconfigured"
 
 
-def send_telegram(text: str) -> bool:
+def telegram_configured(store: Store | None = None) -> bool:
+    return telegram_creds(store)[2] != "unconfigured"
+
+
+def send_telegram(text: str, store: Store | None = None) -> bool:
     """Push one message. Unconfigured → log-only (returns False). Failures
     are logged, never raised — a missed notification must not stop the
     pipeline (the paper row still records the event)."""
-    if not telegram_configured():
+    token, chat, source = telegram_creds(store)
+    if source == "unconfigured":
         log.info("[telegram unconfigured] %s", text)
         return False
-    token = os.environ[TOKEN_ENV]
-    payload = json.dumps({"chat_id": os.environ[CHAT_ENV], "text": text,
+    payload = json.dumps({"chat_id": chat, "text": text,
                           "disable_web_page_preview": True}).encode()
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
@@ -151,7 +169,7 @@ def arm_session(store: Store, underlyings=BOT_UNDERLYINGS) -> list[dict]:
             known.add(_ticket_key(probe))
             fresh.append(rec)
         if fresh:
-            send_telegram(msg_armed(und, session, fresh))
+            send_telegram(msg_armed(und, session, fresh), store)
             opened.extend(fresh)
     return opened
 
@@ -179,20 +197,100 @@ def poll(store: Store) -> list[dict]:
             continue
         if fill_status == "pending" and (now.get("fill_status") or "") == "filled" \
                 and now["status"] == "open":
-            send_telegram(msg_filled(now))
+            send_telegram(msg_filled(now), store)
             events.append({"kind": "reclaim_confirmed", "trade": now})
         elif now["status"] == "closed":
             if now.get("exit_reason") == "never_filled":
-                send_telegram(msg_expired(now))
+                send_telegram(msg_expired(now), store)
                 events.append({"kind": "expired", "trade": now})
             else:
                 # pending→filled→closed within one pass still reports the fill
                 if fill_status == "pending":
-                    send_telegram(msg_filled(now))
+                    send_telegram(msg_filled(now), store)
                     events.append({"kind": "reclaim_confirmed", "trade": now})
-                send_telegram(msg_closed(now))
+                send_telegram(msg_closed(now), store)
                 events.append({"kind": "closed", "trade": now})
     return events
+
+
+# ── signal ↔ live correlation ────────────────────────────────────────────────
+
+def performance(store: Store) -> dict:
+    """The signal↔live join: every bot signal (auto paper trade) beside the
+    live execution taken from it, when one exists.
+
+    Matching: an EXPLICIT link first (managed_positions.signal_paper_id, set
+    when the execute call carries the signal id), then a conservative
+    fallback — same proxy symbol, same side, same ET date — flagged
+    ``linked: false`` so approximate matches are never mistaken for exact
+    ones. Live P&L = (exit − entry) × qty, signed by side; open live rows
+    report pnl null."""
+    signals = [t for t in store.load_paper_trades() if t.get("source") == "auto"]
+    managed = store.load_managed_positions()
+    by_link: dict[int, dict] = {}
+    for m in managed:
+        if m.get("signal_paper_id"):
+            by_link[int(m["signal_paper_id"])] = m
+    claimed = {m["id"] for m in by_link.values()}
+
+    def _fallback(sig: dict) -> dict | None:
+        day = str(sig.get("opened_at") or "")[:10]
+        for m in managed:
+            if m["id"] in claimed:
+                continue
+            if (m["symbol"] == (sig.get("symbol") or "SPY")
+                    and m["side"] == sig["side"]
+                    and str(m.get("opened_at") or "")[:10] == day):
+                claimed.add(m["id"])
+                return m
+        return None
+
+    rows = []
+    live_pnl_total, live_closed = 0.0, 0
+    for s in signals:
+        m = by_link.get(s["id"]) or _fallback(s)
+        live = None
+        if m:
+            pnl = None
+            if m.get("exit_price") is not None and m.get("entry_price") is not None:
+                sign = 1 if m["side"] == "long" else -1
+                pnl = round((float(m["exit_price"]) - float(m["entry_price"]))
+                            * float(m["qty"]) * sign, 2)
+                live_pnl_total += pnl
+                live_closed += 1
+            live = {"managed_id": m["id"], "status": m["status"],
+                    "qty": m.get("qty"), "entry_price": m.get("entry_price"),
+                    "exit_price": m.get("exit_price"),
+                    "exit_reason": m.get("exit_reason"), "pnl": pnl,
+                    "exit_policy": m.get("exit_policy"),
+                    "linked": s["id"] in by_link}
+        rows.append({"signal": {
+            "paper_id": s["id"], "session": s.get("session"),
+            "symbol": s.get("symbol"), "side": s.get("side"),
+            "level": s.get("spy_level"), "status": s["status"],
+            "fill_status": s.get("fill_status"),
+            "entry": s.get("spy_entry"), "exit": s.get("spy_exit"),
+            "exit_reason": s.get("exit_reason"), "pnl": s.get("pnl"),
+            "pnl_pct": s.get("pnl_pct"),
+        }, "live": live})
+
+    paper_closed = [s for s in signals if s["status"] == "closed"
+                    and s.get("exit_reason") != "never_filled"]
+    wins = [s for s in paper_closed if (s.get("pnl") or 0) > 0]
+    return {
+        "rows": rows,
+        "summary": {
+            "signals": len(signals),
+            "paper_closed": len(paper_closed),
+            "paper_win_rate": (round(len(wins) / len(paper_closed), 3)
+                               if paper_closed else None),
+            "paper_pnl": round(sum(float(s.get("pnl") or 0)
+                                   for s in paper_closed), 2),
+            "live_taken": sum(1 for r in rows if r["live"]),
+            "live_closed": live_closed,
+            "live_pnl": round(live_pnl_total, 2),
+        },
+    }
 
 
 # ── the loop ─────────────────────────────────────────────────────────────────

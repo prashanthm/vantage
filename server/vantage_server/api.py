@@ -432,10 +432,12 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             return envelope(snap, available=False, note=extras)
         account = str(body.get("account_number") or "")
         try:
+            sig = body.get("signal_paper_id")
             result = _exec.execute_ticket(
                 ticket, account, live=bool(body.get("live")),
                 exit_policy=str(body.get("exit_policy") or "ladder"),
-                store=store if store.uses_sqlite else None)
+                store=store if store.uses_sqlite else None,
+                signal_paper_id=int(sig) if sig else None)
         except (ValueError, _exec.ExecutionViolation) as e:
             return envelope(snap, available=False, note=str(e), ticket=ticket)
         return envelope(snap, available=True, ticket=ticket,
@@ -454,14 +456,55 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         auto = [t for t in store.load_paper_trades()
                 if t.get("source") == "auto"]
         open_auto = [t for t in auto if t["status"] == "open"]
+        token, chat, source = signal_bot.telegram_creds(store)
         return envelope(snap, available=True,
-                        telegram=signal_bot.telegram_configured(),
+                        telegram=signal_bot.telegram_configured(store),
+                        telegram_source=source,
+                        # masked: enough to recognize, never enough to use
+                        telegram_token_tail=(token[-4:] if token else None),
+                        telegram_chat_id=chat,
                         market_open=signal_bot.market_open_now(),
                         armed=[t for t in open_auto
                                if (t.get("fill_status") or "") == "pending"],
                         live_signals=[t for t in open_auto
                                       if (t.get("fill_status") or "") == "filled"],
                         closed_count=len([t for t in auto if t["status"] == "closed"]))
+
+    @app.post("/api/reclaim-bot/config")
+    def reclaim_bot_config(body: dict = Body(default={})):
+        """Save the bot's Telegram credentials to OUR store's meta table
+        (UI-managed; container env still wins when set) and optionally send a
+        test message. Body: ``{bot_token?, chat_id?, test?}`` — empty string
+        clears a value. Token is never echoed back."""
+        from . import signal_bot
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="signal bot needs the SQLite backend")
+        if "bot_token" in body:
+            store.set_meta(signal_bot.TOKEN_META, str(body["bot_token"] or ""))
+        if "chat_id" in body:
+            store.set_meta(signal_bot.CHAT_META, str(body["chat_id"] or ""))
+        token, chat, source = signal_bot.telegram_creds(store)
+        tested = None
+        if body.get("test"):
+            tested = signal_bot.send_telegram(
+                "🔧 Vantage reclaim bot: test message — wiring works.", store)
+        return envelope(snap, available=True, telegram_source=source,
+                        telegram_token_tail=(token[-4:] if token else None),
+                        telegram_chat_id=chat, test_sent=tested)
+
+    @app.get("/api/reclaim-bot/performance")
+    def reclaim_bot_performance():
+        """The signal↔live correlation: every bot signal beside its paper
+        outcome and (when taken) the live execution's outcome, plus a
+        summary. Read-only."""
+        from . import signal_bot
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="signal bot needs the SQLite backend")
+        return envelope(snap, available=True, **signal_bot.performance(store))
 
     @app.post("/api/reclaim-bot/poll")
     def reclaim_bot_poll():
@@ -477,7 +520,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note="signal bot needs the SQLite backend")
         events = signal_bot.poll(store)
         return envelope(snap, available=True, events=events,
-                        telegram=signal_bot.telegram_configured())
+                        telegram=signal_bot.telegram_configured(store))
 
     @app.get("/api/exits")
     def exits_list(status: str | None = Query(None)):

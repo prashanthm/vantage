@@ -460,6 +460,8 @@ ALLOWED_WRITE_ROUTES = {
     # Signal-bot pass — arms/settles NO-MONEY paper trades in our own SQLite
     # and sends an outbound Telegram message; no broker path (ADR-010 holds).
     "/api/reclaim-bot/poll",
+    # Telegram credentials into OUR meta table (+ optional test message).
+    "/api/reclaim-bot/config",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the

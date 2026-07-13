@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 12  # v12: managed_positions (exit monitor, ADR-010 v3)
+SCHEMA_VERSION = 13  # v13: managed_positions.signal_paper_id (signal↔live link)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -400,10 +400,19 @@ CREATE TABLE IF NOT EXISTS managed_positions (
     closed_at      TEXT,
     exit_reason    TEXT,               -- 'stop'|'trail'|'target'|'never_filled'|'disarmed'|'adopted_flat'
     exit_price     REAL,
-    note           TEXT                -- free-form breadcrumbs (ticket source, warnings)
+    note           TEXT,               -- free-form breadcrumbs (ticket source, warnings)
+    signal_paper_id INTEGER            -- the reclaim signal (paper_trades.id) this
+                                       -- execution was taken from, when known —
+                                       -- the signal↔live performance join key
 );
 CREATE INDEX IF NOT EXISTS ix_managed_status ON managed_positions(status, opened_at);
 """
+
+#: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard
+#: pattern as the journal/paper columns).
+_MANAGED_ADDED_COLUMNS = {
+    "signal_paper_id": "INTEGER",
+}
 
 #: columns added after v7 to the (pre-existing) journal_snapshots table. Applied
 #: idempotently by ``init_schema`` via ALTER TABLE — SQLite has no
@@ -441,6 +450,7 @@ class Database:
             conn.executescript(_SCHEMA)
             self._add_missing_journal_columns(conn)
             self._add_missing_paper_columns(conn)
+            self._add_missing_managed_columns(conn)
             self._add_missing_account_columns(conn)
             self._migrate_multi_underlying(conn)
             conn.execute(
@@ -498,6 +508,15 @@ class Database:
         for col, decl in _PAPER_ADDED_COLUMNS.items():
             if col not in have:
                 conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {decl}")
+
+    @staticmethod
+    def _add_missing_managed_columns(conn: sqlite3.Connection) -> None:
+        """v12->v13: additively add the signal↔live link column."""
+        have = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(managed_positions)").fetchall()}
+        for col, decl in _MANAGED_ADDED_COLUMNS.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE managed_positions ADD COLUMN {col} {decl}")
 
     @staticmethod
     def _migrate_multi_underlying(conn: sqlite3.Connection) -> None:

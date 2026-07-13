@@ -14,6 +14,7 @@ import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
 import { ExitsView } from "./exits.jsx";
+import { SignalBotView } from "./signalbot.jsx";
 import { FuturesView } from "./futures.jsx";
 import { PaperView } from "./paper.jsx";
 import { JournalView } from "./journal.jsx";
@@ -38,6 +39,7 @@ const NAV = [
   { group: "Intelligence", items: [
     { id: "options", label: "Options", icon: "◎" },
     { id: "playbook", label: "0DTE Playbook", icon: "🎯" },
+    { id: "signalbot", label: "Signal Bot", icon: "📡" },
     { id: "exits", label: "Managed Exits", icon: "🛡️" },
     { id: "paper", label: "Paper Trading", icon: "📝" },
     { id: "journal", label: "Trading Journal", icon: "📓" },
@@ -353,6 +355,7 @@ function App() {
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
+          {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}
           {route === "journal" && <JournalView refreshNonce={refreshNonce} />}
