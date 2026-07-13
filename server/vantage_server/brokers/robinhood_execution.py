@@ -159,14 +159,21 @@ def _place(account_number: str, symbol: str, side: str, order_type: str,
 
 
 def cancel_order(account_number: str, order_id: str, *, dry_run: bool = True) -> bool:
-    """Cancel a resting equity order. Dry-run always 'succeeds'."""
+    """Cancel a resting equity order. Dry-run always 'succeeds'.
+
+    OBSERVED response (live, 2026-07-12): ``{"accepted": true}`` — the
+    cancel is ASYNC: acceptance is immediate but the order (and its share
+    reservation) releases a few seconds later. Callers placing a
+    replacement sell must tolerate a transient "Not enough shares to sell"
+    (the monitor's re-arm step self-heals on the next tick)."""
     if dry_run:
         log.info("[DRY RUN] Would cancel order %s", order_id)
         return True
     result = _call_execute("cancel_equity_order",
                            {"account_number": account_number,
                             "order_id": order_id})
-    return bool(result.get("cancelled")) or result.get("status") == "cancelled"
+    return (bool(result.get("accepted")) or bool(result.get("cancelled"))
+            or result.get("status") == "cancelled")
 
 
 def place_exit_order(account_number: str, symbol: str, position_side: str,

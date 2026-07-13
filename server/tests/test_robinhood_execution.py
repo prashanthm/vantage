@@ -303,3 +303,11 @@ def test_execute_route_ignores_client_supplied_ticket(client, monkeypatch):
     assert body["available"] is True
     assert body["ticket"]["orders"]["entry"]["qty"] != 999999
     assert body["ticket"]["orders"]["entry"]["price"] == 100.0
+
+
+def test_cancel_accepts_the_observed_async_envelope(monkeypatch):
+    """Live 2026-07-12: cancel_equity_order answers {"accepted": true} —
+    not "cancelled". The success check must accept it."""
+    monkeypatch.setattr(rexec, "_call_execute",
+                        lambda tool, payload, max_retries=3: {"accepted": True})
+    assert rexec.cancel_order("A", "oid", dry_run=False) is True

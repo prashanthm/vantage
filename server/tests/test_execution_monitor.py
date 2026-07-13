@@ -258,3 +258,24 @@ def test_identity_fields_are_immutable(tmp_path):
     with pytest.raises(ValueError, match="immutable"):
         store.update_managed_position(pid, qty=500)
     assert store.update_managed_position(pid, stop_price=99.9)
+
+
+# ------------------------------------------------------ quote freshness
+
+def test_last_price_prefers_the_newer_venue_print(monkeypatch):
+    """Live 2026-07-12 (overnight): last_trade_price was Friday's close;
+    last_non_reg_trade_price carried the live prints. The fresher venue
+    timestamp wins; missing timestamps fall back to last_trade_price."""
+    quote = {"symbol": "F", "last_trade_price": "13.995",
+             "venue_last_trade_time": "2026-07-10T19:59:56Z",
+             "last_non_reg_trade_price": "13.94",
+             "venue_last_non_reg_trade_time": "2026-07-13T01:30:00Z"}
+    monkeypatch.setattr(mon, "_call", lambda tool, payload: {
+        "results": [{"quote": dict(quote)}]})
+    assert mon.last_price("F") == 13.94
+
+    quote["venue_last_trade_time"] = "2026-07-13T02:00:00Z"  # RTH print newer
+    assert mon.last_price("F") == 13.995
+
+    del quote["venue_last_non_reg_trade_time"]               # no timestamp
+    assert mon.last_price("F") == 13.995

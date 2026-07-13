@@ -54,12 +54,27 @@ def _now() -> str:
 
 
 def last_price(symbol: str) -> float | None:
-    """Real-time last trade price via the read-allowlisted quote tool."""
+    """Freshest real trade print via the read-allowlisted quote tool.
+
+    OBSERVED (live, 2026-07-12, overnight session): ``last_trade_price`` is
+    the REGULAR-session last (Friday's close on a Sunday night) while
+    ``last_non_reg_trade_price`` carries the live overnight prints — anchoring
+    a trailing ratchet on the stale one moved a stop off a price that never
+    traded that session. Pick whichever print has the newer venue timestamp;
+    fall back to last_trade_price when timestamps are missing."""
     result = _call("get_equity_quotes", {"symbols": [symbol]})
     for entry in result.get("results", []):
         quote = entry.get("quote", entry)
-        if quote.get("symbol") == symbol and quote.get("last_trade_price"):
-            return float(quote["last_trade_price"])
+        if quote.get("symbol") != symbol:
+            continue
+        reg = quote.get("last_trade_price")
+        non_reg = quote.get("last_non_reg_trade_price")
+        reg_t = str(quote.get("venue_last_trade_time") or "")
+        non_reg_t = str(quote.get("venue_last_non_reg_trade_time") or "")
+        if non_reg and (not reg or (non_reg_t and reg_t and non_reg_t > reg_t)):
+            return float(non_reg)
+        if reg:
+            return float(reg)
     return None
 
 
