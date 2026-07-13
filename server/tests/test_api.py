@@ -457,6 +457,9 @@ ALLOWED_WRITE_ROUTES = {
     # carve-out positions only) + releasing a position from management.
     "/api/exits/tick",
     "/api/exits/{pos_id}/disarm",
+    # Signal-bot pass — arms/settles NO-MONEY paper trades in our own SQLite
+    # and sends an outbound Telegram message; no broker path (ADR-010 holds).
+    "/api/reclaim-bot/poll",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the

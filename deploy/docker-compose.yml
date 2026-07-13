@@ -61,6 +61,9 @@ services:
       ROBINHOOD_TOKEN_FILE: /run/secrets/robinhood/.robinhood_token.json
       # Zerodha (Kite Connect). The app key/secret come from YOUR host env/.env
       # (never baked in); the daily token file is the read-only mount above.
+      # Reclaim signal bot → Telegram (unset = log-only; paper tracking still works)
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      TELEGRAM_CHAT_ID: "${TELEGRAM_CHAT_ID:-}"
       KITE_API_KEY: "${KITE_API_KEY:-}"
       KITE_API_SECRET: "${KITE_API_SECRET:-}"
       # The daily token lives in the WRITABLE data volume so the one-click

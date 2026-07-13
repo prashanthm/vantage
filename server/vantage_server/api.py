@@ -441,6 +441,44 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, ticket=ticket,
                         execution=result, **extras)
 
+    @app.get("/api/reclaim-bot/status")
+    def reclaim_bot_status():
+        """The signal bot's config + what it is tracking: telegram wiring,
+        auto-opened paper trades (pending = armed levels, filled = live
+        signals), and the session they belong to. Read-only."""
+        from . import signal_bot
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="signal bot needs the SQLite backend")
+        auto = [t for t in store.load_paper_trades()
+                if t.get("source") == "auto"]
+        open_auto = [t for t in auto if t["status"] == "open"]
+        return envelope(snap, available=True,
+                        telegram=signal_bot.telegram_configured(),
+                        market_open=signal_bot.market_open_now(),
+                        armed=[t for t in open_auto
+                               if (t.get("fill_status") or "") == "pending"],
+                        live_signals=[t for t in open_auto
+                                      if (t.get("fill_status") or "") == "filled"],
+                        closed_count=len([t for t in auto if t["status"] == "closed"]))
+
+    @app.post("/api/reclaim-bot/poll")
+    def reclaim_bot_poll():
+        """ONE signal-bot pass: arm today's reclaim tickets as auto paper
+        trades, advance the paper pipeline, push Telegram on transitions.
+        Writes only our own SQLite + the outbound notification — no broker
+        path (ADR-010 untouched). The continuous loop is
+        ``python -m vantage_server.signal_bot``."""
+        from . import signal_bot
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="signal bot needs the SQLite backend")
+        events = signal_bot.poll(store)
+        return envelope(snap, available=True, events=events,
+                        telegram=signal_bot.telegram_configured())
+
     @app.get("/api/exits")
     def exits_list(status: str | None = Query(None)):
         """Managed-exit positions (ADR-010 v3): what the exit monitor is
