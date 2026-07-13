@@ -25,6 +25,7 @@ THE HARD GUARANTEES:
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import logging
 import os
@@ -168,20 +169,70 @@ def cancel_order(account_number: str, order_id: str, *, dry_run: bool = True) ->
     return bool(result.get("cancelled")) or result.get("status") == "cancelled"
 
 
+def place_exit_order(account_number: str, symbol: str, position_side: str,
+                     qty: int, *, order_type: str,
+                     limit_price: float | None = None,
+                     stop_price: float | None = None,
+                     dry_run: bool = True) -> dict:
+    """The ONLY order surface exposed to the exit monitor (ADR-010 v3).
+
+    The order side is DERIVED from the position side (long→sell,
+    short→buy-to-cover), so nothing reachable through this function can open
+    or increase exposure — reduce-only is structural, not conventional.
+    Always GTC: an exit that silently dies at the close protects nothing.
+    """
+    if position_side not in ("long", "short"):
+        raise ValueError(f"position_side must be long|short, got {position_side!r}")
+    return _place(account_number, symbol,
+                  side="sell" if position_side == "long" else "buy",
+                  order_type=order_type, quantity=int(qty),
+                  limit_price=limit_price, stop_price=stop_price,
+                  time_in_force="gtc", ref_id=uuid.uuid4().hex[:12],
+                  dry_run=dry_run)
+
+
+def order_status(account_number: str, order_id: str) -> dict | None:
+    """One equity order's current row from the (read-allowlisted) order
+    listing, or None when not yet visible. Read path only — goes through
+    robinhood.py's _call and its READ_TOOLS allowlist."""
+    from . import robinhood as _rh
+    result = _rh._call("get_equity_orders", {"account_number": account_number})
+    rows = result.get("orders") or result.get("results") or []
+    return next((o for o in rows if o.get("id") == order_id), None)
+
+
+#: Order states that are terminal (no further fills possible).
+TERMINAL_STATES = frozenset({"filled", "cancelled", "rejected", "failed"})
+
+
 def execute_ticket(ticket: dict, account_number: str, *,
-                   live: bool = False) -> dict:
-    """Submit a staged reclaim ticket (order_ticket.build_ticket shape) as
-    entry + stop + target orders. THE only path from a ticket to the broker.
+                   live: bool = False, exit_policy: str = "ladder",
+                   store=None, fill_wait_sec: float = 20.0) -> dict:
+    """Submit a staged reclaim ticket (order_ticket.build_ticket shape). THE
+    only path that OPENS exposure (ADR-010 v2); everything after the fill is
+    owned by execution_monitor (ADR-010 v3).
 
-    Order sequence mirrors sentinel's bracket discipline: entry limit first
-    (with broker-side review), then the protective stop, then the target
-    ladder legs. A failed bracket leg NEVER aborts the trade — it is reported
-    in the result for the operator to place manually (an unprotected fill is
-    worse than a missing target).
+    Live sequence — shaped by the no-OCO constraint verified live 2026-07-12
+    (Robinhood rejects a take-profit resting beside a stop: "Not enough
+    shares to sell"):
 
-    Live requires live=True AND VANTAGE_LIVE_OK=1; otherwise every leg is a
-    dry-run stub. Returns {mode, symbol, side, legs: [result...], ok,
-    warnings: [...]}.
+    1. entry limit placed (broker-reviewed first);
+    2. wait up to ``fill_wait_sec`` for the fill (marketable reclaim entries
+       fill in seconds; a resting swing entry just times out here);
+    3. filled → the protective stop rests at the broker, GTC (the invariant
+       leg — it survives Vantage being offline); not filled → the monitor
+       adopts the pending entry and places the stop on fill;
+    4. a managed_positions row is recorded (when ``store`` is given) so the
+       monitor can run the exit policy: 'ladder' (swap stop→sell when T1
+       trades) or 'trailing' (ratchet the stop by the initial stop distance).
+       Targets are NEVER placed as resting orders.
+
+    A failed stop leg never aborts (the fill already happened); it is
+    surfaced in warnings and the monitor retries. Dry-run (default, or gate
+    unset) returns the full would-be order set as stubs and records nothing.
+
+    Returns {mode, symbol, side, exit_policy, legs, ok, warnings,
+    managed_position_id?}.
     """
     orders = ticket.get("orders") or {}
     entry, stop, targets = orders.get("entry"), orders.get("stop"), orders.get("targets")
@@ -193,6 +244,8 @@ def execute_ticket(ticket: dict, account_number: str, *,
                          "share at this stop distance; nothing to execute")
     if not account_number:
         raise ValueError("account_number is required")
+    if exit_policy not in ("ladder", "trailing"):
+        raise ValueError(f"exit_policy must be 'ladder' or 'trailing', got {exit_policy!r}")
 
     dry_run = not (live and live_allowed())
     if live and not live_allowed():
@@ -204,6 +257,9 @@ def execute_ticket(ticket: dict, account_number: str, *,
 
     symbol = str(ticket["symbol"]).upper()
     side = str(ticket["side"])
+    qty = int(entry["qty"])
+    stop_price = float(stop["price"])
+    target_price = float(targets[0]["price"]) if targets else None
     group = uuid.uuid4().hex
     legs: list[dict] = []
     warnings: list[str] = []
@@ -212,7 +268,7 @@ def execute_ticket(ticket: dict, account_number: str, *,
         try:
             result = _place(account_number, symbol, ref_id=f"{group}{name}",
                             dry_run=dry_run, **kwargs)
-        except Exception as e:  # bracket legs must never abort the trade
+        except Exception as e:  # post-entry legs must never abort the trade
             warnings.append(f"{name}: {e}")
             log.error("Ticket leg %s failed: %s", name, e)
             return None
@@ -225,28 +281,79 @@ def execute_ticket(ticket: dict, account_number: str, *,
     # entry — reviewed, gfd; buy for a long, sell(-short) for a short
     entry_result = _leg(
         "entry", side="buy" if side == "long" else "sell", order_type="limit",
-        quantity=int(entry["qty"]), limit_price=float(entry["price"]),
+        quantity=qty, limit_price=float(entry["price"]),
         time_in_force="gfd", review_first=True,
     )
+    mode = "dry_run" if dry_run else "live"
     if entry_result is None or not entry_result["success"]:
-        # No fill risk without an entry — do not place naked bracket legs.
-        return {"mode": "dry_run" if dry_run else "live", "symbol": symbol,
-                "side": side, "legs": legs, "ok": False,
-                "warnings": warnings + ["entry not placed — brackets skipped"]}
+        return {"mode": mode, "symbol": symbol, "side": side,
+                "exit_policy": exit_policy, "legs": legs, "ok": False,
+                "warnings": warnings + ["entry not placed — nothing to protect"]}
 
-    # protective stop — stop-market, gfd (re-arm daily by re-running)
-    _leg("stop", side="sell" if side == "long" else "buy",
-         order_type="stop_market", quantity=int(stop["qty"]),
-         stop_price=float(stop["price"]), time_in_force="gfd")
+    if dry_run:
+        # preview the full would-be order set (stop + monitor-managed exits)
+        _leg("stop", side="sell" if side == "long" else "buy",
+             order_type="stop_market", quantity=qty,
+             stop_price=stop_price, time_in_force="gtc")
+        for t in targets:
+            if int(t.get("qty") or 0) <= 0:
+                continue
+            _leg(f"{t.get('name', 'T?')}(monitor)",
+                 side="sell" if side == "long" else "buy",
+                 order_type="limit", quantity=int(t["qty"]),
+                 limit_price=float(t["price"]), time_in_force="gtc")
+        return {"mode": mode, "symbol": symbol, "side": side,
+                "exit_policy": exit_policy, "legs": legs,
+                "ok": all(r["success"] for r in legs), "warnings": warnings}
 
-    # target ladder — resting limits, gtc
-    for t in targets:
-        if int(t.get("qty") or 0) <= 0:
-            continue
-        _leg(t.get("name", "T?"), side="sell" if side == "long" else "buy",
-             order_type="limit", quantity=int(t["qty"]),
-             limit_price=float(t["price"]), time_in_force="gtc")
+    # ---- live: wait (briefly) for the entry fill, then rest the stop ------
+    entry_id = entry_result["order_id"]
+    entry_price = None
+    filled = False
+    deadline = time.time() + max(0.0, fill_wait_sec)
+    while time.time() < deadline:
+        time.sleep(min(2.0, max(0.5, fill_wait_sec / 10)))
+        row = order_status(account_number, entry_id)
+        state = (row or {}).get("state")
+        if state == "filled":
+            filled = True
+            entry_price = float(row.get("average_price") or entry["price"])
+            break
+        if state in TERMINAL_STATES:
+            warnings.append(f"entry {state}: {row.get('reject_reason') or ''}".strip())
+            return {"mode": mode, "symbol": symbol, "side": side,
+                    "exit_policy": exit_policy, "legs": legs, "ok": False,
+                    "warnings": warnings}
 
-    return {"mode": "dry_run" if dry_run else "live", "symbol": symbol,
-            "side": side, "legs": legs, "ok": all(r["success"] for r in legs),
-            "warnings": warnings}
+    stop_result = None
+    if filled:
+        stop_result = _leg("stop", side="sell" if side == "long" else "buy",
+                           order_type="stop_market", quantity=qty,
+                           stop_price=stop_price, time_in_force="gtc")
+    else:
+        warnings.append(f"entry not filled within {fill_wait_sec:.0f}s — "
+                        f"monitor will place the stop on fill")
+
+    managed_id = None
+    if store is not None:
+        managed_id = store.record_managed_position({
+            "opened_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "account_number": account_number,
+            "symbol": symbol, "side": side, "qty": float(qty),
+            "entry_order_id": entry_id, "entry_price": entry_price,
+            "initial_stop": stop_price, "stop_price": stop_price if stop_result and stop_result["success"] else None,
+            "stop_order_id": stop_result["order_id"] if stop_result and stop_result["success"] else None,
+            "exit_policy": exit_policy, "target_price": target_price,
+            "high_water": entry_price,
+            "status": "active" if filled else "pending_entry",
+            "last_checked": None,
+            "note": f"reclaim ticket {group[:8]}",
+        })
+    elif not dry_run:
+        warnings.append("no store — position NOT recorded for the exit "
+                        "monitor; manage exits manually")
+
+    return {"mode": mode, "symbol": symbol, "side": side,
+            "exit_policy": exit_policy, "legs": legs,
+            "ok": all(r["success"] for r in legs),
+            "warnings": warnings, "managed_position_id": managed_id}

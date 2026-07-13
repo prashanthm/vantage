@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 11  # v11: account currency + jurisdiction (multi-currency)
+SCHEMA_VERSION = 12  # v12: managed_positions (exit monitor, ADR-010 v3)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -373,6 +373,36 @@ CREATE TABLE IF NOT EXISTS journal_snapshots (
     entry_updated_at TEXT            -- when the entry was last edited
 );
 CREATE INDEX IF NOT EXISTS ix_journal_created ON journal_snapshots(created_at);
+
+-- Managed-exit positions (ADR-010 v3): one row per REAL position opened via
+-- the reclaim-ticket execution carve-out, owned by execution_monitor. The
+-- monitor may only ever REDUCE these positions (place the protective stop,
+-- swap stop→target sell, ratchet a trailing stop, cancel its own orders) —
+-- never open exposure, never exceed qty, never touch a symbol without a row
+-- here. A broker-resident stop (stop_order_id) is the invariant while active.
+CREATE TABLE IF NOT EXISTS managed_positions (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    opened_at      TEXT NOT NULL,      -- ISO timestamp the entry was placed
+    account_number TEXT NOT NULL,      -- broker account the orders live in
+    symbol         TEXT NOT NULL,      -- e.g. 'SPY' (already proxy-resolved)
+    side           TEXT NOT NULL,      -- 'long' | 'short'
+    qty            REAL NOT NULL,      -- managed share count (hard ceiling)
+    entry_order_id TEXT,               -- broker id of the entry order
+    entry_price    REAL,               -- avg fill (set when filled)
+    initial_stop   REAL NOT NULL,      -- ticket stop; trail distance anchor
+    stop_price     REAL,               -- current resting stop level
+    stop_order_id  TEXT,               -- broker id of the resting stop
+    exit_policy    TEXT NOT NULL,      -- 'ladder' | 'trailing'
+    target_price   REAL,               -- T1 (ladder policy; NULL = open-ended)
+    high_water     REAL,               -- best price since fill (trailing anchor)
+    status         TEXT NOT NULL,      -- 'pending_entry'|'active'|'closed'|'disarmed'
+    last_checked   TEXT,               -- monitor heartbeat (ISO)
+    closed_at      TEXT,
+    exit_reason    TEXT,               -- 'stop'|'trail'|'target'|'never_filled'|'disarmed'|'adopted_flat'
+    exit_price     REAL,
+    note           TEXT                -- free-form breadcrumbs (ticket source, warnings)
+);
+CREATE INDEX IF NOT EXISTS ix_managed_status ON managed_positions(status, opened_at);
 """
 
 #: columns added after v7 to the (pre-existing) journal_snapshots table. Applied

@@ -92,8 +92,25 @@ def test_live_without_env_gate_is_refused(monkeypatch):
         execute_ticket(_ticket("long"), "ACCT1", live=True)
 
 
-def test_live_with_env_gate_places_orders(monkeypatch):
+class FakeStore:
+    """Captures record_managed_position; mimics the SQLite accessor shape."""
+
+    uses_sqlite = True
+
+    def __init__(self):
+        self.recorded: list[dict] = []
+
+    def record_managed_position(self, row):
+        self.recorded.append(row)
+        return len(self.recorded)
+
+
+def test_live_fill_places_gtc_stop_and_records_position(monkeypatch):
+    """Live flow (no-OCO world): entry reviewed+placed → fill detected →
+    protective stop rests GTC → managed row recorded ACTIVE. Targets are
+    NEVER placed as resting orders — they belong to the monitor."""
     monkeypatch.setenv(rexec.LIVE_ENV, "1")
+    monkeypatch.setattr("time.sleep", lambda s: None)
     calls: list[tuple[str, dict]] = []
 
     def fake_call(tool, payload, max_retries=3):
@@ -101,21 +118,50 @@ def test_live_with_env_gate_places_orders(monkeypatch):
         return {"id": f"ord_{len(calls)}", "state": "confirmed"}
 
     monkeypatch.setattr(rexec, "_call_execute", fake_call)
-    result = execute_ticket(_ticket("long"), "ACCT1", live=True)
+    monkeypatch.setattr(rexec, "order_status", lambda acct, oid: {
+        "id": oid, "state": "filled", "average_price": "99.98",
+        "cumulative_quantity": "500"})
+    store = FakeStore()
+    result = execute_ticket(_ticket("long"), "ACCT1", live=True, store=store)
 
-    assert result["mode"] == "live"
-    assert result["ok"] is True
+    assert result["mode"] == "live" and result["ok"] is True
     # entry is reviewed before it is placed (sentinel's discipline)
-    assert calls[0][0] == "review_equity_order"
-    assert calls[1][0] == "place_equity_order"
+    assert [t for t, _ in calls[:3]] == [
+        "review_equity_order", "place_equity_order", "place_equity_order"]
     assert calls[1][1]["side"] == "buy" and calls[1][1]["type"] == "limit"
-    # stop + targets are placed, sell-side for a long
     stop_call = calls[2][1]
-    assert calls[2][0] == "place_equity_order"
     assert stop_call["type"] == "stop_market" and stop_call["side"] == "sell"
-    assert all(t == "place_equity_order" for t, _ in calls[3:])
-    # every placement carried a ref_id (idempotency handle)
+    assert stop_call["time_in_force"] == "gtc"           # swing-safe stop
+    assert len(calls) == 3                               # no resting targets
     assert all(p.get("ref_id") for t, p in calls if t == "place_equity_order")
+    row = store.recorded[0]
+    assert row["status"] == "active" and row["entry_price"] == 99.98
+    assert row["stop_order_id"] and row["exit_policy"] == "ladder"
+    assert result["managed_position_id"] == 1
+
+
+def test_live_unfilled_entry_hands_off_to_monitor(monkeypatch):
+    """A resting (swing) entry that doesn't fill in the wait window records
+    a pending_entry row — the monitor places the stop on fill. No stop is
+    placed while there is nothing to protect."""
+    monkeypatch.setenv(rexec.LIVE_ENV, "1")
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    calls: list[tuple[str, dict]] = []
+
+    def fake_call(tool, payload, max_retries=3):
+        calls.append((tool, payload))
+        return {"id": f"ord_{len(calls)}", "state": "confirmed"}
+
+    monkeypatch.setattr(rexec, "_call_execute", fake_call)
+    monkeypatch.setattr(rexec, "order_status",
+                        lambda acct, oid: {"id": oid, "state": "confirmed"})
+    store = FakeStore()
+    result = execute_ticket(_ticket("long"), "ACCT1", live=True, store=store,
+                            fill_wait_sec=0.01)
+    assert [t for t, _ in calls] == ["review_equity_order", "place_equity_order"]
+    assert store.recorded[0]["status"] == "pending_entry"
+    assert store.recorded[0]["stop_order_id"] is None
+    assert any("monitor" in w for w in result["warnings"])
 
 
 # ------------------------------------------------ ticket validation + brackets
@@ -138,8 +184,8 @@ def test_arbitrary_dict_is_not_a_ticket():
                         "orders": {"entry": "buy 5"}}, "ACCT1")
 
 
-def test_failed_entry_skips_bracket_legs(monkeypatch):
-    """No naked stops/targets: if the entry is rejected, nothing else is
+def test_failed_entry_places_nothing_else(monkeypatch):
+    """No naked protection: if the entry is rejected, nothing else is
     placed and the failure is reported."""
     monkeypatch.setenv(rexec.LIVE_ENV, "1")
     calls: list[str] = []
@@ -154,26 +200,44 @@ def test_failed_entry_skips_bracket_legs(monkeypatch):
     result = execute_ticket(_ticket("long"), "ACCT1", live=True)
     assert result["ok"] is False
     assert calls == ["review_equity_order", "place_equity_order"]
-    assert any("brackets skipped" in w for w in result["warnings"])
+    assert any("nothing to protect" in w for w in result["warnings"])
 
 
-def test_failed_bracket_leg_never_aborts(monkeypatch):
-    """Sentinel's discipline: a filled entry with a failing stop leg is
-    surfaced as a warning, and the remaining legs still go out."""
+def test_failed_stop_leg_never_aborts_and_row_records_gap(monkeypatch):
+    """A filled entry with a failing stop leg is surfaced as a warning and
+    the managed row records stop_order_id=None — the monitor's re-arm step
+    owns the retry."""
     monkeypatch.setenv(rexec.LIVE_ENV, "1")
-    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr("time.sleep", lambda s: None)
 
     def fake_call(tool, payload, max_retries=3):
-        calls.append((tool, payload))
         if payload.get("type") == "stop_market":
             raise rexec.RobinhoodExecutionError("settlement pending")
-        return {"id": f"ord_{len(calls)}", "state": "confirmed"}
+        return {"id": "ord_entry", "state": "confirmed"}
 
     monkeypatch.setattr(rexec, "_call_execute", fake_call)
-    result = execute_ticket(_ticket("long"), "ACCT1", live=True)
+    monkeypatch.setattr(rexec, "order_status", lambda acct, oid: {
+        "id": oid, "state": "filled", "average_price": "100.0",
+        "cumulative_quantity": "500"})
+    store = FakeStore()
+    result = execute_ticket(_ticket("long"), "ACCT1", live=True, store=store)
     assert any("stop" in w for w in result["warnings"])
-    # targets were still placed after the stop failure
-    assert any(p.get("time_in_force") == "gtc" for _, p in calls)
+    assert store.recorded[0]["status"] == "active"
+    assert store.recorded[0]["stop_order_id"] is None
+
+
+def test_place_exit_order_is_reduce_only():
+    """The monitor's only order surface derives side from position side —
+    an opening order is inexpressible through it."""
+    r = rexec.place_exit_order("A", "SPY", "long", 5, order_type="limit",
+                               limit_price=101.0, dry_run=True)
+    assert r["side"] == "sell" and r["time_in_force"] == "gtc"
+    r = rexec.place_exit_order("A", "SPY", "short", 5, order_type="stop_market",
+                               stop_price=105.0, dry_run=True)
+    assert r["side"] == "buy"
+    with pytest.raises(ValueError, match="position_side"):
+        rexec.place_exit_order("A", "SPY", "flat", 5, order_type="limit",
+                               limit_price=1.0, dry_run=True)
 
 
 def test_short_ticket_sides_are_mirrored(monkeypatch):

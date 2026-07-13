@@ -1365,6 +1365,69 @@ class Store:
                 (spy_exit, exit_reason, pnl, pnl_pct, closed_at, trade_id))
             return cur.rowcount > 0
 
+    # ── managed-exit positions (execution monitor, ADR-010 v3) ──────────────
+
+    #: The only managed_positions columns update_managed_position may touch —
+    #: identity/audit fields (id, opened_at, account, symbol, side, qty,
+    #: exit_policy) are immutable after record.
+    _MANAGED_MUTABLE = frozenset({
+        "entry_order_id", "entry_price", "initial_stop", "stop_price",
+        "stop_order_id", "target_price", "high_water", "status",
+        "last_checked", "closed_at", "exit_reason", "exit_price", "note",
+    })
+
+    def record_managed_position(self, row: dict) -> int:
+        """Insert one managed position (status usually 'pending_entry' or
+        'active'). Returns the new row id."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_managed_position requires the SQLite backend")
+        cols = ("opened_at", "account_number", "symbol", "side", "qty",
+                "entry_order_id", "entry_price", "initial_stop", "stop_price",
+                "stop_order_id", "exit_policy", "target_price", "high_water",
+                "status", "last_checked", "note")
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                f"INSERT INTO managed_positions({','.join(cols)}) "
+                f"VALUES({','.join('?' for _ in cols)})",
+                tuple(row.get(c) for c in cols))
+            return int(cur.lastrowid)
+
+    def load_managed_positions(self, status: str | None = None) -> list[dict]:
+        """Managed positions (optionally by status), newest first. 'open'
+        selects both live states (pending_entry + active)."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            sql = "SELECT * FROM managed_positions"
+            params: list = []
+            if status == "open":
+                sql += " WHERE status IN ('pending_entry','active')"
+            elif status:
+                sql += " WHERE status=?"; params.append(status)
+            sql += " ORDER BY opened_at DESC, id DESC"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
+    def update_managed_position(self, pos_id: int, **fields) -> bool:
+        """Update mutable fields on one managed position. Refuses identity
+        fields (symbol/qty/side/... are immutable — the exits-only guarantee
+        depends on them). Returns True if a row changed."""
+        if not self.uses_sqlite or not fields:
+            return False
+        bad = set(fields) - self._MANAGED_MUTABLE
+        if bad:
+            raise ValueError(f"immutable managed_positions field(s): {sorted(bad)}")
+        keys = sorted(fields)
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                f"UPDATE managed_positions SET {', '.join(f'{k}=?' for k in keys)} "
+                f"WHERE id=?",
+                tuple(fields[k] for k in keys) + (pos_id,))
+            return cur.rowcount > 0
+
     # ── chart-snapshot journal (SQLite metadata; image bytes on disk) ────────
 
     def record_journal_snapshot(self, snap: dict) -> int:

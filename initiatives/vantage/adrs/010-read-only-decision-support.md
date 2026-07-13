@@ -2,10 +2,11 @@
 
 ## Status
 
-Accepted — amended 2026-07-12 (v2). This ADR stays OPEN: the execution
-carve-out below is deliberately narrow, and any widening (new strategy, new
-broker, new order type outside the reclaim ticket) is done by amending this
-ADR again — recording what widened and why — not by superseding it.
+Accepted — amended 2026-07-12 (v2: execution carve-out; v3: exits-only
+automation). This ADR stays OPEN: the execution carve-out below is
+deliberately narrow, and any widening (new strategy, new broker, new order
+type outside the reclaim ticket) is done by amending this ADR again —
+recording what widened and why — not by superseding it.
 
 ## Context
 
@@ -59,9 +60,31 @@ Robinhood's Agentic Trading MCP server, under ALL of these constraints:
 4. **Dry-run by default, double-gated live mode.** Live submission requires
    the caller to set `live=true` AND the operator to have set
    `VANTAGE_LIVE_OK=1` in the environment. Either missing → dry-run.
-5. **Operator-initiated only.** No scheduler, nightly job, refresh path, or
-   MCP tool (the AI advisor surface) may reach the execute path. It is not
-   exposed as a vantage-mcp tool.
+5. **Operator-initiated only for anything that OPENS exposure.** No
+   scheduler, nightly job, refresh path, or MCP tool (the AI advisor
+   surface) may reach the entry path. It is not exposed as a vantage-mcp
+   tool.
+6. **Exits-only automation (v3).** The managed-exit monitor
+   (`execution_monitor.py`) MAY automatically cancel, replace, or close
+   orders/positions that were opened via this carve-out — and NOTHING else:
+   - It can only ever REDUCE exposure: its reachable order set is sell-to-
+     close / buy-to-cover / cancel for a persisted managed position's
+     symbol and quantity. It can never place an opening order, never exceed
+     the managed quantity, and never touch a position it did not open
+     (startup reconciliation adopts only positions recorded in the
+     `managed_positions` table).
+   - Exit policies are limited to the reclaim ticket's own geometry:
+     `ladder` (rest the protective stop; swap stop→target sell when a
+     target level trades — Robinhood cannot rest both, verified live
+     2026-07-12: second sell rejects "Not enough shares to sell") and
+     `trailing` (ratchet the resting stop toward price by the initial
+     stop distance; cancel→replace, upward only).
+   - The broker-resident protective stop is the invariant: between monitor
+     actions a stop always rests at the broker, so monitor downtime can
+     never leave a position unprotected — it only pauses trailing/target
+     swaps.
+   - The monitor runs only while `VANTAGE_LIVE_OK=1`; without the gate it
+     observes and logs but places/cancels nothing.
 
 Everything else in the v1 decision stands: no other code that places orders,
 transfers funds, or writes to any broker or financial account; aggregation is
@@ -90,3 +113,8 @@ amending this ADR first.
 
 - **v1 (accepted):** absolute read-only — no order or fund-movement code paths.
 - **v2 (2026-07-12):** reclaim-ticket → Robinhood execution carve-out, per the constraints above. Future widenings append here.
+- **v3 (2026-07-12):** exits-only automation — the managed-exit monitor may
+  reduce/close carve-out positions (ladder target swap or trailing-stop
+  ratchet) without operator initiation; it can never open exposure. Driven
+  by swing-trading need + the live-verified Robinhood constraint that a stop
+  and a take-profit cannot rest simultaneously (no OCO on the agentic API).

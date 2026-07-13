@@ -432,12 +432,52 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             return envelope(snap, available=False, note=extras)
         account = str(body.get("account_number") or "")
         try:
-            result = _exec.execute_ticket(ticket, account,
-                                          live=bool(body.get("live")))
+            result = _exec.execute_ticket(
+                ticket, account, live=bool(body.get("live")),
+                exit_policy=str(body.get("exit_policy") or "ladder"),
+                store=store if store.uses_sqlite else None)
         except (ValueError, _exec.ExecutionViolation) as e:
             return envelope(snap, available=False, note=str(e), ticket=ticket)
         return envelope(snap, available=True, ticket=ticket,
                         execution=result, **extras)
+
+    @app.get("/api/exits")
+    def exits_list(status: str | None = Query(None)):
+        """Managed-exit positions (ADR-010 v3): what the exit monitor is
+        holding, protecting, and has closed. Read-only."""
+        from .brokers import robinhood_execution as _exec
+        snap = state.snapshot()
+        return envelope(snap, positions=store.load_managed_positions(status),
+                        live_gate=_exec.live_allowed())
+
+    @app.post("/api/exits/tick")
+    def exits_tick():
+        """Run ONE exit-monitor pass now (ADR-010 v3 exits-only automation:
+        re-arm stops, detect fills, ladder target swaps, trailing ratchets —
+        can only ever reduce or close carve-out positions). The continuous
+        loop is ``python -m vantage_server.execution_monitor``; this route
+        lets the operator (or an external cron) drive the same pass."""
+        from . import execution_monitor
+        snap = state.snapshot()
+        if not store.uses_sqlite:
+            return envelope(snap, available=False,
+                            note="managed exits need the SQLite backend")
+        actions = execution_monitor.tick(store)
+        return envelope(snap, available=True, actions=actions)
+
+    @app.post("/api/exits/{pos_id}/disarm")
+    def exits_disarm(pos_id: int):
+        """Stop managing one position. The broker-side stop is LEFT RESTING
+        (disarm never removes protection); the row just leaves the monitor's
+        control. Manual cleanup of the resting order is the operator's."""
+        snap = state.snapshot()
+        import datetime as _dtmod
+        ok = store.update_managed_position(
+            pos_id, status="disarmed",
+            closed_at=_dtmod.datetime.now(_dtmod.timezone.utc).isoformat(),
+            exit_reason="disarmed")
+        return envelope(snap, available=ok,
+                        note=None if ok else f"no managed position {pos_id}")
 
     @app.post("/api/spx/playbook/recompute")
     def spx_playbook_recompute(body: dict = Body(default={})):

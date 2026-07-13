@@ -453,6 +453,10 @@ ALLOWED_WRITE_ROUTES = {
     # THE execution carve-out (ADR-010 v2): server-recomputed reclaim ticket
     # submitted via brokers/robinhood_execution.py's three-tool allowlist.
     "/api/ticket/execute",
+    # Exits-only automation (ADR-010 v3): one monitor pass (reduce/close
+    # carve-out positions only) + releasing a position from management.
+    "/api/exits/tick",
+    "/api/exits/{pos_id}/disarm",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the
