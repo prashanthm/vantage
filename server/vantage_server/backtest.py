@@ -76,6 +76,8 @@ DEFAULT_PARAMS = {
     "date_max": None,              # ISO date — only trade sessions <= this
     "trigger_interval": "15m",     # bar interval for trigger detection + settlement
     "confirm_closes": 1,           # reclaim needs N CONSECUTIVE closes beyond the level
+    "volume_confirm_mult": None,   # confirming bar needs vol >= mult x prior-20 mean
+    "volume_len": 20,              # volume baseline window (bars)
     # ── playbook DESIGN params (scaffold side; prod defaults) ──
     "recent_sessions": 10,         # swing window the chart dims read
     "pivot_n": 3,                  # fractal pivot width (adopted 2→3; pass 2 to reproduce pre-adoption runs)
@@ -286,7 +288,9 @@ def history_rows_for(chart: dict, day, day_bars) -> list[dict]:
 def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
                   entry_mode: str = "touch",
                   time_stop_bars: int | None = None,
-                  confirm_closes: int = 1) -> dict | None:
+                  confirm_closes: int = 1,
+                  volume_confirm_mult: float | None = None,
+                  volume_len: int = 20) -> dict | None:
     """Simulate a resting-limit ticket against a session's proxy bars, starting
     at ``start_idx`` (break tickets spawn mid-day). Conservative rules: a bar
     touching both entry and stop is a stop-out; a target is never credited on
@@ -300,6 +304,13 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
 
     ``time_stop_bars=N`` exits at the close N bars after the fill bar when
     neither target nor stop has hit (0DTE theta discipline).
+
+    ``volume_confirm_mult=M`` (reclaim mode only) additionally requires the
+    CONFIRMING bar's volume >= M x the mean of the prior ``volume_len`` bars —
+    "the reclaim happened on real participation, not drift". A bar failing the
+    gate does not fill; the scan continues (a later confirming bar may pass).
+    With < 5 prior bars of history, or a session with no volume data, the gate
+    passes (never blocks on missing data).
 
     Returns ``{filled, entry, exit, reason, pnl_pct, fill_idx}`` or None when
     the ticket never fills."""
@@ -317,6 +328,18 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
     fill_px = entry
     fill_bar_can_stop = True
     if entry_mode == "reclaim":
+        vols = [float(v) for v in day_bars.get("Volume", [0.0] * n)]
+        has_vol = any(v > 0 for v in vols)
+
+        def _vol_ok(i: int) -> bool:
+            if volume_confirm_mult is None or not has_vol:
+                return True
+            prior = vols[max(0, i - volume_len):i]
+            if len(prior) < 5:
+                return True     # too little session history — never block on it
+            avg = sum(prior) / len(prior)
+            return avg <= 0 or vols[i] >= volume_confirm_mult * avg
+
         touched = False
         consec = 0
         for i in range(start_idx, n):
@@ -325,7 +348,7 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
             if touched:
                 beyond = (closes[i] > entry) if side == "long" else (closes[i] < entry)
                 consec = consec + 1 if beyond else 0
-                if consec >= confirm_closes:
+                if consec >= confirm_closes and _vol_ok(i):
                     fill_idx, fill_px = i, closes[i]
                     fill_bar_can_stop = False   # bar already closed on our side
                     break
@@ -630,10 +653,13 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                                 start = max(t.get("start_idx", 0),
                                             int(p["skip_open_bars"]))
                                 sim_bars = pday
+                            vcm = p.get("volume_confirm_mult")
                             res = simulate_fill(t, sim_bars, start,
                                                 entry_mode=p["entry_mode"],
                                                 time_stop_bars=p["time_stop_bars"],
-                                                confirm_closes=int(p["confirm_closes"]))
+                                                confirm_closes=int(p["confirm_closes"]),
+                                                volume_confirm_mult=(float(vcm) if vcm is not None else None),
+                                                volume_len=int(p.get("volume_len", 20)))
                             if res is None:
                                 counts["no_fill"] += 1
                                 continue

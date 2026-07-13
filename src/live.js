@@ -852,6 +852,19 @@ export async function getPlaybookPine(date, symbol = "SPX") {
   return { available: false };
 }
 
+// Stage an order ticket for a reclaim trade at a playbook level. STAGED ONLY:
+// the server computes entry/stop/targets + risk-based qty (index symbols come
+// back rescaled into the tradeable proxy ETF, e.g. SPX→SPY) — the operator
+// reviews and places it in their broker; Vantage never places orders (ADR-010).
+export async function getTicket(symbol, side, level, risk = 500) {
+  const q = `symbol=${encodeURIComponent(symbol)}&side=${encodeURIComponent(side)}` +
+            `&level=${encodeURIComponent(level)}&risk=${encodeURIComponent(risk)}`;
+  // 20s: an index ticket fetches a live proxy quote (SPY/QQQ/IWM) to rescale.
+  const v = await getJson(`${backendBase()}/api/ticket?${q}`, { timeoutMs: 20000 });
+  if (v && v.available) return { available: true, ticket: v.ticket, text: v.text };
+  return { available: false, note: (v && v.note) || "ticket unavailable" };
+}
+
 // Regenerate the playbook NOW from the latest data (fresh bars + Sentinel
 // artifacts), outside the nightly job. POST; returns the new scaffold via
 // mapPlaybook, or null on failure.

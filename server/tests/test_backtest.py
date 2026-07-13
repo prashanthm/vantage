@@ -135,3 +135,41 @@ def test_confirm_closes_requires_consecutive_recloses():
                   (100.7, 102.5, 100.5, 102.2)])
     res = simulate_fill(_ticket(), bars, entry_mode="reclaim", confirm_closes=2)
     assert res["fill_idx"] == 3 and res["entry"] == pytest.approx(100.7)
+
+
+def _bars_vol(rows, vols):
+    """rows: [(o, h, l, c)] with explicit per-bar volume."""
+    idx = pd.date_range("2026-01-05 09:30", periods=len(rows), freq="15min",
+                        tz="America/New_York")
+    return pd.DataFrame(
+        {"Open": [r[0] for r in rows], "High": [r[1] for r in rows],
+         "Low": [r[2] for r in rows], "Close": [r[3] for r in rows],
+         "Volume": vols}, index=idx)
+
+
+def test_volume_confirm_gate_blocks_quiet_reclaims_and_passes_loud_ones():
+    # research instrument (default OFF; the gate was DISPROVEN for prod — see
+    # goals/reclaim-confirmations): the confirming close must print >= mult x
+    # the prior-window mean volume, else the scan continues to a later bar.
+    rows = [(101, 101.5, 99.9, 99.95)] + \
+        [(99.95, 100.4, 99.6, 99.9)] * 6 + [
+        (99.9, 100.8, 99.7, 100.6),      # first confirming close, QUIET (vol 1)
+        (100.6, 101.4, 100.4, 101.0),    # confirming close, LOUD (vol 10)
+        (101.0, 102.5, 100.9, 102.0)]    # target
+    vols = [1.0] * 8 + [10.0, 1.0]
+    bars = _bars_vol(rows, vols)
+    gated = simulate_fill(_ticket(), bars, entry_mode="reclaim",
+                          volume_confirm_mult=2.0, volume_len=5)
+    ungated = simulate_fill(_ticket(), bars, entry_mode="reclaim")
+    # ungated fills on the FIRST confirming close; gated waits for the loud bar
+    assert ungated["fill_idx"] == 7
+    assert gated["fill_idx"] == 8            # the vol-10 bar
+
+
+def test_volume_gate_never_blocks_without_volume_data():
+    rows = [(101, 101.5, 99.9, 100.5), (100.5, 101.2, 100.2, 101.0),
+            (101.0, 102.5, 100.8, 102.0)]
+    bars = _bars_vol(rows, [0.0, 0.0, 0.0])   # index has no volume
+    res = simulate_fill(_ticket(), bars, entry_mode="reclaim",
+                        volume_confirm_mult=1.5)
+    assert res is not None and res["filled"]  # gate passed, not blocked

@@ -308,6 +308,95 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=bool(script), date=row["date"],
                         session=row["session"], script=script)
 
+    @app.get("/api/spx/reclaim/pine")
+    def spx_reclaim_pine(date: str | None = Query(None),
+                         symbol: str = Query("SPX")):
+        """The reclaim strategy as a PREFILLED TradingView indicator for
+        ``symbol``: the symbol's current GEX levels (from the stored playbook
+        scaffold) are baked into the GEX-levels input, so it fires ONLY on
+        reclaims of those lines with no daily paste. Regenerate when the GEX
+        levels move (0DTE: each session). A symbol without options gamma yields
+        no baked levels and the script falls back to live pivots. Context, not a
+        signal (ADR-008)."""
+        from . import reclaim_pine
+        snap = state.snapshot()
+        sym = (symbol or "SPX").upper()
+        row = store.load_spx_playbook(date, symbol=sym)
+        if row is None:
+            return envelope(snap, available=False,
+                            note=f"No {sym} playbook generated yet — needed for "
+                                 f"the GEX levels to prefill.")
+        scaffold = row["scaffold"] or {}
+        script = reclaim_pine.build_reclaim_indicator_for(sym, scaffold)
+        levels = reclaim_pine.gex_levels_from_scaffold(scaffold)
+        return envelope(snap, available=bool(script), date=row["date"],
+                        session=row["session"], symbol=sym,
+                        gex_levels=levels, prefilled=bool(levels), script=script)
+
+    @app.get("/api/ticket")
+    def order_ticket(symbol: str = Query(...),
+                     side: str = Query(...),
+                     level: float = Query(...),
+                     risk: float = Query(100.0),
+                     date: str | None = Query(None)):
+        """A STAGED order ticket for a reclaim trade at ``level``: entry/stop
+        from the shared reclaim spec, target ladder from the symbol's playbook
+        levels, risk-based qty, per-leg scale-out — plus a copy-paste text
+        block. An INDEX symbol (SPX/NDX/RUT — not directly buyable) is staged
+        in its tradeable proxy ETF (SPY/QQQ/IWM) with every price rescaled by
+        the live proxy/index ratio; the ticket records the mapping. Review and
+        place in your broker; Vantage computes and stages, it NEVER places
+        orders (ADR-010). ``risk`` = max loss at the stop."""
+        from . import order_ticket as _ot
+        from . import reclaim_pine
+        snap = state.snapshot()
+        sym = (symbol or "").upper()
+        sd = (side or "").lower()
+        if sd not in ("long", "short") or not sym or level <= 0:
+            return envelope(snap, available=False,
+                            note="need symbol, side=long|short, level>0")
+        row = store.load_spx_playbook(date, symbol=sym)
+        scaffold = (row or {}).get("scaffold") or {}
+        levels = reclaim_pine.gex_levels_from_scaffold(scaffold) if row else []
+        supports = [v for v in levels if v < level]
+        resistances = [v for v in levels if v > level]
+
+        # indexes aren't buyable — stage the ticket in the proxy ETF, rescaled
+        ticket_sym, derived, lvl = sym, None, float(level)
+        proxy = _ot.proxy_for(sym)
+        if proxy:
+            index_spot = (scaffold.get("regime") or {}).get("spot")
+            proxy_last = None
+            try:
+                from .quotes import _yf_fetch
+                got = _yf_fetch([proxy])
+                proxy_last = got.get(proxy, (None, None))[0]
+            except Exception:
+                proxy_last = None
+            if not index_spot or not proxy_last:
+                return envelope(snap, available=False,
+                                note=f"{sym} is an index (not directly buyable); "
+                                     f"couldn't price the {proxy} proxy to rescale "
+                                     f"(index_spot={index_spot}, "
+                                     f"proxy_last={proxy_last}). Retry, or pass "
+                                     f"symbol={proxy} with {proxy}-terms levels.")
+            ratio = float(proxy_last) / float(index_spot)
+            supports = _ot.rescale(supports, ratio)
+            resistances = _ot.rescale(resistances, ratio)
+            lvl = lvl * ratio
+            ticket_sym = proxy
+            derived = {"index": sym, "index_level": float(level),
+                       "ratio": ratio, "proxy_last": float(proxy_last),
+                       "index_spot": float(index_spot)}
+
+        ticket = _ot.build_ticket(ticket_sym, sd, lvl, supports, resistances,
+                                  risk_amount=risk, derived_from=derived)
+        return envelope(snap, available=True, ticket=ticket,
+                        text=_ot.render_ticket(ticket),
+                        levels_source=("playbook" if levels else "none — "
+                                       "targets empty; pass a symbol with a "
+                                       "generated playbook for the ladder"))
+
     @app.post("/api/spx/playbook/recompute")
     def spx_playbook_recompute(body: dict = Body(default={})):
         """Regenerate the playbook NOW for the requested ``symbol`` (SPX|QQQ|IWM)

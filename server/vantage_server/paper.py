@@ -30,8 +30,14 @@ EXIT_OK = 0
 EXIT_USER_ERROR = 2
 ET = ZoneInfo("America/New_York")
 
-STOP_PAD_PCT = 0.20   # stop sits this % beyond the signal level (SPX terms)
-DEFAULT_SHARES = 100  # notional share size for the paper P&L
+from .reclaim_strategy import (  # single source of truth for the reclaim trade
+    DEFAULT_SHARES,
+    PENDING_EXPIRE_HOURS as _SPEC_EXPIRE_HOURS,
+    RECLAIM_CLOSES as _SPEC_RECLAIM_CLOSES,
+    STOP_PAD_PCT,
+    stop_for,
+    target_for,
+)
 
 #: a zone counts as "broken" once price closes beyond it by this fraction of
 #: price. Kept in sync with journal._BREAK_PCT so the paper break-setups and the
@@ -243,12 +249,11 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
         # ENTRY is the signal LEVEL (you buy the dip AT support / fade the rally AT
         # resistance) — a resting order, not a market order at spot. Target = the
         # next opposing level; stop = just past the signal level.
-        if side == "long":       # buy dip at support → target next resistance up
-            tgt = next((r["price"] for r in resistances if r["price"] > lvl), None)
-            stop = lvl * (1 - STOP_PAD_PCT / 100)
-        else:                    # fade rally at resistance → target next support down
-            tgt = next((s["price"] for s in supports if s["price"] < lvl), None)
-            stop = lvl * (1 + STOP_PAD_PCT / 100)
+        # target = next opposing level, stop = level ± pad — from the shared spec.
+        tgt = target_for(lvl, side,
+                         [s["price"] for s in supports],
+                         [r["price"] for r in resistances])
+        stop = stop_for(lvl, side)
         entry_spy = to_spy(lvl, ratio)   # enter AT the level (resting limit order)
         tgt_spy = to_spy(tgt, ratio) if tgt is not None else None
         stop_spy = to_spy(stop, ratio)
@@ -335,13 +340,11 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
 
 # ── open + settle ────────────────────────────────────────────────────────────
 
-#: The validated entry discipline (strategy-winrate + reclaim-interval goals):
-#: a reclaim ticket FILLS only after this many consecutive 5m closes back
-#: through the level — never on the touch (touch-entry lost in every regime).
-RECLAIM_CLOSES = 3
-#: A pending reclaim that never fills within this window expires unfilled —
-#: no fill, no trade, exactly the discipline the ticket prints.
-PENDING_EXPIRE_HOURS = 48.0
+#: Aliases of the shared reclaim spec (reclaim_strategy.py) — the entry
+#: discipline (N consecutive 5m closes) and pending-expiry window live there so
+#: paper and the Pine generators can never disagree.
+RECLAIM_CLOSES = _SPEC_RECLAIM_CLOSES
+PENDING_EXPIRE_HOURS = _SPEC_EXPIRE_HOURS
 
 
 def open_paper_trade(store: Store, ticket: dict, *, session: str | None = None,

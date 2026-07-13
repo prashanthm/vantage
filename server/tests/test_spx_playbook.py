@@ -289,6 +289,7 @@ def test_build_table_dedups_and_reads():
 def test_write_pine_file(tmp_path, monkeypatch):
     monkeypatch.setenv("VANTAGE_PINE_DIR", str(tmp_path))
     scaffold = {
+        "symbol": "SPX",
         "session": "2026-07-09", "generated_for": "2026-07-08",
         "regime": {"gamma": "positive", "spot": 7480.0},
         "level_ladder": [{"price": 7481.0, "kind": "gamma flip (regime line)", "source": "GEX"}],
@@ -300,6 +301,24 @@ def test_write_pine_file(tmp_path, monkeypatch):
     written = (tmp_path / "spx_playbook.pine").read_text()
     assert written.startswith("//@version=5")
     assert "flipLevel = 7481.0" in written
+    # the prefilled reclaim indicator is regenerated in lockstep, GEX baked in
+    reclaim = (tmp_path / "reclaim_indicator_SPX.pine").read_text()
+    assert 'indicator("Reclaim Strategy — SPX (GEX)"' in reclaim
+    assert 'input.text_area("7481|gamma flip (regime line)"' in reclaim
+
+
+def test_write_reclaim_pine_file_bakes_symbol_levels(tmp_path, monkeypatch):
+    monkeypatch.setenv("VANTAGE_PINE_DIR", str(tmp_path))
+    scaffold = {"symbol": "QQQ", "level_ladder": [
+        {"price": 500.0, "kind": "call wall", "source": "GEX"},
+        {"price": 480.0, "kind": "put wall", "source": "GEX"},
+        {"price": 490.0, "kind": "fib 50%", "source": "chart"},  # transient -> excluded
+    ]}
+    path = pb.write_reclaim_pine_file(scaffold)
+    assert path is not None and path.endswith("reclaim_indicator_QQQ.pine")
+    s = (tmp_path / "reclaim_indicator_QQQ.pine").read_text()
+    assert 'input.text_area("500|call wall, 480|put wall"' in s   # walls baked with labels, fib dropped
+    assert 'indicator("Reclaim Strategy — QQQ (GEX)"' in s
 
 
 def test_write_pine_file_none_when_empty(tmp_path, monkeypatch):
@@ -437,6 +456,86 @@ def test_pine_route_renders_stored_scaffold(seeded_dir):
     assert body["script"].startswith("//@version=5")
     assert "flipLevel = 7481.0" in body["script"]
     assert "NOT FINANCIAL ADVICE" in body["script"]
+
+
+def _seed_spx_ticket_playbook(store):
+    store.upsert_spx_playbook("2026-07-07", {
+        "session": "2026-07-08", "generated_for": "2026-07-07",
+        "regime": {"gamma": "positive", "spot": 7481.0},
+        "level_ladder": [
+            {"price": 7550.0, "kind": "call wall", "source": "GEX"},
+            {"price": 7481.0, "kind": "gamma flip", "source": "GEX"},
+            {"price": 7450.0, "kind": "put wall", "source": "GEX"}],
+        "setups": [],
+    })
+
+
+def test_ticket_route_stages_index_trade_in_the_proxy_etf(seeded_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from vantage_server.api import create_app
+    data_dir, store = seeded_dir
+    _seed_spx_ticket_playbook(store)
+    # SPX is an index — the ticket must come back in SPY, rescaled by the live
+    # ratio. Mock the SPY quote: 748.10 vs index spot 7481.0 -> ratio 0.1.
+    from vantage_server import quotes as q
+    monkeypatch.setattr(q, "_yf_fetch", lambda syms, timeout=15.0: {"SPY": (748.10, 747.0)})
+    client = TestClient(create_app(data_dir))
+    r = client.get("/api/ticket", params={
+        "symbol": "SPX", "side": "long", "level": 7481.0, "risk": 500.0})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] is True
+    tk = body["ticket"]
+    assert tk["symbol"] == "SPY"                    # staged in the tradeable proxy
+    assert tk["orders"]["entry"]["price"] == 748.1  # 7481 * 0.1
+    # ladder rescaled too: 7550 -> 755.0
+    assert [t["price"] for t in tk["orders"]["targets"]] == [755.0]
+    assert tk["risk"]["max_loss_at_stop"] <= 500.0
+    # provenance records the mapping for operator verification
+    assert tk["derived_from"]["index"] == "SPX"
+    assert tk["derived_from"]["index_level"] == 7481.0
+    assert abs(tk["derived_from"]["ratio"] - 0.1) < 1e-9
+    assert "STAGED ONLY" in tk["note"]
+    assert "LONG SPY" in body["text"] and "from SPX 7481.0" in body["text"]
+
+
+def test_ticket_route_index_without_proxy_quote_degrades(seeded_dir, monkeypatch):
+    from fastapi.testclient import TestClient
+    from vantage_server.api import create_app
+    data_dir, store = seeded_dir
+    _seed_spx_ticket_playbook(store)
+    from vantage_server import quotes as q
+    monkeypatch.setattr(q, "_yf_fetch", lambda syms, timeout=15.0: {})  # no quote
+    r = TestClient(create_app(data_dir)).get("/api/ticket", params={
+        "symbol": "SPX", "side": "long", "level": 7481.0})
+    body = r.json()
+    assert body["available"] is False               # no ticket on a guessed ratio
+    assert "not directly buyable" in body["note"]
+
+
+def test_ticket_route_tradeable_symbol_needs_no_proxy(seeded_dir):
+    from fastapi.testclient import TestClient
+    from vantage_server.api import create_app
+    data_dir, store = seeded_dir
+    store.upsert_spx_playbook("2026-07-07", {
+        "session": "2026-07-08", "generated_for": "2026-07-07",
+        "regime": {"gamma": "positive", "spot": 500.0},
+        "level_ladder": [
+            {"price": 505.0, "kind": "call wall", "source": "GEX"},
+            {"price": 495.0, "kind": "put wall", "source": "GEX"}],
+        "setups": [],
+    }, symbol="QQQ")
+    r = TestClient(create_app(data_dir)).get("/api/ticket", params={
+        "symbol": "QQQ", "side": "long", "level": 495.0, "risk": 200.0})
+    body = r.json()
+    assert body["available"] is True
+    tk = body["ticket"]
+    assert tk["symbol"] == "QQQ" and tk["derived_from"] is None   # direct, no rescale
+    assert tk["orders"]["entry"]["price"] == 495.0
+    # bad input degrades honestly, no ticket
+    bad = TestClient(create_app(data_dir)).get("/api/ticket", params={
+        "symbol": "QQQ", "side": "sideways", "level": 495.0})
+    assert bad.json()["available"] is False
 
 
 def test_recompute_route_regenerates_and_stores(seeded_dir, sentinel_dir, monkeypatch):

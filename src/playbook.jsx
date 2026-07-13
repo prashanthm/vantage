@@ -7,7 +7,7 @@
 // reads the latest. Context, not a signal (ADR-008) — no orders placed.
 import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
-import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook } from "./live.js";
+import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket } from "./live.js";
 
 const { useMemo, useState } = React;
 
@@ -29,6 +29,7 @@ export function PlaybookView({ refreshNonce }) {
   const [sym, setSym] = useState("SPX");     // SPX | QQQ | IWM
   const [pine, setPine] = useState(null);   // {loading|script|error} for the export modal
   const [busy, setBusy] = useState(false);  // recompute in flight
+  const [ticket, setTicket] = useState(null); // {level, kind, role} → staging modal
 
   // After a recompute we must re-pull with refresh=true so Mira busts its cached
   // (stale) narrative + scaffold and picks up the freshly-recomputed GEX.
@@ -109,6 +110,7 @@ export function PlaybookView({ refreshNonce }) {
       </div>
 
       {pine && <PineModal pine={pine} session={p && p.session} onClose={() => setPine(null)} />}
+      {ticket && <TicketModal sym={sym} spot={spot} seed={ticket} onClose={() => setTicket(null)} />}
 
       {cat.today && (
         <div className="vg-pb-catalyst">
@@ -183,6 +185,10 @@ export function PlaybookView({ refreshNonce }) {
                 <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
                   {z.role}{z.strength ? ` · ${z.strength} dims` : ""}
                 </span>
+                <button className="vg-linkbtn" style={{ fontSize: 11 }}
+                  onClick={() => setTicket({ level: z.price, kind: (z.kinds || []).join(" + "), role: z.role })}>
+                  ticket
+                </button>
               </div>
             ))}
           </div>
@@ -219,6 +225,10 @@ export function PlaybookView({ refreshNonce }) {
                 </span>
                 <span style={{ fontSize: 13 }}>{r.kind}</span>
                 {r.source && <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>{r.source}</span>}
+                <button className="vg-linkbtn" style={{ fontSize: 11, marginLeft: r.source ? 0 : "auto" }}
+                  onClick={() => setTicket({ level: r.price, kind: r.kind, role: levelTone(r.kind) === "good" ? "support" : levelTone(r.kind) === "bad" ? "resistance" : null })}>
+                  ticket
+                </button>
               </div>
             ))}
           </div>
@@ -315,6 +325,105 @@ function SummaryTile({ label, value, tone }) {
     <div className="vg-pb-tile">
       <div className="vg-note" style={{ fontSize: 11 }}>{label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
+    </div>
+  );
+}
+
+// Ticket modal: stage a reclaim order ticket at a playbook level. The server
+// computes entry/stop/target ladder + risk-based qty (an index symbol comes
+// back rescaled into its tradeable proxy ETF, e.g. SPX→SPY at the live ratio).
+// STAGED ONLY — the operator copies it into their broker; Vantage never places
+// orders (ADR-010).
+function TicketModal({ sym, spot, seed, onClose }) {
+  // side default: role if the level has one, else by position vs spot
+  // (below spot = buy-the-dip long; above = fade-the-rally short).
+  const defSide = seed.role === "support" ? "long"
+    : seed.role === "resistance" ? "short"
+    : (spot != null && seed.level > spot ? "short" : "long");
+  const [side, setSide] = useState(defSide);
+  const [risk, setRisk] = useState(500);
+  const [res, setRes] = useState(null);   // {loading} | {ticket, text} | {error, note}
+  const [copied, setCopied] = useState(false);
+
+  const stage = async () => {
+    setRes({ loading: true });
+    setCopied(false);
+    const v = await getTicket(sym, side, seed.level, risk || 0);
+    setRes(v.available ? { ticket: v.ticket, text: v.text } : { error: true, note: v.note });
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText((res && res.text) || ""); setCopied(true); }
+    catch (e) { setCopied(false); }
+  };
+
+  const tk = res && res.ticket;
+  const o = tk && tk.orders;
+  return (
+    <div className="vg-modal-backdrop" onClick={onClose}>
+      <div className="vg-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="vg-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <div className="vg-kicker" style={{ margin: 0 }}>
+            Stage ticket · {sym} {fmtP(seed.level)}{seed.kind ? ` · ${seed.kind}` : ""}
+          </div>
+          <button className="vg-linkbtn" onClick={onClose}>close</button>
+        </div>
+
+        <div className="vg-row" style={{ gap: 8, marginTop: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div className="vg-symsw" role="tablist" aria-label="side">
+            {["long", "short"].map((s) => (
+              <button key={s} role="tab" aria-selected={s === side}
+                className={cls("vg-symsw-btn", s === side && "on")}
+                onClick={() => setSide(s)}>{s === "long" ? "Long (reclaim)" : "Short (fade)"}</button>
+            ))}
+          </div>
+          <label className="vg-note" style={{ fontSize: 12 }}>
+            risk $<input type="number" min="1" step="50" value={risk}
+              style={{ width: 70, marginLeft: 4 }}
+              onChange={(e) => setRisk(Number(e.target.value))} />
+          </label>
+          <button className="vg-btn-sm" onClick={stage}
+            disabled={res && res.loading}>{res && res.loading ? "Staging…" : "Stage"}</button>
+        </div>
+
+        {res && res.error && (
+          <p className="vg-note" style={{ margin: "10px 0" }}>{res.note}</p>
+        )}
+        {tk && (
+          <>
+            {tk.derived_from && (
+              <p className="vg-note" style={{ margin: "10px 0 0", fontSize: 12 }}>
+                {tk.derived_from.index} is an index — staged in <b>{tk.symbol}</b> at the
+                live ratio {tk.derived_from.ratio.toFixed(5)}.
+              </p>
+            )}
+            <table className="vg-table" style={{ marginTop: 8, fontSize: 13 }}>
+              <tbody>
+                <tr><td>Entry</td>
+                  <td>{o.entry.action} <b>{o.entry.qty}</b> @ <b>{o.entry.price}</b> limit</td></tr>
+                <tr><td>Stop</td>
+                  <td>{o.stop.action} {o.stop.qty} @ <b>{o.stop.price}</b> stop
+                    <span className="vg-note"> · max loss {tk.risk.max_loss_at_stop}</span></td></tr>
+                {o.targets.map((t) => (
+                  <tr key={t.name}><td>{t.name}</td>
+                    <td>{o.stop.action} {t.qty} @ <b>{t.price}</b> limit
+                      {t.risk_reward != null && <span className="vg-note"> · R:R {t.risk_reward}</span>}</td></tr>
+                ))}
+              </tbody>
+            </table>
+            {!tk.sized && (
+              <p className="vg-note" style={{ margin: "8px 0 0" }}>
+                Risk budget too small for 1 share at this stop distance.
+              </p>
+            )}
+            <p className="vg-note" style={{ margin: "8px 0", fontSize: 11 }}>
+              STAGED ONLY — review and place these in your broker. Vantage never places orders.
+            </p>
+            <div className="vg-row" style={{ gap: 8 }}>
+              <button className="vg-btn-sm" onClick={copy}>{copied ? "Copied ✓" : "Copy as text"}</button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

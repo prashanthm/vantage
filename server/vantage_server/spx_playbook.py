@@ -1007,28 +1007,54 @@ def backfill_price_levels(store, days: int = 90, until: _dt.date | None = None,
     return written
 
 
-def write_pine_file(scaffold: dict) -> str | None:
-    """Render the scaffold to the SPX Pine indicator and write it to the repo's
-    ``pine/`` dir (env ``VANTAGE_PINE_DIR``; default ``<repo>/pine``). Returns the
-    path written, or None if there was nothing to render. Called by the nightly
-    job and the /recompute route so the copy-paste artifact stays current."""
+def _pine_dir():
+    """The repo's ``pine/`` dir (env ``VANTAGE_PINE_DIR``; default ``<repo>/pine``)."""
     import os
     from pathlib import Path
+    pine_dir = os.environ.get("VANTAGE_PINE_DIR")
+    # server/vantage_server/spx_playbook.py -> repo root is 3 parents up
+    return Path(pine_dir) if pine_dir else Path(__file__).resolve().parents[2] / "pine"
+
+
+def write_pine_file(scaffold: dict) -> str | None:
+    """Render the scaffold to the SPX Pine indicator and write it to the repo's
+    ``pine/`` dir. Also refreshes the symbol-specific PREFILLED reclaim indicator
+    (GEX levels baked in) so both copy-paste artifacts stay current. Returns the
+    playbook path written, or None if there was nothing to render. Called by the
+    nightly job and the /recompute route."""
     from . import playbook_pine
     script = playbook_pine.build_playbook_pine(scaffold)
     if not script:
         return None
-    pine_dir = os.environ.get("VANTAGE_PINE_DIR")
-    if pine_dir:
-        base = Path(pine_dir)
-    else:
-        # server/vantage_server/spx_playbook.py -> repo root is 3 parents up
-        base = Path(__file__).resolve().parents[2] / "pine"
+    base = _pine_dir()
     sym = (scaffold.get("symbol") or "SPX").lower()
     fname = "spx_playbook.pine" if sym == "spx" else f"{sym}_playbook.pine"
     try:
         base.mkdir(parents=True, exist_ok=True)
         out = base / fname
+        out.write_text(script, encoding="utf-8")
+    except OSError:
+        return None
+    # the prefilled reclaim indicator rides along, refreshed from the same
+    # scaffold — best-effort, never blocks the playbook write.
+    write_reclaim_pine_file(scaffold)
+    return str(out)
+
+
+def write_reclaim_pine_file(scaffold: dict) -> str | None:
+    """Render the symbol-specific PREFILLED reclaim indicator (the scaffold's GEX
+    levels baked into the input) to ``pine/reclaim_indicator_<SYM>.pine``. Keeps
+    the reclaim artifact in lockstep with the playbook's GEX levels on every
+    recompute / nightly run. Returns the path, or None on nothing-to-write."""
+    from . import reclaim_pine
+    sym = (scaffold.get("symbol") or "SPX").upper()
+    script = reclaim_pine.build_reclaim_indicator_for(sym, scaffold)
+    if not script:
+        return None
+    base = _pine_dir()
+    try:
+        base.mkdir(parents=True, exist_ok=True)
+        out = base / f"reclaim_indicator_{sym}.pine"
         out.write_text(script, encoding="utf-8")
         return str(out)
     except OSError:
