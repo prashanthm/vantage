@@ -78,6 +78,8 @@ DEFAULT_PARAMS = {
     "confirm_closes": 1,           # reclaim needs N CONSECUTIVE closes beyond the level
     "volume_confirm_mult": None,   # confirming bar needs vol >= mult x prior-20 mean
     "volume_len": 20,              # volume baseline window (bars)
+    "exit_policy": "target",       # "target" (fixed T1) | "trailing" (ratcheted stop)
+    "trail_mult": 1.0,             # trail width = mult x the initial stop distance
     # ── playbook DESIGN params (scaffold side; prod defaults) ──
     "recent_sessions": 10,         # swing window the chart dims read
     "pivot_n": 3,                  # fractal pivot width (adopted 2→3; pass 2 to reproduce pre-adoption runs)
@@ -290,7 +292,9 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
                   time_stop_bars: int | None = None,
                   confirm_closes: int = 1,
                   volume_confirm_mult: float | None = None,
-                  volume_len: int = 20) -> dict | None:
+                  volume_len: int = 20,
+                  exit_policy: str = "target",
+                  trail_mult: float = 1.0) -> dict | None:
     """Simulate a resting-limit ticket against a session's proxy bars, starting
     at ``start_idx`` (break tickets spawn mid-day). Conservative rules: a bar
     touching both entry and stop is a stop-out; a target is never credited on
@@ -311,6 +315,18 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
     gate does not fill; the scan continues (a later confirming bar may pass).
     With < 5 prior bars of history, or a session with no volume data, the gate
     passes (never blocks on missing data).
+
+    ``exit_policy="trailing"`` replaces the fixed target with a ratcheted
+    stop mirroring execution_monitor's trailing policy: trail width =
+    ``trail_mult`` x the fill→stop distance; each bar the favorable extreme
+    ratchets the stop (never loosens; the ORIGINAL stop is the floor), then
+    the bar's adverse side is tested against the RATCHETED level — the
+    instrument's pessimism convention (an exit that could fire, fires; cf.
+    stop-first on ambiguous bars). Exits reason "trail" when the ratchet had
+    moved the stop, "stop" when the original floor fired. The fixed target
+    is ignored for exits but still required, so both policies simulate the
+    IDENTICAL trade population (fills are policy-independent). Entry
+    semantics, time_stop_bars, and EOD mark-to-close are unchanged.
 
     Returns ``{filled, entry, exit, reason, pnl_pct, fill_idx}`` or None when
     the ticket never fills."""
@@ -370,13 +386,36 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
         last_bar = n - 1
         if time_stop_bars is not None:
             last_bar = min(last_bar, fill_idx + time_stop_bars)
-        for i in range(fill_idx + 1, last_bar + 1):
-            hit_stop = (lows[i] <= stop) if side == "long" else (highs[i] >= stop)
-            hit_tgt = (highs[i] >= tgt) if side == "long" else (lows[i] <= tgt)
-            if hit_stop:                 # stop first on ambiguous bars
-                exit_px, reason = stop, "stop"; break
-            if hit_tgt:
-                exit_px, reason = tgt, "target"; break
+        if exit_policy == "trailing":
+            dist = abs(fill_px - stop) * float(trail_mult)
+            trail_stop = stop
+            peak = fill_px
+            for i in range(fill_idx + 1, last_bar + 1):
+                # ratchet from this bar's favorable extreme FIRST, then test
+                # the adverse side against the ratcheted level (pessimistic
+                # intrabar ordering — an exit that could fire, fires)
+                if side == "long":
+                    peak = max(peak, highs[i])
+                    trail_stop = max(trail_stop, peak - dist)
+                    if lows[i] <= trail_stop:
+                        exit_px = trail_stop
+                        reason = "trail" if trail_stop > stop else "stop"
+                        break
+                else:
+                    peak = min(peak, lows[i])
+                    trail_stop = min(trail_stop, peak + dist)
+                    if highs[i] >= trail_stop:
+                        exit_px = trail_stop
+                        reason = "trail" if trail_stop < stop else "stop"
+                        break
+        else:
+            for i in range(fill_idx + 1, last_bar + 1):
+                hit_stop = (lows[i] <= stop) if side == "long" else (highs[i] >= stop)
+                hit_tgt = (highs[i] >= tgt) if side == "long" else (lows[i] <= tgt)
+                if hit_stop:                 # stop first on ambiguous bars
+                    exit_px, reason = stop, "stop"; break
+                if hit_tgt:
+                    exit_px, reason = tgt, "target"; break
         if reason is None:
             exit_px = closes[last_bar]
             reason = "eod" if last_bar == n - 1 else "time"
@@ -659,7 +698,9 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                                                 time_stop_bars=p["time_stop_bars"],
                                                 confirm_closes=int(p["confirm_closes"]),
                                                 volume_confirm_mult=(float(vcm) if vcm is not None else None),
-                                                volume_len=int(p.get("volume_len", 20)))
+                                                volume_len=int(p.get("volume_len", 20)),
+                                                exit_policy=str(p.get("exit_policy", "target")),
+                                                trail_mult=float(p.get("trail_mult", 1.0)))
                             if res is None:
                                 counts["no_fill"] += 1
                                 continue

@@ -173,3 +173,66 @@ def test_volume_gate_never_blocks_without_volume_data():
     res = simulate_fill(_ticket(), bars, entry_mode="reclaim",
                         volume_confirm_mult=1.5)
     assert res is not None and res["filled"]  # gate passed, not blocked
+
+
+# ---------------------------------------------------- trailing exit policy
+
+def test_trailing_rides_trend_and_exits_on_pullback():
+    # entry 100, stop 99 -> trail dist 1.0. Peaks at 103.5, exits at 102.5.
+    bars = _bars([(101, 101.5, 100.0, 100.5),      # fill at 100, no stop
+                  (100.5, 103.0, 102.1, 102.8),    # peak 103 -> trail 102, low holds
+                  (102.8, 103.5, 102.0, 102.2)])   # peak 103.5 -> trail 102.5, hit
+    res = simulate_fill(_ticket(), bars, exit_policy="trailing")
+    assert res["reason"] == "trail" and res["pnl_pct"] == pytest.approx(2.5)
+
+
+def test_trailing_original_stop_is_the_floor():
+    # no new high after the fill -> nothing ratchets -> the ORIGINAL stop
+    # fires as 'stop' at exactly the ticket's stop price
+    bars = _bars([(101, 101.2, 100.0, 100.4),      # fill at 100, peak = fill
+                  (100.0, 100.0, 98.9, 99.2)])     # no new high; drops through 99
+    res = simulate_fill(_ticket(), bars, exit_policy="trailing")
+    assert res["reason"] == "stop" and res["pnl_pct"] == pytest.approx(-1.0)
+
+
+def test_trailing_intrabar_ordering_is_pessimistic():
+    # one bar makes the high AND the pullback: the high ratchets FIRST, then
+    # the low is tested against the ratcheted level (an exit that could
+    # fire, fires) — locks the instrument's pessimism convention.
+    bars = _bars([(101, 101.5, 100.0, 100.5),
+                  (102.0, 103.0, 101.9, 102.5)])   # trail -> 102, low 101.9 hits
+    res = simulate_fill(_ticket(), bars, exit_policy="trailing")
+    assert res["reason"] == "trail" and res["pnl_pct"] == pytest.approx(2.0)
+
+
+def test_trailing_short_mirrors():
+    bars = _bars([(99, 100.2, 98.8, 99.5),         # short fill at 100
+                  (99.5, 98.2, 97.0, 98.0)])       # trough 97 -> trail 98, hit
+    res = simulate_fill(_ticket("short", 100.0, 98.0, 101.0), bars,
+                        exit_policy="trailing")
+    assert res["reason"] == "trail" and res["pnl_pct"] == pytest.approx(2.0)
+
+
+def test_trailing_never_hit_marks_to_close():
+    bars = _bars([(101, 101.5, 100.0, 100.5),
+                  (100.5, 101.5, 100.6, 101.4),    # trail 100.5, low 100.6 holds
+                  (101.4, 102.4, 101.5, 102.3)])   # trail 101.4, low 101.5 holds
+    res = simulate_fill(_ticket(), bars, exit_policy="trailing")
+    assert res["reason"] == "eod" and res["pnl_pct"] == pytest.approx(2.3)
+
+
+def test_trail_mult_widens_the_trail():
+    # the same path that trails out at 1x survives to EOD at 2x
+    bars = _bars([(101, 101.5, 100.0, 100.5),
+                  (102.0, 103.0, 101.9, 102.5)])
+    res = simulate_fill(_ticket(), bars, exit_policy="trailing", trail_mult=2.0)
+    assert res["reason"] == "eod" and res["pnl_pct"] == pytest.approx(2.5)
+
+
+def test_trailing_keeps_the_same_trade_population():
+    # a target-less ticket is skipped under BOTH policies, so the two arms
+    # always simulate the identical fills (comparability guarantee)
+    bars = _bars([(101, 101.5, 100.0, 100.5)])
+    ticket = {"side": "long", "spy_entry": 100.0, "spy_target": None,
+              "spy_stop": 99.0}
+    assert simulate_fill(ticket, bars, exit_policy="trailing") is None
