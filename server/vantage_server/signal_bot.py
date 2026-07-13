@@ -135,10 +135,17 @@ def msg_expired(t: dict) -> str:
 
 def _ticket_key(row: dict) -> tuple:
     """Identity of one signal for dedupe: the session, proxy, side, and the
-    level it keys off. Any prior row (open OR closed) with the same key means
+    level it keys off IN UNDERLYING TERMS (spx_level). Live 2026-07-13: the
+    proxy-terms level (spy_level) DRIFTS with the live SPY/SPX ratio between
+    polls (748.43→748.27→748.15 for the same 7555.1), so keying on it re-armed
+    and re-notified the same SPX levels every minute. The underlying level is
+    the stable identity; self-proxy underlyings (QQQ/IWM) carry it equal to
+    the proxy level. Any prior row (open OR closed) with the same key means
     the signal is already tracked."""
+    level = (row.get("spx_level") or row.get("spy_level")
+             or row.get("spy_entry") or 0)
     return (row.get("session"), row.get("symbol"), row.get("side"),
-            round(float(row.get("spy_level") or row.get("spy_entry") or 0), 2))
+            round(float(level), 2))
 
 
 def arm_session(store: Store, underlyings=BOT_UNDERLYINGS) -> list[dict]:
@@ -159,7 +166,7 @@ def arm_session(store: Store, underlyings=BOT_UNDERLYINGS) -> list[dict]:
             if t.get("entry_trigger") != "reclaim-3x5m":
                 continue    # only the validated reclaim discipline signals
             probe = {"session": session, "symbol": t.get("symbol"),
-                     "side": t.get("side"),
+                     "side": t.get("side"), "spx_level": t.get("spx_level"),
                      "spy_level": t.get("spy_level"), "spy_entry": t.get("spy_entry")}
             if _ticket_key(probe) in known:
                 continue

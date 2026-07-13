@@ -247,3 +247,24 @@ def test_performance_untaken_signal_has_no_live(tmp_path):
     perf = signal_bot.performance(store)
     assert [r["live"] for r in perf["rows"]] == [None, None]
     assert perf["summary"]["live_taken"] == 0
+
+
+def test_arm_dedupes_when_proxy_ratio_drifts(tmp_path, monkeypatch, sent):
+    """Live 2026-07-13 regression: SPX tickets carry a stable spx_level but a
+    spy_level that drifts with the live proxy ratio — dedupe must key on the
+    underlying level or every poll re-arms (and re-notifies) the same signal."""
+    store = _sqlite_store(tmp_path)
+
+    def drifting(level_spy):
+        t = _ticket(level_spy, "long")
+        t["spx_level"] = 7555.1          # stable underlying identity
+        return t
+
+    _wire_playbook(monkeypatch, store, [drifting(748.43)])
+    assert len(signal_bot.arm_session(store)) == 1
+
+    # next poll: the live ratio moved, spy terms shifted — SAME signal
+    _wire_playbook(monkeypatch, store, [drifting(748.27)])
+    assert signal_bot.arm_session(store) == []
+    assert len(store.load_paper_trades("open")) == 1
+    assert len(sent) == 1
