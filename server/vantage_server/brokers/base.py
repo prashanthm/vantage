@@ -8,7 +8,8 @@ therefore ONE new module here — implement the protocol, decorate the class
 with @register_connection, and the importer (argparse choices included) picks
 it up automatically. Nothing in importer.py changes.
 
-THE READ-ONLY DOCTRINE (ADR-010) — a hard requirement for every module:
+THE READ-ONLY DOCTRINE (ADR-010, amended v2) — a hard requirement for every
+connection module:
 
     Every connection MUST enforce read-only AT THE TRANSPORT LAYER, not by
     convention. The proven pattern is robinhood.py's: a single dispatcher
@@ -16,8 +17,15 @@ THE READ-ONLY DOCTRINE (ADR-010) — a hard requirement for every module:
     of read-only operations; anything outside it raises ReadOnlyViolation
     BEFORE any network I/O (and before importing any optional dependency).
     No order-placement, cancellation, or fund-movement code path may exist
-    anywhere in a connection module — not even disabled or commented-in.
+    anywhere in a CONNECTION module — not even disabled or commented-in.
     New modules must ship a unit test proving the refusal path.
+
+    THE ONE CARVE-OUT (ADR-010 v2): robinhood_execution.py — NOT a
+    connection module, never registered in CONNECTIONS — holds the sole
+    write path (reclaim-ticket orders to Robinhood) behind its own frozen
+    three-tool allowlist, dry-run default, and VANTAGE_LIVE_OK env gate.
+    Widening it (any new strategy/broker/order surface) requires amending
+    ADR-010 again first.
 
 Auth conventions (mirror robinhood_auth.py): tokens live in a chmod-600 JSON
 file, resolved env-var override first; token values are never printed or

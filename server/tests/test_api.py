@@ -445,10 +445,14 @@ def test_no_mutating_method_exists(client, route, method):
 
 
 #: The deliberate mutating routes (productization writes) — every other route
-#: must remain read-only. All write to OUR SQLite only; none touch a broker or
-#: any fund-moving path (ADR-010 preserved).
+#: must remain read-only. All write to OUR SQLite only, EXCEPT the single
+#: ADR-010 v2 carve-out /api/ticket/execute (reclaim ticket → Robinhood,
+#: dry-run default, VANTAGE_LIVE_OK-gated — see test_robinhood_execution.py).
 ALLOWED_WRITE_ROUTES = {
     "/api/refresh",
+    # THE execution carve-out (ADR-010 v2): server-recomputed reclaim ticket
+    # submitted via brokers/robinhood_execution.py's three-tool allowlist.
+    "/api/ticket/execute",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the

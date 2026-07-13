@@ -1,12 +1,14 @@
-"""REST surface for the SPA — reads are the norm; ONE deliberate write (refresh).
+"""REST surface for the SPA — reads are the norm; writes are deliberate.
 
 Every GET route is read-only (ADR-010/ADR-014): the engine/quotes/journal
-surface only ever reads. The SINGLE mutating route is ``POST /api/refresh`` — a
-deliberate operator write added under the productization policy shift (see its
-handler comment). It writes to OUR OWN SQLite (positions/history/last_synced)
-using ONLY read broker tools (fetch_positions/history/portfolio); it can never
-place an order or move funds — the broker connectors enforce that at the
-transport layer (robinhood.py's READ_TOOLS allowlist). No other route mutates.
+surface only ever reads. POST routes are the small deliberate set guarded by
+tests/test_api.py's ALLOWED_WRITE_ROUTES — store-only writes (refresh, notes,
+paper, journal, ...) plus EXACTLY ONE broker-order path: ``POST
+/api/ticket/execute``, the ADR-010 v2 reclaim-ticket carve-out (dry-run
+default, VANTAGE_LIVE_OK env gate, server-recomputed ticket — see its
+handler). Every read broker connector still enforces read-only at the
+transport layer (robinhood.py's READ_TOOLS allowlist); the execute path has
+its own disjoint three-tool allowlist (brokers/robinhood_execution.py).
 
 CORS allows http://localhost on any port — the SPA serves from :8642; this API
 listens on :8641. GET and POST are the only allowed methods (POST solely for
@@ -63,8 +65,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=LOCALHOST_ORIGINS,
-        # GET for every read route; POST solely for the deliberate /api/refresh
-        # write (productization policy shift — see the handler comment).
+        # GET for every read route; POST solely for the deliberate write set
+        # guarded by ALLOWED_WRITE_ROUTES in tests/test_api.py.
         allow_methods=["GET", "POST"],
         allow_headers=["*"],
     )
@@ -333,28 +335,18 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         session=row["session"], symbol=sym,
                         gex_levels=levels, prefilled=bool(levels), script=script)
 
-    @app.get("/api/ticket")
-    def order_ticket(symbol: str = Query(...),
-                     side: str = Query(...),
-                     level: float = Query(...),
-                     risk: float = Query(100.0),
-                     date: str | None = Query(None)):
-        """A STAGED order ticket for a reclaim trade at ``level``: entry/stop
-        from the shared reclaim spec, target ladder from the symbol's playbook
-        levels, risk-based qty, per-leg scale-out — plus a copy-paste text
-        block. An INDEX symbol (SPX/NDX/RUT — not directly buyable) is staged
-        in its tradeable proxy ETF (SPY/QQQ/IWM) with every price rescaled by
-        the live proxy/index ratio; the ticket records the mapping. Review and
-        place in your broker; Vantage computes and stages, it NEVER places
-        orders (ADR-010). ``risk`` = max loss at the stop."""
+    def _stage_reclaim_ticket(symbol: str, side: str, level: float,
+                              risk: float, date: str | None):
+        """Build the staged reclaim ticket ALL ticket surfaces share — the GET
+        preview and the execute route recompute through here, so what executes
+        is byte-for-byte what was previewed (and client-supplied prices can
+        never reach the broker). Returns (ticket, extras) or (None, note)."""
         from . import order_ticket as _ot
         from . import reclaim_pine
-        snap = state.snapshot()
         sym = (symbol or "").upper()
         sd = (side or "").lower()
         if sd not in ("long", "short") or not sym or level <= 0:
-            return envelope(snap, available=False,
-                            note="need symbol, side=long|short, level>0")
+            return None, "need symbol, side=long|short, level>0"
         row = store.load_spx_playbook(date, symbol=sym)
         scaffold = (row or {}).get("scaffold") or {}
         levels = reclaim_pine.gex_levels_from_scaffold(scaffold) if row else []
@@ -374,12 +366,11 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             except Exception:
                 proxy_last = None
             if not index_spot or not proxy_last:
-                return envelope(snap, available=False,
-                                note=f"{sym} is an index (not directly buyable); "
-                                     f"couldn't price the {proxy} proxy to rescale "
-                                     f"(index_spot={index_spot}, "
-                                     f"proxy_last={proxy_last}). Retry, or pass "
-                                     f"symbol={proxy} with {proxy}-terms levels.")
+                return None, (f"{sym} is an index (not directly buyable); "
+                              f"couldn't price the {proxy} proxy to rescale "
+                              f"(index_spot={index_spot}, "
+                              f"proxy_last={proxy_last}). Retry, or pass "
+                              f"symbol={proxy} with {proxy}-terms levels.")
             ratio = float(proxy_last) / float(index_spot)
             supports = _ot.rescale(supports, ratio)
             resistances = _ot.rescale(resistances, ratio)
@@ -391,11 +382,62 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
 
         ticket = _ot.build_ticket(ticket_sym, sd, lvl, supports, resistances,
                                   risk_amount=risk, derived_from=derived)
+        extras = {
+            "text": _ot.render_ticket(ticket),
+            "levels_source": ("playbook" if levels else "none — targets empty; "
+                              "pass a symbol with a generated playbook for the "
+                              "ladder"),
+        }
+        return ticket, extras
+
+    @app.get("/api/ticket")
+    def order_ticket(symbol: str = Query(...),
+                     side: str = Query(...),
+                     level: float = Query(...),
+                     risk: float = Query(100.0),
+                     date: str | None = Query(None)):
+        """A STAGED order ticket for a reclaim trade at ``level``: entry/stop
+        from the shared reclaim spec, target ladder from the symbol's playbook
+        levels, risk-based qty, per-leg scale-out — plus a copy-paste text
+        block. An INDEX symbol (SPX/NDX/RUT — not directly buyable) is staged
+        in its tradeable proxy ETF (SPY/QQQ/IWM) with every price rescaled by
+        the live proxy/index ratio; the ticket records the mapping. Staging
+        only — submission is the separate, gated POST /api/ticket/execute
+        (ADR-010 v2). ``risk`` = max loss at the stop."""
+        snap = state.snapshot()
+        ticket, extras = _stage_reclaim_ticket(symbol, side, level, risk, date)
+        if ticket is None:
+            return envelope(snap, available=False, note=extras)
+        return envelope(snap, available=True, ticket=ticket, **extras)
+
+    @app.post("/api/ticket/execute")
+    def order_ticket_execute(body: dict = Body(default={})):
+        """THE ADR-010 v2 execution carve-out: recompute the staged reclaim
+        ticket server-side (same path as GET /api/ticket — client prices are
+        never trusted) and submit it to Robinhood as entry + stop + target
+        orders via brokers/robinhood_execution.py.
+
+        Body: ``{symbol, side, level, risk?, date?, account_number, live?}``.
+        Dry-run by default: ``live: true`` additionally requires the operator
+        env ``VANTAGE_LIVE_OK=1`` or the call is refused. Robinhood only;
+        reclaim tickets only; operator-initiated only (not exposed to the MCP
+        advisor surface)."""
+        from .brokers import robinhood_execution as _exec
+        snap = state.snapshot()
+        ticket, extras = _stage_reclaim_ticket(
+            str(body.get("symbol") or ""), str(body.get("side") or ""),
+            float(body.get("level") or 0), float(body.get("risk") or 100.0),
+            body.get("date"))
+        if ticket is None:
+            return envelope(snap, available=False, note=extras)
+        account = str(body.get("account_number") or "")
+        try:
+            result = _exec.execute_ticket(ticket, account,
+                                          live=bool(body.get("live")))
+        except (ValueError, _exec.ExecutionViolation) as e:
+            return envelope(snap, available=False, note=str(e), ticket=ticket)
         return envelope(snap, available=True, ticket=ticket,
-                        text=_ot.render_ticket(ticket),
-                        levels_source=("playbook" if levels else "none — "
-                                       "targets empty; pass a symbol with a "
-                                       "generated playbook for the ladder"))
+                        execution=result, **extras)
 
     @app.post("/api/spx/playbook/recompute")
     def spx_playbook_recompute(body: dict = Body(default={})):
