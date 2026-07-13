@@ -865,6 +865,36 @@ export async function getTicket(symbol, side, level, risk = 500) {
   return { available: false, note: (v && v.note) || "ticket unavailable" };
 }
 
+// Execute a staged reclaim ticket (ADR-010 v2 carve-out). The server
+// RECOMPUTES the ticket from symbol/side/level/risk — client prices are never
+// trusted. Dry-run unless body.live is true AND the operator set
+// VANTAGE_LIVE_OK=1 server-side. Returns the envelope verbatim:
+// {available, ticket, execution: {mode, legs, warnings, managed_position_id}}.
+export async function executeTicket(body) {
+  const v = await postJson(`${backendBase()}/api/ticket/execute`, body,
+                           { timeoutMs: 60000 }); // live path waits for the fill
+  if (!v) return { available: false, note: "backend unreachable" };
+  return v;
+}
+
+// Managed-exit positions (ADR-010 v3): what the exit monitor is protecting.
+export async function getExits(status) {
+  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  const v = await getJson(`${backendBase()}/api/exits${q}`);
+  if (!v) return { positions: [], live_gate: false, unreachable: true };
+  return { positions: v.positions || [], live_gate: !!v.live_gate };
+}
+
+// One exit-monitor pass NOW (re-arm stops, detect fills, swaps/ratchets —
+// reduce-only by construction). Returns {available, actions: [...]}.
+export const exitsTick = () =>
+  postJson(`${backendBase()}/api/exits/tick`, {}, { timeoutMs: 60000 });
+
+// Release one position from monitor control (its broker-side stop is LEFT
+// RESTING — disarm never removes protection).
+export const disarmExit = (id) =>
+  postJson(`${backendBase()}/api/exits/${encodeURIComponent(id)}/disarm`, {});
+
 // Regenerate the playbook NOW from the latest data (fresh bars + Sentinel
 // artifacts), outside the nightly job. POST; returns the new scaffold via
 // mapPlaybook, or null on failure.

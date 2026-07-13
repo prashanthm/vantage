@@ -7,7 +7,7 @@
 // reads the latest. Context, not a signal (ADR-008) — no orders placed.
 import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
-import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket } from "./live.js";
+import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket } from "./live.js";
 
 const { useMemo, useState } = React;
 
@@ -344,12 +344,30 @@ function TicketModal({ sym, spot, seed, onClose }) {
   const [risk, setRisk] = useState(500);
   const [res, setRes] = useState(null);   // {loading} | {ticket, text} | {error, note}
   const [copied, setCopied] = useState(false);
+  // execute flow (ADR-010 v2): dry-run → arm → live. Account persists locally.
+  const [account, setAccount] = useState(
+    () => { try { return localStorage.getItem("vantage.exec.account") || ""; } catch (e) { return ""; } });
+  const [policy, setPolicy] = useState("ladder");
+  const [exec, setExec] = useState(null);  // {loading} | envelope | {error, note}
+  const [armed, setArmed] = useState(false);
 
   const stage = async () => {
     setRes({ loading: true });
     setCopied(false);
+    setExec(null); setArmed(false);
     const v = await getTicket(sym, side, seed.level, risk || 0);
     setRes(v.available ? { ticket: v.ticket, text: v.text } : { error: true, note: v.note });
+  };
+
+  const runExecute = async (live) => {
+    try { localStorage.setItem("vantage.exec.account", account); } catch (e) { /* private mode */ }
+    setExec({ loading: true });
+    setArmed(false);
+    const v = await executeTicket({
+      symbol: sym, side, level: seed.level, risk: risk || 0,
+      account_number: account, exit_policy: policy, live: !!live,
+    });
+    setExec(v && v.available ? v : { error: true, note: (v && v.note) || "execute failed" });
   };
   const copy = async () => {
     try { await navigator.clipboard.writeText((res && res.text) || ""); setCopied(true); }
@@ -416,10 +434,76 @@ function TicketModal({ sym, spot, seed, onClose }) {
               </p>
             )}
             <p className="vg-note" style={{ margin: "8px 0", fontSize: 11 }}>
-              STAGED ONLY — review and place these in your broker. Vantage never places orders.
+              Staged. Place manually (Copy as text), or execute below — the gated
+              ADR-010 v2 path: the server recomputes this ticket and submits entry +
+              GTC stop to Robinhood; targets/trailing are managed by the exit monitor.
             </p>
             <div className="vg-row" style={{ gap: 8 }}>
               <button className="vg-btn-sm" onClick={copy}>{copied ? "Copied ✓" : "Copy as text"}</button>
+            </div>
+
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--lk-border, #333)" }}>
+              <div className="vg-kicker" style={{ margin: "0 0 8px", fontSize: 11 }}>Execute · Robinhood</div>
+              <div className="vg-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <label className="vg-note" style={{ fontSize: 12 }}>
+                  account #<input value={account} placeholder="agentic-allowed acct"
+                    style={{ width: 110, marginLeft: 4 }}
+                    onChange={(e) => setAccount(e.target.value.trim())} />
+                </label>
+                <div className="vg-symsw" role="tablist" aria-label="exit policy">
+                  {["ladder", "trailing"].map((p) => (
+                    <button key={p} role="tab" aria-selected={p === policy}
+                      className={cls("vg-symsw-btn", p === policy && "on")}
+                      title={p === "ladder"
+                        ? "validated: stop rests; monitor swaps to the T1 target"
+                        : "opt-in: monitor ratchets the stop by the initial stop distance"}
+                      onClick={() => setPolicy(p)}>{p}</button>
+                  ))}
+                </div>
+                <button className="vg-btn-sm" disabled={!account || (exec && exec.loading)}
+                  onClick={() => runExecute(false)}>
+                  {exec && exec.loading ? "Executing…" : "Dry-run"}
+                </button>
+                {exec && exec.execution && exec.execution.mode === "dry_run" && !armed && (
+                  <button className="vg-btn-sm" onClick={() => setArmed(true)}>Arm live…</button>
+                )}
+                {armed && (
+                  <button className="vg-btn-sm" style={{ borderColor: "#c0392b", color: "#c0392b" }}
+                    onClick={() => runExecute(true)}>CONFIRM LIVE EXECUTE</button>
+                )}
+              </div>
+
+              {exec && exec.error && (
+                <p className="vg-note" style={{ margin: "8px 0 0" }}>{exec.note}</p>
+              )}
+              {exec && exec.execution && (
+                <div style={{ marginTop: 8 }}>
+                  <p className="vg-note" style={{ margin: 0, fontSize: 12 }}>
+                    <b>{exec.execution.mode === "live" ? "LIVE" : "dry run"}</b>
+                    {" · "}{exec.execution.legs.length} leg(s)
+                    {exec.execution.managed_position_id != null &&
+                      <> · managed position #{exec.execution.managed_position_id} → see Managed Exits</>}
+                  </p>
+                  <table className="vg-table" style={{ marginTop: 6, fontSize: 12 }}>
+                    <tbody>
+                      {exec.execution.legs.map((l, i) => (
+                        <tr key={i}><td>{l.leg}</td>
+                          <td>{l.side} {l.quantity} {l.type}
+                            {l.limit_price != null && <> @ {l.limit_price}</>}
+                            {l.stop_price != null && <> stop {l.stop_price}</>}
+                            {" · "}{l.status}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {(exec.execution.warnings || []).map((w, i) => (
+                    <p key={i} className="vg-note" style={{ margin: "4px 0 0", fontSize: 11 }}>⚠ {w}</p>
+                  ))}
+                </div>
+              )}
+              <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 11 }}>
+                Dry-run always; live needs the confirm AND server env VANTAGE_LIVE_OK=1.
+                Keep the exit monitor running while a live position is open.
+              </p>
             </div>
           </>
         )}
