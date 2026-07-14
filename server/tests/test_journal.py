@@ -383,3 +383,41 @@ def test_correlate_levels_flags_trading_the_plan():
     # GEX anchors are taggable candidates too
     assert any(c["source"] == "gex" for c in adrift["all"])
     assert sa.correlate_levels(None, levels, anchors) is None   # never guessed
+
+
+# ------------------------------------------------- trade DNA (step 1: the data)
+
+from vantage_server import trade_dna as dna
+
+
+def test_dna_picks_resolution_by_timeframe():
+    # a 0DTE (expires the day it opened) -> minute; a swing -> 15m
+    zero = {"legs": [{"expiration": "2026-07-14"}],
+            "opened_at": "2026-07-14T13:36", "closed_at": "2026-07-14T13:45"}
+    swing = {"legs": [{"expiration": "2026-07-18"}],
+             "opened_at": "2026-07-14T13:36", "closed_at": "2026-07-14T14:00"}
+    assert dna._is_zero_dte(zero, "2026-07-14") is True
+    assert dna._is_zero_dte(swing, "2026-07-14") is False
+    # equity (no expiration): same-session = intraday, multi-day = swing
+    assert dna._is_zero_dte({"legs": [], "opened_at": "2026-07-14T10:00",
+                             "closed_at": "2026-07-14T15:00"}, "2026-07-14")
+    assert not dna._is_zero_dte({"legs": [], "opened_at": "2026-07-14T10:00",
+                                 "closed_at": "2026-07-16T15:00"}, "2026-07-14")
+
+
+def test_dna_window_marks_the_fill_bar():
+    import pandas as pd
+    from zoneinfo import ZoneInfo
+    idx = pd.date_range("2026-07-14 09:31", periods=12, freq="1min",
+                        tz=ZoneInfo("America/New_York"))
+    bars = pd.DataFrame({"Open": range(12), "High": range(12), "Low": range(12),
+                         "Close": [7520 + i for i in range(12)],
+                         "Volume": [1000] * 12}, index=idx)
+    when = idx[5]                         # fill at the 6th bar
+    w = dna._window_around(bars, when, n=3)
+    fill = [b for b in w if b["at_fill"]]
+    assert len(fill) == 1 and fill[0]["close"] == 7525
+    assert len(w) == 7                    # 3 before + fill + 3 after
+    # quality reads pre/post move around the fill
+    q = dna._quality(w, "open")
+    assert q["pre_move"] == 3.0 and q["post_move"] == 3.0

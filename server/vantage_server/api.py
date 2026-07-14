@@ -910,6 +910,33 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         act = _sa.session(store, d, underlying or "SPX")
         return envelope(snap, available=bool(act["trades"]), **act)
 
+    @app.get("/api/journal/trade-dna")
+    def journal_trade_dna(day: str = Query(...), trade: int = Query(...),
+                          underlying: str = Query("SPX")):
+        """The full DNA of one trade (step 1 of trade analysis, pure data):
+        the ±5-bar price action around entry AND exit with volume, technicals
+        (VWAP/ATR/RSI/rel-vol) at each fill, the entry/exit level correlation,
+        and the forecast it was taken against. Resolution follows the
+        timeframe — 1-minute for a 0DTE, 15-minute for a swing (labelled when
+        1m is unavailable). ``trade`` is the index into that day's
+        session-activity trade list. Feeds the Mira trade-analyst. Read-only."""
+        from . import session_activity as _sa
+        from . import trade_dna as _dna
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        sess = _sa.session(store, day, underlying or "SPX")
+        trades = sess.get("trades") or []
+        if trade < 0 or trade >= len(trades):
+            return envelope(snap, available=False,
+                            note=f"trade {trade} out of range (day has {len(trades)})")
+        dna = _dna.build(store, day, trades[trade],
+                         sess.get("forecast_levels") or [],
+                         sess.get("gex_anchors") or [], underlying or "SPX")
+        return envelope(snap, available=True, dna=dna,
+                        playbook_session=sess.get("playbook_session"),
+                        settle_price=sess.get("settle_price"))
+
     @app.post("/api/journal/entry")
     def journal_entry(body: dict = Body(default={})):
         """Save / update the structured trade-action log ('what I did') for a
