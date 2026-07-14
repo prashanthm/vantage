@@ -464,6 +464,8 @@ ALLOWED_WRITE_ROUTES = {
     "/api/reclaim-bot/config",
     # Nightly digest push — reads our store, sends one outbound message.
     "/api/reclaim-bot/nightly-report",
+    # Nightly pipeline snapshot into our own SQLite (posted by nightly-docker.sh).
+    "/api/nightly/record",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the

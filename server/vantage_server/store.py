@@ -1428,6 +1428,44 @@ class Store:
                 tuple(fields[k] for k in keys) + (pos_id,))
             return cur.rowcount > 0
 
+    # ── nightly pipeline snapshots ───────────────────────────────────────────
+
+    def record_nightly_run(self, run: dict) -> int:
+        """Insert one nightly pipeline snapshot. ``run['jobs']`` is the list
+        of {job, ok, duration_sec, tail} dicts (stored as JSON)."""
+        if not self.uses_sqlite:
+            raise RuntimeError("record_nightly_run requires the SQLite backend")
+        import json as _json
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "INSERT INTO nightly_runs(started_at, finished_at, variant, jobs) "
+                "VALUES(?,?,?,?)",
+                (run.get("started_at"), run.get("finished_at"),
+                 run.get("variant"), _json.dumps(run.get("jobs") or [])))
+            return int(cur.lastrowid)
+
+    def load_nightly_runs(self, limit: int = 10) -> list[dict]:
+        """Recent nightly snapshots, newest first, jobs JSON parsed."""
+        if not self.uses_sqlite:
+            return []
+        import json as _json
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM nightly_runs ORDER BY started_at DESC, id DESC "
+                "LIMIT ?", (int(limit),)).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["jobs"] = _json.loads(d.get("jobs") or "[]")
+            except Exception:
+                d["jobs"] = []
+            out.append(d)
+        return out
+
     # ── chart-snapshot journal (SQLite metadata; image bytes on disk) ────────
 
     def record_journal_snapshot(self, snap: dict) -> int:

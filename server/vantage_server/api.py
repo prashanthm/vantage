@@ -494,6 +494,36 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         telegram_token_tail=(token[-4:] if token else None),
                         telegram_chat_id=chat, test_sent=tested)
 
+    @app.post("/api/nightly/record")
+    def nightly_record(body: dict = Body(default={})):
+        """Store one nightly pipeline snapshot ({started_at, finished_at,
+        variant, jobs: [{job, ok, duration_sec, tail}]}) — posted by
+        nightly-docker.sh's run() collector. Writes only our own SQLite."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required")
+        jobs = body.get("jobs")
+        if not isinstance(jobs, list) or not jobs:
+            return envelope(snap, available=False, note="jobs list required")
+        rid = store.record_nightly_run({
+            "started_at": str(body.get("started_at") or ""),
+            "finished_at": str(body.get("finished_at") or ""),
+            "variant": str(body.get("variant") or "docker"),
+            "jobs": [{"job": str(j.get("job") or "?"), "ok": bool(j.get("ok")),
+                      "duration_sec": int(j.get("duration_sec") or 0),
+                      "tail": str(j.get("tail") or "")[:2000]}
+                     for j in jobs if isinstance(j, dict)],
+        })
+        return envelope(snap, available=True, run_id=rid)
+
+    @app.get("/api/nightly/status")
+    def nightly_status(limit: int = Query(1)):
+        """The latest nightly pipeline snapshot(s): per-job ok/duration/tail.
+        Read-only; the Signal Bot view renders the most recent run."""
+        snap = state.snapshot()
+        runs = store.load_nightly_runs(max(1, min(int(limit), 30)))
+        return envelope(snap, available=bool(runs), runs=runs)
+
     @app.post("/api/reclaim-bot/nightly-report")
     def reclaim_bot_nightly_report(body: dict = Body(default={})):
         """Build + push the 🌙 nightly digest (playbook freshness, today's

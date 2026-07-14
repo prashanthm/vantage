@@ -44,12 +44,25 @@ done
 # Failures are tolerated (a flaky broker fetch never aborts the night) but
 # RECORDED — the final line names every failed step instead of a false "done".
 FAILED_STEPS=""
+RUN_STARTED="$(date -Iseconds)"
+JOBS_FILE="$(mktemp)"
+trap 'rm -f "$JOBS_FILE"' EXIT
+
 run() {
   local label="$1"; shift
   echo "[$STAMP] nightly-docker: $label"
-  local out rc
+  local out rc t0 t1
+  t0=$(date +%s)
   out=$(docker exec -e VANTAGE_DATA_DIR=/data "$CID" python -m "$@" 2>&1); rc=$?
+  t1=$(date +%s)
   printf '%s\n' "$out" | grep -v 'Session termination' || true
+  # one JSONL row per job for the /api/nightly/record snapshot
+  printf '%s\n' "$out" | JOB="$label" RC="$rc" DUR="$((t1 - t0))" python3 -c '
+import json, os, sys
+tail = [l for l in sys.stdin.read().splitlines() if "Session termination" not in l][-3:]
+print(json.dumps({"job": os.environ["JOB"], "ok": os.environ["RC"] == "0",
+                  "duration_sec": int(os.environ["DUR"]), "tail": "\n".join(tail)}))' \
+    >> "$JOBS_FILE" 2>/dev/null || true
   if [ "$rc" -ne 0 ]; then FAILED_STEPS="$FAILED_STEPS [$label]"; fi
   return 0
 }
@@ -132,9 +145,25 @@ else
     --account "$ML_ACCOUNT" --from-roundtrips
 fi
 
-# Nightly Telegram digest (signal outcomes + playbook freshness + open book),
-# sent AFTER the pipeline so a failed step rides along in the same message.
-# Best-effort like every other step; unconfigured telegram → backend logs it.
+# Per-job snapshot → the backend, BEFORE the digest (which renders it):
+# {started_at, finished_at, variant, jobs:[{job, ok, duration_sec, tail}]}.
+SNAP=$(python3 -c '
+import json, sys
+jobs = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+print(json.dumps({"started_at": sys.argv[2], "finished_at": sys.argv[3],
+                  "variant": "docker", "jobs": jobs}))' \
+  "$JOBS_FILE" "$RUN_STARTED" "$(date -Iseconds)" 2>/dev/null || echo '')
+if [ -n "$SNAP" ]; then
+  REC=$(curl -s -X POST --max-time 30 "http://localhost:8641/api/nightly/record" \
+    -H 'Content-Type: application/json' -d "$SNAP" || true)
+  echo "[$STAMP] nightly-docker: snapshot recorded=$(printf '%s' "$REC" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("run_id"))
+except Exception: print("error")' 2>/dev/null)"
+fi
+
+# Nightly Telegram digest (signal outcomes + playbook freshness + open book +
+# the per-job snapshot above), sent AFTER the pipeline so a failed step rides
+# along in the same message. Best-effort; unconfigured telegram → backend logs it.
 if [ -n "$FAILED_STEPS" ]; then
   NOTE="⚠ pipeline failures:$FAILED_STEPS"
 else

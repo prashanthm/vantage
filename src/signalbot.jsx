@@ -7,7 +7,7 @@
 // track record) and, when the operator took it live, the LIVE outcome from
 // the managed-exits book. The continuous loop is
 // `python -m vantage_server.signal_bot`; "Poll now" drives one pass.
-import { getBotStatus, saveBotConfig, botPoll, getBotPerformance } from "./live.js";
+import { getBotStatus, saveBotConfig, botPoll, getBotPerformance, getNightlyStatus } from "./live.js";
 import { cls } from "./util.jsx";
 
 const { useEffect, useState } = React;
@@ -18,13 +18,16 @@ const money = (v) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFix
 export function SignalBotView({ refreshNonce }) {
   const [status, setStatus] = useState(null);
   const [perf, setPerf] = useState(null);
+  const [nightly, setNightly] = useState(null);
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState(null);
 
   const load = async () => {
-    const [s, p] = await Promise.all([getBotStatus(), getBotPerformance()]);
+    const [s, p, n] = await Promise.all([
+      getBotStatus(), getBotPerformance(), getNightlyStatus(1)]);
     setStatus(s && s.available !== false ? s : null);
     setPerf(p && p.available !== false ? p : null);
+    setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
   };
   useEffect(() => { load(); }, [refreshNonce]);
 
@@ -110,6 +113,8 @@ export function SignalBotView({ refreshNonce }) {
           </table>
         )}
 
+      <NightlyCard run={nightly} />
+
       <h3 className="vg-kicker" style={{ marginTop: 16 }}>Signal ↔ live correlation</h3>
       {!perf || perf.rows.length === 0
         ? <p className="vg-note">No signals recorded yet.</p>
@@ -159,6 +164,58 @@ export function SignalBotView({ refreshNonce }) {
           </div>
         )}
     </div>
+  );
+}
+
+function NightlyCard({ run }) {
+  const [open, setOpen] = useState(false);
+  if (!run) {
+    return (
+      <>
+        <h3 className="vg-kicker" style={{ marginTop: 16 }}>Last nightly run</h3>
+        <p className="vg-note">No pipeline snapshot recorded yet — the first one lands after tonight's 17:45 ET run.</p>
+      </>
+    );
+  }
+  const jobs = run.jobs || [];
+  const bad = jobs.filter((j) => !j.ok);
+  const total = jobs.reduce((a, j) => a + (j.duration_sec || 0), 0);
+  const dur = (s) => (s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s` : `${s}s`);
+  return (
+    <>
+      <h3 className="vg-kicker" style={{ marginTop: 16 }}>Last nightly run
+        <span className="vg-note" style={{ fontWeight: 400 }}> · {String(run.started_at || "").slice(0, 16).replace("T", " ")}</span>
+      </h3>
+      <div className="vg-row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <span className={cls("vg-badge", bad.length ? "bad" : "good")}>
+          {jobs.length - bad.length}✓ {bad.length}✗ · {dur(total)}
+        </span>
+        <button className="vg-linkbtn" onClick={() => setOpen(!open)}>
+          {open ? "hide jobs" : "show jobs"}
+        </button>
+      </div>
+      {bad.map((j, i) => (
+        <p key={i} className="vg-note" style={{ margin: "6px 0 0", fontSize: 12 }}>
+          ✗ <b>{j.job}</b> ({dur(j.duration_sec || 0)}) — <code>{(j.tail || "").split("\n").slice(-1)[0]}</code>
+        </p>
+      ))}
+      {open && (
+        <table className="vg-table" style={{ marginTop: 8, fontSize: 12 }}>
+          <thead><tr><th /><th>job</th><th>duration</th><th>last output</th></tr></thead>
+          <tbody>
+            {jobs.map((j, i) => (
+              <tr key={i}>
+                <td>{j.ok ? "✓" : "✗"}</td>
+                <td>{j.job}</td>
+                <td>{dur(j.duration_sec || 0)}</td>
+                <td className="vg-note" style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  title={j.tail || ""}>{(j.tail || "").split("\n").slice(-1)[0]}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
 

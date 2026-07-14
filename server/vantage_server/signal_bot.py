@@ -268,6 +268,20 @@ def nightly_report(store: Store) -> str:
         lines.append(f"  {'✅' if (t.get('pnl') or 0) > 0 else '❌'} "
                      f"{t['symbol']} {t['side']} {t.get('exit_reason')} "
                      f"{float(t.get('pnl') or 0):+.2f} · paper #{t['id']}")
+
+    # per-job pipeline snapshot, when tonight's run was recorded before the
+    # digest fired (nightly-docker.sh posts /api/nightly/record first)
+    runs = store.load_nightly_runs(1)
+    if runs and str(runs[0].get("started_at") or "")[:10] == today:
+        jobs = runs[0]["jobs"]
+        ok = [j for j in jobs if j.get("ok")]
+        bad = [j for j in jobs if not j.get("ok")]
+        total = sum(int(j.get("duration_sec") or 0) for j in jobs)
+        lines.append(f"Jobs: {len(ok)}✓ {len(bad)}✗ "
+                     f"({total // 60}m{total % 60:02d}s)")
+        for j in bad:
+            tail = (j.get("tail") or "").strip().splitlines()
+            lines.append(f"  ✗ {j['job']}: {tail[-1][:120] if tail else 'no output'}")
     return "\n".join(lines)
 
 

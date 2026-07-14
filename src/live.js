@@ -906,6 +906,10 @@ export const botPoll = () =>
 export const getBotPerformance = () =>
   getJson(`${backendBase()}/api/reclaim-bot/performance`);
 
+// Latest nightly pipeline snapshot(s): per-job ok/duration/tail.
+export const getNightlyStatus = (limit = 1) =>
+  getJson(`${backendBase()}/api/nightly/status?limit=${limit}`);
+
 // Regenerate the playbook NOW from the latest data (fresh bars + Sentinel
 // artifacts), outside the nightly job. POST; returns the new scaffold via
 // mapPlaybook, or null on failure.

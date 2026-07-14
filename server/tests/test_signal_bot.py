@@ -296,3 +296,38 @@ def test_nightly_report_summarizes_today(tmp_path, monkeypatch):
     assert "1 riding · 1 armed" in text
     assert "1 open managed" in text
     assert "✅ SPY long target +185.00" in text
+
+
+# ------------------------------------------------------------- nightly runs
+
+def test_nightly_run_roundtrip_and_digest_jobs_line(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    monkeypatch.setattr(store, "load_spx_playbook",
+                        lambda symbol=None, day=None: None, raising=False)
+    today = _dt.datetime.now(paper.ET)
+    rid = store.record_nightly_run({
+        "started_at": today.isoformat(), "finished_at": today.isoformat(),
+        "variant": "docker",
+        "jobs": [
+            {"job": "EOD bar snapshot", "ok": True, "duration_sec": 41, "tail": "wrote 12"},
+            {"job": "GEX snapshot (SPX)", "ok": False, "duration_sec": 3,
+             "tail": "boom\nchain fetch failed"},
+        ]})
+    runs = store.load_nightly_runs()
+    assert runs[0]["id"] == rid and len(runs[0]["jobs"]) == 2
+    assert runs[0]["jobs"][1]["ok"] is False
+
+    text = signal_bot.nightly_report(store)
+    assert "Jobs: 1✓ 1✗ (0m44s)" in text
+    assert "✗ GEX snapshot (SPX): chain fetch failed" in text
+
+
+def test_digest_skips_stale_nightly_run(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    monkeypatch.setattr(store, "load_spx_playbook",
+                        lambda symbol=None, day=None: None, raising=False)
+    store.record_nightly_run({
+        "started_at": "2020-01-01T18:00:00", "finished_at": "2020-01-01T18:04:00",
+        "variant": "docker",
+        "jobs": [{"job": "old", "ok": True, "duration_sec": 1, "tail": ""}]})
+    assert "Jobs:" not in signal_bot.nightly_report(store)

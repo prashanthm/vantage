@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 13  # v13: managed_positions.signal_paper_id (signal↔live link)
+SCHEMA_VERSION = 14  # v14: nightly_runs (per-job pipeline snapshots)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -406,6 +406,20 @@ CREATE TABLE IF NOT EXISTS managed_positions (
                                        -- the signal↔live performance join key
 );
 CREATE INDEX IF NOT EXISTS ix_managed_status ON managed_positions(status, opened_at);
+
+-- Nightly pipeline snapshots: one row per nightly-docker.sh run, with the
+-- per-job results the bash `run()` helper collected ({job, ok, duration_sec,
+-- tail} JSON). Read by GET /api/nightly/status, the 🌙 telegram digest, and
+-- the Signal Bot view — so "did last night actually work, job by job" is a
+-- glance, not a log dig.
+CREATE TABLE IF NOT EXISTS nightly_runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at  TEXT NOT NULL,      -- ISO, host clock
+    finished_at TEXT,
+    variant     TEXT,               -- 'docker' | 'host'
+    jobs        TEXT NOT NULL       -- JSON array [{job, ok, duration_sec, tail}]
+);
+CREATE INDEX IF NOT EXISTS ix_nightly_started ON nightly_runs(started_at);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard
