@@ -12,6 +12,7 @@ import { cls, SymbolSwitcher } from "./util.jsx";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
+  getSessionActivity,
 } from "./live.js";
 
 const { useState, useRef, useEffect, useMemo } = React;
@@ -328,7 +329,14 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
 
         {/* journal entry form */}
         <div className="vg-jr-form">
-          <h4>My journal — what I did</h4>
+          <div className="vg-spread">
+            <h4 style={{ margin: 0 }}>My journal — what I did</h4>
+            <PullTrades snap={s} onPull={(fields) => {
+              // the FACTS come from the broker's own fills; you write the
+              // judgment (lesson / notes)
+              Object.entries(fields).forEach(([k, v]) => set(k, v));
+            }} />
+          </div>
           {ENTRY_FIELDS.map(([k, label, ph]) => (
             <div key={k} className="vg-jr-field">
               <label>{label}</label>
@@ -430,6 +438,51 @@ function Tile({ label, value, tone }) {
     <div className="vg-pb-tile">
       <div className="vg-note" style={{ fontSize: 11 }}>{label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
+    </div>
+  );
+}
+
+// "Pull my trades" — the factual half of a journal entry, straight from the
+// broker's own fills (already synced into the store; no broker call, no
+// typing). It fills action/entry/exit/result; the operator still writes the
+// lesson. Deliberately does NOT overwrite lesson/notes — judgment is yours.
+function PullTrades({ snap, onPull }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState(null);
+
+  const pull = async () => {
+    setBusy(true); setNote(null);
+    const day = String(snap.created_at || "").slice(0, 10);
+    const v = await getSessionActivity(day, snap.symbol || "SPX");
+    setBusy(false);
+    if (!v || !v.available) {
+      setNote(`no ${snap.symbol || "SPX"} fills found on ${day}`);
+      return;
+    }
+    const rts = v.roundtrips || [];
+    const winners = rts.filter((r) => r.realized > 0);
+    const losers = rts.filter((r) => r.realized < 0);
+    const money = (n) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+    onPull({
+      action: `${v.fills} fills across ${v.contracts} contracts`
+        + (rts.length ? ` — ${rts.slice(0, 3).map((r) => r.symbol.replace(/^\S+\s\S+\s/, "")).join(", ")}${rts.length > 3 ? "…" : ""}` : ""),
+      entry: rts.filter((r) => r.avg_buy != null).slice(0, 3)
+        .map((r) => `${r.symbol.replace(/^\S+\s\S+\s/, "")} @ ${r.avg_buy}`).join(" · "),
+      exit: rts.filter((r) => r.avg_sell != null).slice(0, 3)
+        .map((r) => `${r.symbol.replace(/^\S+\s\S+\s/, "")} @ ${r.avg_sell}`).join(" · "),
+      result: `realized ${money(v.realized)} · ${winners.length}W/${losers.length}L`
+        + (v.open_at_close ? ` · ${v.open_at_close} still open at close` : ""),
+    });
+    setNote(`pulled ${v.fills} fills · realized ${money(v.realized)}`);
+  };
+
+  return (
+    <div className="vg-row" style={{ gap: 8, alignItems: "center" }}>
+      {note && <span className="vg-note" style={{ fontSize: 11 }}>{note}</span>}
+      <button className="vg-btn-sm" onClick={pull} disabled={busy}
+        title="Reconstruct what you actually traded from your broker fills — no typing">
+        {busy ? "Pulling…" : "⟳ Pull my trades"}
+      </button>
     </div>
   );
 }

@@ -259,3 +259,63 @@ def test_update_journal_image(tmp_path):
     assert store.update_journal_image(sid, "chart.png", "image/png")
     got = store.load_journal_snapshot(sid)
     assert got["image_path"] == "chart.png" and got["image_mime"] == "image/png"
+
+
+# ------------------------------------- session activity (pull my real trades)
+
+def test_session_activity_reconstructs_roundtrips_from_fills():
+    """The factual half of a journal entry comes from the broker's own fills —
+    live 2026-07-14: 50 SPXW fills, +$2,545 realized, which the ML round-trip
+    builder MISSED because Robinhood's realized-P/L tool answered NotFound."""
+    from vantage_server import session_activity as sa
+
+    class FakeStore:
+        def load_history(self):
+            return [
+                # a clean round trip: buy 1 @ 18.50, sell 1 @ 27.40 -> +890
+                {"date": "2026-07-14T13:36", "state": "filled", "kind": "option",
+                 "symbol": "SPXW 2026-07-14 7525C", "side": "buy",
+                 "quantity": 1, "price": 18.5, "amount": -1850.0},
+                {"date": "2026-07-14T13:45", "state": "filled", "kind": "option",
+                 "symbol": "SPXW 2026-07-14 7525C", "side": "sell",
+                 "quantity": 1, "price": 27.4, "amount": 2740.0},
+                # a loser, still open at close
+                {"date": "2026-07-14T14:00", "state": "filled", "kind": "option",
+                 "symbol": "SPXW 2026-07-14 7540P", "side": "buy",
+                 "quantity": 1, "price": 8.0, "amount": -800.0},
+                # cancelled orders never count
+                {"date": "2026-07-14T13:39", "state": "cancelled", "kind": "option",
+                 "symbol": "SPXW 2026-07-14 7525C", "side": "sell",
+                 "quantity": 1, "price": 27.0, "amount": 0.0},
+                # a different day is out of scope
+                {"date": "2026-07-13T10:00", "state": "filled", "kind": "option",
+                 "symbol": "SPXW 2026-07-13 7500C", "side": "buy",
+                 "quantity": 1, "price": 5.0, "amount": -500.0},
+            ]
+
+    act = sa.session(FakeStore(), "2026-07-14", "SPX")
+    assert act["fills"] == 3            # cancelled + other-day excluded
+    assert act["contracts"] == 2
+    assert act["realized"] == 90.0      # +890 - 800
+    assert act["winners"] == 1 and act["losers"] == 1
+    assert act["open_at_close"] == 1
+
+    won = next(r for r in act["roundtrips"] if r["symbol"].endswith("7525C"))
+    assert won["realized"] == 890.0 and won["still_open"] == 0
+    assert won["avg_buy"] == 18.5 and won["avg_sell"] == 27.4
+
+    still = next(r for r in act["roundtrips"] if r["symbol"].endswith("7540P"))
+    assert still["still_open"] == 1     # never silently closed
+    assert "realized +90.00" in act["summary"]
+
+
+def test_session_activity_empty_day_is_honest():
+    from vantage_server import session_activity as sa
+
+    class Empty:
+        def load_history(self):
+            return []
+
+    act = sa.session(Empty(), "2026-07-04", "SPX")
+    assert act["fills"] == 0 and act["roundtrips"] == []
+    assert "No SPX fills" in act["summary"]

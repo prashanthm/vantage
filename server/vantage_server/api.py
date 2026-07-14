@@ -890,6 +890,24 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, ensured=res,
                         **_j.build_journal(store, sym))
 
+    @app.get("/api/journal/activity")
+    def journal_activity(day: str | None = Query(None),
+                         underlying: str | None = Query(None)):
+        """What you ACTUALLY traded on ``day``, reconstructed from the broker
+        fills already in the store (kind/side/qty/price/amount) — no typing,
+        no broker call. ``underlying=SPX`` catches SPXW contracts too.
+
+        This is the FACTUAL half of a journal entry (what/when/how much/P&L);
+        the operator still writes the judgment half. Read-only."""
+        import datetime as _dtmod
+        from . import session_activity as _sa
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        d = day or _dtmod.date.today().isoformat()
+        act = _sa.session(store, d, underlying)
+        return envelope(snap, available=bool(act["fills"]), **act)
+
     @app.post("/api/journal/entry")
     def journal_entry(body: dict = Body(default={})):
         """Save / update the structured trade-action log ('what I did') for a

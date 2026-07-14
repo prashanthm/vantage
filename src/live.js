@@ -917,6 +917,16 @@ export const getBotPerformance = () =>
 export const getNightlyStatus = (limit = 1) =>
   getJson(`${backendBase()}/api/nightly/status?limit=${limit}`);
 
+// What I ACTUALLY traded on a day — reconstructed from the broker fills already
+// in the store. The factual half of a journal entry; no typing, no broker call.
+export const getSessionActivity = (day, underlying) => {
+  const q = new URLSearchParams();
+  if (day) q.set("day", day);
+  if (underlying) q.set("underlying", underlying);
+  return getJson(`${backendBase()}/api/journal/activity?${q.toString()}`,
+                 { timeoutMs: 20000 });
+};
+
 // The positions that matter while trading: reclaim proxies you actually hold,
 // each flagged with whether the exit monitor is protecting it.
 export const getTradeablePositions = () =>

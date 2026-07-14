@@ -178,6 +178,7 @@
     getPlaybook: () => getPlaybook,
     getPlaybookPine: () => getPlaybookPine,
     getRoundtrips: () => getRoundtrips,
+    getSessionActivity: () => getSessionActivity,
     getSignals: () => getSignals,
     getStrategies: () => getStrategies,
     getTicket: () => getTicket,
@@ -921,6 +922,15 @@
   var botPoll = () => postJson(`${backendBase()}/api/reclaim-bot/poll`, {}, { timeoutMs: 12e4 });
   var getBotPerformance = () => getJson(`${backendBase()}/api/reclaim-bot/performance`);
   var getNightlyStatus = (limit = 1) => getJson(`${backendBase()}/api/nightly/status?limit=${limit}`);
+  var getSessionActivity = (day, underlying) => {
+    const q = new URLSearchParams();
+    if (day) q.set("day", day);
+    if (underlying) q.set("underlying", underlying);
+    return getJson(
+      `${backendBase()}/api/journal/activity?${q.toString()}`,
+      { timeoutMs: 2e4 }
+    );
+  };
   var getTradeablePositions = () => getJson(`${backendBase()}/api/positions/tradeable`);
   async function recomputePlaybook(asOf, symbol = "SPX") {
     const base = backendBase();
@@ -3124,7 +3134,9 @@
           onChange: (e) => onAttach(e.target.files && e.target.files[0])
         }
       )
-    ), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form" }, /* @__PURE__ */ React.createElement("h4", null, "My journal \u2014 what I did"), ENTRY_FIELDS.map(([k, label, ph]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-jr-field" }, /* @__PURE__ */ React.createElement("label", null, label), k === "notes" ? /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0 } }, "My journal \u2014 what I did"), /* @__PURE__ */ React.createElement(PullTrades, { snap: s, onPull: (fields) => {
+      Object.entries(fields).forEach(([k, v]) => set(k, v));
+    } })), ENTRY_FIELDS.map(([k, label, ph]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-jr-field" }, /* @__PURE__ */ React.createElement("label", null, label), k === "notes" ? /* @__PURE__ */ React.createElement(
       "textarea",
       {
         rows: 2,
@@ -3183,6 +3195,42 @@
   }
   function Tile2({ label, value, tone }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
+  }
+  function PullTrades({ snap, onPull }) {
+    const [busy, setBusy] = useState10(false);
+    const [note, setNote] = useState10(null);
+    const pull = async () => {
+      setBusy(true);
+      setNote(null);
+      const day = String(snap.created_at || "").slice(0, 10);
+      const v = await getSessionActivity(day, snap.symbol || "SPX");
+      setBusy(false);
+      if (!v || !v.available) {
+        setNote(`no ${snap.symbol || "SPX"} fills found on ${day}`);
+        return;
+      }
+      const rts = v.roundtrips || [];
+      const winners = rts.filter((r) => r.realized > 0);
+      const losers = rts.filter((r) => r.realized < 0);
+      const money4 = (n) => `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
+      onPull({
+        action: `${v.fills} fills across ${v.contracts} contracts` + (rts.length ? ` \u2014 ${rts.slice(0, 3).map((r) => r.symbol.replace(/^\S+\s\S+\s/, "")).join(", ")}${rts.length > 3 ? "\u2026" : ""}` : ""),
+        entry: rts.filter((r) => r.avg_buy != null).slice(0, 3).map((r) => `${r.symbol.replace(/^\S+\s\S+\s/, "")} @ ${r.avg_buy}`).join(" \xB7 "),
+        exit: rts.filter((r) => r.avg_sell != null).slice(0, 3).map((r) => `${r.symbol.replace(/^\S+\s\S+\s/, "")} @ ${r.avg_sell}`).join(" \xB7 "),
+        result: `realized ${money4(v.realized)} \xB7 ${winners.length}W/${losers.length}L` + (v.open_at_close ? ` \xB7 ${v.open_at_close} still open at close` : "")
+      });
+      setNote(`pulled ${v.fills} fills \xB7 realized ${money4(v.realized)}`);
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "center" } }, note && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, note), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        onClick: pull,
+        disabled: busy,
+        title: "Reconstruct what you actually traded from your broker fills \u2014 no typing"
+      },
+      busy ? "Pulling\u2026" : "\u27F3 Pull my trades"
+    ));
   }
 
   // src/trades.jsx
