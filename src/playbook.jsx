@@ -334,7 +334,10 @@ function SummaryTile({ label, value, tone }) {
 // back rescaled into its tradeable proxy ETF, e.g. SPX→SPY at the live ratio).
 // STAGED ONLY — the operator copies it into their broker; Vantage never places
 // orders (ADR-010).
-function TicketModal({ sym, spot, seed, onClose }) {
+// `signalPaperId` (optional): when the ticket was opened FROM a fired signal
+// (Today view), it travels with the execute call so the managed position is
+// linked to the signal it came from — the signal↔live correlation join.
+export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
   // side default: role if the level has one, else by position vs spot
   // (below spot = buy-the-dip long; above = fade-the-rally short).
   const defSide = seed.role === "support" ? "long"
@@ -366,6 +369,7 @@ function TicketModal({ sym, spot, seed, onClose }) {
     const v = await executeTicket({
       symbol: sym, side, level: seed.level, risk: risk || 0,
       account_number: account, exit_policy: policy, live: !!live,
+      ...(signalPaperId ? { signal_paper_id: signalPaperId } : {}),
     });
     setExec(v && v.available ? v : { error: true, note: (v && v.note) || "execute failed" });
   };

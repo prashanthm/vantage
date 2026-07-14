@@ -16,7 +16,7 @@ indicator("Reclaim Strategy — SPX (GEX)", overlay=true, max_lines_count=100, m
 // fires ONLY on reclaims of these lines (levels below price = support, above =
 // resistance) — this is what cuts the noise on a symbol you have GEX for. Leave
 // BLANK to fall back to self-contained live pivots (works on any symbol).
-gexInput = input.text_area("7547.7|fib 61.8% + call wall ✦, 7528.6|volume PoC + fib 50.0% ✦, 7516.9|support (9x) + fib 38.2% ✦, 7500|max pain, 7481|gamma flip, 7450|put wall", "GEX / key levels (blank = live pivots)", group="Levels")
+gexInput = input.text_area("7620.7|durable resistance ★21d, 7600.4|durable resistance ★7d, 7578.9|durable resistance ★8d, 7547|gamma flip + round number ✦, 7525|resistance (5x) + call wall ✦ ★13d, 7496.2|fib 61.8% + volume PoC ✦, 7469.2|fib 50.0% + put wall ✦ ★7d", "GEX / key levels (blank = live pivots)", group="Levels")
 
 lvlTF = input.timeframe("60", "Level timeframe (HTF analysis)", group="Levels", tooltip="Levels come from THIS timeframe's pivots while you trade the chart timeframe — HTF structure, not chart-TF noise. 60 = 1h levels on a 5m/15m chart. Blank = chart timeframe (the old, noisier behavior). Ignored when GEX levels are pasted.")
 pivotLen = input.int(3, "Pivot length (level-timeframe bars)", minval=1, maxval=10, group="Levels", tooltip="Williams fractal half-width, in level-timeframe bars. Ignored when GEX levels are pasted.")

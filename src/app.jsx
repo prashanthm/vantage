@@ -15,6 +15,7 @@ import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
+import { TodayView } from "./today.jsx";
 import { FuturesView } from "./futures.jsx";
 import { PaperView } from "./paper.jsx";
 import { JournalView } from "./journal.jsx";
@@ -37,8 +38,11 @@ const NAV = [
     { id: "tax", label: "Tax", icon: "🌾" },
   ]},
   { group: "Intelligence", items: [
+    // Today is the trading half's front door: signals + why + honest record +
+    // machine health, one screen (see claudedocs/goals/ux-feature-value).
+    { id: "today", label: "Today", icon: "🎯" },
     { id: "options", label: "Options", icon: "◎" },
-    { id: "playbook", label: "0DTE Playbook", icon: "🎯" },
+    { id: "playbook", label: "0DTE Playbook", icon: "📐" },
     { id: "signalbot", label: "Signal Bot", icon: "📡" },
     { id: "exits", label: "Managed Exits", icon: "🛡️" },
     { id: "paper", label: "Paper Trading", icon: "📝" },
@@ -354,6 +358,7 @@ function App() {
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
+          {route === "today" && <TodayView refreshNonce={refreshNonce} />}
           {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}

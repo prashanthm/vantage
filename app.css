@@ -708,3 +708,33 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
    viewport so it stays responsive on small screens. */
 .lk-modal { max-width: min(880px, 92vw) !important; width: min(880px, 92vw) !important; }
 .lk-modal__body { max-height: 78vh; overflow-y: auto; }
+
+/* ---------------- Today view: signal rows + alarm cards ---------------- */
+/* The decision surface. A confirmed signal is tinted by side and carries its
+   own Execute button — the ux-feature-value goal found the #1 defect was that
+   a fired signal had NO way to be acted on. */
+.vg-sigrow {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+  gap: 14px; padding: 12px; border-radius: var(--vg-r-sm, 8px); margin-top: 10px;
+  background: var(--vg-pane); border: 1px solid var(--vg-hairline);
+}
+.vg-sigrow.live-long  { background: var(--vg-up-soft);   border-color: transparent; }
+.vg-sigrow.live-short { background: var(--vg-down-soft); border-color: transparent; }
+.vg-sigrow.armed { opacity: .7; }
+
+.vg-btn-primary {
+  background: var(--vg-accent); border-color: var(--vg-accent); color: var(--vg-accent-ink);
+  font-weight: 600;
+}
+.vg-btn-primary:hover { filter: brightness(1.06); }
+
+/* A card that carries bad news must LOOK different from one that doesn't. */
+.vg-card-alarm { border-left: 3px solid var(--vg-down); }
+.vg-verdict {
+  margin-top: 10px; padding: 8px 11px; border-radius: var(--vg-r-sm, 8px);
+  background: var(--vg-down-soft); color: var(--vg-down);
+  font-size: 12.5px; font-weight: 600;
+}
+.vg-up { color: var(--vg-up); }
+.vg-down { color: var(--vg-down); }
+.vg-warn-text { color: var(--vg-warn); }
