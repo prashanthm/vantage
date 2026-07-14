@@ -619,7 +619,9 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         from . import spx_playbook as _pb
         as_of = (body or {}).get("as_of")
         sym = ((body or {}).get("symbol") or "SPX").upper()
-        today = _dt.date.fromisoformat(as_of) if as_of else _dt.date.today()
+        # None → build_playbook's ET-clock default (session labeling must not
+        # come from the container date — a pre-close run serves TODAY's session)
+        today = _dt.date.fromisoformat(as_of) if as_of else None
         scaffold = _pb.build_playbook(today, store=store, underlying=sym)
         store.upsert_spx_playbook(scaffold["generated_for"], scaffold, symbol=sym)
         _pb.write_pine_file(scaffold)  # refresh the vantage/pine copy-paste artifact

@@ -919,7 +919,8 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     data_dir = resolve_data_dir(args.data_dir)
-    today = _dt.date.fromisoformat(args.as_of) if args.as_of else _dt.date.today()
+    # None → build_playbook's ET-clock default (pre-close run = today's session)
+    today = _dt.date.fromisoformat(args.as_of) if args.as_of else None
 
     from .store import Store
     store = Store(data_dir)

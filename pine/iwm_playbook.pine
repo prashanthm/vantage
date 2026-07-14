@@ -172,7 +172,7 @@ if barstate.islastconfirmedhistory
         table.cell(pb, 3, 3, "has held for 4 days — watch it closely", text_color=tblTx, text_size=size.normal, text_halign=text.align_left)
         table.cell(pb, 0, 4, "C", text_color=(isDark ? #EF5350 : #C62828), text_size=size.normal, text_halign=text.align_center)
         table.cell(pb, 1, 4, "297", text_color=(isDark ? #EF5350 : #C62828), text_size=size.normal, text_halign=text.align_right)
-        table.cell(pb, 2, 4, "resistance (2x tested) ★4d", text_color=tblTx, text_size=size.normal, text_halign=text.align_left)
+        table.cell(pb, 2, 4, "resistance (4x tested) ★4d", text_color=tblTx, text_size=size.normal, text_halign=text.align_left)
         table.cell(pb, 3, 4, "has held for 4 days — watch it closely", text_color=tblTx, text_size=size.normal, text_halign=text.align_left)
         table.cell(pb, 0, 5, "D", text_color=(isDark ? #EF5350 : #C62828), text_size=size.normal, text_halign=text.align_center)
         table.cell(pb, 1, 5, "296", text_color=(isDark ? #EF5350 : #C62828), text_size=size.normal, text_halign=text.align_right)
