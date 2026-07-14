@@ -393,3 +393,57 @@ def test_paper_uses_the_shared_spec():
     assert paper.RECLAIM_CLOSES == spec.RECLAIM_CLOSES
     assert paper.STOP_PAD_PCT == spec.STOP_PAD_PCT
     assert paper.PENDING_EXPIRE_HOURS == spec.PENDING_EXPIRE_HOURS
+
+
+# ------------------------------------------- target from the FILL, not the level
+
+def test_target_is_picked_from_the_fill_not_the_level():
+    """Live 2026-07-14 (paper #14/#15): level 747.19, the reclaim confirmed at
+    751.12, and the target was chosen as the next resistance above the LEVEL
+    (750.06) — BEHIND the fill. A guaranteed loss, booked as 'target'."""
+    resistances = [750.06, 753.38, 757.0]
+    # the bug: measured from the level -> a target behind the fill
+    assert spec.target_for(747.19, "long", [], resistances) == 750.06
+    # the fix: measured from the actual fill -> the first resistance ABOVE it
+    assert spec.target_for(747.19, "long", [], resistances, entry=751.12) == 753.38
+
+
+def test_target_ladder_is_also_fill_relative():
+    resistances = [750.06, 753.38, 757.0]
+    assert spec.target_ladder(747.19, "long", [], resistances,
+                              entry=751.12) == [753.38, 757.0]
+    # short mirrors: supports BELOW the fill
+    supports = [745.0, 740.0, 748.5]
+    assert spec.target_ladder(752.0, "short", supports, [],
+                              entry=747.0) == [745.0, 740.0]
+
+
+def test_target_none_when_the_fill_ran_past_every_level():
+    # price reclaimed past the last resistance — open-ended, never invented
+    assert spec.target_for(747.19, "long", [], [750.06], entry=751.12) is None
+
+
+# ------------------------------------------------------------- the edge guard
+
+def test_is_worth_taking_rejects_target_behind_the_entry():
+    # paper #14: long, entry 751.12, "target" 750.06 -> guaranteed loss
+    ok, why = spec.is_worth_taking(751.12, 745.70, 750.06, "long")
+    assert not ok and "wrong side" in why
+
+
+def test_is_worth_taking_rejects_sub_1_reward_risk():
+    # paper #19 (today's live signal): risk 2.42, reward 1.28 -> R:R 0.53
+    ok, why = spec.is_worth_taking(752.10, 749.68, 753.38, "long")
+    assert not ok and "R:R 0.53" in why
+
+
+def test_is_worth_taking_accepts_a_real_setup_and_open_ended():
+    ok, why = spec.is_worth_taking(751.12, 753.76, 747.19, "short")   # R:R 1.49
+    assert ok and "1.49" in why
+    ok, why = spec.is_worth_taking(752.10, 749.68, None, "long")      # runner
+    assert ok and "open-ended" in why
+
+
+def test_is_worth_taking_rejects_a_zero_risk_stop():
+    ok, why = spec.is_worth_taking(750.0, 750.0, 755.0, "long")
+    assert not ok and "no risk" in why

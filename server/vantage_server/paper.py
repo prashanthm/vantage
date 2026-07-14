@@ -30,6 +30,9 @@ EXIT_OK = 0
 EXIT_USER_ERROR = 2
 ET = ZoneInfo("America/New_York")
 
+import logging
+
+from . import reclaim_strategy as _spec
 from .reclaim_strategy import (  # single source of truth for the reclaim trade
     DEFAULT_SHARES,
     PENDING_EXPIRE_HOURS as _SPEC_EXPIRE_HOURS,
@@ -38,6 +41,22 @@ from .reclaim_strategy import (  # single source of truth for the reclaim trade
     stop_for,
     target_for,
 )
+
+log = logging.getLogger(__name__)
+
+
+def _retarget(trade: dict, entry: float) -> float | None:
+    """Re-pick the target from the ACTUAL fill, using the opposing-level book
+    carried on the ticket (``spy_opposing``). Falls back to the stored target
+    for legacy rows that predate the book — those are then screened by
+    :func:`reclaim_strategy.is_worth_taking`, so a bad one is voided rather
+    than traded."""
+    book = trade.get("spy_opposing")
+    if not book:
+        return trade.get("spy_target")
+    if trade["side"] == "long":
+        return next((float(p) for p in sorted(book) if float(p) > entry), None)
+    return next((float(p) for p in sorted(book, reverse=True) if float(p) < entry), None)
 
 #: a zone counts as "broken" once price closes beyond it by this fraction of
 #: price. Kept in sync with journal._BREAK_PCT so the paper break-setups and the
@@ -298,6 +317,14 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
             "spy_now": round(spy_price, 2),   # current price, for "distance to entry"
             "spy_target": tgt_spy,
             "spy_stop": round(stop_spy, 2),
+            # The opposing-level book in SPY terms, carried on the ticket so the
+            # target can be RE-PICKED at fill time: a reclaim fills past the
+            # level, and a target chosen from the level can end up behind the
+            # fill (paper #14/#15 → guaranteed losses). See settle_open.
+            "spy_opposing": sorted(
+                to_spy(r["price"], ratio) for r in resistances) if side == "long"
+                else sorted((to_spy(s["price"], ratio) for s in supports),
+                            reverse=True),
             "shares": DEFAULT_SHARES,
             "ref_strike": nearest_strike(entry_spy),
             "otm_strike": otm,                 # time-of-day OTM suggestion
@@ -471,12 +498,31 @@ def settle_open(store: Store) -> dict:
             continue
         if (t.get("fill_status") or "filled") == "pending":
             fill = _try_fill(t, df)
-            if fill and store.fill_paper_trade(
-                    t["id"], spy_entry=fill["spy_entry"],
-                    filled_at=fill["filled_at"]):
-                filled += 1
-                t = dict(t, spy_entry=fill["spy_entry"],
-                         filled_at=fill["filled_at"], fill_status="filled")
+            if fill:
+                # THE FILL LANDS PAST THE LEVEL — re-pick the target from the
+                # actual fill and check the trade is still worth taking. A
+                # target chosen from the LEVEL can sit behind the FILL (paper
+                # #14/#15: level 747.19, fill 751.12, "target" 750.06 → a
+                # guaranteed loss booked as exit_reason=target).
+                entry = fill["spy_entry"]
+                tgt = _retarget(t, entry)
+                ok, why = _spec.is_worth_taking(
+                    entry, float(t["spy_stop"]), tgt, t["side"])
+                if not ok:
+                    # never book a dead trade: void it, don't "fill" it
+                    if store.close_paper_trade(
+                            t["id"], spy_exit=0.0, exit_reason="voided",
+                            pnl=0.0, pnl_pct=0.0,
+                            closed_at=fill["filled_at"]):
+                        expired += 1
+                    log.info("paper #%s voided at fill: %s", t["id"], why)
+                    continue
+                if store.fill_paper_trade(
+                        t["id"], spy_entry=entry, filled_at=fill["filled_at"],
+                        spy_target=tgt, set_target=True):
+                    filled += 1
+                    t = dict(t, spy_entry=entry, spy_target=tgt,
+                             filled_at=fill["filled_at"], fill_status="filled")
             elif _pending_expired(t, df):
                 if store.close_paper_trade(
                         t["id"], spy_exit=0.0, exit_reason="never_filled",

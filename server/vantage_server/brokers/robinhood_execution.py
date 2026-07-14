@@ -252,6 +252,19 @@ def execute_ticket(ticket: dict, account_number: str, *,
                          "share at this stop distance; nothing to execute")
     if not account_number:
         raise ValueError("account_number is required")
+
+    # THE EDGE GUARD (live 2026-07-14): refuse a trade whose geometry is a
+    # losing bet before it reaches the broker — a target behind the entry
+    # (paper #14/#15) or nearer than the stop (paper #19, R:R 0.53). Real
+    # money must never be committed to negative edge, whatever the UI or a
+    # stale signal says. Open-ended (no target) is allowed — the exit monitor
+    # trails it.
+    from ..reclaim_strategy import is_worth_taking
+    _t1 = float(targets[0]["price"]) if targets else None
+    _ok, _why = is_worth_taking(float(entry["price"]), float(stop["price"]),
+                                _t1, str(ticket["side"]))
+    if not _ok:
+        raise ValueError(f"refusing to execute — negative edge: {_why}")
     if exit_policy not in ("ladder", "trailing"):
         raise ValueError(f"exit_policy must be 'ladder' or 'trailing', got {exit_policy!r}")
 

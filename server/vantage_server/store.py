@@ -1313,17 +1313,27 @@ class Store:
                 "spy_entry", "spy_target", "spy_stop", "shares", "ref_strike",
                 "source", "status", "opened_price_src",
                 "entry_trigger", "entry_note", "spy_level", "fill_status",
-                "filled_at")
+                "filled_at", "spy_opposing")
+        import json as _json
+
+        def _val(c):
+            if c == "fill_status":
+                return trade.get(c) or "filled"
+            if c == "spy_opposing":   # list -> JSON TEXT
+                v = trade.get(c)
+                return _json.dumps(list(v)) if v else None
+            return trade.get(c)
+
         with self._sqlite_txn() as conn:
             cur = conn.execute(
                 f"INSERT INTO paper_trades({','.join(cols)}) "
                 f"VALUES({','.join('?' for _ in cols)})",
-                tuple((trade.get(c) or "filled") if c == "fill_status"
-                      else trade.get(c) for c in cols))
+                tuple(_val(c) for c in cols))
             return int(cur.lastrowid)
 
     def load_paper_trades(self, status: str | None = None) -> list[dict]:
-        """Paper trades (optionally filtered by status), newest first."""
+        """Paper trades (optionally filtered by status), newest first.
+        ``spy_opposing`` is decoded back to a list of floats."""
         if not self.uses_sqlite:
             return []
         conn = self._backend._conn()
@@ -1336,21 +1346,41 @@ class Store:
             rows = conn.execute(sql, params).fetchall()
         finally:
             conn.close()
-        return [dict(r) for r in rows]
+        import json as _json
+        out = []
+        for r in rows:
+            d = dict(r)
+            raw = d.get("spy_opposing")
+            if raw:
+                try:
+                    d["spy_opposing"] = [float(x) for x in _json.loads(raw)]
+                except (ValueError, TypeError):
+                    d["spy_opposing"] = None
+            out.append(d)
+        return out
 
     def fill_paper_trade(self, trade_id: int, *, spy_entry: float,
-                         filled_at: str) -> bool:
+                         filled_at: str, spy_target: float | None = None,
+                         set_target: bool = False) -> bool:
         """Mark a PENDING paper trade filled at its reclaim price. Returns True
-        if updated (row must still be open + pending)."""
+        if updated (row must still be open + pending).
+
+        ``set_target=True`` also rewrites ``spy_target`` — the reclaim fill
+        lands PAST the signal level, so the target has to be re-picked from
+        the actual fill (see reclaim_strategy.target_for); pass the
+        recomputed value (``None`` = open-ended)."""
         if not self.uses_sqlite:
             return False
+        sql = ("UPDATE paper_trades SET fill_status='filled', spy_entry=?, "
+               "filled_at=?, opened_price_src='reclaim 3x5m close'")
+        params: list = [spy_entry, filled_at]
+        if set_target:
+            sql += ", spy_target=?"
+            params.append(spy_target)
+        sql += " WHERE id=? AND status='open' AND fill_status='pending'"
+        params.append(trade_id)
         with self._sqlite_txn() as conn:
-            cur = conn.execute(
-                "UPDATE paper_trades SET fill_status='filled', spy_entry=?, "
-                "filled_at=?, opened_price_src='reclaim 3x5m close' "
-                "WHERE id=? AND status='open' AND fill_status='pending'",
-                (spy_entry, filled_at, trade_id))
-            return cur.rowcount > 0
+            return conn.execute(sql, tuple(params)).rowcount > 0
 
     def close_paper_trade(self, trade_id: int, *, spy_exit: float,
                           exit_reason: str, pnl: float, pnl_pct: float,

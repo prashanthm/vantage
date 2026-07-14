@@ -40,14 +40,65 @@ def stop_for(level: float, side: str) -> float:
     return level * (1 - pad) if side == "long" else level * (1 + pad)
 
 
+#: A target must pay at least this multiple of the risk (entry→stop distance),
+#: or the trade is not worth taking. Live 2026-07-14: signals were arming at
+#: R:R 0.53 (risk $242 to make $128) because targets were measured from the
+#: LEVEL while the fill happened at the reclaim close, well past it.
+MIN_REWARD_RISK = 1.0
+
+
 def target_for(level: float, side: str,
-               supports: list[float], resistances: list[float]) -> float | None:
-    """The target price: the NEXT OPPOSING level. Long (buy the dip at support)
-    → next resistance above; short (fade the rally at resistance) → next support
-    below. None when there is no opposing level (open-ended)."""
+               supports: list[float], resistances: list[float],
+               entry: float | None = None) -> float | None:
+    """The target price: the next OPPOSING level BEYOND THE FILL.
+
+    ``entry`` is the price the trade actually fills at — the reclaim close,
+    which sits past ``level`` by construction (a long confirms by closing
+    ABOVE the level). Targets must be measured from there, not from the
+    level: a resistance just above the level can sit BELOW the entry, which
+    made the trade a guaranteed loss the moment it armed (live 2026-07-14,
+    paper #14/#15: level 747.19, entry 751.12, "target" 750.06 → −$106 each,
+    booked as `exit_reason=target`).
+
+    ``entry=None`` keeps the legacy level-relative behavior for callers that
+    genuinely have no fill yet (a staged ticket prices its own entry AT the
+    level). Returns None when no opposing level lies beyond the reference —
+    open-ended, which the caller must handle rather than invent a target."""
+    ref = level if entry is None else entry
     if side == "long":
-        return next((r for r in sorted(resistances) if r > level), None)
-    return next((s for s in sorted(supports, reverse=True) if s < level), None)
+        return next((r for r in sorted(resistances) if r > ref), None)
+    return next((s for s in sorted(supports, reverse=True) if s < ref), None)
+
+
+def is_worth_taking(entry: float, stop: float, target: float | None, side: str,
+                    min_rr: float = MIN_REWARD_RISK) -> tuple[bool, str]:
+    """Should this trade be taken at all? Returns ``(ok, reason)``.
+
+    THE GUARD the strategy lacked. Two ways a reclaim trade was arriving
+    dead on arrival, both live-observed 2026-07-14:
+
+    * target on the WRONG SIDE of the entry (paper #14/#15) — a guaranteed
+      loss booked as `exit_reason=target`;
+    * target nearer than the stop (paper #19: R:R 0.53) — risking 242 to
+      make 128, a negative-edge bet.
+
+    Open-ended (``target is None``) is ALLOWED: a runner with no opposing
+    level is a legitimate setup — a MISSING target, not a bad one. The exit
+    monitor's trailing policy handles it."""
+    risk = abs(entry - stop)
+    if risk <= 0:
+        return False, "stop sits at the entry — no risk defined"
+    if target is None:
+        return True, "open-ended (no opposing level)"
+    reward = (target - entry) if side == "long" else (entry - target)
+    if reward <= 0:
+        return False, (f"target {target:g} is on the wrong side of the "
+                       f"{side} entry {entry:g}")
+    rr = reward / risk
+    if rr < min_rr:
+        return False, (f"R:R {rr:.2f} below the {min_rr:g} minimum "
+                       f"(risk {risk:.2f}, reward {reward:.2f})")
+    return True, f"R:R {rr:.2f}"
 
 
 #: How many laddered targets a reclaim trade scales out to (T1/T2/T3 = the next
@@ -85,15 +136,20 @@ CONF_TOL_PCT = 0.15
 
 def target_ladder(level: float, side: str,
                   supports: list[float], resistances: list[float],
-                  count: int = TARGET_COUNT) -> list[float]:
-    """The next ``count`` OPPOSING levels beyond ``level``, nearest first —
+                  count: int = TARGET_COUNT,
+                  entry: float | None = None) -> list[float]:
+    """The next ``count`` OPPOSING levels beyond the fill, nearest first —
     T1/T2/T3 for scaling out. Long → the ascending resistances above; short →
     the descending supports below. Shorter than ``count`` (or empty) when the
-    book runs out of levels; T1 always equals :func:`target_for`."""
+    book runs out of levels; T1 always equals :func:`target_for`.
+
+    ``entry`` (the actual fill) is the reference when given — see
+    :func:`target_for` for why measuring from ``level`` armed losing trades."""
+    ref = level if entry is None else entry
     if side == "long":
-        ladder = [r for r in sorted(resistances) if r > level]
+        ladder = [r for r in sorted(resistances) if r > ref]
     else:
-        ladder = [s for s in sorted(supports, reverse=True) if s < level]
+        ladder = [s for s in sorted(supports, reverse=True) if s < ref]
     return ladder[:count]
 
 

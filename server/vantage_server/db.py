@@ -21,13 +21,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 14  # v14: nightly_runs (per-job pipeline snapshots)
+SCHEMA_VERSION = 15  # v15: paper_trades.spy_opposing (retarget-at-fill book)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
 #: keeps using the JSON backend and the parity goldens are untouched.
 #: Post-v9 paper_trades columns (reclaim discipline), added idempotently.
 _PAPER_ADDED_COLUMNS = {
+    "spy_opposing": "TEXT",   # JSON: opposing-level book, for retarget-at-fill
     "entry_trigger": "TEXT",
     "entry_note": "TEXT",
     "spy_level": "REAL",

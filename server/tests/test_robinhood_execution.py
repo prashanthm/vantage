@@ -311,3 +311,35 @@ def test_cancel_accepts_the_observed_async_envelope(monkeypatch):
     monkeypatch.setattr(rexec, "_call_execute",
                         lambda tool, payload, max_retries=3: {"accepted": True})
     assert rexec.cancel_order("A", "oid", dry_run=False) is True
+
+
+# ------------------------------------------------------------- the edge guard
+
+def test_execute_refuses_a_target_behind_the_entry(monkeypatch):
+    """Real money must never fund a guaranteed loss (paper #14/#15)."""
+    monkeypatch.setattr(rexec, "_call_execute",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("must refuse BEFORE any broker call")))
+    t = _ticket("long")
+    t["orders"]["targets"] = [{"name": "T1", "price": 99.5, "qty": 5}]  # below entry 100
+    with pytest.raises(ValueError, match="wrong side"):
+        execute_ticket(t, "ACCT1")
+
+
+def test_execute_refuses_sub_1_reward_risk(monkeypatch):
+    """paper #19: risking 0.2 to make 0.1 — negative edge, refused."""
+    monkeypatch.setattr(rexec, "_call_execute",
+                        lambda *a, **k: (_ for _ in ()).throw(
+                            AssertionError("must refuse BEFORE any broker call")))
+    t = _ticket("long")   # entry 100, stop 99.8 -> risk 0.2
+    t["orders"]["targets"] = [{"name": "T1", "price": 100.1, "qty": 5}]  # reward 0.1
+    with pytest.raises(ValueError, match="R:R 0.50"):
+        execute_ticket(t, "ACCT1")
+
+
+def test_execute_allows_open_ended_and_good_rr():
+    r = execute_ticket(_ticket("long"), "ACCT1")            # T1 at 101 -> R:R 5
+    assert r["ok"] is True
+    t = _ticket("long")
+    t["orders"]["targets"] = []                             # open-ended runner
+    assert execute_ticket(t, "ACCT1")["ok"] is True
