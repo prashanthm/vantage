@@ -283,3 +283,21 @@ def test_distance_to_resistance_lists_levels_above_current():
     assert all(r["pct_away"] > 0 for r in out)
     # sorted nearest first
     assert out == sorted(out, key=lambda r: r["pct_away"])
+
+
+def test_volume_profile_drops_nan_bars():
+    """Live 2026-07-13 regression: one NaN close in an EOD bar feed crashed
+    the nightly position-analysis job (int(NaN) in the binning). Poisoned
+    bars carry no information — they are dropped, the rest still bin."""
+    rows = [(50, 51, 49, 10_000)] * 5
+    bars = _bars(rows)
+    bars.append({"date": "2026-07-13", "open": float("nan"),
+                 "high": float("nan"), "low": float("nan"),
+                 "close": float("nan"), "volume": float("nan")})
+    profile = T.volume_profile(bars, bins=4)
+    assert profile and sum(vb.volume for vb in profile) == 50_000
+
+    all_nan = [{"date": "x", "open": float("nan"), "high": float("nan"),
+                "low": float("nan"), "close": float("nan"),
+                "volume": float("nan")}]
+    assert T.volume_profile(all_nan, bins=4) == []

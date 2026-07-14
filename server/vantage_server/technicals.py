@@ -135,6 +135,18 @@ def volume_profile(bars: list[dict], bins: int = 24) -> list[VolumeBin]:
     """
     if bins < 1:
         raise ValueError("bins must be >= 1")
+
+    def _finite(b) -> bool:
+        try:
+            return all(float(b[k]) == float(b[k])  # NaN != NaN
+                       for k in ("low", "high", "close", "volume"))
+        except (TypeError, ValueError, KeyError):
+            return False
+
+    # Bar feeds occasionally emit a NaN row (live 2026-07-13: one EOD bar's
+    # NaN close crashed the nightly position-analysis job). A poisoned bar
+    # carries no information — drop it rather than let NaN infect min/max.
+    bars = [b for b in bars if _finite(b)]
     if not bars:
         return []
     lows = [float(b["low"]) for b in bars]
