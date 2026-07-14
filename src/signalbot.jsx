@@ -24,10 +24,10 @@ export function SignalBotView({ refreshNonce }) {
 
   const load = async () => {
     const [s, p, n] = await Promise.all([
-      getBotStatus(), getBotPerformance(), getNightlyStatus(1)]);
+      getBotStatus(), getBotPerformance(), getNightlyStatus(10)]);
     setStatus(s && s.available !== false ? s : null);
     setPerf(p && p.available !== false ? p : null);
-    setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
+    setNightly(n && n.available && n.runs ? n.runs : []);
   };
   useEffect(() => { load(); }, [refreshNonce]);
 
@@ -113,7 +113,7 @@ export function SignalBotView({ refreshNonce }) {
           </table>
         )}
 
-      <NightlyCard run={nightly} />
+      <NightlyCard runs={nightly || []} />
 
       <h3 className="vg-kicker" style={{ marginTop: 16 }}>Signal ↔ live correlation</h3>
       {!perf || perf.rows.length === 0
@@ -167,36 +167,48 @@ export function SignalBotView({ refreshNonce }) {
   );
 }
 
-function NightlyCard({ run }) {
-  const [open, setOpen] = useState(false);
-  if (!run) {
+const _dur = (s) => (s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s` : `${s}s`);
+
+function NightlyCard({ runs }) {
+  if (!runs.length) {
     return (
       <>
-        <h3 className="vg-kicker" style={{ marginTop: 16 }}>Last nightly run</h3>
-        <p className="vg-note">No pipeline snapshot recorded yet — the first one lands after tonight's 17:45 ET run.</p>
+        <h3 className="vg-kicker" style={{ marginTop: 16 }}>Nightly runs</h3>
+        <p className="vg-note">No pipeline snapshot recorded yet — the first one lands after the next 17:45 ET run (or run <code>./nightly-docker.sh</code> now).</p>
       </>
     );
   }
+  return (
+    <>
+      <h3 className="vg-kicker" style={{ marginTop: 16 }}>Nightly runs</h3>
+      {runs.map((run, i) => <NightlyRun key={run.id || i} run={run} />)}
+    </>
+  );
+}
+
+function NightlyRun({ run }) {
+  const [open, setOpen] = useState(false);
   const jobs = run.jobs || [];
   const bad = jobs.filter((j) => !j.ok);
   const total = jobs.reduce((a, j) => a + (j.duration_sec || 0), 0);
-  const dur = (s) => (s >= 60 ? `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s` : `${s}s`);
   return (
-    <>
-      <h3 className="vg-kicker" style={{ marginTop: 16 }}>Last nightly run
-        <span className="vg-note" style={{ fontWeight: 400 }}> · {String(run.started_at || "").slice(0, 16).replace("T", " ")}</span>
-      </h3>
+    <div style={{ marginTop: 8, padding: "8px 10px", border: "1px solid var(--vg-border, #333)", borderRadius: 8 }}>
       <div className="vg-row" style={{ gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <span className={cls("vg-badge", bad.length ? "bad" : "good")}>
-          {jobs.length - bad.length}✓ {bad.length}✗ · {dur(total)}
+        <span className="vg-note" style={{ fontSize: 12, minWidth: 120 }}>
+          {String(run.started_at || "").slice(0, 16).replace("T", " ")}
         </span>
+        <span className={cls("vg-badge", bad.length ? "bad" : "good")}>
+          {jobs.length - bad.length}✓ {bad.length}✗ · {_dur(total)}
+        </span>
+        <span className="vg-note" style={{ fontSize: 11 }}>{run.variant}</span>
         <button className="vg-linkbtn" onClick={() => setOpen(!open)}>
           {open ? "hide jobs" : "show jobs"}
         </button>
       </div>
-      {bad.map((j, i) => (
+      {/* failures always visible — that's the point of the snapshot */}
+      {!open && bad.map((j, i) => (
         <p key={i} className="vg-note" style={{ margin: "6px 0 0", fontSize: 12 }}>
-          ✗ <b>{j.job}</b> ({dur(j.duration_sec || 0)}) — <code>{(j.tail || "").split("\n").slice(-1)[0]}</code>
+          ✗ <b>{j.job}</b> ({_dur(j.duration_sec || 0)}) — <code>{(j.tail || "").split("\n").slice(-1)[0]}</code>
         </p>
       ))}
       {open && (
@@ -207,7 +219,7 @@ function NightlyCard({ run }) {
               <tr key={i}>
                 <td>{j.ok ? "✓" : "✗"}</td>
                 <td>{j.job}</td>
-                <td>{dur(j.duration_sec || 0)}</td>
+                <td>{_dur(j.duration_sec || 0)}</td>
                 <td className="vg-note" style={{ maxWidth: 420, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                   title={j.tail || ""}>{(j.tail || "").split("\n").slice(-1)[0]}</td>
               </tr>
@@ -215,7 +227,7 @@ function NightlyCard({ run }) {
           </tbody>
         </table>
       )}
-    </>
+    </div>
   );
 }
 
