@@ -413,8 +413,17 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
 
     for t in trades:
         t["spot_at_entry"] = _bar_price_at(bars, t.get("opened_at"))
-        t["spot_at_exit"] = _bar_price_at(bars, t.get("closed_at"))
+        # an EXPIRED trade "closes" at the settlement print (its closed_at is
+        # 16:00), so the exit price IS the settlement — the fill bar would be
+        # blank. A traded exit uses the 1m print at the close.
+        if str(t["status"]).startswith("expired") and t.get("settle_price"):
+            t["spot_at_exit"] = round(float(t["settle_price"]), 2)
+        else:
+            t["spot_at_exit"] = _bar_price_at(bars, t.get("closed_at"))
         t["correlation"] = correlate_levels(t["spot_at_entry"], levels, anchors)
+        # the EXIT correlation — where was SPX when I got out, and was THAT a
+        # level? Half the decision the entry-only view was missing.
+        t["exit_correlation"] = correlate_levels(t["spot_at_exit"], levels, anchors)
         # legacy alias the table still reads (nearest + at_level)
         corr = t["correlation"]
         t["level_at_entry"] = ({
@@ -483,8 +492,15 @@ def summarize(day: str, und: str, trades: list[dict], settle: float | None) -> d
     expired = [t for t in closed if t["status"].startswith("expired")]
     worthless = [t for t in expired if t["status"] == "expired_worthless"]
     winners = [t for t in closed if t["realized"] > 0]
-    at_level = [t for t in trades
-                if (t.get("level_at_entry") or {}).get("at_level")]
+    entered_at = [t for t in trades
+                  if (t.get("correlation") or {}).get("at_level")]
+    exited_at = [t for t in trades
+                 if (t.get("exit_correlation") or {}).get("at_level")]
+    # the cleanest discipline: entered AND exited at a forecast level (a
+    # level-to-level trade — the playbook's whole premise)
+    both = [t for t in trades
+            if (t.get("correlation") or {}).get("at_level")
+            and (t.get("exit_correlation") or {}).get("at_level")]
     return {
         "trades": len(trades),
         "closed": len(closed),
@@ -498,7 +514,11 @@ def summarize(day: str, und: str, trades: list[dict], settle: float | None) -> d
         "losers": len(closed) - len(winners),
         "settle_price": settle,
         # THE behavioral metric: did I trade the levels I forecast, or improvise?
-        "traded_at_level": len(at_level),
-        "level_discipline": (round(len(at_level) / len(trades), 2)
+        "traded_at_level": len(entered_at),
+        "level_discipline": (round(len(entered_at) / len(trades), 2)
                              if trades else None),
+        "exited_at_level": len(exited_at),
+        "exit_discipline": (round(len(exited_at) / len(closed), 2)
+                            if closed else None),
+        "level_to_level": len(both),           # entered AND exited at a level
     }

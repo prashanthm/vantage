@@ -528,7 +528,13 @@ function TradesPanel({ snap, thoughts, onThought }) {
         <span className="vg-note">{s.winners}W / {s.losers}L</span>
         {s.settle_price && <span className="vg-note">SPX settled {fmtLvl(s.settle_price)}</span>}
         {s.level_discipline != null && (
-          <span className="vg-note">level discipline <b>{Math.round(s.level_discipline * 100)}%</b></span>
+          <span className="vg-note">entered at level <b>{Math.round(s.level_discipline * 100)}%</b></span>
+        )}
+        {s.exit_discipline != null && (
+          <span className="vg-note">exited at level <b>{Math.round(s.exit_discipline * 100)}%</b></span>
+        )}
+        {s.level_to_level > 0 && (
+          <span className="vg-note"><b>{s.level_to_level}</b> level-to-level</span>
         )}
       </div>
 
@@ -555,12 +561,22 @@ function TradesPanel({ snap, thoughts, onThought }) {
 function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels }) {
   const corr = t.correlation;
   const nearest = corr && corr.nearest;
+  const exitCorr = t.exit_correlation;
+  const exitNearest = exitCorr && exitCorr.nearest;
   const long = String(t.strategy).includes("call");
-  // the tagged level (persisted with the thought as "@<price>|<why>") — parse it
-  const tag = (thought.match(/^@([\d.]+)\|/) || [])[1] || null;
-  const why = thought.replace(/^@[\d.]+\|/, "");
-  const setTag = (level) => onThought(level ? `@${level}|${why}` : why);
-  const setWhy = (v) => onThought(tag ? `@${tag}|${v}` : v);
+  // persisted as "@<entry>[/<exit>]|<why>" — entry level, optional exit level,
+  // then the free-text thinking. Parse the three back out.
+  const m = thought.match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
+  const tag = m[1] || null;
+  const exitTag = m[2] || null;
+  const why = thought.replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");
+  const encode = (e, x, w) => {
+    if (!e && !x) return w;
+    return `@${e || ""}${x ? `/${x}` : ""}|${w}`;
+  };
+  const setTag = (level) => onThought(encode(level, exitTag, why));
+  const setExitTag = (level) => onThought(encode(tag, level, why));
+  const setWhy = (v) => onThought(encode(tag, exitTag, v));
 
   return (
     <div className={cls("vg-trade", expanded && "open")}>
@@ -574,10 +590,19 @@ function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels 
         <span>
           {nearest
             ? <span className={cls("vg-badge", corr.at_level ? "good" : "plain")}
-                title={`${nearest.role || ""} ${(nearest.kinds || []).join(" + ")}`}>
+                title={`entry: ${nearest.role || ""} ${(nearest.kinds || []).join(" + ")}`}>
                 {corr.at_level ? "✓ " : ""}{fmtLvl(nearest.level)}
               </span>
             : <span className="vg-note">—</span>}
+          {exitNearest && (
+            <span className="vg-note" style={{ margin: "0 3px" }}>→</span>
+          )}
+          {exitNearest && (
+            <span className={cls("vg-badge", t.exit_correlation.at_level ? "good" : "plain")}
+              title={`exit: ${exitNearest.role || ""} ${(exitNearest.kinds || []).join(" + ")}`}>
+              {t.exit_correlation.at_level ? "✓ " : ""}{fmtLvl(exitNearest.level)}
+            </span>
+          )}
         </span>
         <span className={cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down")}>{money(t.realized)}</span>
         <span className={cls("vg-badge", STATUS_TONE[t.status] || "plain")}>{STATUS_LABEL[t.status] || t.status}</span>
@@ -606,35 +631,52 @@ function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels 
               </tbody></table>
             </div>
 
-            {/* the correlation to the plan */}
+            {/* the correlation to the plan — ENTRY and EXIT */}
             <div>
-              <div className="vg-kicker">SPX {fmtLvl(t.spot_at_entry)} at entry vs. the forecast</div>
-              {corr && corr.nearby && corr.nearby.length ? (
-                <table className="vg-mini"><tbody>
-                  {corr.nearby.map((c, i) => (
-                    <tr key={i} className={c.level === nearest.level ? "vg-hl" : ""}>
-                      <td>{fmtLvl(c.level)}</td>
-                      <td>{c.role} {(c.kinds || []).length ? `· ${c.kinds.join(" + ")}` : ""}
-                        <span className="vg-note"> [{c.source}]</span></td>
-                      <td style={{ textAlign: "right" }}>{c.distance > 0 ? "+" : ""}{c.distance}pt</td>
-                    </tr>
-                  ))}
-                </tbody></table>
-              ) : (
-                <p className="vg-note">No forecast level within range — this entry was in open space.</p>
-              )}
+              {/* the arc: where price was in vs. out */}
+              <div className="vg-kicker">The arc</div>
+              <div style={{ fontSize: 13, margin: "2px 0 10px", fontVariantNumeric: "tabular-nums" }}>
+                in <b>{fmtLvl(t.spot_at_entry)}</b>
+                {nearest && <span className={cls("vg-badge", corr.at_level ? "good" : "plain")} style={{ marginLeft: 4 }}>{fmtLvl(nearest.level)}</span>}
+                <span className="vg-note" style={{ margin: "0 6px" }}>→</span>
+                out <b>{fmtLvl(t.spot_at_exit)}</b>
+                {exitNearest && <span className={cls("vg-badge", exitCorr.at_level ? "good" : "plain")} style={{ marginLeft: 4 }}>{fmtLvl(exitNearest.level)}</span>}
+                {t.spot_at_entry != null && t.spot_at_exit != null && (
+                  <span className="vg-note"> · {(t.spot_at_exit - t.spot_at_entry) >= 0 ? "+" : ""}{(t.spot_at_exit - t.spot_at_entry).toFixed(1)}pt SPX
+                    {String(t.status).startsWith("expired") ? " (settlement)" : ""}</span>
+                )}
+              </div>
 
-              {/* TAG which level you were actually trading */}
-              <div className="vg-trade-field" style={{ marginTop: 10 }}>
-                <label>Level I was trading</label>
-                <select value={tag || ""} onChange={(e) => setTag(e.target.value || null)}>
-                  <option value="">— none / open space —</option>
-                  {allLevels.map((l, i) => (
-                    <option key={i} value={l.price}>
-                      {fmtLvl(l.price)} · {l.role}{(l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : ""}
-                    </option>
-                  ))}
-                </select>
+              <CorrTable title={`Entry · SPX ${fmtLvl(t.spot_at_entry)}`} corr={corr} openSpace="entry was in open space" />
+              <div style={{ marginTop: 8 }}>
+                <CorrTable title={`Exit · SPX ${fmtLvl(t.spot_at_exit)}${String(t.status).startsWith("expired") ? " (settled)" : ""}`}
+                  corr={exitCorr} openSpace="exit was in open space" />
+              </div>
+
+              {/* TAG the levels you were actually trading — in and out */}
+              <div className="vg-row" style={{ gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+                <div className="vg-trade-field" style={{ flex: 1, minWidth: 150 }}>
+                  <label>Level I entered on</label>
+                  <select value={tag || ""} onChange={(e) => setTag(e.target.value || null)}>
+                    <option value="">— none / open space —</option>
+                    {allLevels.map((l, i) => (
+                      <option key={i} value={l.price}>
+                        {fmtLvl(l.price)} · {l.role}{(l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="vg-trade-field" style={{ flex: 1, minWidth: 150 }}>
+                  <label>Level I exited on</label>
+                  <select value={exitTag || ""} onChange={(e) => setExitTag(e.target.value || null)}>
+                    <option value="">— none / open space —</option>
+                    {allLevels.map((l, i) => (
+                      <option key={i} value={l.price}>
+                        {fmtLvl(l.price)} · {l.role}{(l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -646,6 +688,30 @@ function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels 
               placeholder="the read, the trigger, what I was expecting — the WHY the broker can't record" />
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// One side of the correlation (entry or exit): the levels near this SPX print.
+function CorrTable({ title, corr, openSpace }) {
+  const nearest = corr && corr.nearest;
+  return (
+    <div>
+      <div className="vg-kicker" style={{ fontSize: 10 }}>{title}</div>
+      {corr && corr.nearby && corr.nearby.length ? (
+        <table className="vg-mini"><tbody>
+          {corr.nearby.map((c, i) => (
+            <tr key={i} className={c.level === nearest.level ? "vg-hl" : ""}>
+              <td>{fmtLvl(c.level)}</td>
+              <td>{c.role} {(c.kinds || []).length ? `· ${c.kinds.join(" + ")}` : ""}
+                <span className="vg-note"> [{c.source}]</span></td>
+              <td style={{ textAlign: "right" }}>{c.distance > 0 ? "+" : ""}{c.distance}pt</td>
+            </tr>
+          ))}
+        </tbody></table>
+      ) : (
+        <p className="vg-note" style={{ fontSize: 12, margin: "2px 0" }}>No forecast level within range — {openSpace}.</p>
       )}
     </div>
   );
