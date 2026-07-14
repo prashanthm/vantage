@@ -554,3 +554,32 @@ def test_recompute_route_regenerates_and_stores(seeded_dir, sentinel_dir, monkey
     # it persisted — a subsequent GET serves it
     got = store.load_spx_playbook("2026-07-07")
     assert got is not None and got["scaffold"]["symbol"] == "SPX"
+
+
+# ------------------------------------------------- as-of / session labeling
+
+def test_default_asof_is_run_time_aware():
+    """Live 2026-07-14 regression: session labeling must come from the ET
+    clock and the close, not the container's date — a 00:03 ET rerun
+    mislabeled the session one day forward and shadowed the UI's playbook."""
+    import datetime as dt
+    from zoneinfo import ZoneInfo
+    from vantage_server.spx_playbook import _default_asof, _next_session
+    ET = ZoneInfo("America/New_York")
+
+    def session_at(y, m, d, hh, mm):
+        return _next_session(_default_asof(dt.datetime(y, m, d, hh, mm, tzinfo=ET)))
+
+    # Mon 17:45 ET (the nightly): prepares Tuesday          — unchanged
+    assert session_at(2026, 7, 13, 17, 45) == dt.date(2026, 7, 14)
+    # Tue 00:03 ET (the mislabeling rerun): STILL Tuesday   — the fix
+    assert session_at(2026, 7, 14, 0, 3) == dt.date(2026, 7, 14)
+    # Tue 08:56 ET pre-market / 12:00 intraday: Tuesday
+    assert session_at(2026, 7, 14, 8, 56) == dt.date(2026, 7, 14)
+    assert session_at(2026, 7, 14, 12, 0) == dt.date(2026, 7, 14)
+    # Tue 20:30 ET (after UTC rollover — the latent hazard): Wednesday
+    assert session_at(2026, 7, 14, 20, 30) == dt.date(2026, 7, 15)
+    # Saturday, any hour: Monday
+    assert session_at(2026, 7, 18, 11, 0) == dt.date(2026, 7, 20)
+    # Monday pre-open: Monday (as-of walks back over the weekend)
+    assert session_at(2026, 7, 20, 8, 0) == dt.date(2026, 7, 20)

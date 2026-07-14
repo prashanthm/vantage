@@ -775,6 +775,25 @@ def _next_session(today: _dt.date) -> _dt.date:
     return d
 
 
+def _default_asof(now_et: _dt.datetime) -> _dt.date:
+    """The as-of date a scaffold built NOW should carry (session = the next
+    trading day after it). The old default — the container's ``date.today()``
+    — silently assumed an evening ET run; a run between the UTC date
+    rollover (~20:00 ET) and the next close mislabeled the session one day
+    forward (live 2026-07-14: a 00:03 ET rerun produced session 07-15 and
+    shadowed the correct 07-14 playbook the UI needed). Rule, on the ET
+    clock: after the close (or on a weekend) the scaffold serves the NEXT
+    session → as-of today; before the close on a trading day it serves
+    TODAY's session → as-of the previous trading day."""
+    d = now_et.date()
+    if now_et.weekday() >= 5 or now_et.hour >= 16:
+        return d
+    prev = d - _dt.timedelta(1)
+    while prev.weekday() >= 5:
+        prev -= _dt.timedelta(1)
+    return prev
+
+
 def build_playbook(today: _dt.date | None = None, store: Any = None,
                    underlying: str = "SPX") -> dict:
     """The full deterministic scaffold for ``underlying`` (SPX | QQQ | IWM). Pure
@@ -788,7 +807,9 @@ def build_playbook(today: _dt.date | None = None, store: Any = None,
     cfg = _u.get(underlying)
     key = underlying.upper() if underlying else "SPX"
     scale = {"round_step": cfg["round_step"], "cluster_tol": cfg["cluster_tol"]}
-    today = today or _dt.date.today()
+    if today is None:
+        from zoneinfo import ZoneInfo
+        today = _default_asof(_dt.datetime.now(ZoneInfo("America/New_York")))
     nxt = _next_session(today)
     bundle = sb.pull_all(today.isoformat(), nxt.isoformat(), store=store,
                          gex_symbol=cfg["gex_symbol"])
