@@ -494,6 +494,25 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         telegram_token_tail=(token[-4:] if token else None),
                         telegram_chat_id=chat, test_sent=tested)
 
+    @app.post("/api/reclaim-bot/nightly-report")
+    def reclaim_bot_nightly_report(body: dict = Body(default={})):
+        """Build + push the 🌙 nightly digest (playbook freshness, today's
+        signal outcomes, open book). Called by nightly-docker.sh after the
+        EOD pipeline; an optional ``note`` (e.g. the pipeline's failure
+        tail) is appended so problems reach the phone too. Outbound
+        notification only — no broker path."""
+        from . import signal_bot
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="signal bot needs the SQLite backend")
+        text = signal_bot.nightly_report(store)
+        extra = str(body.get("note") or "").strip()
+        if extra:
+            text = f"{text}\n{extra}"
+        sent = signal_bot.send_telegram(text, store)
+        return envelope(snap, available=True, text=text, sent=sent)
+
     @app.get("/api/reclaim-bot/performance")
     def reclaim_bot_performance():
         """The signal↔live correlation: every bot signal beside its paper

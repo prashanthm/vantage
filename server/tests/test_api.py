@@ -462,6 +462,8 @@ ALLOWED_WRITE_ROUTES = {
     "/api/reclaim-bot/poll",
     # Telegram credentials into OUR meta table (+ optional test message).
     "/api/reclaim-bot/config",
+    # Nightly digest push — reads our store, sends one outbound message.
+    "/api/reclaim-bot/nightly-report",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the

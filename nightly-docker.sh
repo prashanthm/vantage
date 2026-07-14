@@ -132,6 +132,21 @@ else
     --account "$ML_ACCOUNT" --from-roundtrips
 fi
 
+# Nightly Telegram digest (signal outcomes + playbook freshness + open book),
+# sent AFTER the pipeline so a failed step rides along in the same message.
+# Best-effort like every other step; unconfigured telegram → backend logs it.
+if [ -n "$FAILED_STEPS" ]; then
+  NOTE="⚠ pipeline failures:$FAILED_STEPS"
+else
+  NOTE=""
+fi
+DIGEST=$(curl -s -X POST --max-time 60 "http://localhost:8641/api/reclaim-bot/nightly-report" \
+  -H 'Content-Type: application/json' \
+  -d "$(printf '%s' "$NOTE" | python3 -c 'import json,sys; print(json.dumps({"note": sys.stdin.read()}))')" || true)
+echo "[$STAMP] nightly-docker: digest sent=$(printf '%s' "$DIGEST" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("sent"))
+except Exception: print("error")' 2>/dev/null)"
+
 if [ -n "$FAILED_STEPS" ]; then
   echo "[$STAMP] nightly-docker: done WITH FAILURES:$FAILED_STEPS"
 else

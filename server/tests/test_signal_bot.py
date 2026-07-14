@@ -268,3 +268,31 @@ def test_arm_dedupes_when_proxy_ratio_drifts(tmp_path, monkeypatch, sent):
     assert signal_bot.arm_session(store) == []
     assert len(store.load_paper_trades("open")) == 1
     assert len(sent) == 1
+
+
+# ------------------------------------------------------------- nightly digest
+
+def test_nightly_report_summarizes_today(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    monkeypatch.setattr(store, "load_spx_playbook",
+                        lambda symbol=None, day=None: (
+                            {"session": _dt.datetime.now(paper.ET).date().isoformat()}
+                            if symbol in ("SPX", "QQQ") else None),
+                        raising=False)
+    today = _dt.datetime.now(paper.ET).date().isoformat()
+    win = _seed_signal(store)
+    store.fill_paper_trade(win, spy_entry=623.45, filled_at=f"{today}T10:05:00")
+    store.close_paper_trade(win, spy_exit=625.3, exit_reason="target",
+                            pnl=185.0, pnl_pct=0.3, closed_at=f"{today}T11:20:00")
+    riding = _seed_signal(store, side="short", level=628.4)
+    store.fill_paper_trade(riding, spy_entry=628.1, filled_at=f"{today}T13:40:00")
+    _seed_signal(store, side="long", level=618.0)          # still armed
+    _seed_live(store, signal_paper_id=win, closed=False)   # live book open
+
+    text = signal_bot.nightly_report(store)
+    assert "🌙 Vantage nightly" in text
+    assert "SPX ✓" in text and "QQQ ✓" in text and "IWM ✗" in text
+    assert "2 fired" in text and "1✅ 0❌" in text and "+185.00" in text
+    assert "1 riding · 1 armed" in text
+    assert "1 open managed" in text
+    assert "✅ SPY long target +185.00" in text

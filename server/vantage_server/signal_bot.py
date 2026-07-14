@@ -220,6 +220,57 @@ def poll(store: Store) -> list[dict]:
     return events
 
 
+# ── nightly digest ───────────────────────────────────────────────────────────
+
+def nightly_report(store: Store) -> str:
+    """The 🌙 end-of-day digest the nightly job pushes after its pipeline:
+    playbook freshness per underlying, today's signal outcomes (the bot's
+    paper track), what is still open, and the live managed book. Pure
+    read + render; the caller sends it."""
+    now = _dt.datetime.now(paper.ET)
+    today = now.date().isoformat()
+
+    pb = []
+    for und in BOT_UNDERLYINGS:
+        row = store.load_spx_playbook(symbol=und)
+        session = (row or {}).get("session") or (row or {}).get("date")
+        pb.append(f"{und} {'✓' if row else '✗'}"
+                  + (f" ({session})" if row and session != today else ""))
+
+    auto = [t for t in store.load_paper_trades() if t.get("source") == "auto"]
+    def _on(t, field):
+        return str(t.get(field) or "").startswith(today)
+    fired = [t for t in auto if _on(t, "filled_at")]
+    closed = [t for t in auto if _on(t, "closed_at")
+              and t.get("exit_reason") != "never_filled"]
+    expired = [t for t in auto if _on(t, "closed_at")
+               and t.get("exit_reason") == "never_filled"]
+    wins = [t for t in closed if (t.get("pnl") or 0) > 0]
+    pnl = sum(float(t.get("pnl") or 0) for t in closed)
+    open_auto = [t for t in auto if t["status"] == "open"]
+    riding = [t for t in open_auto if (t.get("fill_status") or "") == "filled"]
+    armed = [t for t in open_auto if (t.get("fill_status") or "") == "pending"]
+
+    managed_open = store.load_managed_positions("open")
+    managed_closed_today = [m for m in store.load_managed_positions("closed")
+                            if str(m.get("closed_at") or "")[:10] == today]
+
+    lines = [f"🌙 Vantage nightly — {now.strftime('%a %Y-%m-%d')}",
+             "Playbooks: " + " · ".join(pb),
+             (f"Signals today: {len(fired)} fired · {len(wins)}✅ "
+              f"{len(closed) - len(wins)}❌ · paper P&L {pnl:+.2f}"
+              + (f" · {len(expired)} expired" if expired else ""))]
+    if riding or armed:
+        lines.append(f"Still open: {len(riding)} riding · {len(armed)} armed")
+    lines.append(f"Live book: {len(managed_open)} open managed · "
+                 f"{len(managed_closed_today)} closed today")
+    for t in closed:
+        lines.append(f"  {'✅' if (t.get('pnl') or 0) > 0 else '❌'} "
+                     f"{t['symbol']} {t['side']} {t.get('exit_reason')} "
+                     f"{float(t.get('pnl') or 0):+.2f} · paper #{t['id']}")
+    return "\n".join(lines)
+
+
 # ── signal ↔ live correlation ────────────────────────────────────────────────
 
 def performance(store: Store) -> dict:

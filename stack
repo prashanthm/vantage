@@ -195,6 +195,47 @@ cmd_cron_uninstall_docker() {
   echo "uninstalled $CRON_LABEL_DOCKER"
 }
 
+BOT_LABEL="com.pmuniraju.vantage.signalbot"
+BOT_PLIST="$HOME/Library/LaunchAgents/$BOT_LABEL.plist"
+
+cmd_bot_install() {
+  local repo; repo="$(pwd)"
+  cat > "$BOT_PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$BOT_LABEL</string>
+  <key>ProgramArguments</key>
+  <array><string>$repo/deploy/signal-bot-loop.sh</string></array>
+  <key>WorkingDirectory</key><string>$repo</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>$repo/$LOG_DIR/signal-bot-loop.log</string>
+  <key>StandardErrorPath</key><string>$repo/$LOG_DIR/signal-bot-loop.log</string>
+</dict>
+</plist>
+PLIST
+  # never two drivers: kill any ad-hoc nohup instance before launchd owns it
+  pkill -f signal-bot-loop.sh 2>/dev/null || true
+  launchctl bootout "gui/$(id -u)/$BOT_LABEL" 2>/dev/null || true
+  launchctl bootstrap "gui/$(id -u)" "$BOT_PLIST"
+  echo "installed $BOT_LABEL — reclaim signal-bot poll loop, always on (KeepAlive," \
+       "survives reboot; the loop itself only polls during market hours)." \
+       "Logs: $LOG_DIR/signal-bot-loop.log"
+}
+
+cmd_bot_uninstall() {
+  launchctl bootout "gui/$(id -u)/$BOT_LABEL" 2>/dev/null || true
+  rm -f "$BOT_PLIST"
+  echo "uninstalled $BOT_LABEL"
+}
+
 case "${1:-}" in
   setup)  cmd_setup ;;
   start)  shift; cmd_start "${1:-}" ;;
@@ -207,5 +248,7 @@ case "${1:-}" in
   cron-uninstall) cmd_cron_uninstall ;;
   cron-install-docker)   cmd_cron_install_docker ;;
   cron-uninstall-docker) cmd_cron_uninstall_docker ;;
+  bot-install)   cmd_bot_install ;;
+  bot-uninstall) cmd_bot_uninstall ;;
   *) sed -n '2,14p' "$0"; exit 1 ;;
 esac
