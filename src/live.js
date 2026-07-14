@@ -856,9 +856,10 @@ export async function getPlaybookPine(date, symbol = "SPX") {
 // the server computes entry/stop/targets + risk-based qty (index symbols come
 // back rescaled into the tradeable proxy ETF, e.g. SPX→SPY) — the operator
 // reviews and places it in their broker; Vantage never places orders (ADR-010).
-export async function getTicket(symbol, side, level, risk = 500) {
+export async function getTicket(symbol, side, level, risk = 500, entry = null) {
   const q = `symbol=${encodeURIComponent(symbol)}&side=${encodeURIComponent(side)}` +
-            `&level=${encodeURIComponent(level)}&risk=${encodeURIComponent(risk)}`;
+            `&level=${encodeURIComponent(level)}&risk=${encodeURIComponent(risk)}` +
+            (entry ? `&entry=${encodeURIComponent(entry)}` : "");
   // 20s: an index ticket fetches a live proxy quote (SPY/QQQ/IWM) to rescale.
   const v = await getJson(`${backendBase()}/api/ticket?${q}`, { timeoutMs: 20000 });
   if (v && v.available) return { available: true, ticket: v.ticket, text: v.text };
@@ -878,11 +879,17 @@ export async function executeTicket(body) {
 }
 
 // Managed-exit positions (ADR-010 v3): what the exit monitor is protecting.
-export async function getExits(status) {
-  const q = status ? `?status=${encodeURIComponent(status)}` : "";
+// `mergeBroker` also returns the ACTUAL broker positions with a `managed`
+// flag — an unmanaged position has no monitor stop, which is the thing worth
+// seeing.
+export async function getExits(status, { mergeBroker = false } = {}) {
+  const p = [];
+  if (status) p.push(`status=${encodeURIComponent(status)}`);
+  if (mergeBroker) p.push("merge_broker=1");
+  const q = p.length ? `?${p.join("&")}` : "";
   const v = await getJson(`${backendBase()}/api/exits${q}`);
-  if (!v) return { positions: [], live_gate: false, unreachable: true };
-  return { positions: v.positions || [], live_gate: !!v.live_gate };
+  if (!v) return { positions: [], broker: [], live_gate: false, unreachable: true };
+  return { positions: v.positions || [], broker: v.broker || [], live_gate: !!v.live_gate };
 }
 
 // One exit-monitor pass NOW (re-arm stops, detect fills, swaps/ratchets —
@@ -909,6 +916,11 @@ export const getBotPerformance = () =>
 // Latest nightly pipeline snapshot(s): per-job ok/duration/tail.
 export const getNightlyStatus = (limit = 1) =>
   getJson(`${backendBase()}/api/nightly/status?limit=${limit}`);
+
+// The positions that matter while trading: reclaim proxies you actually hold,
+// each flagged with whether the exit monitor is protecting it.
+export const getTradeablePositions = () =>
+  getJson(`${backendBase()}/api/positions/tradeable`);
 
 // Regenerate the playbook NOW from the latest data (fresh bars + Sentinel
 // artifacts), outside the nightly job. POST; returns the new scaffold via

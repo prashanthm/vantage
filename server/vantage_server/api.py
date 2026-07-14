@@ -336,7 +336,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         gex_levels=levels, prefilled=bool(levels), script=script)
 
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
-                              risk: float, date: str | None):
+                              risk: float, date: str | None,
+                              entry: float | None = None):
         """Build the staged reclaim ticket ALL ticket surfaces share — the GET
         preview and the execute route recompute through here, so what executes
         is byte-for-byte what was previewed (and client-supplied prices can
@@ -380,8 +381,13 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                        "ratio": ratio, "proxy_last": float(proxy_last),
                        "index_spot": float(index_spot)}
 
+        # a FIRED signal fills at the reclaim close, not at the level — price
+        # the ticket from there so the order IS the trade the signal promised
+        entry_scaled = (float(entry) * ratio if (entry and proxy)
+                        else (float(entry) if entry else None))
         ticket = _ot.build_ticket(ticket_sym, sd, lvl, supports, resistances,
-                                  risk_amount=risk, derived_from=derived)
+                                  risk_amount=risk, derived_from=derived,
+                                  entry=entry_scaled)
         extras = {
             "text": _ot.render_ticket(ticket),
             "levels_source": ("playbook" if levels else "none — targets empty; "
@@ -395,7 +401,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                      side: str = Query(...),
                      level: float = Query(...),
                      risk: float = Query(100.0),
-                     date: str | None = Query(None)):
+                     date: str | None = Query(None),
+                     entry: float | None = Query(None)):
         """A STAGED order ticket for a reclaim trade at ``level``: entry/stop
         from the shared reclaim spec, target ladder from the symbol's playbook
         levels, risk-based qty, per-leg scale-out — plus a copy-paste text
@@ -405,7 +412,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         only — submission is the separate, gated POST /api/ticket/execute
         (ADR-010 v2). ``risk`` = max loss at the stop."""
         snap = state.snapshot()
-        ticket, extras = _stage_reclaim_ticket(symbol, side, level, risk, date)
+        ticket, extras = _stage_reclaim_ticket(symbol, side, level, risk, date, entry)
         if ticket is None:
             return envelope(snap, available=False, note=extras)
         return envelope(snap, available=True, ticket=ticket, **extras)
@@ -427,7 +434,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         ticket, extras = _stage_reclaim_ticket(
             str(body.get("symbol") or ""), str(body.get("side") or ""),
             float(body.get("level") or 0), float(body.get("risk") or 100.0),
-            body.get("date"))
+            body.get("date"),
+            float(body["entry"]) if body.get("entry") else None)
         if ticket is None:
             return envelope(snap, available=False, note=extras)
         account = str(body.get("account_number") or "")
@@ -572,13 +580,57 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         telegram=signal_bot.telegram_configured(store))
 
     @app.get("/api/exits")
-    def exits_list(status: str | None = Query(None)):
+    def exits_list(status: str | None = Query(None), merge_broker: bool = Query(False)):
         """Managed-exit positions (ADR-010 v3): what the exit monitor is
-        holding, protecting, and has closed. Read-only."""
+        holding, protecting, and has closed. Read-only.
+
+        ``merge_broker=1`` also returns the account's ACTUAL broker positions
+        with a ``managed`` flag — so the book shows what you really hold, not
+        only what the bot opened. An unmanaged position has no monitor stop:
+        that is exactly the thing worth seeing."""
         from .brokers import robinhood_execution as _exec
         snap = state.snapshot()
-        return envelope(snap, positions=store.load_managed_positions(status),
-                        live_gate=_exec.live_allowed())
+        managed = store.load_managed_positions(status)
+        payload = {"positions": managed, "live_gate": _exec.live_allowed()}
+        if merge_broker:
+            payload["broker"] = _broker_positions(managed)
+        return envelope(snap, **payload)
+
+    def _broker_positions(managed: list[dict]) -> list[dict]:
+        """Live broker positions, each flagged with whether the exit monitor
+        is managing it. Best-effort: a broker/auth failure yields [] with a
+        note rather than breaking the view (read-only path — ADR-010)."""
+        from . import engine
+        by_symbol = {m["symbol"]: m for m in managed
+                     if m["status"] in ("active", "pending_entry")}
+        out = []
+        try:
+            snap = state.snapshot()
+            for p in engine.positions(ds.lots, snap.quotes, accounts=ds.accounts):
+                d = to_jsonable(p)
+                sym = d.get("symbol")
+                m = by_symbol.get(sym)
+                d["managed"] = bool(m)
+                d["managed_id"] = m["id"] if m else None
+                d["stop_price"] = m.get("stop_price") if m else None
+                out.append(d)
+        except Exception as e:            # never break the book on a data hiccup
+            return []
+        return out
+
+    @app.get("/api/positions/tradeable")
+    def positions_tradeable(symbols: str = Query("SPY,QQQ,IWM")):
+        """The positions that matter WHILE TRADING: the reclaim proxies you
+        actually hold right now (shares, cost, live value, P&L), each flagged
+        with whether the exit monitor is protecting it. Powers the Today
+        view's positions card. Read-only."""
+        snap = state.snapshot()
+        want = {s.strip().upper() for s in (symbols or "").split(",") if s.strip()}
+        managed = store.load_managed_positions("open")
+        rows = [p for p in _broker_positions(managed)
+                if (p.get("symbol") or "").upper() in want and (p.get("shares") or 0) != 0]
+        return envelope(snap, positions=rows,
+                        unprotected=[p["symbol"] for p in rows if not p["managed"]])
 
     @app.post("/api/exits/tick")
     def exits_tick():

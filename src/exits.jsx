@@ -24,12 +24,12 @@ const STATUS_TONE = {
 };
 
 export function ExitsView({ refreshNonce }) {
-  const [data, setData] = useState({ positions: [], live_gate: false });
+  const [data, setData] = useState({ positions: [], broker: [], live_gate: false });
   const [busy, setBusy] = useState(false);
   const [actions, setActions] = useState(null);   // last tick's action log
   const [note, setNote] = useState(null);
 
-  const load = async () => setData(await getExits());
+  const load = async () => setData(await getExits(undefined, { mergeBroker: true }));
   useEffect(() => { load(); }, [refreshNonce]);
   // While anything is open the monitor state moves — keep the view honest.
   useEffect(() => {
@@ -81,7 +81,9 @@ export function ExitsView({ refreshNonce }) {
       </p>
       {note && <p className="vg-note" style={{ color: "#c0392b" }}>{note}</p>}
 
-      <h3 className="vg-kicker" style={{ marginTop: 14 }}>Open ({open.length})</h3>
+      <BrokerBook rows={data.broker || []} />
+
+      <h3 className="vg-kicker" style={{ marginTop: 14 }}>Under management ({open.length})</h3>
       {open.length === 0
         ? <p className="vg-note">Nothing under management.</p>
         : <ExitTable rows={open} onDisarm={disarm} />}
@@ -106,6 +108,59 @@ export function ExitsView({ refreshNonce }) {
         ? <p className="vg-note">No closed managed positions yet.</p>
         : <ExitTable rows={done} history />}
     </div>
+  );
+}
+
+// The BROKER's book — what you actually hold, whether or not the bot opened
+// it. The `managed` flag is the point: an unmanaged position has no monitor
+// stop resting behind it.
+function BrokerBook({ rows }) {
+  const held = rows.filter((p) => (p.shares || 0) !== 0);
+  if (!held.length) return null;
+  const naked = held.filter((p) => !p.managed);
+  return (
+    <>
+      <h3 className="vg-kicker" style={{ marginTop: 14 }}>
+        Broker book ({held.length}) · what you actually hold
+      </h3>
+      <div style={{ overflowX: "auto" }}>
+        <table className="vg-table" style={{ fontSize: 13 }}>
+          <thead>
+            <tr><th>symbol</th><th>shares</th><th>cost</th><th>value</th>
+              <th>unrealized</th><th>day P/L</th><th>protection</th></tr>
+          </thead>
+          <tbody>
+            {held.map((p) => (
+              <tr key={p.symbol}>
+                <td><b>{p.symbol}</b></td>
+                <td>{fmt(p.shares, 0)}</td>
+                <td>{fmt(p.cost)}</td>
+                <td>{fmt(p.value)}</td>
+                <td style={{ color: p.unrealized >= 0 ? "var(--vg-up)" : "var(--vg-down)" }}>
+                  {fmt(p.unrealized)}
+                </td>
+                <td style={{ color: p.day_pl >= 0 ? "var(--vg-up)" : "var(--vg-down)" }}>
+                  {fmt(p.day_pl)}
+                </td>
+                <td>
+                  {p.managed
+                    ? <span className="vg-badge good" title={`managed position #${p.managed_id}`}>
+                        stop {fmt(p.stop_price)}
+                      </span>
+                    : <span className="vg-badge bad">unprotected</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {naked.length > 0 && (
+        <p className="vg-note" style={{ marginTop: 6, color: "var(--vg-down)" }}>
+          ⚠️ {naked.length} position{naked.length === 1 ? "" : "s"} with no monitor stop —
+          the exit monitor only protects what the execute path opened.
+        </p>
+      )}
+    </>
   );
 }
 

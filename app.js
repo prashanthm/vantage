@@ -182,6 +182,7 @@
     getStrategies: () => getStrategies,
     getTicket: () => getTicket,
     getTradeStats: () => getTradeStats,
+    getTradeablePositions: () => getTradeablePositions,
     health: () => health,
     importFutures: () => importFutures,
     journalImageUrl: () => journalImageUrl,
@@ -889,8 +890,8 @@
     if (v && v.available) return { available: true, session: v.session, script: v.script };
     return { available: false };
   }
-  async function getTicket(symbol, side, level, risk = 500) {
-    const q = `symbol=${encodeURIComponent(symbol)}&side=${encodeURIComponent(side)}&level=${encodeURIComponent(level)}&risk=${encodeURIComponent(risk)}`;
+  async function getTicket(symbol, side, level, risk = 500, entry = null) {
+    const q = `symbol=${encodeURIComponent(symbol)}&side=${encodeURIComponent(side)}&level=${encodeURIComponent(level)}&risk=${encodeURIComponent(risk)}` + (entry ? `&entry=${encodeURIComponent(entry)}` : "");
     const v = await getJson(`${backendBase()}/api/ticket?${q}`, { timeoutMs: 2e4 });
     if (v && v.available) return { available: true, ticket: v.ticket, text: v.text };
     return { available: false, note: v && v.note || "ticket unavailable" };
@@ -904,11 +905,14 @@
     if (!v) return { available: false, note: "backend unreachable" };
     return v;
   }
-  async function getExits(status) {
-    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+  async function getExits(status, { mergeBroker = false } = {}) {
+    const p = [];
+    if (status) p.push(`status=${encodeURIComponent(status)}`);
+    if (mergeBroker) p.push("merge_broker=1");
+    const q = p.length ? `?${p.join("&")}` : "";
     const v = await getJson(`${backendBase()}/api/exits${q}`);
-    if (!v) return { positions: [], live_gate: false, unreachable: true };
-    return { positions: v.positions || [], live_gate: !!v.live_gate };
+    if (!v) return { positions: [], broker: [], live_gate: false, unreachable: true };
+    return { positions: v.positions || [], broker: v.broker || [], live_gate: !!v.live_gate };
   }
   var exitsTick = () => postJson(`${backendBase()}/api/exits/tick`, {}, { timeoutMs: 6e4 });
   var disarmExit = (id) => postJson(`${backendBase()}/api/exits/${encodeURIComponent(id)}/disarm`, {});
@@ -917,6 +921,7 @@
   var botPoll = () => postJson(`${backendBase()}/api/reclaim-bot/poll`, {}, { timeoutMs: 12e4 });
   var getBotPerformance = () => getJson(`${backendBase()}/api/reclaim-bot/performance`);
   var getNightlyStatus = (limit = 1) => getJson(`${backendBase()}/api/nightly/status?limit=${limit}`);
+  var getTradeablePositions = () => getJson(`${backendBase()}/api/positions/tradeable`);
   async function recomputePlaybook(asOf, symbol = "SPX") {
     const base = backendBase();
     if (!base) return null;
@@ -2193,7 +2198,7 @@
       setCopied(false);
       setExec(null);
       setArmed(false);
-      const v = await getTicket(sym, side, seed.level, risk || 0);
+      const v = await getTicket(sym, side, seed.level, risk || 0, seed.entry || null);
       setRes(v.available ? { ticket: v.ticket, text: v.text } : { error: true, note: v.note });
     };
     const runExecute = async (live) => {
@@ -2211,6 +2216,7 @@
         account_number: account,
         exit_policy: policy,
         live: !!live,
+        ...seed.entry ? { entry: seed.entry } : {},
         ...signalPaperId ? { signal_paper_id: signalPaperId } : {}
       });
       setExec(v && v.available ? v : { error: true, note: v && v.note || "execute failed" });
@@ -2322,11 +2328,11 @@
     disarmed: "warn"
   };
   function ExitsView({ refreshNonce }) {
-    const [data, setData] = useState5({ positions: [], live_gate: false });
+    const [data, setData] = useState5({ positions: [], broker: [], live_gate: false });
     const [busy, setBusy] = useState5(false);
     const [actions, setActions] = useState5(null);
     const [note, setNote] = useState5(null);
-    const load = async () => setData(await getExits());
+    const load = async () => setData(await getExits(void 0, { mergeBroker: true }));
     useEffect4(() => {
       load();
     }, [refreshNonce]);
@@ -2363,7 +2369,13 @@
         title: "server env VANTAGE_LIVE_OK \u2014 without it the monitor observes but never places/cancels"
       },
       data.live_gate ? "live gate ON" : "live gate off \u2014 observe only"
-    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: tick, disabled: busy }, busy ? "Ticking\u2026" : "Run monitor pass"))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 2, fontSize: 12 } }, "Positions opened by the execute path (ADR-010 v2), managed exits-only by the monitor (v3): the protective stop always rests at the broker; the monitor swaps it to the T1 target (ladder) or ratchets it on new extremes (trailing). Run ", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.execution_monitor"), " continuously while anything here is open."), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { color: "#c0392b" } }, note), /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 14 } }, "Open (", open.length, ")"), open.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Nothing under management.") : /* @__PURE__ */ React.createElement(ExitTable, { rows: open, onDisarm: disarm }), actions && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 14 } }, "Last pass (", actions.length, " action", actions.length === 1 ? "" : "s", ")"), actions.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No actions \u2014 everything already in shape.") : /* @__PURE__ */ React.createElement("ul", { className: "vg-note", style: { margin: "4px 0 0 16px", fontSize: 12 } }, actions.map((a, i) => /* @__PURE__ */ React.createElement("li", { key: i }, "#", a.position, " ", /* @__PURE__ */ React.createElement("b", null, a.action), Object.entries(a).filter(([k]) => !["position", "action", "live"].includes(k)).map(([k, v]) => ` \xB7 ${k}=${JSON.stringify(v)}`).join(""))))), /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 14 } }, "History (", done.length, ")"), done.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No closed managed positions yet.") : /* @__PURE__ */ React.createElement(ExitTable, { rows: done, history: true }));
+    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: tick, disabled: busy }, busy ? "Ticking\u2026" : "Run monitor pass"))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 2, fontSize: 12 } }, "Positions opened by the execute path (ADR-010 v2), managed exits-only by the monitor (v3): the protective stop always rests at the broker; the monitor swaps it to the T1 target (ladder) or ratchets it on new extremes (trailing). Run ", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.execution_monitor"), " continuously while anything here is open."), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { color: "#c0392b" } }, note), /* @__PURE__ */ React.createElement(BrokerBook, { rows: data.broker || [] }), /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 14 } }, "Under management (", open.length, ")"), open.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Nothing under management.") : /* @__PURE__ */ React.createElement(ExitTable, { rows: open, onDisarm: disarm }), actions && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 14 } }, "Last pass (", actions.length, " action", actions.length === 1 ? "" : "s", ")"), actions.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No actions \u2014 everything already in shape.") : /* @__PURE__ */ React.createElement("ul", { className: "vg-note", style: { margin: "4px 0 0 16px", fontSize: 12 } }, actions.map((a, i) => /* @__PURE__ */ React.createElement("li", { key: i }, "#", a.position, " ", /* @__PURE__ */ React.createElement("b", null, a.action), Object.entries(a).filter(([k]) => !["position", "action", "live"].includes(k)).map(([k, v]) => ` \xB7 ${k}=${JSON.stringify(v)}`).join(""))))), /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 14 } }, "History (", done.length, ")"), done.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No closed managed positions yet.") : /* @__PURE__ */ React.createElement(ExitTable, { rows: done, history: true }));
+  }
+  function BrokerBook({ rows }) {
+    const held = rows.filter((p) => (p.shares || 0) !== 0);
+    if (!held.length) return null;
+    const naked = held.filter((p) => !p.managed);
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 14 } }, "Broker book (", held.length, ") \xB7 what you actually hold"), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "symbol"), /* @__PURE__ */ React.createElement("th", null, "shares"), /* @__PURE__ */ React.createElement("th", null, "cost"), /* @__PURE__ */ React.createElement("th", null, "value"), /* @__PURE__ */ React.createElement("th", null, "unrealized"), /* @__PURE__ */ React.createElement("th", null, "day P/L"), /* @__PURE__ */ React.createElement("th", null, "protection"))), /* @__PURE__ */ React.createElement("tbody", null, held.map((p) => /* @__PURE__ */ React.createElement("tr", { key: p.symbol }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, p.symbol)), /* @__PURE__ */ React.createElement("td", null, fmt(p.shares, 0)), /* @__PURE__ */ React.createElement("td", null, fmt(p.cost)), /* @__PURE__ */ React.createElement("td", null, fmt(p.value)), /* @__PURE__ */ React.createElement("td", { style: { color: p.unrealized >= 0 ? "var(--vg-up)" : "var(--vg-down)" } }, fmt(p.unrealized)), /* @__PURE__ */ React.createElement("td", { style: { color: p.day_pl >= 0 ? "var(--vg-up)" : "var(--vg-down)" } }, fmt(p.day_pl)), /* @__PURE__ */ React.createElement("td", null, p.managed ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge good", title: `managed position #${p.managed_id}` }, "stop ", fmt(p.stop_price)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "unprotected"))))))), naked.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6, color: "var(--vg-down)" } }, "\u26A0\uFE0F ", naked.length, " position", naked.length === 1 ? "" : "s", " with no monitor stop \u2014 the exit monitor only protects what the execute path opened."));
   }
   function ExitTable({ rows, onDisarm, history }) {
     return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "#"), /* @__PURE__ */ React.createElement("th", null, "opened"), /* @__PURE__ */ React.createElement("th", null, "symbol"), /* @__PURE__ */ React.createElement("th", null, "side"), /* @__PURE__ */ React.createElement("th", null, "qty"), /* @__PURE__ */ React.createElement("th", null, "entry"), /* @__PURE__ */ React.createElement("th", null, "stop"), /* @__PURE__ */ React.createElement("th", null, "policy"), /* @__PURE__ */ React.createElement("th", null, history ? "exit" : "high-water"), /* @__PURE__ */ React.createElement("th", null, "status"), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((p) => /* @__PURE__ */ React.createElement("tr", { key: p.id }, /* @__PURE__ */ React.createElement("td", null, p.id), /* @__PURE__ */ React.createElement("td", { title: p.opened_at }, String(p.opened_at || "").slice(0, 10)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, p.symbol)), /* @__PURE__ */ React.createElement("td", null, p.side), /* @__PURE__ */ React.createElement("td", null, fmt(p.qty, 0)), /* @__PURE__ */ React.createElement("td", null, fmt(p.entry_price)), /* @__PURE__ */ React.createElement("td", null, p.stop_price == null && p.status === "active" ? p.exit_policy === "ladder" && p.stop_order_id ? /* @__PURE__ */ React.createElement("span", { title: "stop swapped for the target sell" }, "\u2192 T1 ", fmt(p.target_price)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", title: "no resting stop \u2014 next pass re-arms" }, "re-arming") : fmt(p.stop_price), p.exit_policy === "ladder" && p.target_price != null && p.stop_price != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \u2192 ", fmt(p.target_price))), /* @__PURE__ */ React.createElement("td", { title: p.exit_policy === "trailing" ? "stop ratchets by the initial stop distance" : "monitor swaps stop \u2192 T1 when it trades" }, p.exit_policy), /* @__PURE__ */ React.createElement("td", null, history ? /* @__PURE__ */ React.createElement(React.Fragment, null, fmt(p.exit_price), p.exit_reason ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \xB7 ", p.exit_reason) : null) : fmt(p.high_water)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", STATUS_TONE[p.status]) }, p.status)), /* @__PURE__ */ React.createElement("td", null, !history && onDisarm && /* @__PURE__ */ React.createElement(
@@ -2496,18 +2508,21 @@
     const [perf, setPerf] = useState7(null);
     const [nightly, setNightly] = useState7(null);
     const [pb, setPb] = useState7(null);
+    const [pos, setPos] = useState7(null);
     const [ticket, setTicket] = useState7(null);
     const load = async () => {
-      const [s, p, n, b] = await Promise.all([
+      const [s, p, n, b, q] = await Promise.all([
         getBotStatus(),
         getBotPerformance(),
         getNightlyStatus(1),
-        getPlaybook(null)
+        getPlaybook(null),
+        getTradeablePositions()
       ]);
       setStatus(s && s.available !== false ? s : null);
       setPerf(p && p.available !== false ? p : null);
       setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
       setPb(b && b.available ? b : null);
+      setPos(q && q.positions ? q.positions : []);
     };
     useEffect6(() => {
       load();
@@ -2534,11 +2549,15 @@
           // with them so the user never re-derives what the app knows.
           sym: t.symbol,
           spot,
-          seed: { level: t.spy_level, role: t.side === "long" ? "support" : "resistance" },
+          seed: {
+            level: t.spy_level,
+            entry: t.spy_entry,
+            role: t.side === "long" ? "support" : "resistance"
+          },
           signalId: t.id
         })
       }
-    ), /* @__PURE__ */ React.createElement(WhyCard, { pb }), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(PositionsCard, { rows: pos }), /* @__PURE__ */ React.createElement(WhyCard, { pb }), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
       TicketModal,
       {
         sym: ticket.sym,
@@ -2556,8 +2575,33 @@
   function SignalRow({ t, armed, onExecute }) {
     const long = t.side === "long";
     const risk = t.spy_entry != null && t.spy_stop != null ? Math.abs(t.spy_entry - t.spy_stop) * (t.shares || 100) : null;
-    const rr = t.spy_entry != null && t.spy_stop != null && t.spy_target != null ? Math.abs(t.spy_target - t.spy_entry) / Math.abs(t.spy_entry - t.spy_stop) : null;
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-sigrow", armed && "armed", !armed && (long ? "live-long" : "live-short")) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, armed ? "\u25CB" : "\u{1F514}"), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 650, letterSpacing: "-.01em" } }, /* @__PURE__ */ React.createElement("span", { className: long ? "vg-up" : "vg-down" }, t.side.toUpperCase()), " ", t.symbol, " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, armed ? `armed at ${fmt3(t.spy_level)}` : `${long ? "reclaimed" : "rejected"} ${fmt3(t.spy_level)}`)), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 3, fontVariantNumeric: "tabular-nums" } }, armed ? /* @__PURE__ */ React.createElement(React.Fragment, null, "waiting for the 3\xD75m reclaim \xB7 stop ", fmt3(t.spy_stop), " \xB7 target ", fmt3(t.spy_target)) : /* @__PURE__ */ React.createElement(React.Fragment, null, "entry ", /* @__PURE__ */ React.createElement("b", null, fmt3(t.spy_entry)), " \xB7 stop ", /* @__PURE__ */ React.createElement("b", null, fmt3(t.spy_stop)), " \xB7", " ", t.spy_target != null ? /* @__PURE__ */ React.createElement(React.Fragment, null, "target ", /* @__PURE__ */ React.createElement("b", null, fmt3(t.spy_target))) : /* @__PURE__ */ React.createElement("span", { className: "vg-warn-text" }, "no target \u2014 open-ended"), risk != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 risk ", /* @__PURE__ */ React.createElement("b", null, "$", risk.toFixed(0))), rr != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 R:R ", /* @__PURE__ */ React.createElement("b", null, rr.toFixed(1)))))), armed ? /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: true, style: { opacity: 0.45 } }, "Waiting") : /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm vg-btn-primary", onClick: () => onExecute(t) }, "Execute"));
+    const reward = t.spy_target != null && t.spy_entry != null ? long ? t.spy_target - t.spy_entry : t.spy_entry - t.spy_target : null;
+    const rr = reward != null && t.spy_stop != null && t.spy_entry != null ? reward / Math.abs(t.spy_entry - t.spy_stop) : null;
+    const badEdge = !armed && rr != null && rr < 1;
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-sigrow", armed && "armed", !armed && (long ? "live-long" : "live-short")) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, armed ? "\u25CB" : "\u{1F514}"), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 650, letterSpacing: "-.01em" } }, /* @__PURE__ */ React.createElement("span", { className: long ? "vg-up" : "vg-down" }, t.side.toUpperCase()), " ", t.symbol, " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, armed ? `armed at ${fmt3(t.spy_level)}` : `${long ? "reclaimed" : "rejected"} ${fmt3(t.spy_level)}`)), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 3, fontVariantNumeric: "tabular-nums" } }, armed ? /* @__PURE__ */ React.createElement(React.Fragment, null, "waiting for the 3\xD75m reclaim \xB7 stop ", fmt3(t.spy_stop), " \xB7 target ", fmt3(t.spy_target)) : /* @__PURE__ */ React.createElement(React.Fragment, null, "entry ", /* @__PURE__ */ React.createElement("b", null, fmt3(t.spy_entry)), " \xB7 stop ", /* @__PURE__ */ React.createElement("b", null, fmt3(t.spy_stop)), " \xB7", " ", t.spy_target != null ? /* @__PURE__ */ React.createElement(React.Fragment, null, "target ", /* @__PURE__ */ React.createElement("b", null, fmt3(t.spy_target))) : /* @__PURE__ */ React.createElement("span", { className: "vg-warn-text" }, "no target \u2014 open-ended"), risk != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 risk ", /* @__PURE__ */ React.createElement("b", null, "$", risk.toFixed(0))), rr != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 R:R ", /* @__PURE__ */ React.createElement("b", { className: badEdge ? "vg-down" : void 0 }, rr.toFixed(2))))), badEdge && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4, color: "var(--vg-down)", fontWeight: 600 } }, "\u26A0\uFE0F negative edge \u2014 the target is nearer than the stop. Not executable.")), armed ? /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: true, style: { opacity: 0.45 } }, "Waiting") : badEdge ? /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        disabled: true,
+        style: { opacity: 0.45 },
+        title: "refused: R:R below 1 \u2014 the execute path would reject this"
+      },
+      "Blocked"
+    ) : /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm vg-btn-primary", onClick: () => onExecute(t) }, "Execute"));
+  }
+  function PositionsCard({ rows }) {
+    if (!rows || rows.length === 0) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Positions \xB7 flat"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, "No SPY/QQQ/IWM position open \u2014 nothing at risk right now."));
+    }
+    const naked = rows.filter((p) => !p.managed);
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", naked.length && "vg-card-alarm"), style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Positions \xB7 ", rows.length, " open"), /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#exits" }, "full book \u2192")), /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { marginTop: 10, fontSize: 13 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "symbol"), /* @__PURE__ */ React.createElement("th", null, "shares"), /* @__PURE__ */ React.createElement("th", null, "cost"), /* @__PURE__ */ React.createElement("th", null, "value"), /* @__PURE__ */ React.createElement("th", null, "unrealized"), /* @__PURE__ */ React.createElement("th", null, "protection"))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((p) => /* @__PURE__ */ React.createElement("tr", { key: p.symbol }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, p.symbol)), /* @__PURE__ */ React.createElement("td", { style: { fontVariantNumeric: "tabular-nums" } }, fmt3(p.shares, 0)), /* @__PURE__ */ React.createElement("td", { style: { fontVariantNumeric: "tabular-nums" } }, fmt3(p.cost)), /* @__PURE__ */ React.createElement("td", { style: { fontVariantNumeric: "tabular-nums" } }, fmt3(p.value)), /* @__PURE__ */ React.createElement(
+      "td",
+      {
+        className: p.unrealized >= 0 ? "vg-up" : "vg-down",
+        style: { fontVariantNumeric: "tabular-nums" }
+      },
+      money3(p.unrealized)
+    ), /* @__PURE__ */ React.createElement("td", null, p.managed ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "stop ", fmt3(p.stop_price)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "unprotected")))))), naked.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-verdict" }, "\u26A0\uFE0F ", naked.map((p) => p.symbol).join(", "), " ", naked.length === 1 ? "has" : "have", " no monitor stop \u2014 the exit monitor is not protecting ", naked.length === 1 ? "it" : "them", "."));
   }
   function WhyCard({ pb }) {
     if (!pb) return null;

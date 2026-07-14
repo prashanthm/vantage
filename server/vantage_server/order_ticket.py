@@ -71,6 +71,7 @@ def build_ticket(symbol: str, side: str, level: float,
                  supports: list[float], resistances: list[float],
                  risk_amount: float = DEFAULT_RISK_AMOUNT,
                  currency: str = "USD",
+                 entry: float | None = None,
                  derived_from: dict[str, Any] | None = None) -> dict[str, Any]:
     """The staged ticket for a reclaim trade at ``level``: entry/stop from the
     shared spec, the target ladder, risk-based qty, per-leg scale-out, and the
@@ -78,15 +79,31 @@ def build_ticket(symbol: str, side: str, level: float,
 
     ``side`` is "long" or "short". Raises ValueError on a bad side/level so a
     caller can't stage a nonsense ticket.
-    """
+
+    ``entry`` — the price the trade will ACTUALLY fill at. Omit it to stage a
+    resting limit AT the level (the pre-signal case: you are waiting for price
+    to come to you). Pass it when executing a FIRED signal: the reclaim already
+    confirmed at a close past the level, so resting a limit back at the level
+    orders a price the tape has left behind — it may never fill, and the R:R
+    shown on the signal (measured from the reclaim close) would not be the R:R
+    of the order. With ``entry`` set, the whole ticket — stop, ladder, qty,
+    R:R — is measured from the real fill, so what the signal promises is what
+    the order does. The stop stays anchored to the LEVEL (that is what the
+    trade is invalidated by), which is why the R:R of a chased fill is honestly
+    worse — and the caller's edge guard can then refuse it."""
     if side not in ("long", "short"):
         raise ValueError(f"side must be 'long' or 'short', got {side!r}")
     if not level or level <= 0:
         raise ValueError(f"level must be positive, got {level!r}")
+    if entry is not None and entry <= 0:
+        raise ValueError(f"entry must be positive, got {entry!r}")
 
-    entry = float(level)
-    stop = spec.stop_for(entry, side)
-    ladder = spec.target_ladder(entry, side, supports, resistances)
+    # the stop is defined by the LEVEL (what invalidates the trade), while the
+    # entry is where we actually get filled — they are not the same price.
+    stop = spec.stop_for(float(level), side)
+    entry = float(level if entry is None else entry)
+    ladder = spec.target_ladder(float(level), side, supports, resistances,
+                                entry=entry)
     qty = size_for_risk(entry, stop, risk_amount)
     legs = split_across_targets(qty, len(ladder))
 

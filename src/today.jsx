@@ -17,7 +17,8 @@
 // same gated TicketModal the playbook uses (dry-run → arm → confirm), so
 // there is exactly ONE order path in the product (ADR-010 v2).
 import { TicketModal } from "./playbook.jsx";
-import { getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook } from "./live.js";
+import { getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook,
+         getTradeablePositions } from "./live.js";
 import { cls, StatTile } from "./util.jsx";
 
 const { useEffect, useState } = React;
@@ -30,16 +31,19 @@ export function TodayView({ refreshNonce }) {
   const [perf, setPerf] = useState(null);
   const [nightly, setNightly] = useState(null);
   const [pb, setPb] = useState(null);
+  const [pos, setPos] = useState(null);
   const [ticket, setTicket] = useState(null);   // {sym, spot, seed, signalId}
 
   const load = async () => {
-    const [s, p, n, b] = await Promise.all([
+    const [s, p, n, b, q] = await Promise.all([
       getBotStatus(), getBotPerformance(), getNightlyStatus(1), getPlaybook(null),
+      getTradeablePositions(),
     ]);
     setStatus(s && s.available !== false ? s : null);
     setPerf(p && p.available !== false ? p : null);
     setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
     setPb(b && b.available ? b : null);
+    setPos(q && q.positions ? q.positions : []);
   };
   useEffect(() => { load(); }, [refreshNonce]);
   // signals move while the market is open — keep the decision surface honest
@@ -87,9 +91,12 @@ export function TodayView({ refreshNonce }) {
           // the signal already names symbol + side + level: seed the ticket
           // with them so the user never re-derives what the app knows.
           sym: t.symbol, spot,
-          seed: { level: t.spy_level, role: t.side === "long" ? "support" : "resistance" },
+          seed: { level: t.spy_level, entry: t.spy_entry,
+                  role: t.side === "long" ? "support" : "resistance" },
           signalId: t.id,
         })} />
+
+      <PositionsCard rows={pos} />
 
       <WhyCard pb={pb} />
 
@@ -135,8 +142,14 @@ function SignalRow({ t, armed, onExecute }) {
   const long = t.side === "long";
   const risk = (t.spy_entry != null && t.spy_stop != null)
     ? Math.abs(t.spy_entry - t.spy_stop) * (t.shares || 100) : null;
-  const rr = (t.spy_entry != null && t.spy_stop != null && t.spy_target != null)
-    ? Math.abs(t.spy_target - t.spy_entry) / Math.abs(t.spy_entry - t.spy_stop) : null;
+  // signed reward: a target on the WRONG side of the entry is negative
+  const reward = (t.spy_target != null && t.spy_entry != null)
+    ? (long ? t.spy_target - t.spy_entry : t.spy_entry - t.spy_target) : null;
+  const rr = (reward != null && t.spy_stop != null && t.spy_entry != null)
+    ? reward / Math.abs(t.spy_entry - t.spy_stop) : null;
+  // the edge guard, mirrored in the UI: the execute path refuses R:R < 1 or a
+  // target behind the entry — so don't offer a button that will be rejected.
+  const badEdge = !armed && rr != null && rr < 1;
   return (
     <div className={cls("vg-sigrow", armed && "armed", !armed && (long ? "live-long" : "live-short"))}>
       <span style={{ fontSize: 14 }}>{armed ? "○" : "🔔"}</span>
@@ -157,18 +170,86 @@ function SignalRow({ t, armed, onExecute }) {
                   ? <>target <b>{fmt(t.spy_target)}</b></>
                   : <span className="vg-warn-text">no target — open-ended</span>}
                 {risk != null && <> · risk <b>${risk.toFixed(0)}</b></>}
-                {rr != null && <> · R:R <b>{rr.toFixed(1)}</b></>}
+                {rr != null && (
+                  <> · R:R <b className={badEdge ? "vg-down" : undefined}>{rr.toFixed(2)}</b></>
+                )}
               </>}
         </div>
+        {badEdge && (
+          <div className="vg-note" style={{ marginTop: 4, color: "var(--vg-down)", fontWeight: 600 }}>
+            ⚠️ negative edge — the target is nearer than the stop. Not executable.
+          </div>
+        )}
       </div>
       {armed
         ? <button className="vg-btn-sm" disabled style={{ opacity: .45 }}>Waiting</button>
-        : <button className="vg-btn-sm vg-btn-primary" onClick={() => onExecute(t)}>Execute</button>}
+        : badEdge
+          ? <button className="vg-btn-sm" disabled style={{ opacity: .45 }}
+              title="refused: R:R below 1 — the execute path would reject this">Blocked</button>
+          : <button className="vg-btn-sm vg-btn-primary" onClick={() => onExecute(t)}>Execute</button>}
     </div>
   );
 }
 
-// -------------------------------------------------------------------- 2. why
+// -------------------------------------------------------------- 2. positions
+
+// What am I actually IN right now? Broker truth (not just what the bot
+// opened), flagged with whether the exit monitor is protecting it — an
+// UNPROTECTED position is the one thing here that should make you look twice.
+function PositionsCard({ rows }) {
+  if (!rows || rows.length === 0) {
+    return (
+      <div className="vg-card" style={{ marginTop: 14 }}>
+        <div className="vg-kicker">Positions · flat</div>
+        <p className="vg-note" style={{ marginTop: 6 }}>
+          No SPY/QQQ/IWM position open — nothing at risk right now.
+        </p>
+      </div>
+    );
+  }
+  const naked = rows.filter((p) => !p.managed);
+  return (
+    <div className={cls("vg-card", naked.length && "vg-card-alarm")} style={{ marginTop: 14 }}>
+      <div className="vg-spread">
+        <div className="vg-kicker" style={{ marginBottom: 0 }}>
+          Positions · {rows.length} open
+        </div>
+        <a className="vg-linkbtn" href="#exits">full book →</a>
+      </div>
+      <table className="vg-table" style={{ marginTop: 10, fontSize: 13 }}>
+        <thead>
+          <tr><th>symbol</th><th>shares</th><th>cost</th><th>value</th>
+            <th>unrealized</th><th>protection</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((p) => (
+            <tr key={p.symbol}>
+              <td><b>{p.symbol}</b></td>
+              <td style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(p.shares, 0)}</td>
+              <td style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(p.cost)}</td>
+              <td style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(p.value)}</td>
+              <td className={p.unrealized >= 0 ? "vg-up" : "vg-down"}
+                style={{ fontVariantNumeric: "tabular-nums" }}>{money(p.unrealized)}</td>
+              <td>
+                {p.managed
+                  ? <span className="vg-badge good">stop {fmt(p.stop_price)}</span>
+                  : <span className="vg-badge bad">unprotected</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {naked.length > 0 && (
+        <p className="vg-verdict">
+          ⚠️ {naked.map((p) => p.symbol).join(", ")} {naked.length === 1 ? "has" : "have"} no
+          monitor stop — the exit monitor is not protecting {naked.length === 1 ? "it" : "them"}.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// -------------------------------------------------------------------- 3. why
 
 function WhyCard({ pb }) {
   if (!pb) return null;

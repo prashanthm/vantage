@@ -334,9 +334,13 @@ function SummaryTile({ label, value, tone }) {
 // back rescaled into its tradeable proxy ETF, e.g. SPX→SPY at the live ratio).
 // STAGED ONLY — the operator copies it into their broker; Vantage never places
 // orders (ADR-010).
-// `signalPaperId` (optional): when the ticket was opened FROM a fired signal
-// (Today view), it travels with the execute call so the managed position is
-// linked to the signal it came from — the signal↔live correlation join.
+// From a FIRED signal (Today view), two extras travel with the ticket:
+//   `signalPaperId` — links the managed position back to its signal (the
+//     signal↔live correlation join);
+//   `seed.entry`    — the reclaim CLOSE the signal actually fired at. The
+//     ticket must price from there, not from the level: the tape has already
+//     left the level behind, so a limit resting there may never fill, and the
+//     R:R would not be the one the signal promised.
 export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
   // side default: role if the level has one, else by position vs spot
   // (below spot = buy-the-dip long; above = fade-the-rally short).
@@ -358,7 +362,7 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
     setRes({ loading: true });
     setCopied(false);
     setExec(null); setArmed(false);
-    const v = await getTicket(sym, side, seed.level, risk || 0);
+    const v = await getTicket(sym, side, seed.level, risk || 0, seed.entry || null);
     setRes(v.available ? { ticket: v.ticket, text: v.text } : { error: true, note: v.note });
   };
 
@@ -369,6 +373,7 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
     const v = await executeTicket({
       symbol: sym, side, level: seed.level, risk: risk || 0,
       account_number: account, exit_policy: policy, live: !!live,
+      ...(seed.entry ? { entry: seed.entry } : {}),
       ...(signalPaperId ? { signal_paper_id: signalPaperId } : {}),
     });
     setExec(v && v.available ? v : { error: true, note: (v && v.note) || "execute failed" });
