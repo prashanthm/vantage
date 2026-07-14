@@ -308,9 +308,32 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
         </div>
       )}
 
-      {/* chart (left) + journal (right) */}
-      <div className="vg-jr-lower">
-        {/* chart / drop-zone */}
+      {/* THE MEAT: every decision, correlated to the forecast, annotated */}
+      <TradesPanel snap={s} thoughts={thoughts} onThought={setThought} />
+
+      {/* the day's overall reflection */}
+      <div className="vg-jr-form" style={{ marginTop: 14 }}>
+        <h4 style={{ margin: 0 }}>My journal — the day overall</h4>
+        {ENTRY_FIELDS.map(([k, label, ph]) => (
+          <div key={k} className="vg-jr-field">
+            <label>{label}</label>
+            {k === "notes"
+              ? <textarea rows={2} placeholder={ph} value={entry[k] || ""}
+                  onChange={(e) => set(k, e.target.value)} />
+              : <input placeholder={ph} value={entry[k] || ""}
+                  onChange={(e) => set(k, e.target.value)} />}
+          </div>
+        ))}
+        <div className="vg-row" style={{ gap: 8, marginTop: 4, alignItems: "center" }}>
+          <button className="vg-btn-sm" disabled={busy === `entry${s.id}` || !dirty} onClick={save}>
+            {busy === `entry${s.id}` ? "Saving…" : "Save"}
+          </button>
+          {dirty && <span className="vg-note" style={{ fontSize: 11 }}>unsaved changes</span>}
+        </div>
+      </div>
+
+      {/* reference chart — moved to the bottom; secondary to the trade log */}
+      <div style={{ marginTop: 14 }}>
         {s.image_path ? (
           <div className="vg-jr-chart">
             <img src={journalImageUrl(s.id)} alt="reference chart"
@@ -323,44 +346,17 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
               onChange={(e) => onAttach(e.target.files && e.target.files[0])} />
           </div>
         ) : (
-          <div className={cls("vg-jr-drop", drag && "drag")}
+          <div className={cls("vg-jr-drop", drag && "drag")} style={{ padding: "12px" }}
             onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
             onDragLeave={() => setDrag(false)} onDrop={onDrop}
             onClick={() => fileRef.current && fileRef.current.click()}>
-            <div style={{ fontSize: 13 }}>
-              {busy === "upload" ? "Saving…" : "Drop your chart here, paste (⌘V), or click"}
-            </div>
-            <div className="vg-note" style={{ fontSize: 11, marginTop: 4 }}>
-              Reference only — never analyzed.
-            </div>
+            <span className="vg-note" style={{ fontSize: 12 }}>
+              {busy === "upload" ? "Saving…" : "📎 Attach a reference chart — drop, paste (⌘V), or click (never analyzed)"}
+            </span>
             <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
               onChange={(e) => onAttach(e.target.files && e.target.files[0])} />
           </div>
         )}
-
-        {/* the day's DECISIONS — pulled from the broker, annotated by you */}
-        <TradesPanel snap={s} thoughts={thoughts} onThought={setThought} />
-
-        {/* the day's overall reflection */}
-        <div className="vg-jr-form">
-          <h4 style={{ margin: 0 }}>My journal — the day overall</h4>
-          {ENTRY_FIELDS.map(([k, label, ph]) => (
-            <div key={k} className="vg-jr-field">
-              <label>{label}</label>
-              {k === "notes"
-                ? <textarea rows={2} placeholder={ph} value={entry[k] || ""}
-                    onChange={(e) => set(k, e.target.value)} />
-                : <input placeholder={ph} value={entry[k] || ""}
-                    onChange={(e) => set(k, e.target.value)} />}
-            </div>
-          ))}
-          <div className="vg-row" style={{ gap: 8, marginTop: 4, alignItems: "center" }}>
-            <button className="vg-btn-sm" disabled={busy === `entry${s.id}` || !dirty} onClick={save}>
-              {busy === `entry${s.id}` ? "Saving…" : "Save"}
-            </button>
-            {dirty && <span className="vg-note" style={{ fontSize: 11 }}>unsaved changes</span>}
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -451,31 +447,28 @@ function Tile({ label, value, tone }) {
 
 // ── Trades: the day's DECISIONS ──────────────────────────────────────────────
 //
-// Each trade is a decision unit (a spread is ONE trade, not two contracts),
-// stamped with SPX at the moment you pulled the trigger and the forecast level
-// you were trading against. 0DTEs left to expire are settled against the SPX
-// print — the loss that appears in no fill anywhere.
-//
-// The per-trade "thinking" box is the point: the broker says WHAT you did;
-// only you can say WHY. Saved into the journal entry's notes.
+// THE meat of the journal. Each trade is a decision unit (a spread is one
+// trade), pinned to the SPX price at the MINUTE it was submitted, correlated
+// to the forecast levels + GEX anchors, and left open for the operator to say
+// WHY they took it and WHICH level they were trading. Expiries settled against
+// the SPX print; the money no fill shows.
 const STATUS_TONE = {
-  closed: "plain",
-  open: "warn",
-  expired_worthless: "bad",
-  expired_settled: "good",
-  expired_unpriced: "warn",
+  closed: "plain", open: "warn",
+  expired_worthless: "bad", expired_settled: "good", expired_unpriced: "warn",
 };
 const STATUS_LABEL = {
-  closed: "closed",
-  open: "still open",
-  expired_worthless: "expired worthless",
-  expired_settled: "expired ITM",
+  closed: "closed", open: "still open",
+  expired_worthless: "expired worthless", expired_settled: "expired ITM",
   expired_unpriced: "expired (unpriced)",
 };
+const money = (n) => (n == null ? "—"
+  : `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+const fmtLvl = (v) => (v == null ? "—" : Number(v).toFixed(v >= 100 ? 0 : 2));
 
 function TradesPanel({ snap, thoughts, onThought }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(null);          // expanded trade key
 
   const day = String(snap.created_at || "").slice(0, 10);
   const load = async () => {
@@ -484,107 +477,176 @@ function TradesPanel({ snap, thoughts, onThought }) {
     setBusy(false);
     setData(v && v.available ? v : { empty: true });
   };
-  useEffect(() => { setData(null); }, [snap.id]);
+  useEffect(() => { setData(null); setOpen(null); }, [snap.id]);
 
   if (!data) {
     return (
-      <div className="vg-jr-form" style={{ marginTop: 12 }}>
+      <div className="vg-card" style={{ marginTop: 14 }}>
         <div className="vg-spread">
-          <h4 style={{ margin: 0 }}>My trades — what I actually did</h4>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 16 }}>My trades — what I actually did</h3>
+            <p className="vg-note" style={{ marginTop: 4, fontSize: 12 }}>
+              Every decision reconstructed from your broker fills — pinned to the SPX price
+              at the minute you submitted it, correlated to the levels you forecast, expiries
+              settled against the SPX print.
+            </p>
+          </div>
           <button className="vg-btn-sm" onClick={load} disabled={busy}>
             {busy ? "Pulling…" : "⟳ Pull my trades"}
           </button>
         </div>
-        <p className="vg-note" style={{ marginTop: 6, fontSize: 12 }}>
-          Reconstructed from your broker fills — multi-leg orders as one trade, expiries
-          settled against the SPX print, each stamped with SPX at entry and the level it
-          was taken against.
-        </p>
       </div>
     );
   }
   if (data.empty) {
-    return <p className="vg-note" style={{ marginTop: 10 }}>No {snap.symbol || "SPX"} trades on {day}.</p>;
+    return <div className="vg-card" style={{ marginTop: 14 }}>
+      <p className="vg-note">No {snap.symbol || "SPX"} trades on {day}.</p></div>;
   }
 
   const s = data.summary || {};
-  const money = (n) => (n == null ? "—"
-    : `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
+  const allLevels = [
+    ...(data.forecast_levels || []).map((z) => ({ ...z, source: "confluence" })),
+    ...(data.gex_anchors || []).map((a) => ({ price: a.price, role: a.label, kinds: [a.label], source: "gex" })),
+  ];
 
   return (
-    <div className="vg-jr-form" style={{ marginTop: 12 }}>
+    <div className="vg-card" style={{ marginTop: 14 }}>
       <div className="vg-spread">
-        <h4 style={{ margin: 0 }}>My trades — {s.trades} decisions</h4>
-        <button className="vg-btn-sm" onClick={load} disabled={busy}>
-          {busy ? "Pulling…" : "⟳ Refresh"}
-        </button>
+        <h3 style={{ margin: 0, fontSize: 16 }}>My trades — {s.trades} decisions
+          <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}>
+            {" "}· click a trade to correlate it to the plan
+          </span>
+        </h3>
+        <button className="vg-btn-sm" onClick={load} disabled={busy}>{busy ? "…" : "⟳"}</button>
       </div>
 
-      {/* the day's real P&L — including the money no fill ever showed */}
+      {/* the day, reconciled — including the money no fill showed */}
       <div className="vg-row" style={{ gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 }}>
         <span>P&L <b className={s.realized >= 0 ? "vg-up" : "vg-down"}>{money(s.realized)}</b></span>
-        <span className="vg-note">from fills {money(s.realized_from_fills)}</span>
-        {s.expired > 0 && (
-          <span className="vg-note">
-            expiry {money(s.realized_from_expiry)} · {s.expired_worthless} worthless
-            <b className="vg-down"> {money(s.expired_loss)}</b>
-          </span>
-        )}
+        <span className="vg-note">fills {money(s.realized_from_fills)}</span>
+        {s.expired > 0 && <span className="vg-note">expiry {money(s.realized_from_expiry)} · {s.expired_worthless} worthless <b className="vg-down">{money(s.expired_loss)}</b></span>}
         <span className="vg-note">{s.winners}W / {s.losers}L</span>
-        {s.settle_price && <span className="vg-note">SPX settled {s.settle_price}</span>}
+        {s.settle_price && <span className="vg-note">SPX settled {fmtLvl(s.settle_price)}</span>}
+        {s.level_discipline != null && (
+          <span className="vg-note">level discipline <b>{Math.round(s.level_discipline * 100)}%</b></span>
+        )}
       </div>
 
-      {/* the behavioral metric */}
-      {s.level_discipline != null && (
-        <p className="vg-note" style={{ fontSize: 12, marginBottom: 8 }}>
-          <b>Level discipline: {Math.round(s.level_discipline * 100)}%</b> of trades were entered
-          at a forecast level {s.level_discipline >= 0.7
-            ? "— you traded the plan."
-            : "— many entries were in open space, not at a planned level."}
-        </p>
-      )}
-
-      <div style={{ overflowX: "auto" }}>
-        <table className="vg-table" style={{ fontSize: 12.5 }}>
-          <thead>
-            <tr><th>time</th><th>trade</th><th>SPX @ entry</th><th>level</th>
-              <th>P&L</th><th>outcome</th><th>my thinking</th></tr>
-          </thead>
-          <tbody>
-            {(data.trades || []).map((t, i) => {
-              const lv = t.level_at_entry;
-              const key = `${t.opened_at || i}|${t.label}`;
-              return (
-                <tr key={key}>
-                  <td className="vg-note">{(t.opened_at || "").slice(11, 16) || "—"}</td>
-                  <td><b>{t.label}</b></td>
-                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{t.spot_at_entry ?? "—"}</td>
-                  <td>
-                    {lv
-                      ? <span className={cls("vg-badge", lv.at_level ? "good" : "plain")}
-                          title={`${lv.role || ""} ${(lv.kinds || []).join(" + ")} · ${lv.distance_pct}% away`}>
-                          {lv.level}{lv.at_level ? " ✓" : ""}
-                        </span>
-                      : <span className="vg-note">—</span>}
-                  </td>
-                  <td className={t.realized >= 0 ? "vg-up" : "vg-down"}
-                    style={{ fontVariantNumeric: "tabular-nums" }}>{money(t.realized)}</td>
-                  <td><span className={cls("vg-badge", STATUS_TONE[t.status] || "plain")}>
-                    {STATUS_LABEL[t.status] || t.status}</span></td>
-                  <td>
-                    <input className="vg-jr-thought" placeholder="why did I take this?"
-                      value={(thoughts && thoughts[key]) || ""}
-                      onChange={(e) => onThought(key, e.target.value)} />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      {/* the trade log — a row per decision, expandable */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {(data.trades || []).map((t, i) => {
+          const key = `${t.opened_at || i}|${t.label}`;
+          return (
+            <TradeCard key={key} t={t} tkey={key}
+              expanded={open === key} onToggle={() => setOpen(open === key ? null : key)}
+              thought={(thoughts && thoughts[key]) || ""} onThought={(v) => onThought(key, v)}
+              allLevels={allLevels} />
+          );
+        })}
       </div>
-      <p className="vg-note" style={{ fontSize: 11, marginTop: 6 }}>
-        The broker says WHAT you did; only you can say WHY. Your thinking saves with the entry.
+      <p className="vg-note" style={{ fontSize: 11, marginTop: 8 }}>
+        SPX price is the 1-minute print at submission. Tag the level you were trading —
+        the broker says WHAT you did; only you can say WHY. Everything saves with the entry.
       </p>
+    </div>
+  );
+}
+
+function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels }) {
+  const corr = t.correlation;
+  const nearest = corr && corr.nearest;
+  const long = String(t.strategy).includes("call");
+  // the tagged level (persisted with the thought as "@<price>|<why>") — parse it
+  const tag = (thought.match(/^@([\d.]+)\|/) || [])[1] || null;
+  const why = thought.replace(/^@[\d.]+\|/, "");
+  const setTag = (level) => onThought(level ? `@${level}|${why}` : why);
+  const setWhy = (v) => onThought(tag ? `@${tag}|${v}` : v);
+
+  return (
+    <div className={cls("vg-trade", expanded && "open")}>
+      {/* collapsed summary row */}
+      <div className="vg-trade-row" onClick={onToggle}>
+        <span className="vg-trade-time">{(t.opened_at || "").slice(11, 16) || "—"}</span>
+        <span className="vg-trade-name">
+          <b className={long ? "vg-up" : "vg-down"}>{t.label}</b>
+        </span>
+        <span className="vg-trade-spx">SPX {fmtLvl(t.spot_at_entry)}</span>
+        <span>
+          {nearest
+            ? <span className={cls("vg-badge", corr.at_level ? "good" : "plain")}
+                title={`${nearest.role || ""} ${(nearest.kinds || []).join(" + ")}`}>
+                {corr.at_level ? "✓ " : ""}{fmtLvl(nearest.level)}
+              </span>
+            : <span className="vg-note">—</span>}
+        </span>
+        <span className={cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down")}>{money(t.realized)}</span>
+        <span className={cls("vg-badge", STATUS_TONE[t.status] || "plain")}>{STATUS_LABEL[t.status] || t.status}</span>
+        <span className="vg-trade-caret">{expanded ? "▾" : "▸"}</span>
+      </div>
+
+      {/* expanded detail — the correlation + your thinking */}
+      {expanded && (
+        <div className="vg-trade-detail">
+          <div className="vg-trade-grid">
+            {/* the order, as facts */}
+            <div>
+              <div className="vg-kicker">The order</div>
+              <table className="vg-mini"><tbody>
+                <tr><td>strategy</td><td>{t.strategy}</td></tr>
+                {t.legs.map((l, i) => (
+                  <tr key={i}><td>{l.side}</td>
+                    <td>{l.qty} × {(l.symbol || "").replace(/^\S+\s\S+\s/, "")} @ {l.price}</td></tr>
+                ))}
+                <tr><td>opened</td><td>{(t.opened_at || "—").replace("T", " ")} ET</td></tr>
+                {t.closed_at && <tr><td>closed</td><td>{t.closed_at.replace("T", " ")} ET</td></tr>}
+                <tr><td>cost</td><td>{money(t.cost)}</td></tr>
+                {t.proceeds ? <tr><td>proceeds</td><td>{money(t.proceeds)}</td></tr> : null}
+                {t.settlement != null && <tr><td>settlement</td><td>{money(t.settlement)} @ SPX {fmtLvl(t.settle_price)}</td></tr>}
+                <tr><td><b>realized</b></td><td><b className={t.realized >= 0 ? "vg-up" : "vg-down"}>{money(t.realized)}</b></td></tr>
+              </tbody></table>
+            </div>
+
+            {/* the correlation to the plan */}
+            <div>
+              <div className="vg-kicker">SPX {fmtLvl(t.spot_at_entry)} at entry vs. the forecast</div>
+              {corr && corr.nearby && corr.nearby.length ? (
+                <table className="vg-mini"><tbody>
+                  {corr.nearby.map((c, i) => (
+                    <tr key={i} className={c.level === nearest.level ? "vg-hl" : ""}>
+                      <td>{fmtLvl(c.level)}</td>
+                      <td>{c.role} {(c.kinds || []).length ? `· ${c.kinds.join(" + ")}` : ""}
+                        <span className="vg-note"> [{c.source}]</span></td>
+                      <td style={{ textAlign: "right" }}>{c.distance > 0 ? "+" : ""}{c.distance}pt</td>
+                    </tr>
+                  ))}
+                </tbody></table>
+              ) : (
+                <p className="vg-note">No forecast level within range — this entry was in open space.</p>
+              )}
+
+              {/* TAG which level you were actually trading */}
+              <div className="vg-trade-field" style={{ marginTop: 10 }}>
+                <label>Level I was trading</label>
+                <select value={tag || ""} onChange={(e) => setTag(e.target.value || null)}>
+                  <option value="">— none / open space —</option>
+                  {allLevels.map((l, i) => (
+                    <option key={i} value={l.price}>
+                      {fmtLvl(l.price)} · {l.role}{(l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* the thinking behind the decision */}
+          <div className="vg-trade-field" style={{ marginTop: 10 }}>
+            <label>My thinking — why did I take this trade?</label>
+            <textarea rows={2} value={why} onChange={(e) => setWhy(e.target.value)}
+              placeholder="the read, the trigger, what I was expecting — the WHY the broker can't record" />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

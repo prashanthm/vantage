@@ -369,13 +369,17 @@ def test_utc_history_stamps_convert_to_et():
     assert et.hour == 9 and et.minute == 36
 
 
-def test_level_alignment_flags_trading_the_plan():
+def test_correlate_levels_flags_trading_the_plan():
     levels = [{"price": 7547.0, "role": "resistance", "kinds": ["gamma flip"]},
               {"price": 7474.0, "role": "support", "kinds": ["put wall"]}]
-    at = sa.align_to_levels(7546.8, levels)              # 0.2pt off the flip
-    assert at["at_level"] and at["level"] == 7547.0
-    # 8pt away: nearest level is still the flip, but the entry was NOT keyed
-    # off it — the tolerance must discriminate or the metric is meaningless
-    adrift = sa.align_to_levels(7539.0, levels)
-    assert adrift["level"] == 7547.0 and not adrift["at_level"]
-    assert sa.align_to_levels(None, levels) is None      # never guessed
+    anchors = [{"price": 7515.0, "label": "prior spot"}]
+    at = sa.correlate_levels(7546.8, levels, anchors)    # 0.2pt off the flip
+    assert at["at_level"] and at["nearest"]["level"] == 7547.0
+    # every candidate carries a SIGNED distance for the dropdown
+    assert at["nearest"]["distance"] == round(7547.0 - 7546.8, 2)
+    # 8pt away: nearest is still the flip but NOT at-level — must discriminate
+    adrift = sa.correlate_levels(7539.0, levels, anchors)
+    assert adrift["nearest"]["level"] == 7547.0 and not adrift["at_level"]
+    # GEX anchors are taggable candidates too
+    assert any(c["source"] == "gex" for c in adrift["all"])
+    assert sa.correlate_levels(None, levels, anchors) is None   # never guessed

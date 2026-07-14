@@ -3107,7 +3107,22 @@
     const f = s.forecast || {};
     const dayLabel = dayOf(s);
     const kindLabel = s.forecast_kind === "live" ? "today's live forecast" : "last night's forecast";
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-jr-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, dayLabel, s.session ? ` \xB7 ${s.session} playbook` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11, marginLeft: 6, fontWeight: 400 } }, "vs. ", kindLabel)), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", disabled: busy === `del${s.id}`, onClick: () => onDelete(s.id) }, busy === `del${s.id}` ? "\u2026" : "delete")), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tiles" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "The forecast"), f.plan ? /* @__PURE__ */ React.createElement("div", { className: "big" }, f.gamma, " gamma") : /* @__PURE__ */ React.createElement("div", { className: "big", style: { fontWeight: 400 } }, "No forecast frozen"), f.plan && /* @__PURE__ */ React.createElement("div", { className: "sub" }, f.plan), f.spot != null && /* @__PURE__ */ React.createElement("div", { className: "sub" }, "spot at forecast: ", Math.round(f.spot), f.gamma_flip != null ? ` \xB7 flip ${Math.round(f.gamma_flip)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "Actual"), sc ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "big" }, sc.regime ? /* @__PURE__ */ React.createElement("span", { className: sc.regime.correct ? "up" : "down" }, sc.regime.correct ? "\u2713 forecast held" : "\u2717 forecast missed") : "session read"), /* @__PURE__ */ React.createElement("div", { className: "sub" }, "price ", sc.price_low, "\u2013", sc.price_high, " (last ", sc.price_last, ")", sc.regime && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", sc.regime.outcome, " (", sc.regime.moved_pct, "% move)"), sc.level_accuracy != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 levels ", pct3(sc.level_accuracy)))) : /* @__PURE__ */ React.createElement("div", { className: "sub" }, "Not scored yet \u2014 scores against today's session once bars print."))), (f.levels || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "Levels \u2014 forecast vs. actual"), /* @__PURE__ */ React.createElement(LevelTable, { forecast: f, scorecard: sc })), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-lower" }, s.image_path ? /* @__PURE__ */ React.createElement("div", { className: "vg-jr-chart" }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-jr-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, dayLabel, s.session ? ` \xB7 ${s.session} playbook` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11, marginLeft: 6, fontWeight: 400 } }, "vs. ", kindLabel)), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", disabled: busy === `del${s.id}`, onClick: () => onDelete(s.id) }, busy === `del${s.id}` ? "\u2026" : "delete")), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tiles" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "The forecast"), f.plan ? /* @__PURE__ */ React.createElement("div", { className: "big" }, f.gamma, " gamma") : /* @__PURE__ */ React.createElement("div", { className: "big", style: { fontWeight: 400 } }, "No forecast frozen"), f.plan && /* @__PURE__ */ React.createElement("div", { className: "sub" }, f.plan), f.spot != null && /* @__PURE__ */ React.createElement("div", { className: "sub" }, "spot at forecast: ", Math.round(f.spot), f.gamma_flip != null ? ` \xB7 flip ${Math.round(f.gamma_flip)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "Actual"), sc ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "big" }, sc.regime ? /* @__PURE__ */ React.createElement("span", { className: sc.regime.correct ? "up" : "down" }, sc.regime.correct ? "\u2713 forecast held" : "\u2717 forecast missed") : "session read"), /* @__PURE__ */ React.createElement("div", { className: "sub" }, "price ", sc.price_low, "\u2013", sc.price_high, " (last ", sc.price_last, ")", sc.regime && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", sc.regime.outcome, " (", sc.regime.moved_pct, "% move)"), sc.level_accuracy != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 levels ", pct3(sc.level_accuracy)))) : /* @__PURE__ */ React.createElement("div", { className: "sub" }, "Not scored yet \u2014 scores against today's session once bars print."))), (f.levels || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "Levels \u2014 forecast vs. actual"), /* @__PURE__ */ React.createElement(LevelTable, { forecast: f, scorecard: sc })), /* @__PURE__ */ React.createElement(TradesPanel, { snap: s, thoughts, onThought: setThought }), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0 } }, "My journal \u2014 the day overall"), ENTRY_FIELDS.map(([k, label, ph]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-jr-field" }, /* @__PURE__ */ React.createElement("label", null, label), k === "notes" ? /* @__PURE__ */ React.createElement(
+      "textarea",
+      {
+        rows: 2,
+        placeholder: ph,
+        value: entry[k] || "",
+        onChange: (e) => set(k, e.target.value)
+      }
+    ) : /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        placeholder: ph,
+        value: entry[k] || "",
+        onChange: (e) => set(k, e.target.value)
+      }
+    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, marginTop: 4, alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy === `entry${s.id}` || !dirty, onClick: save }, busy === `entry${s.id}` ? "Saving\u2026" : "Save"), dirty && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, "unsaved changes"))), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14 } }, s.image_path ? /* @__PURE__ */ React.createElement("div", { className: "vg-jr-chart" }, /* @__PURE__ */ React.createElement(
       "img",
       {
         src: journalImageUrl(s.id),
@@ -3129,6 +3144,7 @@
       "div",
       {
         className: cls("vg-jr-drop", drag && "drag"),
+        style: { padding: "12px" },
         onDragOver: (e) => {
           e.preventDefault();
           setDrag(true);
@@ -3137,8 +3153,7 @@
         onDrop,
         onClick: () => fileRef.current && fileRef.current.click()
       },
-      /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13 } }, busy === "upload" ? "Saving\u2026" : "Drop your chart here, paste (\u2318V), or click"),
-      /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, marginTop: 4 } }, "Reference only \u2014 never analyzed."),
+      /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, busy === "upload" ? "Saving\u2026" : "\u{1F4CE} Attach a reference chart \u2014 drop, paste (\u2318V), or click (never analyzed)"),
       /* @__PURE__ */ React.createElement(
         "input",
         {
@@ -3149,22 +3164,7 @@
           onChange: (e) => onAttach(e.target.files && e.target.files[0])
         }
       )
-    ), /* @__PURE__ */ React.createElement(TradesPanel, { snap: s, thoughts, onThought: setThought }), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form" }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0 } }, "My journal \u2014 the day overall"), ENTRY_FIELDS.map(([k, label, ph]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-jr-field" }, /* @__PURE__ */ React.createElement("label", null, label), k === "notes" ? /* @__PURE__ */ React.createElement(
-      "textarea",
-      {
-        rows: 2,
-        placeholder: ph,
-        value: entry[k] || "",
-        onChange: (e) => set(k, e.target.value)
-      }
-    ) : /* @__PURE__ */ React.createElement(
-      "input",
-      {
-        placeholder: ph,
-        value: entry[k] || "",
-        onChange: (e) => set(k, e.target.value)
-      }
-    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, marginTop: 4, alignItems: "center" } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy === `entry${s.id}` || !dirty, onClick: save }, busy === `entry${s.id}` ? "Saving\u2026" : "Save"), dirty && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, "unsaved changes")))));
+    )));
   }
   var VERDICT_LABEL = {
     held: "held",
@@ -3223,9 +3223,12 @@
     expired_settled: "expired ITM",
     expired_unpriced: "expired (unpriced)"
   };
+  var money4 = (n) => n == null ? "\u2014" : `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
+  var fmtLvl = (v) => v == null ? "\u2014" : Number(v).toFixed(v >= 100 ? 0 : 2);
   function TradesPanel({ snap, thoughts, onThought }) {
     const [data, setData] = useState10(null);
     const [busy, setBusy] = useState10(false);
+    const [open, setOpen] = useState10(null);
     const day = String(snap.created_at || "").slice(0, 10);
     const load = async () => {
       setBusy(true);
@@ -3235,43 +3238,61 @@
     };
     useEffect7(() => {
       setData(null);
+      setOpen(null);
     }, [snap.id]);
     if (!data) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0 } }, "My trades \u2014 what I actually did"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "Pulling\u2026" : "\u27F3 Pull my trades")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6, fontSize: 12 } }, "Reconstructed from your broker fills \u2014 multi-leg orders as one trade, expiries settled against the SPX print, each stamped with SPX at entry and the level it was taken against."));
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "My trades \u2014 what I actually did"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 4, fontSize: 12 } }, "Every decision reconstructed from your broker fills \u2014 pinned to the SPX price at the minute you submitted it, correlated to the levels you forecast, expiries settled against the SPX print.")), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "Pulling\u2026" : "\u27F3 Pull my trades")));
     }
     if (data.empty) {
-      return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, "No ", snap.symbol || "SPX", " trades on ", day, ".");
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No ", snap.symbol || "SPX", " trades on ", day, "."));
     }
     const s = data.summary || {};
-    const money4 = (n) => n == null ? "\u2014" : `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0 } }, "My trades \u2014 ", s.trades, " decisions"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "Pulling\u2026" : "\u27F3 Refresh")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money4(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "from fills ", money4(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money4(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, " ", money4(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 12, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("b", null, "Level discipline: ", Math.round(s.level_discipline * 100), "%"), " of trades were entered at a forecast level ", s.level_discipline >= 0.7 ? "\u2014 you traded the plan." : "\u2014 many entries were in open space, not at a planned level."), /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { fontSize: 12.5 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "trade"), /* @__PURE__ */ React.createElement("th", null, "SPX @ entry"), /* @__PURE__ */ React.createElement("th", null, "level"), /* @__PURE__ */ React.createElement("th", null, "P&L"), /* @__PURE__ */ React.createElement("th", null, "outcome"), /* @__PURE__ */ React.createElement("th", null, "my thinking"))), /* @__PURE__ */ React.createElement("tbody", null, (data.trades || []).map((t, i) => {
-      const lv = t.level_at_entry;
+    const allLevels = [
+      ...(data.forecast_levels || []).map((z) => ({ ...z, source: "confluence" })),
+      ...(data.gex_anchors || []).map((a) => ({ price: a.price, role: a.label, kinds: [a.label], source: "gex" }))
+    ];
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "My trades \u2014 ", s.trades, " decisions", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, " ", "\xB7 click a trade to correlate it to the plan")), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "\u2026" : "\u27F3")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money4(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money4(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money4(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money4(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "level discipline ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%"))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, (data.trades || []).map((t, i) => {
       const key = `${t.opened_at || i}|${t.label}`;
-      return /* @__PURE__ */ React.createElement("tr", { key }, /* @__PURE__ */ React.createElement("td", { className: "vg-note" }, (t.opened_at || "").slice(11, 16) || "\u2014"), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, t.label)), /* @__PURE__ */ React.createElement("td", { style: { fontVariantNumeric: "tabular-nums" } }, t.spot_at_entry ?? "\u2014"), /* @__PURE__ */ React.createElement("td", null, lv ? /* @__PURE__ */ React.createElement(
-        "span",
+      return /* @__PURE__ */ React.createElement(
+        TradeCard,
         {
-          className: cls("vg-badge", lv.at_level ? "good" : "plain"),
-          title: `${lv.role || ""} ${(lv.kinds || []).join(" + ")} \xB7 ${lv.distance_pct}% away`
-        },
-        lv.level,
-        lv.at_level ? " \u2713" : ""
-      ) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement(
-        "td",
-        {
-          className: t.realized >= 0 ? "vg-up" : "vg-down",
-          style: { fontVariantNumeric: "tabular-nums" }
-        },
-        money4(t.realized)
-      ), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", STATUS_TONE2[t.status] || "plain") }, STATUS_LABEL[t.status] || t.status)), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          className: "vg-jr-thought",
-          placeholder: "why did I take this?",
-          value: thoughts && thoughts[key] || "",
-          onChange: (e) => onThought(key, e.target.value)
+          key,
+          t,
+          tkey: key,
+          expanded: open === key,
+          onToggle: () => setOpen(open === key ? null : key),
+          thought: thoughts && thoughts[key] || "",
+          onThought: (v) => onThought(key, v),
+          allLevels
         }
-      )));
-    })))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 6 } }, "The broker says WHAT you did; only you can say WHY. Your thinking saves with the entry."));
+      );
+    })), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 8 } }, "SPX price is the 1-minute print at submission. Tag the level you were trading \u2014 the broker says WHAT you did; only you can say WHY. Everything saves with the entry."));
+  }
+  function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels }) {
+    const corr = t.correlation;
+    const nearest2 = corr && corr.nearest;
+    const long = String(t.strategy).includes("call");
+    const tag = (thought.match(/^@([\d.]+)\|/) || [])[1] || null;
+    const why = thought.replace(/^@[\d.]+\|/, "");
+    const setTag = (level) => onThought(level ? `@${level}|${why}` : why);
+    const setWhy = (v) => onThought(tag ? `@${tag}|${v}` : v);
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-trade", expanded && "open") }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-row", onClick: onToggle }, /* @__PURE__ */ React.createElement("span", { className: "vg-trade-time" }, (t.opened_at || "").slice(11, 16) || "\u2014"), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-name" }, /* @__PURE__ */ React.createElement("b", { className: long ? "vg-up" : "vg-down" }, t.label)), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-spx" }, "SPX ", fmtLvl(t.spot_at_entry)), /* @__PURE__ */ React.createElement("span", null, nearest2 ? /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        className: cls("vg-badge", corr.at_level ? "good" : "plain"),
+        title: `${nearest2.role || ""} ${(nearest2.kinds || []).join(" + ")}`
+      },
+      corr.at_level ? "\u2713 " : "",
+      fmtLvl(nearest2.level)
+    ) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("span", { className: cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down") }, money4(t.realized)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", STATUS_TONE2[t.status] || "plain") }, STATUS_LABEL[t.status] || t.status), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-caret" }, expanded ? "\u25BE" : "\u25B8")), expanded && /* @__PURE__ */ React.createElement("div", { className: "vg-trade-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-grid" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The order"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "strategy"), /* @__PURE__ */ React.createElement("td", null, t.strategy)), t.legs.map((l, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, l.side), /* @__PURE__ */ React.createElement("td", null, l.qty, " \xD7 ", (l.symbol || "").replace(/^\S+\s\S+\s/, ""), " @ ", l.price))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "opened"), /* @__PURE__ */ React.createElement("td", null, (t.opened_at || "\u2014").replace("T", " "), " ET")), t.closed_at && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "closed"), /* @__PURE__ */ React.createElement("td", null, t.closed_at.replace("T", " "), " ET")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "cost"), /* @__PURE__ */ React.createElement("td", null, money4(t.cost))), t.proceeds ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "proceeds"), /* @__PURE__ */ React.createElement("td", null, money4(t.proceeds))) : null, t.settlement != null && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "settlement"), /* @__PURE__ */ React.createElement("td", null, money4(t.settlement), " @ SPX ", fmtLvl(t.settle_price))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "realized")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", { className: t.realized >= 0 ? "vg-up" : "vg-down" }, money4(t.realized))))))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "SPX ", fmtLvl(t.spot_at_entry), " at entry vs. the forecast"), corr && corr.nearby && corr.nearby.length ? /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, corr.nearby.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i, className: c.level === nearest2.level ? "vg-hl" : "" }, /* @__PURE__ */ React.createElement("td", null, fmtLvl(c.level)), /* @__PURE__ */ React.createElement("td", null, c.role, " ", (c.kinds || []).length ? `\xB7 ${c.kinds.join(" + ")}` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " [", c.source, "]")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, c.distance > 0 ? "+" : "", c.distance, "pt"))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No forecast level within range \u2014 this entry was in open space."), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("label", null, "Level I was trading"), /* @__PURE__ */ React.createElement("select", { value: tag || "", onChange: (e) => setTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : "")))))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("label", null, "My thinking \u2014 why did I take this trade?"), /* @__PURE__ */ React.createElement(
+      "textarea",
+      {
+        rows: 2,
+        value: why,
+        onChange: (e) => setWhy(e.target.value),
+        placeholder: "the read, the trigger, what I was expecting \u2014 the WHY the broker can't record"
+      }
+    ))));
   }
 
   // src/trades.jsx

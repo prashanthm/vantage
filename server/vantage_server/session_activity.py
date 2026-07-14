@@ -257,8 +257,12 @@ def to_et(when: str):
 
 
 def _bar_price_at(bars, when: str) -> float | None:
-    """The underlying's price at the moment of a trade (the bar covering it).
-    None when bars are missing — never guessed."""
+    """The underlying's price at the MINUTE of a trade. 0DTE moves points in
+    minutes: a 15m bar's close can be 9 minutes and 15 points away from the
+    fill (live 2026-07-14, a 09:36 trade priced 7539.79 off the 15m close was
+    really 7525.94 on the minute — right on the 7525 forecast level the 15m
+    miss hid). The bar covering the timestamp is used; None when bars are
+    missing — never guessed."""
     if bars is None or getattr(bars, "empty", True) or not when:
         return None
     ts = to_et(when)
@@ -266,27 +270,83 @@ def _bar_price_at(bars, when: str) -> float | None:
         return None
     prior = bars[bars.index <= ts]
     if prior.empty:
-        return None
+        # trade before the first bar we have (pre-open print) — take the first
+        return round(float(bars["Close"].iloc[0]), 2)
     return round(float(prior["Close"].iloc[-1]), 2)
 
 
-def align_to_levels(price: float | None, levels: list[dict]) -> dict | None:
-    """Which forecast level was this trade taken AT? Returns the nearest level
-    with the distance, flagging whether the entry was actually keyed off it
-    (within LEVEL_TOL_PCT) or floating in open space between levels — the
-    difference between "I traded the plan" and "I improvised"."""
-    if price is None or not levels:
+def correlate_levels(price: float | None, levels: list[dict],
+                     anchors: list[dict]) -> dict | None:
+    """ALL the forecast levels this trade was near — not just the nearest.
+
+    A 0DTE decision keys off structure: a strike sitting at a call wall, an
+    entry taken as price tests the gamma flip. So for the trade's SPX print we
+    return every confluence level AND GEX anchor within threshold, nearest
+    first, each with its signed distance in points and %. The UI turns this
+    into a dropdown to TAG which level the operator actually traded — "SPX was
+    7525.94, forecast had 7525 resistance (call wall + fib 78.6%), tag it".
+
+    ``at_level`` is true when the closest is within LEVEL_TOL_PCT; ``nearby``
+    is everything within 3× that (the candidate tags)."""
+    if price is None:
         return None
-    best = min(levels, key=lambda z: abs(float(z.get("price", 0)) - price))
-    lp = float(best.get("price", 0))
-    dist_pct = abs(lp - price) / price * 100 if price else None
+    cands: list[dict] = []
+    for z in (levels or []):
+        lp = _f(z.get("price"))
+        if lp is None:
+            continue
+        dist = lp - price
+        cands.append({
+            "level": round(lp, 2), "source": "confluence",
+            "role": z.get("role"), "kinds": z.get("kinds") or [],
+            "distance": round(dist, 2),
+            "distance_pct": round(abs(dist) / price * 100, 3) if price else None,
+        })
+    for a in (anchors or []):
+        lp = _f(a.get("price"))
+        if lp is None:
+            continue
+        dist = lp - price
+        cands.append({
+            "level": round(lp, 2), "source": "gex",
+            "role": a.get("label"), "kinds": [a.get("label")],
+            "distance": round(dist, 2),
+            "distance_pct": round(abs(dist) / price * 100, 3) if price else None,
+        })
+    if not cands:
+        return None
+    cands.sort(key=lambda c: abs(c["distance"]))
+    nearest = cands[0]
+    tol = price * LEVEL_TOL_PCT / 100.0
+    nearby = [c for c in cands if abs(c["distance"]) <= tol * 3]
     return {
-        "level": lp,
-        "role": best.get("role"),
-        "kinds": best.get("kinds") or [],
-        "distance_pct": round(dist_pct, 3) if dist_pct is not None else None,
-        "at_level": bool(dist_pct is not None and dist_pct <= LEVEL_TOL_PCT),
+        "nearest": nearest,
+        "at_level": abs(nearest["distance"]) <= tol,
+        "nearby": nearby,          # candidate tags for the dropdown
+        "all": cands,              # the full ladder, for the "other…" option
     }
+
+
+def _f(v):
+    try:
+        return float(v) if v is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def gex_anchors(scaffold: dict) -> list[dict]:
+    """The GEX/regime price anchors as taggable levels: spot, gamma flip,
+    call/put walls, max pain, vol trigger — whatever the scaffold carries."""
+    reg = scaffold.get("regime") or {}
+    gex = scaffold.get("gex") or {}
+    out = []
+    for key, label in (("flip", "gamma flip"), ("call_wall", "call wall"),
+                       ("put_wall", "put wall"), ("max_pain", "max pain"),
+                       ("vol_trigger", "vol trigger"), ("spot", "prior spot")):
+        v = _f(reg.get(key)) or _f(gex.get(key))
+        if v is not None:
+            out.append({"price": v, "label": label})
+    return out
 
 
 # ──────────────────────────────────────────────────────────── the session build
@@ -339,22 +399,30 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
     for t in trades:
         settle_expired(t, day, settle)
 
-    # context: the underlying's intraday path + the session's forecast levels
-    bars = None
-    try:
-        bars = _pb._fetch_15m("^GSPC" if und == "SPX" else und)
-    except Exception as e:
-        log.warning("intraday bars unavailable: %s", e)
+    # MINUTE bars so "SPX when I pulled the trigger" is honest (a 15m close is
+    # up to 9 min / ~15pt off the fill on a 0DTE). Fall back to 15m if the 1m
+    # window is unavailable (yfinance caps 1m at ~30 days).
+    bars = _intraday_bars("^GSPC" if und == "SPX" else und, day)
+
     # the playbook FOR this session is the one whose `session` == day (it is
     # generated the evening before, so it is stored under the PRIOR date).
     row = store.load_spx_playbook_before(day, symbol=und) or store.load_spx_playbook(day, symbol=und)
     scaffold = (row or {}).get("scaffold") or {}
     levels = scaffold.get("confluence") or []
+    anchors = gex_anchors(scaffold)
 
     for t in trades:
         t["spot_at_entry"] = _bar_price_at(bars, t.get("opened_at"))
         t["spot_at_exit"] = _bar_price_at(bars, t.get("closed_at"))
-        t["level_at_entry"] = align_to_levels(t["spot_at_entry"], levels)
+        t["correlation"] = correlate_levels(t["spot_at_entry"], levels, anchors)
+        # legacy alias the table still reads (nearest + at_level)
+        corr = t["correlation"]
+        t["level_at_entry"] = ({
+            "level": corr["nearest"]["level"], "role": corr["nearest"]["role"],
+            "kinds": corr["nearest"]["kinds"],
+            "distance_pct": corr["nearest"]["distance_pct"],
+            "at_level": corr["at_level"],
+        } if corr else None)
         # realized = credits received + settlement − debits paid (cost is signed)
         t["realized"] = round(t["cost"] + t["proceeds"] + t.get("settlement", 0.0), 2)
         t["label"] = _label(t)
@@ -363,9 +431,38 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         "day": day,
         "underlying": und,
         "settle_price": settle,
+        "forecast_levels": levels,       # the full ladder, for the "other…" tag
+        "gex_anchors": anchors,
+        "playbook_session": (row or {}).get("session"),
         "trades": trades,
         "summary": summarize(day, und, trades, settle),
     }
+
+
+def _intraday_bars(symbol: str, day: str):
+    """Minute bars for ``day`` (best), falling back to the stored 15m series.
+    RTH only, ET-indexed — the reference for pinning a fill to a price."""
+    from . import spx_playbook as _pb
+    try:
+        import yfinance as yf
+        from zoneinfo import ZoneInfo
+        nxt = (_dt.date.fromisoformat(day) + _dt.timedelta(1)).isoformat()
+        h = yf.Ticker(symbol).history(start=day, end=nxt, interval="1m")
+        if not h.empty:
+            if h.index.tz is None:
+                h.index = h.index.tz_localize("UTC")
+            h.index = h.index.tz_convert(ZoneInfo("America/New_York"))
+            mins = h.index.hour * 60 + h.index.minute
+            h = h[(mins >= 9 * 60 + 30) & (mins < 16 * 60)]
+            if not h.empty:
+                return h
+    except Exception as e:
+        log.warning("1m bars unavailable for %s (%s) — falling back to 15m", day, e)
+    try:
+        return _pb._fetch_15m(symbol)
+    except Exception as e:
+        log.warning("intraday bars unavailable: %s", e)
+        return None
 
 
 def _label(t: dict) -> str:
