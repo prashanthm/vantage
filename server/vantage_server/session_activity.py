@@ -1,149 +1,407 @@
-"""What did I ACTUALLY do today? — reconstructed from the broker's own fills.
+"""What did I ACTUALLY do today — as TRADES, not fills.
 
-The Trading Journal asks "what I did" and expects the operator to type it.
-But every fill is already in the store: the Robinhood sync writes each
-execution into ``history`` (kind equity|option, side, quantity, price,
-amount, state). So the FACTUAL half of a journal entry — what I traded, when,
-how much, and what it made — never needs typing. Only the JUDGMENT half
-(why, and what I'd do differently) does.
+A trade is a DECISION, not a contract: one order may carry several legs (a
+long_call_spread is one trade with two legs), and a decision has a thought
+behind it, a time, and a price of the underlying at that moment. This module
+reconstructs those decisions from the broker's own record, then scores each
+against the levels the playbook forecast — so the journal can answer the real
+question: *did I read the tape correctly, and did price respect the levels I
+was trading against?*
 
-This module reconstructs one session's activity from those fills and pairs
-them into round-trips per contract.
+THREE things the naive fill-pairing got wrong, all found live 2026-07-14:
 
-WHY NOT reuse ml/roundtrips? That builder keys off Robinhood's
-``get_pnl_trade_history`` tool as its authoritative close list. Live
-2026-07-14 that tool answered NotFound ("realized gain loss items not
-found"), so the ML round-trips silently froze at 2026-07-05 and today's 50
-SPXW fills — a real +$2,545 session — never landed anywhere in the product.
-Fills are the durable record; realized-P/L is a convenience feed. This reads
-the fills.
+1. **Multi-leg trades.** Robinhood's ``description`` names the strategy and
+   whether it opens or closes ("long_call_spread open (debit)"), and legs of
+   one order share a timestamp. So legs are grouped into ONE trade — a
+   7555C/7560C spread is one decision, not two contracts.
 
-Pairing: per contract (the display symbol, so 7525C never pairs with 7545P),
-walk the fills in time order keeping a signed position; each fill that
-REDUCES the position toward zero realizes P&L against the average cost of
-the open side. A position still open at the end is reported as such — never
-silently closed. Cash flow (``amount``: negative for buys, positive for
-sells) is the source of truth for money, so a partially-closed contract still
-reports honest realized dollars.
+2. **Expiry is invisible.** A 0DTE you let expire has NO closing fill and NO
+   settlement row — Robinhood simply stops listing it. The naive model called
+   those "still open at close". They are not: they RESOLVED, against the SPX
+   settlement print. On 2026-07-14 four trades expired worthless (−$2,260 of
+   premium that no fill records), and the flat-vs-held distinction matters
+   just as much: a contract fully bought AND sold is CLOSED and must never be
+   re-settled — mis-tracking that invented ~$2,500 of P&L that never happened.
+   Expired positions are settled here from the SIGNED net still held:
+   intrinsic = max(0, settle − strike) for a call, max(0, strike − settle)
+   for a put, × $100 × contracts.
 
-Pure computation over the store — no broker I/O, no orders (ADR-010).
+3. **No context.** A trade's P&L says what happened; the SPX price AT THE
+   MOMENT of entry, and the forecast level nearest to it, say whether the
+   THINKING was right. Every trade is stamped with the underlying's price at
+   entry and exit (from 5m bars) and aligned to the session's forecast levels.
+
+Pure computation over the store + bars — no broker I/O, no orders (ADR-010).
 """
 from __future__ import annotations
 
 import datetime as _dt
+import logging
+import re
 from collections import defaultdict
 
+log = logging.getLogger(__name__)
 
-def _session_bounds(day: str) -> tuple[str, str]:
-    """[start, end) ISO prefixes for one calendar day."""
-    return f"{day}T00:00", f"{day}T23:59:59"
+#: SPX/SPXW index options settle for cash at $100 per index point.
+INDEX_MULTIPLIER = 100.0
 
+#: A level counts as "traded against" when the entry print is within this % of
+#: it — the trade was keyed off that level rather than floating in open space.
+#: 0.15% was uselessly loose (±11pt at SPX 7500 marked EVERY trade "at level",
+#: so the discipline metric always read 100%). 0.05% ≈ ±3.75pt: close enough
+#: that the level plausibly drove the entry, tight enough to discriminate.
+LEVEL_TOL_PCT = 0.05
+
+_CONTRACT = re.compile(r"^(?P<und>\S+)\s+(?P<exp>\d{4}-\d{2}-\d{2})\s+"
+                       r"(?P<strike>[\d.]+)(?P<kind>[CP])$")
+
+
+def parse_contract(symbol: str) -> dict | None:
+    """"SPXW 2026-07-14 7525C" -> {underlying, expiration, strike, kind}."""
+    m = _CONTRACT.match(str(symbol or "").strip())
+    if not m:
+        return None
+    return {"underlying": m.group("und"), "expiration": m.group("exp"),
+            "strike": float(m.group("strike")), "kind": m.group("kind")}
+
+
+def strategy_of(description: str) -> tuple[str, str]:
+    """RH descriptions read "long_call_spread open (debit)" -> (strategy,
+    effect). Effect is "open" | "close" | "" when unstated."""
+    d = str(description or "").lower()
+    strat = d.split(" ")[0] if d else ""
+    effect = "open" if " open" in d else ("close" if " close" in d else "")
+    return strat, effect
+
+
+def intrinsic(kind: str, strike: float, settle: float) -> float:
+    """Per-index-point value of one contract at expiry. Cash settlement: an
+    OTM option is worth exactly zero — the whole premium is lost."""
+    return max(0.0, settle - strike) if kind == "C" else max(0.0, strike - settle)
+
+
+# ─────────────────────────────────────────────────────── grouping fills → trades
+
+def _order_key(fill: dict) -> tuple:
+    """Legs of ONE order share a timestamp and a strategy description — that
+    is the decision unit. (RH gives us no order id in the history row.)"""
+    strat, effect = strategy_of(fill.get("description"))
+    return (str(fill.get("date") or "")[:16], strat, effect)
+
+
+def group_orders(fills: list[dict]) -> list[dict]:
+    """Fills -> ORDERS (one decision each), legs grouped. Each order:
+    {at, strategy, effect, legs[], debit (signed cash), contracts}."""
+    by_key: dict[tuple, list[dict]] = defaultdict(list)
+    for f in fills:
+        by_key[_order_key(f)].append(f)
+
+    orders = []
+    for (at, strat, effect), legs in by_key.items():
+        cash = sum(float(l.get("amount") or 0) for l in legs)
+        orders.append({
+            "at": at,
+            "strategy": strat or "single",
+            "effect": effect,
+            "legs": [{
+                "symbol": l.get("symbol"),
+                "side": l.get("side"),
+                "qty": abs(float(l.get("quantity") or 0)),
+                "price": float(l.get("price") or 0),
+                "amount": float(l.get("amount") or 0),
+                **(parse_contract(l.get("symbol")) or {}),
+            } for l in legs],
+            "cash": round(cash, 2),          # −debit paid / +credit received
+            "contracts": sum(abs(float(l.get("quantity") or 0)) for l in legs),
+        })
+    orders.sort(key=lambda o: o["at"])
+    return orders
+
+
+def build_trades(orders: list[dict]) -> list[dict]:
+    """Orders -> TRADES: an opening order starts a trade; later closing orders
+    on the same position reduce it. A trade is keyed by its leg set (the
+    structure), so a spread's re-entry is a NEW trade, not a mutation.
+
+    Returns trades with {opened_at, closed_at, strategy, legs, cost (debit
+    paid), proceeds (credits), realized, open_qty, status}."""
+    live: dict[str, dict] = {}       # CONTRACT symbol -> the open trade holding it
+    trades: list[dict] = []          # every trade ever created, in order
+
+    # A position is held per CONTRACT, but a decision spans the contracts an
+    # order opened together. One close order can settle legs of TWO different
+    # trades (live 2026-07-14: an 18:42 order sold 7550P and 7555P — legs of
+    # two separate singles), so closes are applied LEG BY LEG to whichever
+    # trade holds that contract. Structure-level matching cannot express that,
+    # which is what invented $2,500 of P&L that never happened.
+    def _new_trade(o, legs):
+        t = {
+            "opened_at": o["at"] if o["effect"] != "close" else None,
+            "closed_at": None, "strategy": o["strategy"],
+            "legs": [], "cost": 0.0, "proceeds": 0.0,
+            "net": {}, "open_contracts": 0.0, "status": "open",
+            "entry_unknown": o["effect"] == "close",
+            "opens": [], "closes": [],
+        }
+        trades.append(t)
+        return t
+
+    def _apply(t, o, legs):
+        cash = round(sum(float(l["amount"]) for l in legs), 2)
+        if o["effect"] == "close":
+            t["proceeds"] = round(t["proceeds"] + cash, 2)
+            t["closed_at"] = o["at"]
+            t["closes"].append({**o, "legs": legs})
+        else:
+            t["cost"] = round(t["cost"] + cash, 2)     # negative = debit paid
+            t["opens"].append({**o, "legs": legs})
+        known = {x["symbol"] for x in t["legs"]}
+        for l in legs:
+            sym = l["symbol"]
+            sign = 1.0 if l["side"] == "buy" else -1.0
+            t["net"][sym] = round(t["net"].get(sym, 0.0) + sign * l["qty"], 4)
+            if abs(t["net"][sym]) > 1e-9:
+                live[sym] = t                          # still holding this leg
+            elif live.get(sym) is t:
+                live.pop(sym, None)                    # flat in this contract
+            if sym not in known:
+                t["legs"].append(l)
+                known.add(sym)
+        t["open_contracts"] = round(sum(abs(q) for q in t["net"].values()), 2)
+        if t["open_contracts"] <= 1e-9:
+            t["status"] = "closed"                     # the decision is finished
+
+    for o in orders:
+        if o["effect"] == "close":
+            # group this order's legs by the trade that actually holds them
+            groups: dict[int, list[dict]] = defaultdict(list)
+            for l in o["legs"]:
+                groups[id(live.get(l["symbol"]))].append(l)
+            for _, legs in groups.items():
+                t = live.get(legs[0]["symbol"]) or _new_trade(o, legs)
+                _apply(t, o, legs)
+        else:
+            # an opening order is ONE decision; scaling into a contract you
+            # already hold continues that same trade
+            held = [live[l["symbol"]] for l in o["legs"] if l["symbol"] in live]
+            t = held[0] if held else _new_trade(o, o["legs"])
+            _apply(t, o, o["legs"])
+
+    trades.sort(key=lambda t: t["opened_at"] or t["closed_at"] or "")
+    return trades
+
+
+# ───────────────────────────────────────────────── expiry: the invisible closes
+
+def settle_expired(trade: dict, day: str, settle_price: float | None) -> dict:
+    """Resolve a trade left open past its expiry. THE thing fills cannot tell
+    you: an expired 0DTE has no closing fill and no settlement row — Robinhood
+    just stops listing it. Worthless = the full debit is lost; ITM = cash paid
+    at intrinsic. Untouched when the contracts have not expired yet.
+
+    ``trade["net"]`` is the SIGNED contract count still held per symbol,
+    computed from the fills themselves (buys − sells) rather than from a
+    running counter — live 2026-07-14, a counter mis-tracked scale-ins and
+    "settled" positions the operator had actually closed, inventing +$2,500
+    of P&L that never happened."""
+    if trade["status"] != "open" or not trade["legs"]:
+        return trade
+    held = {sym: q for sym, q in (trade.get("net") or {}).items() if abs(q) > 1e-9}
+    if not held:
+        trade["status"] = "closed"          # flat: the fills already closed it
+        trade["open_contracts"] = 0.0
+        return trade
+
+    exps = {l.get("expiration") for l in trade["legs"]
+            if l.get("expiration") and l["symbol"] in held}
+    if not exps or min(exps) > day:
+        return trade                                    # still live
+    if settle_price is None:
+        trade["status"] = "expired_unpriced"            # honest: cannot settle
+        return trade
+
+    payout = 0.0
+    for sym, qty in held.items():
+        c = parse_contract(sym)
+        if not c:
+            continue
+        # signed: a long leg RECEIVES intrinsic, a short leg PAYS it
+        payout += (intrinsic(c["kind"], c["strike"], settle_price)
+                   * INDEX_MULTIPLIER * qty)
+    trade["settlement"] = round(payout, 2)
+    trade["settle_price"] = settle_price
+    trade["closed_at"] = f"{day}T16:00"
+    trade["status"] = "expired_worthless" if abs(payout) < 1e-9 else "expired_settled"
+    trade["open_contracts"] = 0.0
+    return trade
+
+
+# ─────────────────────────────────────────────── context: price + level alignment
+
+def to_et(when: str):
+    """Broker history stamps are UTC ("2026-07-14T13:36:47Z" = 09:36 ET).
+    Reading them as ET put every trade ~4h late and priced it off a stale
+    bar — so the conversion is not cosmetic, it is the whole point of
+    "what was SPX doing when I pulled the trigger"."""
+    from zoneinfo import ZoneInfo
+    if not when:
+        return None
+    txt = str(when).replace("Z", "+00:00")
+    try:
+        ts = _dt.datetime.fromisoformat(txt)
+    except ValueError:
+        return None
+    if ts.tzinfo is None:                       # naive -> assume UTC (broker's)
+        ts = ts.replace(tzinfo=_dt.timezone.utc)
+    return ts.astimezone(ZoneInfo("America/New_York"))
+
+
+def _bar_price_at(bars, when: str) -> float | None:
+    """The underlying's price at the moment of a trade (the bar covering it).
+    None when bars are missing — never guessed."""
+    if bars is None or getattr(bars, "empty", True) or not when:
+        return None
+    ts = to_et(when)
+    if ts is None:
+        return None
+    prior = bars[bars.index <= ts]
+    if prior.empty:
+        return None
+    return round(float(prior["Close"].iloc[-1]), 2)
+
+
+def align_to_levels(price: float | None, levels: list[dict]) -> dict | None:
+    """Which forecast level was this trade taken AT? Returns the nearest level
+    with the distance, flagging whether the entry was actually keyed off it
+    (within LEVEL_TOL_PCT) or floating in open space between levels — the
+    difference between "I traded the plan" and "I improvised"."""
+    if price is None or not levels:
+        return None
+    best = min(levels, key=lambda z: abs(float(z.get("price", 0)) - price))
+    lp = float(best.get("price", 0))
+    dist_pct = abs(lp - price) / price * 100 if price else None
+    return {
+        "level": lp,
+        "role": best.get("role"),
+        "kinds": best.get("kinds") or [],
+        "distance_pct": round(dist_pct, 3) if dist_pct is not None else None,
+        "at_level": bool(dist_pct is not None and dist_pct <= LEVEL_TOL_PCT),
+    }
+
+
+# ──────────────────────────────────────────────────────────── the session build
 
 def fills_for(store, day: str, underlying: str | None = None) -> list[dict]:
-    """Every FILLED execution on ``day``, newest last. ``underlying`` filters
-    by symbol prefix (e.g. "SPXW" or "SPX" catches SPXW contracts too)."""
+    """Every FILLED execution on ``day``, oldest first. ``underlying="SPX"``
+    also matches SPXW contracts (the 0DTE weeklies)."""
     rows = [r for r in store.load_history()
             if str(r.get("date") or "").startswith(day)
             and str(r.get("state") or "").lower() == "filled"]
     if underlying:
         u = underlying.upper()
-        # SPX → SPXW contracts; SPY → SPY. Match the symbol's leading token.
         rows = [r for r in rows
-                if str(r.get("symbol") or "").upper().startswith(u)
-                or str(r.get("symbol") or "").upper().startswith(u + "W")]
+                if str(r.get("symbol") or "").upper().startswith((u, u + "W"))]
     rows.sort(key=lambda r: str(r.get("date") or ""))
     return rows
 
 
-def roundtrips(fills: list[dict]) -> list[dict]:
-    """Pair fills into per-contract round-trips.
-
-    Returns one row per contract traded: {symbol, kind, fills, bought, sold,
-    realized (signed $), still_open (signed contracts), first, last,
-    avg_buy, avg_sell}. ``realized`` is cash-flow based, so it is honest even
-    when a contract is only partly closed."""
-    by_sym: dict[str, list[dict]] = defaultdict(list)
-    for f in fills:
-        by_sym[str(f.get("symbol") or "?")].append(f)
-
-    out = []
-    for sym, rows in by_sym.items():
-        bought = sold = 0.0
-        buy_notional = sell_notional = 0.0
-        cash = 0.0
-        for r in rows:
-            qty = abs(float(r.get("quantity") or 0))
-            price = float(r.get("price") or 0)
-            cash += float(r.get("amount") or 0)   # −buys, +sells (already signed)
-            if str(r.get("side")) == "buy":
-                bought += qty
-                buy_notional += qty * price
-            else:
-                sold += qty
-                sell_notional += qty * price
-        out.append({
-            "symbol": sym,
-            "kind": rows[0].get("kind") or "other",
-            "fills": len(rows),
-            "bought": round(bought, 2),
-            "sold": round(sold, 2),
-            "avg_buy": round(buy_notional / bought, 2) if bought else None,
-            "avg_sell": round(sell_notional / sold, 2) if sold else None,
-            "realized": round(cash, 2),
-            "still_open": round(bought - sold, 2),   # +long / −short at EOD
-            "first": str(rows[0].get("date") or "")[:16],
-            "last": str(rows[-1].get("date") or "")[:16],
-        })
-    out.sort(key=lambda r: abs(r["realized"]), reverse=True)
-    return out
+def _settle_price(day: str, symbol: str = "^GSPC") -> float | None:
+    """The underlying's settlement print for ``day`` — what an expiring
+    contract is cash-settled against. None when unavailable (never guessed:
+    an unpriced expiry is reported as such, not assumed worthless)."""
+    try:
+        import yfinance as yf
+        h = yf.Ticker(symbol).history(start=day, period="5d", interval="1d")
+        if h.empty:
+            return None
+        for ts, row in h.iterrows():
+            if str(ts)[:10] == day:
+                return round(float(row["Close"]), 2)
+    except Exception as e:
+        log.warning("settlement price unavailable for %s: %s", day, e)
+    return None
 
 
-def session(store, day: str | None = None,
-            underlying: str | None = None) -> dict:
-    """One session's ACTUAL trading, reconstructed from broker fills.
+def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
+    """One session's trading as DECISIONS — multi-leg trades, expiry settled,
+    each stamped with the underlying's price at entry and the forecast level
+    it was taken against.
 
-    Returns {day, underlying, fills, contracts, realized, winners, losers,
-    open_at_close, roundtrips[], summary} — the factual half of a journal
-    entry, ready to prefill."""
+    Returns {day, underlying, settle_price, trades[], summary{...}}."""
+    from . import spx_playbook as _pb
     day = day or _dt.date.today().isoformat()
-    fills = fills_for(store, day, underlying)
-    rts = roundtrips(fills)
-    realized = round(sum(r["realized"] for r in rts), 2)
-    winners = [r for r in rts if r["realized"] > 0]
-    losers = [r for r in rts if r["realized"] < 0]
-    still_open = [r for r in rts if r["still_open"]]
+    und = (underlying or "SPX").upper()
+
+    fills = fills_for(store, day, und)
+    trades = build_trades(group_orders(fills))
+
+    settle = _settle_price(day) if und == "SPX" else _settle_price(day, und)
+    for t in trades:
+        settle_expired(t, day, settle)
+
+    # context: the underlying's intraday path + the session's forecast levels
+    bars = None
+    try:
+        bars = _pb._fetch_15m("^GSPC" if und == "SPX" else und)
+    except Exception as e:
+        log.warning("intraday bars unavailable: %s", e)
+    # the playbook FOR this session is the one whose `session` == day (it is
+    # generated the evening before, so it is stored under the PRIOR date).
+    row = store.load_spx_playbook_before(day, symbol=und) or store.load_spx_playbook(day, symbol=und)
+    scaffold = (row or {}).get("scaffold") or {}
+    levels = scaffold.get("confluence") or []
+
+    for t in trades:
+        t["spot_at_entry"] = _bar_price_at(bars, t.get("opened_at"))
+        t["spot_at_exit"] = _bar_price_at(bars, t.get("closed_at"))
+        t["level_at_entry"] = align_to_levels(t["spot_at_entry"], levels)
+        # realized = credits received + settlement − debits paid (cost is signed)
+        t["realized"] = round(t["cost"] + t["proceeds"] + t.get("settlement", 0.0), 2)
+        t["label"] = _label(t)
+
     return {
         "day": day,
-        "underlying": underlying,
-        "fills": len(fills),
-        "contracts": len(rts),
-        "realized": realized,
-        "winners": len(winners),
-        "losers": len(losers),
-        "open_at_close": len(still_open),
-        "roundtrips": rts,
-        "summary": summarize(day, underlying, fills, rts, realized),
+        "underlying": und,
+        "settle_price": settle,
+        "trades": trades,
+        "summary": summarize(day, und, trades, settle),
     }
 
 
-def summarize(day: str, underlying: str | None, fills: list[dict],
-              rts: list[dict], realized: float) -> str:
-    """The prefill text for the journal's 'what I did' — factual only. The
-    operator supplies the judgment (why, and what to change)."""
-    if not fills:
-        return f"No {underlying or ''} fills on {day}.".strip()
-    best = max(rts, key=lambda r: r["realized"])
-    worst = min(rts, key=lambda r: r["realized"])
-    lines = [
-        f"{len(fills)} fills across {len(rts)} contracts"
-        + (f" ({underlying})" if underlying else "")
-        + f" · realized {realized:+,.2f}",
-        f"best: {best['symbol']} {best['realized']:+,.2f}",
-    ]
-    if worst["realized"] < 0:
-        lines.append(f"worst: {worst['symbol']} {worst['realized']:+,.2f}")
-    still = [r for r in rts if r["still_open"]]
-    if still:
-        lines.append("open at close: "
-                     + ", ".join(f"{r['symbol']} {r['still_open']:+g}" for r in still))
-    return "\n".join(lines)
+def _label(t: dict) -> str:
+    """A human name for the decision: "long_call_spread 7555/7560 ×10"."""
+    strikes = sorted({int(l["strike"]) for l in t["legs"] if l.get("strike")})
+    qty = max((l["qty"] for l in t["legs"]), default=0)
+    s = "/".join(str(x) for x in strikes) if strikes else "?"
+    return f"{t['strategy']} {s}" + (f" ×{qty:g}" if qty else "")
+
+
+def summarize(day: str, und: str, trades: list[dict], settle: float | None) -> dict:
+    """The session's behavioral read — not just P&L, but whether the decisions
+    respected the plan."""
+    closed = [t for t in trades if t["status"] != "open"]
+    realized = round(sum(t["realized"] for t in closed), 2)
+    from_fills = round(sum(t["cost"] + t["proceeds"] for t in closed), 2)
+    from_expiry = round(sum(t.get("settlement", 0.0) for t in closed), 2)
+    expired = [t for t in closed if t["status"].startswith("expired")]
+    worthless = [t for t in expired if t["status"] == "expired_worthless"]
+    winners = [t for t in closed if t["realized"] > 0]
+    at_level = [t for t in trades
+                if (t.get("level_at_entry") or {}).get("at_level")]
+    return {
+        "trades": len(trades),
+        "closed": len(closed),
+        "realized": realized,
+        "realized_from_fills": from_fills,
+        "realized_from_expiry": from_expiry,   # the money no fill ever showed
+        "expired": len(expired),
+        "expired_worthless": len(worthless),
+        "expired_loss": round(sum(t["realized"] for t in worthless), 2),
+        "winners": len(winners),
+        "losers": len(closed) - len(winners),
+        "settle_price": settle,
+        # THE behavioral metric: did I trade the levels I forecast, or improvise?
+        "traded_at_level": len(at_level),
+        "level_discipline": (round(len(at_level) / len(trades), 2)
+                             if trades else None),
+    }

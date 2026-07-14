@@ -94,7 +94,9 @@ def pick_forecast(store: Store, day: str, kind: str = "prior",
 
 #: the light-structured trade-action log ("what I did"). Free-text fields; empty
 #: strings are fine. Stored as JSON so the shape can grow without a migration.
-ENTRY_FIELDS = ("action", "entry", "exit", "result", "lesson", "notes")
+#: `trades` is a JSON map {trade_key: why} — the thinking behind each
+#: individual decision (the broker says WHAT; only the operator says WHY).
+ENTRY_FIELDS = ("action", "entry", "exit", "result", "lesson", "notes", "trades")
 
 
 def normalize_entry(raw: dict | None) -> dict | None:

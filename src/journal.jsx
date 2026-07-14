@@ -218,15 +218,26 @@ function Calendar({ view, setView, byDay, selDay, onSelect }) {
 
 function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
   const [entry, setEntry] = useState(s.entry || {});
+  // per-TRADE thinking, keyed by the trade's identity. Persisted with the entry
+  // as `trades` (a JSON map) so each decision keeps its own why.
+  const [thoughts, setThoughts] = useState(() => {
+    try { return JSON.parse((s.entry || {}).trades || "{}"); } catch (e) { return {}; }
+  });
   const [drag, setDrag] = useState(false);
   const fileRef = useRef(null);
 
-  useEffect(() => { setEntry(s.entry || {}); }, [s.id, JSON.stringify(s.entry || {})]);
+  useEffect(() => {
+    setEntry(s.entry || {});
+    try { setThoughts(JSON.parse((s.entry || {}).trades || "{}")); } catch (e) { setThoughts({}); }
+  }, [s.id, JSON.stringify(s.entry || {})]);
 
   const set = (k, v) => setEntry((e) => ({ ...e, [k]: v }));
+  const setThought = (key, v) => setThoughts((t) => ({ ...t, [key]: v }));
   const save = async () => {
     const clean = {};
     for (const [k] of ENTRY_FIELDS) { const v = (entry[k] || "").trim(); if (v) clean[k] = v; }
+    const kept = Object.fromEntries(Object.entries(thoughts).filter(([, v]) => (v || "").trim()));
+    if (Object.keys(kept).length) clean.trades = JSON.stringify(kept);
     await onSaveEntry(s.id, clean);
   };
   const dirty = useMemo(() => {
@@ -327,16 +338,12 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
           </div>
         )}
 
-        {/* journal entry form */}
+        {/* the day's DECISIONS — pulled from the broker, annotated by you */}
+        <TradesPanel snap={s} thoughts={thoughts} onThought={setThought} />
+
+        {/* the day's overall reflection */}
         <div className="vg-jr-form">
-          <div className="vg-spread">
-            <h4 style={{ margin: 0 }}>My journal — what I did</h4>
-            <PullTrades snap={s} onPull={(fields) => {
-              // the FACTS come from the broker's own fills; you write the
-              // judgment (lesson / notes)
-              Object.entries(fields).forEach(([k, v]) => set(k, v));
-            }} />
-          </div>
+          <h4 style={{ margin: 0 }}>My journal — the day overall</h4>
           {ENTRY_FIELDS.map(([k, label, ph]) => (
             <div key={k} className="vg-jr-field">
               <label>{label}</label>
@@ -442,47 +449,142 @@ function Tile({ label, value, tone }) {
   );
 }
 
-// "Pull my trades" — the factual half of a journal entry, straight from the
-// broker's own fills (already synced into the store; no broker call, no
-// typing). It fills action/entry/exit/result; the operator still writes the
-// lesson. Deliberately does NOT overwrite lesson/notes — judgment is yours.
-function PullTrades({ snap, onPull }) {
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState(null);
+// ── Trades: the day's DECISIONS ──────────────────────────────────────────────
+//
+// Each trade is a decision unit (a spread is ONE trade, not two contracts),
+// stamped with SPX at the moment you pulled the trigger and the forecast level
+// you were trading against. 0DTEs left to expire are settled against the SPX
+// print — the loss that appears in no fill anywhere.
+//
+// The per-trade "thinking" box is the point: the broker says WHAT you did;
+// only you can say WHY. Saved into the journal entry's notes.
+const STATUS_TONE = {
+  closed: "plain",
+  open: "warn",
+  expired_worthless: "bad",
+  expired_settled: "good",
+  expired_unpriced: "warn",
+};
+const STATUS_LABEL = {
+  closed: "closed",
+  open: "still open",
+  expired_worthless: "expired worthless",
+  expired_settled: "expired ITM",
+  expired_unpriced: "expired (unpriced)",
+};
 
-  const pull = async () => {
-    setBusy(true); setNote(null);
-    const day = String(snap.created_at || "").slice(0, 10);
+function TradesPanel({ snap, thoughts, onThought }) {
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const day = String(snap.created_at || "").slice(0, 10);
+  const load = async () => {
+    setBusy(true);
     const v = await getSessionActivity(day, snap.symbol || "SPX");
     setBusy(false);
-    if (!v || !v.available) {
-      setNote(`no ${snap.symbol || "SPX"} fills found on ${day}`);
-      return;
-    }
-    const rts = v.roundtrips || [];
-    const winners = rts.filter((r) => r.realized > 0);
-    const losers = rts.filter((r) => r.realized < 0);
-    const money = (n) => `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-    onPull({
-      action: `${v.fills} fills across ${v.contracts} contracts`
-        + (rts.length ? ` — ${rts.slice(0, 3).map((r) => r.symbol.replace(/^\S+\s\S+\s/, "")).join(", ")}${rts.length > 3 ? "…" : ""}` : ""),
-      entry: rts.filter((r) => r.avg_buy != null).slice(0, 3)
-        .map((r) => `${r.symbol.replace(/^\S+\s\S+\s/, "")} @ ${r.avg_buy}`).join(" · "),
-      exit: rts.filter((r) => r.avg_sell != null).slice(0, 3)
-        .map((r) => `${r.symbol.replace(/^\S+\s\S+\s/, "")} @ ${r.avg_sell}`).join(" · "),
-      result: `realized ${money(v.realized)} · ${winners.length}W/${losers.length}L`
-        + (v.open_at_close ? ` · ${v.open_at_close} still open at close` : ""),
-    });
-    setNote(`pulled ${v.fills} fills · realized ${money(v.realized)}`);
+    setData(v && v.available ? v : { empty: true });
   };
+  useEffect(() => { setData(null); }, [snap.id]);
+
+  if (!data) {
+    return (
+      <div className="vg-jr-form" style={{ marginTop: 12 }}>
+        <div className="vg-spread">
+          <h4 style={{ margin: 0 }}>My trades — what I actually did</h4>
+          <button className="vg-btn-sm" onClick={load} disabled={busy}>
+            {busy ? "Pulling…" : "⟳ Pull my trades"}
+          </button>
+        </div>
+        <p className="vg-note" style={{ marginTop: 6, fontSize: 12 }}>
+          Reconstructed from your broker fills — multi-leg orders as one trade, expiries
+          settled against the SPX print, each stamped with SPX at entry and the level it
+          was taken against.
+        </p>
+      </div>
+    );
+  }
+  if (data.empty) {
+    return <p className="vg-note" style={{ marginTop: 10 }}>No {snap.symbol || "SPX"} trades on {day}.</p>;
+  }
+
+  const s = data.summary || {};
+  const money = (n) => (n == null ? "—"
+    : `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
 
   return (
-    <div className="vg-row" style={{ gap: 8, alignItems: "center" }}>
-      {note && <span className="vg-note" style={{ fontSize: 11 }}>{note}</span>}
-      <button className="vg-btn-sm" onClick={pull} disabled={busy}
-        title="Reconstruct what you actually traded from your broker fills — no typing">
-        {busy ? "Pulling…" : "⟳ Pull my trades"}
-      </button>
+    <div className="vg-jr-form" style={{ marginTop: 12 }}>
+      <div className="vg-spread">
+        <h4 style={{ margin: 0 }}>My trades — {s.trades} decisions</h4>
+        <button className="vg-btn-sm" onClick={load} disabled={busy}>
+          {busy ? "Pulling…" : "⟳ Refresh"}
+        </button>
+      </div>
+
+      {/* the day's real P&L — including the money no fill ever showed */}
+      <div className="vg-row" style={{ gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 }}>
+        <span>P&L <b className={s.realized >= 0 ? "vg-up" : "vg-down"}>{money(s.realized)}</b></span>
+        <span className="vg-note">from fills {money(s.realized_from_fills)}</span>
+        {s.expired > 0 && (
+          <span className="vg-note">
+            expiry {money(s.realized_from_expiry)} · {s.expired_worthless} worthless
+            <b className="vg-down"> {money(s.expired_loss)}</b>
+          </span>
+        )}
+        <span className="vg-note">{s.winners}W / {s.losers}L</span>
+        {s.settle_price && <span className="vg-note">SPX settled {s.settle_price}</span>}
+      </div>
+
+      {/* the behavioral metric */}
+      {s.level_discipline != null && (
+        <p className="vg-note" style={{ fontSize: 12, marginBottom: 8 }}>
+          <b>Level discipline: {Math.round(s.level_discipline * 100)}%</b> of trades were entered
+          at a forecast level {s.level_discipline >= 0.7
+            ? "— you traded the plan."
+            : "— many entries were in open space, not at a planned level."}
+        </p>
+      )}
+
+      <div style={{ overflowX: "auto" }}>
+        <table className="vg-table" style={{ fontSize: 12.5 }}>
+          <thead>
+            <tr><th>time</th><th>trade</th><th>SPX @ entry</th><th>level</th>
+              <th>P&L</th><th>outcome</th><th>my thinking</th></tr>
+          </thead>
+          <tbody>
+            {(data.trades || []).map((t, i) => {
+              const lv = t.level_at_entry;
+              const key = `${t.opened_at || i}|${t.label}`;
+              return (
+                <tr key={key}>
+                  <td className="vg-note">{(t.opened_at || "").slice(11, 16) || "—"}</td>
+                  <td><b>{t.label}</b></td>
+                  <td style={{ fontVariantNumeric: "tabular-nums" }}>{t.spot_at_entry ?? "—"}</td>
+                  <td>
+                    {lv
+                      ? <span className={cls("vg-badge", lv.at_level ? "good" : "plain")}
+                          title={`${lv.role || ""} ${(lv.kinds || []).join(" + ")} · ${lv.distance_pct}% away`}>
+                          {lv.level}{lv.at_level ? " ✓" : ""}
+                        </span>
+                      : <span className="vg-note">—</span>}
+                  </td>
+                  <td className={t.realized >= 0 ? "vg-up" : "vg-down"}
+                    style={{ fontVariantNumeric: "tabular-nums" }}>{money(t.realized)}</td>
+                  <td><span className={cls("vg-badge", STATUS_TONE[t.status] || "plain")}>
+                    {STATUS_LABEL[t.status] || t.status}</span></td>
+                  <td>
+                    <input className="vg-jr-thought" placeholder="why did I take this?"
+                      value={(thoughts && thoughts[key]) || ""}
+                      onChange={(e) => onThought(key, e.target.value)} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="vg-note" style={{ fontSize: 11, marginTop: 6 }}>
+        The broker says WHAT you did; only you can say WHY. Your thinking saves with the entry.
+      </p>
     </div>
   );
 }

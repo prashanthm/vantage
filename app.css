@@ -738,3 +738,13 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-up { color: var(--vg-up); }
 .vg-down { color: var(--vg-down); }
 .vg-warn-text { color: var(--vg-warn); }
+
+/* Trading-journal: the per-trade "why" input (one thought per decision). */
+.vg-jr-thought {
+  width: 100%; min-width: 170px; font: inherit; font-size: 12px;
+  padding: 4px 7px; border-radius: 6px;
+  border: 1px solid var(--vg-hairline); background: var(--vg-pane);
+  color: var(--vg-ink);
+}
+.vg-jr-thought:focus { outline: none; border-color: var(--vg-accent); }
+.vg-jr-thought::placeholder { color: var(--vg-faint); }

@@ -261,61 +261,121 @@ def test_update_journal_image(tmp_path):
     assert got["image_path"] == "chart.png" and got["image_mime"] == "image/png"
 
 
-# ------------------------------------- session activity (pull my real trades)
+# ------------------------------------------- session activity (trade-level)
 
-def test_session_activity_reconstructs_roundtrips_from_fills():
-    """The factual half of a journal entry comes from the broker's own fills —
-    live 2026-07-14: 50 SPXW fills, +$2,545 realized, which the ML round-trip
-    builder MISSED because Robinhood's realized-P/L tool answered NotFound."""
-    from vantage_server import session_activity as sa
-
-    class FakeStore:
-        def load_history(self):
-            return [
-                # a clean round trip: buy 1 @ 18.50, sell 1 @ 27.40 -> +890
-                {"date": "2026-07-14T13:36", "state": "filled", "kind": "option",
-                 "symbol": "SPXW 2026-07-14 7525C", "side": "buy",
-                 "quantity": 1, "price": 18.5, "amount": -1850.0},
-                {"date": "2026-07-14T13:45", "state": "filled", "kind": "option",
-                 "symbol": "SPXW 2026-07-14 7525C", "side": "sell",
-                 "quantity": 1, "price": 27.4, "amount": 2740.0},
-                # a loser, still open at close
-                {"date": "2026-07-14T14:00", "state": "filled", "kind": "option",
-                 "symbol": "SPXW 2026-07-14 7540P", "side": "buy",
-                 "quantity": 1, "price": 8.0, "amount": -800.0},
-                # cancelled orders never count
-                {"date": "2026-07-14T13:39", "state": "cancelled", "kind": "option",
-                 "symbol": "SPXW 2026-07-14 7525C", "side": "sell",
-                 "quantity": 1, "price": 27.0, "amount": 0.0},
-                # a different day is out of scope
-                {"date": "2026-07-13T10:00", "state": "filled", "kind": "option",
-                 "symbol": "SPXW 2026-07-13 7500C", "side": "buy",
-                 "quantity": 1, "price": 5.0, "amount": -500.0},
-            ]
-
-    act = sa.session(FakeStore(), "2026-07-14", "SPX")
-    assert act["fills"] == 3            # cancelled + other-day excluded
-    assert act["contracts"] == 2
-    assert act["realized"] == 90.0      # +890 - 800
-    assert act["winners"] == 1 and act["losers"] == 1
-    assert act["open_at_close"] == 1
-
-    won = next(r for r in act["roundtrips"] if r["symbol"].endswith("7525C"))
-    assert won["realized"] == 890.0 and won["still_open"] == 0
-    assert won["avg_buy"] == 18.5 and won["avg_sell"] == 27.4
-
-    still = next(r for r in act["roundtrips"] if r["symbol"].endswith("7540P"))
-    assert still["still_open"] == 1     # never silently closed
-    assert "realized +90.00" in act["summary"]
+from vantage_server import session_activity as sa
 
 
-def test_session_activity_empty_day_is_honest():
-    from vantage_server import session_activity as sa
+class _Store:
+    def __init__(self, rows):
+        self._rows = rows
 
-    class Empty:
-        def load_history(self):
-            return []
+    def load_history(self):
+        return self._rows
 
-    act = sa.session(Empty(), "2026-07-04", "SPX")
-    assert act["fills"] == 0 and act["roundtrips"] == []
-    assert "No SPX fills" in act["summary"]
+    def load_spx_playbook(self, day=None, symbol="SPX"):
+        return None
+
+    def load_spx_playbook_before(self, day, symbol="SPX"):
+        return None
+
+
+def _fill(t, sym, side, qty, price, desc):
+    return {"date": f"2026-07-14T{t}Z", "state": "filled", "kind": "option",
+            "symbol": sym, "side": side, "quantity": qty, "price": price,
+            "amount": (-1 if side == "buy" else 1) * qty * price * 100,
+            "description": desc}
+
+
+def test_multi_leg_order_is_ONE_trade():
+    """A long_call_spread is one DECISION with two legs — not two contracts."""
+    orders = sa.group_orders([
+        _fill("19:49:36", "SPXW 2026-07-14 7555C", "buy", 10, 0.52,
+              "long_call_spread open (debit)"),
+        _fill("19:49:36", "SPXW 2026-07-14 7560C", "sell", 10, 0.12,
+              "long_call_spread open (debit)"),
+    ])
+    assert len(orders) == 1
+    trades = sa.build_trades(orders)
+    assert len(trades) == 1
+    t = trades[0]
+    assert t["strategy"] == "long_call_spread"
+    assert len(t["legs"]) == 2
+    assert t["cost"] == -400.0          # 10×(0.52 debit − 0.12 credit)×100
+
+
+def test_close_order_spanning_two_trades_settles_each():
+    """Live 2026-07-14: one 18:42 order sold a 7550P and a 7555P — legs of two
+    SEPARATE single-leg trades. Structure-level matching mis-booked this and
+    invented P&L; closes must apply LEG BY LEG to whoever holds the contract."""
+    fills = [
+        _fill("18:19:00", "SPXW 2026-07-14 7555P", "buy", 1, 6.0, "long_put open (debit)"),
+        _fill("17:26:00", "SPXW 2026-07-14 7550P", "buy", 1, 11.2, "long_put open (debit)"),
+        # ONE order closes both
+        _fill("18:42:57", "SPXW 2026-07-14 7550P", "sell", 1, 11.0, "long_put close (credit)"),
+        _fill("18:42:57", "SPXW 2026-07-14 7555P", "sell", 1, 10.3, "long_put close (credit)"),
+    ]
+    trades = sa.build_trades(sa.group_orders(fills))
+    assert len(trades) == 2
+    assert all(t["status"] == "closed" for t in trades)   # both flat, none expired
+    by = {t["legs"][0]["symbol"][-5:]: t for t in trades}
+    assert by["7555P"]["cost"] + by["7555P"]["proceeds"] == 430.0    # 10.3−6.0
+    assert by["7550P"]["cost"] + by["7550P"]["proceeds"] == -20.0    # 11.0−11.2
+
+
+def test_expired_worthless_books_the_full_debit():
+    """THE invisible loss: a 0DTE left to expire has no closing fill and no
+    settlement row — Robinhood just stops listing it. OTM = the whole premium
+    is gone, and that money appears in NO fill anywhere."""
+    fills = [_fill("16:53:00", "SPXW 2026-07-14 7540P", "buy", 1, 13.7,
+                   "long_put open (debit)")]
+    trades = sa.build_trades(sa.group_orders(fills))
+    t = sa.settle_expired(trades[0], "2026-07-14", settle_price=7543.59)
+    assert t["status"] == "expired_worthless"     # 7540 put, SPX settled ABOVE
+    assert t["settlement"] == 0.0
+    assert round(t["cost"] + t["proceeds"] + t["settlement"], 2) == -1370.0
+
+
+def test_expired_in_the_money_is_cash_settled():
+    """An ITM index option pays intrinsic × $100 — it is NOT worthless."""
+    fills = [_fill("15:00:00", "SPXW 2026-07-14 7500C", "buy", 1, 20.0,
+                   "long_call open (debit)")]
+    t = sa.settle_expired(sa.build_trades(sa.group_orders(fills))[0],
+                          "2026-07-14", settle_price=7543.59)
+    assert t["status"] == "expired_settled"
+    assert t["settlement"] == round((7543.59 - 7500) * 100, 2)      # 4359.0
+    assert round(t["cost"] + t["settlement"], 2) == 2359.0          # −2000 + 4359
+
+
+def test_a_flat_position_is_never_settled_at_expiry():
+    """The bug that invented $2,500: a contract fully bought AND sold is
+    CLOSED. It must never be re-settled against the expiry print."""
+    fills = [
+        _fill("16:01:00", "SPXW 2026-07-14 7530C", "buy", 1, 12.0, "long_call open (debit)"),
+        _fill("16:41:00", "SPXW 2026-07-14 7530C", "sell", 1, 15.6, "long_call close (credit)"),
+    ]
+    t = sa.build_trades(sa.group_orders(fills))[0]
+    assert t["status"] == "closed"
+    t = sa.settle_expired(t, "2026-07-14", settle_price=7543.59)
+    assert t["status"] == "closed"
+    assert "settlement" not in t          # ITM by 13.59 — but we do NOT own it
+    assert round(t["cost"] + t["proceeds"], 2) == 360.0
+
+
+def test_utc_history_stamps_convert_to_et():
+    """Broker stamps are UTC: 13:36Z is 09:36 ET (the open), not 1:36pm. Read
+    as ET they priced every trade off a bar ~4h stale."""
+    et = sa.to_et("2026-07-14T13:36:47.173778Z")
+    assert et.hour == 9 and et.minute == 36
+
+
+def test_level_alignment_flags_trading_the_plan():
+    levels = [{"price": 7547.0, "role": "resistance", "kinds": ["gamma flip"]},
+              {"price": 7474.0, "role": "support", "kinds": ["put wall"]}]
+    at = sa.align_to_levels(7546.8, levels)              # 0.2pt off the flip
+    assert at["at_level"] and at["level"] == 7547.0
+    # 8pt away: nearest level is still the flip, but the entry was NOT keyed
+    # off it — the tolerance must discriminate or the metric is meaningless
+    adrift = sa.align_to_levels(7539.0, levels)
+    assert adrift["level"] == 7547.0 and not adrift["at_level"]
+    assert sa.align_to_levels(None, levels) is None      # never guessed
