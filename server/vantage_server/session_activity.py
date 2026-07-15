@@ -139,7 +139,7 @@ def build_trades(orders: list[dict]) -> list[dict]:
             "opened_at": o["at"] if o["effect"] != "close" else None,
             "closed_at": None, "strategy": o["strategy"],
             "legs": [], "cost": 0.0, "proceeds": 0.0,
-            "net": {}, "open_contracts": 0.0, "status": "open",
+            "net": {}, "open_contracts": 0.0, "peak_contracts": 0.0, "status": "open",
             "entry_unknown": o["effect"] == "close",
             "opens": [], "closes": [],
         }
@@ -168,6 +168,10 @@ def build_trades(orders: list[dict]) -> list[dict]:
                 t["legs"].append(l)
                 known.add(sym)
         t["open_contracts"] = round(sum(abs(q) for q in t["net"].values()), 2)
+        # peak size the position ever held — the true "×N" of the decision,
+        # tracked across scale-ins (a 3-lot ladder peaks at 3 even though it
+        # ends flat). Drives the label and the scale read.
+        t["peak_contracts"] = max(t.get("peak_contracts", 0.0), t["open_contracts"])
         if t["open_contracts"] <= 1e-9:
             t["status"] = "closed"                     # the decision is finished
 
@@ -434,7 +438,18 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         } if corr else None)
         # realized = credits received + settlement − debits paid (cost is signed)
         t["realized"] = round(t["cost"] + t["proceeds"] + t.get("settlement", 0.0), 2)
+        # the fill ladder + its scale read — the scale-in/out geometry the one
+        # grouped line item hides (blended, no invented per-lot P&L)
+        t["fills"] = fills_ladder(t)
+        t["scale"] = scale_read(t["fills"], t.get("peak_contracts") or 0.0)
         t["label"] = _label(t)
+
+    summary = summarize(day, und, trades, settle)
+    # drop internal scaffolding from the wire payload — opens/closes/net were
+    # the machinery for grouping and settling; the client reads fills/scale.
+    for t in trades:
+        for k in ("opens", "closes", "net"):
+            t.pop(k, None)
 
     return {
         "day": day,
@@ -444,7 +459,7 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         "gex_anchors": anchors,
         "playbook_session": (row or {}).get("session"),
         "trades": trades,
-        "summary": summarize(day, und, trades, settle),
+        "summary": summary,
     }
 
 
@@ -505,11 +520,86 @@ def _intraday_bars(symbol: str, day: str):
 
 
 def _label(t: dict) -> str:
-    """A human name for the decision: "long_call_spread 7555/7560 ×10"."""
+    """A human name for the decision: "long_call_spread 7555/7560 ×3".
+
+    The size is the PEAK contracts the position ever held, not one leg's qty.
+    A ladder of three 1-lots is a ×3 decision — reading it "×1" (the old
+    max-leg-qty) hid the scaling entirely (live 2026-07-14, a 7545P laddered
+    3-in/3-out showed as ×1)."""
     strikes = sorted({int(l["strike"]) for l in t["legs"] if l.get("strike")})
-    qty = max((l["qty"] for l in t["legs"]), default=0)
     s = "/".join(str(x) for x in strikes) if strikes else "?"
+    qty = t.get("peak_contracts") or max((l["qty"] for l in t["legs"]), default=0)
     return f"{t['strategy']} {s}" + (f" ×{qty:g}" if qty else "")
+
+
+def fills_ladder(t: dict) -> list[dict]:
+    """Every distinct execution of this trade in time order, with the running
+    NET position after each — the scale-in / scale-out geometry the grouped
+    line item hides. Built from the opens/closes already captured per order.
+
+    Each row: {at, effect, side, qty, price, symbol, strike, kind, running}.
+    ``running`` is signed net contracts held (per this trade) after the fill —
+    so a ladder reads: +1, +2, +3, then −1, −2, 0.
+
+    No per-fill P&L: Robinhood records no lot linkage, so pairing a sell to a
+    specific buy would be a FIFO/LIFO ASSUMPTION, not a fact. Blended averages
+    (avg entry/exit) are honest; invented per-lot P&L is the same class of
+    error as the settlement bug the module warns about."""
+    rows = []
+    for grp in (t.get("opens") or []) + (t.get("closes") or []):
+        for l in grp["legs"]:
+            rows.append({
+                "at": grp["at"], "effect": grp["effect"] or "",
+                "side": l["side"], "qty": l["qty"], "price": l["price"],
+                "symbol": l["symbol"], "strike": l.get("strike"),
+                "kind": l.get("kind"), "amount": l["amount"],
+            })
+    rows.sort(key=lambda r: (r["at"], 0 if r["side"] == "buy" else 1))
+    running: dict[str, float] = {}
+    net = 0.0
+    for r in rows:
+        running[r["symbol"]] = running.get(r["symbol"], 0.0) + (
+            r["qty"] if r["side"] == "buy" else -r["qty"])
+        net = round(sum(abs(q) for q in running.values()), 2)
+        r["running"] = net
+    return rows
+
+
+def scale_read(ladder: list[dict], peak: float) -> dict | None:
+    """The blended read on a scaled position — avg entry, avg exit, peak size,
+    and WHETHER the operator added on strength or averaged down, laddered out
+    or one-shot. This is the discipline signal a single blended P&L can't show.
+
+    Prices are contract prices (per share); averages are qty-weighted. Returns
+    None for an un-scaled trade (single in, single out) — nothing to read."""
+    buys = [r for r in ladder if r["side"] == "buy"]
+    sells = [r for r in ladder if r["side"] == "sell"]
+    if len(buys) + len(sells) <= 2:
+        return None                         # not a ladder; the P&L says it all
+    def _wavg(rs):
+        q = sum(r["qty"] for r in rs)
+        return round(sum(r["price"] * r["qty"] for r in rs) / q, 2) if q else None
+    avg_in, avg_out = _wavg(buys), _wavg(sells)
+    # did adds come at higher or lower prices than the first entry?
+    add_dir = None
+    if len(buys) > 1:
+        first = buys[0]["price"]
+        adds = [b["price"] for b in buys[1:]]
+        higher = sum(1 for p in adds if p > first)
+        lower = sum(1 for p in adds if p < first)
+        add_dir = ("added on strength" if higher > lower
+                   else "averaged down" if lower > higher else "added flat")
+    # did the exit ladder out, or dump at once?
+    exit_style = None
+    if sells:
+        exit_style = "laddered out" if len(sells) > 1 else "one-shot exit"
+    return {
+        "peak_contracts": peak,
+        "entries": len(buys), "exits": len(sells),
+        "avg_entry": avg_in, "avg_exit": avg_out,
+        "add_behavior": add_dir,           # None when only one entry
+        "exit_style": exit_style,
+    }
 
 
 def summarize(day: str, und: str, trades: list[dict], settle: float | None) -> dict:

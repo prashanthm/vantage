@@ -714,6 +714,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
                 {t.settlement != null && <tr><td>settlement</td><td>{money(t.settlement)} @ SPX {fmtLvl(t.settle_price)}</td></tr>}
                 <tr><td><b>realized</b></td><td><b className={t.realized >= 0 ? "vg-up" : "vg-down"}>{money(t.realized)}</b></td></tr>
               </tbody></table>
+              <FillLadder fills={t.fills} scale={t.scale} />
             </div>
 
             {/* the correlation to the plan — ENTRY and EXIT */}
@@ -946,6 +947,7 @@ function buildAnalystPrompt(dna, operator, session) {
     ``,
     `TRADE: ${dna.label} (${dna.strategy}), a ${dna.timeframe} on ${dna.underlying}. Opened ${dna.opened_at}, closed ${dna.closed_at}. Realized P&L $${dna.realized}.`,
     dna.coarse ? `Note: price action is 15-minute bars (1-minute unavailable this far back).` : ``,
+    dna.scale ? `THIS WAS A SCALED POSITION (${dna.scale.peak_contracts}× peak): ${dna.scale.entries} entries at avg $${dna.scale.avg_entry}, ${dna.scale.exits} exits at avg $${dna.scale.avg_exit}${dna.scale.add_behavior ? `, ${dna.scale.add_behavior}` : ""}${dna.scale.exit_style ? `, ${dna.scale.exit_style}` : ""}. The full fill ladder (time/side/price/running position): ${j(dna.fills)}. JUDGE THE SCALING — adding on strength vs averaging down, laddering the exit vs one-shot, and whether the geometry was disciplined or hope.` : ``,
     ``,
     `THE FORECAST for the session (levels the operator planned around): ${j(dna.forecast_levels)}. GEX anchors: ${j(dna.gex_anchors)}.`,
     ``,
@@ -993,6 +995,43 @@ function CorrTable({ title, corr, openSpace }) {
         </tbody></table>
       ) : (
         <p className="vg-note" style={{ fontSize: 12, margin: "2px 0" }}>No forecast level within range — {openSpace}.</p>
+      )}
+    </div>
+  );
+}
+
+// The scale-in / scale-out geometry a single grouped line hides. Only shown
+// when the trade was actually laddered (>2 fills) — a plain in/out trade's
+// leg list already says it all. No per-fill P&L: Robinhood records no lot
+// linkage, so the averages are blended (honest), never invented per-lot.
+function FillLadder({ fills, scale }) {
+  const [open, setOpen] = useState(false);
+  if (!scale || !fills || fills.length <= 2) return null;
+  const svg = (n) => (n == null ? "—" : `$${Number(n).toFixed(2)}`);
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div className="vg-kicker" style={{ fontSize: 10 }}>The ladder — {scale.peak_contracts}× peak</div>
+      <p className="vg-note" style={{ fontSize: 12, margin: "2px 0 4px" }}>
+        {scale.entries} {scale.entries === 1 ? "entry" : "entries"} @ avg {svg(scale.avg_entry)}
+        {" → "}{scale.exits} {scale.exits === 1 ? "exit" : "exits"} @ avg {svg(scale.avg_exit)}
+        {scale.add_behavior ? <span> · <b>{scale.add_behavior}</b></span> : null}
+        {scale.exit_style ? <span> · {scale.exit_style}</span> : null}
+      </p>
+      <button className="vg-btn-sm" onClick={() => setOpen((v) => !v)}>
+        {open ? "▾ hide fills" : `▸ show all ${fills.length} fills`}
+      </button>
+      {open && (
+        <table className="vg-mini" style={{ marginTop: 4 }}><tbody>
+          {fills.map((r, i) => (
+            <tr key={i}>
+              <td>{(r.at || "").slice(11, 16)}</td>
+              <td className={r.side === "buy" ? "vg-up" : "vg-down"}>{r.side}</td>
+              <td style={{ textAlign: "right" }}>{r.qty}×</td>
+              <td style={{ textAlign: "right" }}>{svg(r.price)}</td>
+              <td className="vg-note" style={{ textAlign: "right" }}>→ {r.running} held</td>
+            </tr>
+          ))}
+        </tbody></table>
       )}
     </div>
   );

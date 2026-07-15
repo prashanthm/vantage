@@ -190,6 +190,11 @@ def build(store, day: str, trade: dict, forecast_levels: list[dict],
         "cost": trade.get("cost"),
         "proceeds": trade.get("proceeds"),
         "settlement": trade.get("settlement"),
+        # the fill ladder + its scale read — so the analyst can judge the
+        # scale-in/out geometry, not just a single blended entry/exit
+        "fills": trade.get("fills"),
+        "scale": trade.get("scale"),
+        "peak_contracts": trade.get("peak_contracts"),
         # resolution honesty
         "timeframe": "0DTE" if zero_dte else "swing",
         "bar_interval": got,
