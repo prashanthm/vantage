@@ -17,9 +17,13 @@ WHAT IT DOES (honestly bounded):
                        correct side, with volume ≥ the session average. A clean,
                        confirmed reclaim/rejection at a real level.
       WAIT  (amber)  — price is NEAR a level but hasn't tagged/closed through it
-                       (front-running guard), or volume/VWAP don't confirm yet.
-      WARN  (red)    — an active leak: wrong side of a wall, an extended chase
-                       (far from VWAP + stretched RSI), or a knife into a level.
+                       (FRONT-RUN guard — a nudge to wait for the tag, not a
+                       block: the backtest showed hard-blocking front-runs also
+                       killed winners), or volume/VWAP don't confirm yet.
+      WARN  (red)    — an unambiguous leak: wrong side of a wall, an extended
+                       chase (far from VWAP + stretched RSI), or a knife into a
+                       level. On 2026-07-15 these caught the −$1,650 wrong-side
+                       call and the extended-chase puts with no false positives.
       EXIT  (blue)   — in-trade prompt: price reached the next level, or reverted
                        to VWAP after an extension — the "take it / it's done" cue.
 
@@ -245,8 +249,14 @@ red     = inTrade and not na(pnlPts) and pnlPts < 0     // underwater
 hold = red and not exitCue
 
 // ── resolve ONE coach state (priority: WARN > EXIT > ENTER > HOLD > WAIT) ─────
-warn = wrongSideLong or wrongSideShort or frontRun or chaseLong or chaseShort or knife
+// WARN is reserved for the leaks that were UNAMBIGUOUSLY bad in the backtest
+// (wrong-side, extended-chase, knife — heeding these would have saved ~$3.6k on
+// 2026-07-15). Front-running is a WAIT, not a WARN: the same backtest showed a
+// hard front-run block also killed real winners (anticipatory fades that
+// worked), so it's a nudge to wait for the tag, not a stop sign.
+warn = wrongSideLong or wrongSideShort or chaseLong or chaseShort or knife
 enter = cleanLong or cleanShort
+// front-run downgrades WAIT to an explicit "wait for the tag" (still amber)
 state = warn ? "WARN" : exitCue ? "EXIT" : enter ? "ENTER" : hold ? "HOLD" : "WAIT"
 
 // the reason string for the panel/label

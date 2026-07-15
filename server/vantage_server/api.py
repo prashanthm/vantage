@@ -936,6 +936,19 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         act = _sa.session(store, d, underlying)
         return envelope(snap, available=bool(act["trades"]), **act)
 
+    @app.get("/api/journal/coach-backtest")
+    def journal_coach_backtest(day: str = Query(...),
+                               underlying: str = Query("SPX")):
+        """Replay the coach's rules against ``day``'s trades: per-trade WARN/
+        ENTER/WAIT + a tally of whether WARN aligned with losses (i.e. would
+        heeding it have helped). Approximation of the live indicator — read the
+        deltas, not the last dollar. Read-only."""
+        from . import coach_backtest as _cb
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        return envelope(snap, **_cb.backtest(store, day, (underlying or "SPX").upper()))
+
     @app.get("/api/journal/day-pnl")
     def journal_day_pnl(days: str = Query(...),
                         underlying: str | None = Query(None)):

@@ -27,6 +27,12 @@ def test_coach_bakes_levels_and_states():
     # the four documented leaks are coded
     for leak in ("wrongSideLong", "frontRun", "chaseLong", "knife"):
         assert leak in s
+    # WARN is reserved for the unambiguous leaks; front-run is a WAIT nudge, so
+    # it must NOT be in the warn resolution line (backtest showed it blocked
+    # winners). wrong-side/chase/knife stay in WARN.
+    warn_line = next(ln for ln in s.splitlines() if ln.strip().startswith("warn ="))
+    assert "frontRun" not in warn_line
+    assert "wrongSideLong" in warn_line and "chaseLong" in warn_line and "knife" in warn_line
     # session indicators
     assert "vwap" in s and "ta.rsi" in s and "relV" in s
 
