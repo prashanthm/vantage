@@ -213,6 +213,33 @@ def build(store, day: str, trade: dict, forecast_levels: list[dict],
         # the plan the trade was taken against
         "forecast_levels": forecast_levels,
         "gex_anchors": gex_anchors,
+        # the day's news + sentiment lean for the underlying — market context
+        # the tape alone doesn't carry (the analyst weighs it, cites it as an
+        # ESTIMATED lean, never ground truth).
+        "news": _news_for(store, underlying),
         "underlying": underlying,
         "day": day,
     }
+
+
+def _news_for(store, underlying: str) -> dict | None:
+    """Recent news + sentiment for the underlying's tradeable proxy (SPY for
+    SPX), compacted for the analyst. None on any failure — best-effort context,
+    never blocks the DNA."""
+    proxy = {"SPX": "SPY", "NDX": "QQQ", "RUT": "IWM"}.get(underlying.upper(),
+                                                           underlying.upper())
+    try:
+        from . import news as _news
+        data = _news.news(proxy, store.data_dir)
+        if not data:
+            return None
+        items = (data.get("items") or [])[:5]
+        return {
+            "symbol": proxy,
+            "sentiment": data.get("sentiment"),   # {score, band, estimated}
+            "headlines": [{"title": i.get("title"), "publisher": i.get("publisher"),
+                           "published": i.get("published")} for i in items],
+        }
+    except Exception as e:  # noqa: BLE001
+        log.warning("news unavailable for %s: %s", proxy, e)
+        return None

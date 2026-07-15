@@ -3423,11 +3423,13 @@
         tradeIndex,
         underlying,
         why,
+        entryTag: tag,
+        exitTag,
         label: t.label
       }
     )));
   }
-  function AnalyzeTrade({ day, tradeIndex, underlying, why, label }) {
+  function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
     const [state, setState] = useState10(null);
     const abortRef = useRef2(null);
     const run = async () => {
@@ -3437,7 +3439,7 @@
         setState({ error: res && res.note || "couldn't build the trade DNA" });
         return;
       }
-      const prompt = buildAnalystPrompt(res.dna, why, res.playbook_session, day, tradeIndex, underlying);
+      const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag }, res.playbook_session);
       let text = "";
       setState({ text: "" });
       abortRef.current = streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
@@ -3499,12 +3501,17 @@
     const exitRead = xq.pre_move == null ? "" : (xq.pre_move > 0 ? `price spiked ${pts2(xq.pre_move)} into the exit (sold into strength)` : `price was falling ${pts2(xq.pre_move)} into the exit`) + (xq.post_move != null ? `, then went ${pts2(xq.post_move)} after` : "");
     return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { maxWidth: 560 } }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { width: 70 } }, /* @__PURE__ */ React.createElement("b", null, "Timeframe")), /* @__PURE__ */ React.createElement("td", null, dna.timeframe, " \xB7 ", dna.bar_interval, " bars", dna.coarse ? " (1m unavailable \u2014 coarse)" : "")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "Entry")), /* @__PURE__ */ React.createElement("td", null, "SPX ", /* @__PURE__ */ React.createElement("b", null, e.spot), en ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", en.at_level || e.correlation && e.correlation.at_level ? "at " : "near ", "the ", /* @__PURE__ */ React.createElement("b", null, en.level), " ", en.role, " (", (en.kinds || []).join(" + "), "), ", pts2(en.distance), " away") : "", ".", " ", entryRead, ".")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null), /* @__PURE__ */ React.createElement("td", { className: "vg-note" }, "VWAP ", et.vwap, " (", et.vs_vwap >= 0 ? "+" : "", et.vs_vwap, " vs price)", et.rsi != null ? ` \xB7 RSI ${Math.round(et.rsi)}` : "", " \xB7 rel-vol ", et.rel_volume, "\xD7 \xB7 ATR ", et.atr)), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "Exit")), /* @__PURE__ */ React.createElement("td", null, "SPX ", /* @__PURE__ */ React.createElement("b", null, x.spot), x.is_settlement ? " (expiry settlement)" : "", xn ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", x.correlation && x.correlation.at_level ? "at " : "near ", "the ", /* @__PURE__ */ React.createElement("b", null, xn.level), " ", xn.role, " (", (xn.kinds || []).join(" + "), "), ", pts2(xn.distance), " away") : "", ".", " ", exitRead, ".")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null), /* @__PURE__ */ React.createElement("td", { className: "vg-note" }, "VWAP ", xt.vwap, " (", xt.vs_vwap >= 0 ? "+" : "", xt.vs_vwap, " vs price)", xt.rsi != null ? ` \xB7 RSI ${Math.round(xt.rsi)}${xt.rsi >= 70 ? " (extended)" : ""}` : "", " \xB7 rel-vol ", xt.rel_volume, "\xD7 \xB7 ATR ", xt.atr)), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "Result")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", { className: dna.realized >= 0 ? "vg-up" : "vg-down" }, dna.realized >= 0 ? "+" : "\u2212", "$", Math.abs(dna.realized).toLocaleString()), " ", "\xB7 ", dna.status.replace("_", " "))))));
   }
-  function buildAnalystPrompt(dna, why, session, day, tradeIndex, underlying) {
+  function buildAnalystPrompt(dna, operator, session) {
     const j = (o) => JSON.stringify(o);
     const e = dna.entry, x = dna.exit;
+    const { why, entryTag, exitTag } = operator || {};
     const win = (w) => (w || []).map((b) => `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  \xABFILL\xBB" : ""}`).join("\n");
+    const operatorBlock = [];
+    if (why) operatorBlock.push(`- Their stated reasoning: "${why}"`);
+    if (entryTag) operatorBlock.push(`- They say they entered on the ${entryTag} level.`);
+    if (exitTag) operatorBlock.push(`- They say they exited on the ${exitTag} level.`);
     return [
-      `Review this options trade and grade the decision quality \u2014 entry, exit, and whether it respected the plan. All the DNA is below; be specific with the numbers and use ONLY these numbers.`,
+      `Review this options trade AND critique the operator's own reasoning against the tape, the technicals, and best practice. Be a demanding desk mentor \u2014 validate what was sound, call out what was wrong or lucky. All the DNA is below; use ONLY these numbers.`,
       ``,
       `TRADE: ${dna.label} (${dna.strategy}), a ${dna.timeframe} on ${dna.underlying}. Opened ${dna.opened_at}, closed ${dna.closed_at}. Realized P&L $${dna.realized}.`,
       dna.coarse ? `Note: price action is 15-minute bars (1-minute unavailable this far back).` : ``,
@@ -3519,15 +3526,19 @@
       `Price action around the exit:`,
       win(x.window),
       ``,
-      why ? `The operator's own note on why they took it: "${why}"` : `The operator left no note on their thinking.`,
+      dna.news ? `NEWS & SENTIMENT for ${dna.news.symbol} that session (sentiment is an ESTIMATED lexicon lean over headlines, not ground truth \u2014 cite it as such): ${j(dna.news)}.` : `No news available for the session.`,
+      ``,
+      operatorBlock.length ? `THE OPERATOR'S OWN VIEW \u2014 critique this directly against the data above:
+${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u2014 flag that journaling the WHY would let this review critique the reasoning, not just the result.`,
       ``,
       `Write a tight desk review, specific with the numbers:`,
-      `1. ENTRY quality \u2014 did they buy into strength or catch a falling knife? Was it at a real level? What did volume say?`,
-      `2. EXIT quality \u2014 did they sell into a spike or give the move back? Did it hit a level? Was it extended (VWAP/RSI)?`,
-      `3. Did the trade RESPECT THE PLAN \u2014 enter and exit at forecast levels, in line with the tape?`,
-      `4. Based on the price action and the broad ${dna.underlying} tape that session, does the market context support this trade, and what would you flag about news/sentiment risk for a ${dna.day} 0DTE?`,
-      `5. One concrete LESSON.`,
-      `Be direct. No disclaimers.`
+      `1. ENTRY quality \u2014 bought strength or caught a knife? At a real level? What did volume/VWAP say?`,
+      `2. EXIT quality \u2014 sold a spike or gave it back? At a level? Extended (VWAP/RSI)?`,
+      `3. RESPECT THE PLAN \u2014 enter/exit at forecast levels, in line with the tape?`,
+      `4. CRITIQUE THE OPERATOR'S REASONING \u2014 does their stated why (and the levels they claim they traded) hold up against what the tape and technicals actually did? Were they right for the right reasons, right for the wrong reasons, or wrong? If their tagged level doesn't match the DNA's nearest level, say so.`,
+      `5. NEWS/SENTIMENT \u2014 did the session's news context support or undercut this trade? Any risk they ignored?`,
+      `6. One concrete LESSON \u2014 the single most useful thing to do differently.`,
+      `Be direct and demanding. No disclaimers.`
     ].filter((l) => l !== ``).join("\n");
   }
   function CorrTable({ title, corr, openSpace }) {

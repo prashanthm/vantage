@@ -775,7 +775,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
 
           {/* step 2: the full DNA read by Mira (news + sentiment + the tape) */}
           <AnalyzeTrade day={day} tradeIndex={tradeIndex} underlying={underlying}
-            why={why} label={t.label} />
+            why={why} entryTag={tag} exitTag={exitTag} label={t.label} />
         </div>
       )}
     </div>
@@ -788,7 +788,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
 // volume, technicals, level correlation), wraps it in a trade-analyst brief
 // that ALSO asks Mira to weigh news + sentiment for the underlying, and streams
 // the read. The "entire DNA of the trade" in one place.
-function AnalyzeTrade({ day, tradeIndex, underlying, why, label }) {
+function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
   const [state, setState] = useState(null);   // null | "loading" | {text} | {error}
   const abortRef = useRef(null);
 
@@ -799,7 +799,7 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, label }) {
       setState({ error: (res && res.note) || "couldn't build the trade DNA" });
       return;
     }
-    const prompt = buildAnalystPrompt(res.dna, why, res.playbook_session, day, tradeIndex, underlying);
+    const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag }, res.playbook_session);
     let text = "";
     setState({ text: "" });
     abortRef.current = streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
@@ -927,17 +927,22 @@ function DnaReadout({ dna }) {
 // self-contained REVIEW (not "analyze <ticker>") so Mira's supervisor routes
 // it to the direct model turn rather than the equity fan-out — the DNA is the
 // full payload, so the read should reason over THAT, not re-fetch facets.
-function buildAnalystPrompt(dna, why, session, day, tradeIndex, underlying) {
+function buildAnalystPrompt(dna, operator, session) {
   const j = (o) => JSON.stringify(o);
   const e = dna.entry, x = dna.exit;
+  const { why, entryTag, exitTag } = operator || {};
   const win = (w) => (w || []).map((b) =>
     `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  «FILL»" : ""}`).join("\n");
   // Routes to Mira's trade_analyst specialist ("review this trade" keywords);
   // the supervisor synthesizes the read with the model (Option A). The DNA is
-  // inlined ONCE below (single source of truth — no TRADE_REF re-fetch, which
-  // gave the model two framings of the same trade and muddled the numbers).
+  // inlined ONCE below (single source of truth).
+  const operatorBlock = [];
+  if (why) operatorBlock.push(`- Their stated reasoning: "${why}"`);
+  if (entryTag) operatorBlock.push(`- They say they entered on the ${entryTag} level.`);
+  if (exitTag) operatorBlock.push(`- They say they exited on the ${exitTag} level.`);
+
   return [
-    `Review this options trade and grade the decision quality — entry, exit, and whether it respected the plan. All the DNA is below; be specific with the numbers and use ONLY these numbers.`,
+    `Review this options trade AND critique the operator's own reasoning against the tape, the technicals, and best practice. Be a demanding desk mentor — validate what was sound, call out what was wrong or lucky. All the DNA is below; use ONLY these numbers.`,
     ``,
     `TRADE: ${dna.label} (${dna.strategy}), a ${dna.timeframe} on ${dna.underlying}. Opened ${dna.opened_at}, closed ${dna.closed_at}. Realized P&L $${dna.realized}.`,
     dna.coarse ? `Note: price action is 15-minute bars (1-minute unavailable this far back).` : ``,
@@ -952,15 +957,20 @@ function buildAnalystPrompt(dna, why, session, day, tradeIndex, underlying) {
     `Price action around the exit:`,
     win(x.window),
     ``,
-    why ? `The operator's own note on why they took it: "${why}"` : `The operator left no note on their thinking.`,
+    dna.news ? `NEWS & SENTIMENT for ${dna.news.symbol} that session (sentiment is an ESTIMATED lexicon lean over headlines, not ground truth — cite it as such): ${j(dna.news)}.` : `No news available for the session.`,
+    ``,
+    operatorBlock.length
+      ? `THE OPERATOR'S OWN VIEW — critique this directly against the data above:\n${operatorBlock.join("\n")}`
+      : `The operator left no note on their thinking — flag that journaling the WHY would let this review critique the reasoning, not just the result.`,
     ``,
     `Write a tight desk review, specific with the numbers:`,
-    `1. ENTRY quality — did they buy into strength or catch a falling knife? Was it at a real level? What did volume say?`,
-    `2. EXIT quality — did they sell into a spike or give the move back? Did it hit a level? Was it extended (VWAP/RSI)?`,
-    `3. Did the trade RESPECT THE PLAN — enter and exit at forecast levels, in line with the tape?`,
-    `4. Based on the price action and the broad ${dna.underlying} tape that session, does the market context support this trade, and what would you flag about news/sentiment risk for a ${dna.day} 0DTE?`,
-    `5. One concrete LESSON.`,
-    `Be direct. No disclaimers.`,
+    `1. ENTRY quality — bought strength or caught a knife? At a real level? What did volume/VWAP say?`,
+    `2. EXIT quality — sold a spike or gave it back? At a level? Extended (VWAP/RSI)?`,
+    `3. RESPECT THE PLAN — enter/exit at forecast levels, in line with the tape?`,
+    `4. CRITIQUE THE OPERATOR'S REASONING — does their stated why (and the levels they claim they traded) hold up against what the tape and technicals actually did? Were they right for the right reasons, right for the wrong reasons, or wrong? If their tagged level doesn't match the DNA's nearest level, say so.`,
+    `5. NEWS/SENTIMENT — did the session's news context support or undercut this trade? Any risk they ignored?`,
+    `6. One concrete LESSON — the single most useful thing to do differently.`,
+    `Be direct and demanding. No disclaimers.`,
   ].filter((l) => l !== ``).join("\n");
 }
 
