@@ -16,9 +16,10 @@
 // It composes existing surfaces (it does not fork them): Execute opens the
 // same gated TicketModal the playbook uses (dry-run → arm → confirm), so
 // there is exactly ONE order path in the product (ADR-010 v2).
-import { TicketModal } from "./playbook.jsx";
+import { TicketModal, PineModal } from "./playbook.jsx";
 import { getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook,
-         getTradeablePositions } from "./live.js";
+         getTradeablePositions, recomputePlaybook, getPlaybookPine,
+         getReclaimPine } from "./live.js";
 import { cls, StatTile } from "./util.jsx";
 
 const { useEffect, useState } = React;
@@ -98,7 +99,7 @@ export function TodayView({ refreshNonce }) {
 
       <PositionsCard rows={pos} />
 
-      <WhyCard pb={pb} />
+      <WhyCard pb={pb} onReload={load} />
 
       <div className="vg-stats" style={{ marginTop: 14, gridTemplateColumns: "1fr 1fr" }}>
         <StrategyCard perf={perf} />
@@ -251,16 +252,62 @@ function PositionsCard({ rows }) {
 
 // -------------------------------------------------------------------- 3. why
 
-function WhyCard({ pb }) {
+function WhyCard({ pb, onReload }) {
+  const [busy, setBusy] = useState(false);      // regenerate in flight
+  const [pine, setPine] = useState(null);       // {loading|script|error} for the modal
+  const [pineTitle, setPineTitle] = useState("TradingView Pine");
+  const [note, setNote] = useState(null);       // transient "regenerated" confirmation
   if (!pb) return null;
   const sc = pb.scaffold || {};
   const reg = sc.regime || {};
+  const sym = sc.symbol || "SPX";
   const levels = (sc.confluence || []).slice(0, 6);
-  // the narration's first paragraph IS the read — the rest is disclosure
+  // the GEX anchors off the ladder — the dealer-gamma levels, shown explicitly
+  const gex = (sc.level_ladder || [])
+    .filter((r) => String(r.source || "").toUpperCase() === "GEX")
+    .map((r) => ({ price: r.price, label: String(r.kind || "").replace(/\s*\(.*\)$/, "") }));
   const lede = (pb.narrative || "").split("\n").filter(Boolean)[0] || null;
+
+  // Regenerate the levels NOW (recompute → store), then re-pull the Today read
+  // so the fresh scaffold shows. All in the UI — no files, no navigation.
+  const regenerate = async () => {
+    setBusy(true); setNote(null);
+    try {
+      await recomputePlaybook(undefined, sym);   // writes the store (fresh GEX)
+      if (onReload) await onReload();             // re-pull with the new scaffold
+      setNote("levels regenerated");
+    } catch (e) {
+      setNote("regenerate failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+  // Pine (playbook or reclaim) rendered on demand from the fresh scaffold, as
+  // text in a copy modal — never written to disk.
+  const showPine = async (kind) => {
+    setPineTitle(kind === "reclaim" ? "Reclaim Strategy Pine" : "Playbook Pine");
+    setPine({ loading: true });
+    const res = kind === "reclaim"
+      ? await getReclaimPine(undefined, sym)
+      : await getPlaybookPine(undefined, sym);
+    setPine(res && res.available ? { script: res.script } : { error: true });
+  };
+
   return (
     <div className="vg-card" style={{ marginTop: 14 }}>
-      <div className="vg-kicker">Why · today's read</div>
+      <div className="vg-spread">
+        <div className="vg-kicker" style={{ margin: 0 }}>Why · today's read</div>
+        <div className="vg-row" style={{ gap: 6 }}>
+          <button className="vg-btn-sm" disabled={busy} onClick={regenerate}>
+            {busy ? <><span className="vg-spin" aria-hidden="true">⟳</span> Regenerating…</>
+                  : "↻ Regenerate levels"}
+          </button>
+          <button className="vg-btn-sm" disabled={busy} onClick={() => showPine("playbook")}>Pine</button>
+          <button className="vg-btn-sm" disabled={busy} onClick={() => showPine("reclaim")}>Reclaim Pine</button>
+        </div>
+      </div>
+      {note && <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 11,
+        color: note.includes("fail") ? "var(--vg-down)" : "var(--vg-up)" }}>✓ {note}</p>}
       <p className="vg-note" style={{ marginTop: 6, color: "var(--vg-dim)" }}>
         {lede || (
           <>
@@ -272,6 +319,15 @@ function WhyCard({ pb }) {
           </>
         )}
       </p>
+      {gex.length > 0 && (
+        <div className="vg-row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+          {gex.map((g, i) => (
+            <span key={i} className="vg-badge plain" title={g.label}>
+              {g.label}: <b>{fmt(g.price, 0)}</b>
+            </span>
+          ))}
+        </div>
+      )}
       <details style={{ marginTop: 8 }}>
         <summary className="vg-note" style={{ cursor: "pointer", fontWeight: 600 }}>
           levels &amp; full playbook
@@ -292,6 +348,8 @@ function WhyCard({ pb }) {
           <a className="vg-linkbtn" href="#playbook">open the full playbook →</a>
         </p>
       </details>
+      {pine && <PineModal pine={pine} session={pb.session} title={pineTitle}
+        symbol={sym} onClose={() => setPine(null)} />}
     </div>
   );
 }

@@ -664,9 +664,11 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     @app.post("/api/spx/playbook/recompute")
     def spx_playbook_recompute(body: dict = Body(default={})):
         """Regenerate the playbook NOW for the requested ``symbol`` (SPX|QQQ|IWM)
-        from the latest data, outside the nightly job. Writes only our own store
-        (no broker / fund path — ADR-010 holds). Returns the new ``{scaffold,
-        session, date}``. Body: ``{as_of?: 'YYYY-MM-DD', symbol?: 'SPX'}``."""
+        from the latest data, outside the nightly job. Writes ONLY our own store
+        (no broker / fund path — ADR-010 holds; no disk .pine files — the Pine
+        is served as text via /pine and /reclaim/pine for the UI to copy).
+        Returns the new ``{scaffold, session, date}``. Body: ``{as_of?:
+        'YYYY-MM-DD', symbol?: 'SPX'}``."""
         import datetime as _dt
         from . import spx_playbook as _pb
         as_of = (body or {}).get("as_of")
@@ -676,7 +678,6 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         today = _dt.date.fromisoformat(as_of) if as_of else None
         scaffold = _pb.build_playbook(today, store=store, underlying=sym)
         store.upsert_spx_playbook(scaffold["generated_for"], scaffold, symbol=sym)
-        _pb.write_pine_file(scaffold)  # refresh the vantage/pine copy-paste artifact
         snap = state.snapshot()
         return envelope(snap, available=True, date=scaffold["generated_for"],
                         symbol=sym, session=scaffold["session"], scaffold=scaffold)

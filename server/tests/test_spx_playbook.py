@@ -286,8 +286,10 @@ def test_build_table_dedups_and_reads():
     assert "buy dips" in t["read"] and "sell rallies" in t["read"]
 
 
-def test_write_pine_file(tmp_path, monkeypatch):
-    monkeypatch.setenv("VANTAGE_PINE_DIR", str(tmp_path))
+def test_playbook_pine_renders_from_scaffold():
+    # Pine is generated on demand as TEXT (no disk file) — assert the generator
+    # bakes the scaffold's levels into the script the API/UI serves.
+    from vantage_server import playbook_pine
     scaffold = {
         "symbol": "SPX",
         "session": "2026-07-09", "generated_for": "2026-07-08",
@@ -296,34 +298,26 @@ def test_write_pine_file(tmp_path, monkeypatch):
         "confluence": [], "table": {"read": "x", "rows": [], "volume_note": "", "regime_line": ""},
         "setups": [],
     }
-    path = pb.write_pine_file(scaffold)
-    assert path is not None
-    written = (tmp_path / "spx_playbook.pine").read_text()
-    assert written.startswith("//@version=5")
-    assert "flipLevel = 7481.0" in written
-    # the prefilled reclaim indicator is regenerated in lockstep, GEX baked in
-    reclaim = (tmp_path / "reclaim_indicator_SPX.pine").read_text()
-    assert 'indicator("Reclaim Strategy — SPX (GEX)"' in reclaim
-    assert 'input.text_area("7481|gamma flip (regime line)"' in reclaim
+    script = playbook_pine.build_playbook_pine(scaffold)
+    assert script.startswith("//@version=5")
+    assert "flipLevel = 7481.0" in script
 
 
-def test_write_reclaim_pine_file_bakes_symbol_levels(tmp_path, monkeypatch):
-    monkeypatch.setenv("VANTAGE_PINE_DIR", str(tmp_path))
+def test_reclaim_pine_bakes_symbol_gex_levels():
+    from vantage_server import reclaim_pine
     scaffold = {"symbol": "QQQ", "level_ladder": [
         {"price": 500.0, "kind": "call wall", "source": "GEX"},
         {"price": 480.0, "kind": "put wall", "source": "GEX"},
         {"price": 490.0, "kind": "fib 50%", "source": "chart"},  # transient -> excluded
     ]}
-    path = pb.write_reclaim_pine_file(scaffold)
-    assert path is not None and path.endswith("reclaim_indicator_QQQ.pine")
-    s = (tmp_path / "reclaim_indicator_QQQ.pine").read_text()
-    assert 'input.text_area("500|call wall, 480|put wall"' in s   # walls baked with labels, fib dropped
+    s = reclaim_pine.build_reclaim_indicator_for("QQQ", scaffold)
+    assert 'input.text_area("500|call wall, 480|put wall"' in s   # walls baked, fib dropped
     assert 'indicator("Reclaim Strategy — QQQ (GEX)"' in s
 
 
-def test_write_pine_file_none_when_empty(tmp_path, monkeypatch):
-    monkeypatch.setenv("VANTAGE_PINE_DIR", str(tmp_path))
-    assert pb.write_pine_file({"level_ladder": [], "confluence": []}) is None
+def test_playbook_pine_empty_when_no_levels():
+    from vantage_server import playbook_pine
+    assert not playbook_pine.build_playbook_pine({"level_ladder": [], "confluence": []})
 
 
 # ------------------------------------------------------------ full assembly

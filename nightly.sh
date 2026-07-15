@@ -62,8 +62,9 @@ echo "[$STAMP] nightly: notebook journal snapshot"
 "$PY" -m vantage_server.snapshot_journal 2>&1 | grep -v 'Session termination' || true
 
 # GEX + 0DTE playbook per underlying (parity with nightly-docker.sh) so the
-# host data dir's strategy surface — and the committed pine/ artifacts —
-# refresh too. Per-underlying failures are non-fatal.
+# host data dir's strategy surface refreshes. Writes the STORE only — Pine is
+# generated on demand and served as text by the API (no disk .pine artifacts).
+# Per-underlying failures are non-fatal.
 for PAIR in "SPX:^SPX" "QQQ:QQQ" "IWM:IWM"; do
   KEY="${PAIR%%:*}"; CHAIN="${PAIR##*:}"
   echo "[$STAMP] nightly: GEX snapshot ($KEY)"

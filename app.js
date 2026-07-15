@@ -178,6 +178,7 @@
     getPaper: () => getPaper,
     getPlaybook: () => getPlaybook,
     getPlaybookPine: () => getPlaybookPine,
+    getReclaimPine: () => getReclaimPine,
     getRoundtrips: () => getRoundtrips,
     getSessionActivity: () => getSessionActivity,
     getSignals: () => getSignals,
@@ -892,6 +893,23 @@
     const q = params.length ? `?${params.join("&")}` : "";
     const v = await getJson(`${backendBase()}/api/spx/playbook/pine${q}`, { timeoutMs: 2e4 });
     if (v && v.available) return { available: true, session: v.session, script: v.script };
+    return { available: false };
+  }
+  async function getReclaimPine(date, symbol = "SPX") {
+    const params = [];
+    if (date) params.push(`date=${encodeURIComponent(date)}`);
+    if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
+    const q = params.length ? `?${params.join("&")}` : "";
+    const v = await getJson(`${backendBase()}/api/spx/reclaim/pine${q}`, { timeoutMs: 2e4 });
+    if (v && v.available) {
+      return {
+        available: true,
+        session: v.session,
+        script: v.script,
+        gexLevels: v.gex_levels,
+        prefilled: v.prefilled
+      };
+    }
     return { available: false };
   }
   async function getTicket(symbol, side, level, risk = 500, entry = null) {
@@ -2312,7 +2330,7 @@
       "CONFIRM LIVE EXECUTE"
     )), exec && exec.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0" } }, exec.note), exec && exec.execution && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0, fontSize: 12 } }, /* @__PURE__ */ React.createElement("b", null, exec.execution.mode === "live" ? "LIVE" : "dry run"), " \xB7 ", exec.execution.legs.length, " leg(s)", exec.execution.managed_position_id != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 managed position #", exec.execution.managed_position_id, " \u2192 see Managed Exits")), /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { marginTop: 6, fontSize: 12 } }, /* @__PURE__ */ React.createElement("tbody", null, exec.execution.legs.map((l, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, l.leg), /* @__PURE__ */ React.createElement("td", null, l.side, " ", l.quantity, " ", l.type, l.limit_price != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " @ ", l.limit_price), l.stop_price != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " stop ", l.stop_price), " \xB7 ", l.status))))), (exec.execution.warnings || []).map((w, i) => /* @__PURE__ */ React.createElement("p", { key: i, className: "vg-note", style: { margin: "4px 0 0", fontSize: 11 } }, "\u26A0 ", w))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0", fontSize: 11 } }, "Dry-run always; live needs the confirm AND server env VANTAGE_LIVE_OK=1. Keep the exit monitor running while a live position is open.")))));
   }
-  function PineModal({ pine, session, onClose }) {
+  function PineModal({ pine, session, onClose, title = "TradingView Pine", symbol = "SPX" }) {
     const [copied, setCopied] = useState4(false);
     const copy = async () => {
       try {
@@ -2322,7 +2340,7 @@
         setCopied(false);
       }
     };
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-modal-backdrop", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "vg-modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "TradingView Pine", session ? ` \xB7 ${session}` : ""), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: onClose }, "close")), pine.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "10px 0" } }, "Generating script\u2026"), pine.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "10px 0" } }, "No script \u2014 generate the playbook first (Recompute, or the nightly job)."), pine.script && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0" } }, "Copy \u2192 TradingView ", /* @__PURE__ */ React.createElement("b", null, "Pine Editor"), " \u2192 Add to chart on an ", /* @__PURE__ */ React.createElement("b", null, "SPX"), " chart. Levels & setups are baked from tonight's data; the green/red background and the arrows update live off price vs the gamma flip. ", /* @__PURE__ */ React.createElement("b", null, "Not financial advice"), " \u2014 conditional context, and the GEX read is 0DTE-blind."), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-modal-backdrop", onClick: onClose }, /* @__PURE__ */ React.createElement("div", { className: "vg-modal", onClick: (e) => e.stopPropagation() }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "center" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, title, session ? ` \xB7 ${session}` : ""), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: onClose }, "close")), pine.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "10px 0" } }, "Generating script\u2026"), pine.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "10px 0" } }, "No script \u2014 regenerate the levels first."), pine.script && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0" } }, "Copy \u2192 TradingView ", /* @__PURE__ */ React.createElement("b", null, "Pine Editor"), " \u2192 Add to chart on a ", /* @__PURE__ */ React.createElement("b", null, symbol), " chart. Levels & setups are baked from the latest data; the green/red background and the arrows update live off price vs the gamma flip. ", /* @__PURE__ */ React.createElement("b", null, "Not financial advice"), " \u2014 conditional context, and the GEX read is 0DTE-blind."), /* @__PURE__ */ React.createElement(
       "textarea",
       {
         className: "vg-pine-box",
@@ -2573,7 +2591,7 @@
           signalId: t.id
         })
       }
-    ), /* @__PURE__ */ React.createElement(PositionsCard, { rows: pos }), /* @__PURE__ */ React.createElement(WhyCard, { pb }), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(PositionsCard, { rows: pos }), /* @__PURE__ */ React.createElement(WhyCard, { pb, onReload: load }), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
       TicketModal,
       {
         sym: ticket.sym,
@@ -2619,13 +2637,51 @@
       money3(p.unrealized)
     ), /* @__PURE__ */ React.createElement("td", null, p.managed ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "stop ", fmt3(p.stop_price)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "unprotected")))))), naked.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-verdict" }, "\u26A0\uFE0F ", naked.map((p) => p.symbol).join(", "), " ", naked.length === 1 ? "has" : "have", " no monitor stop \u2014 the exit monitor is not protecting ", naked.length === 1 ? "it" : "them", "."));
   }
-  function WhyCard({ pb }) {
+  function WhyCard({ pb, onReload }) {
+    const [busy, setBusy] = useState7(false);
+    const [pine, setPine] = useState7(null);
+    const [pineTitle, setPineTitle] = useState7("TradingView Pine");
+    const [note, setNote] = useState7(null);
     if (!pb) return null;
     const sc = pb.scaffold || {};
     const reg = sc.regime || {};
+    const sym = sc.symbol || "SPX";
     const levels = (sc.confluence || []).slice(0, 6);
+    const gex = (sc.level_ladder || []).filter((r) => String(r.source || "").toUpperCase() === "GEX").map((r) => ({ price: r.price, label: String(r.kind || "").replace(/\s*\(.*\)$/, "") }));
     const lede = (pb.narrative || "").split("\n").filter(Boolean)[0] || null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Why \xB7 today's read"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6, color: "var(--vg-dim)" } }, lede || /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("b", null, reg.gamma === "negative" ? "Negative" : "Positive", " gamma"), reg.vix ? /* @__PURE__ */ React.createElement(React.Fragment, null, ", VIX ", fmt3(reg.vix, 1)) : null, reg.gamma === "negative" ? " \u2014 dealer hedging amplifies moves: a momentum tape. Trade with the move, not against it." : " \u2014 dealer hedging dampens moves: expect mean reversion between the walls.")), /* @__PURE__ */ React.createElement("details", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-note", style: { cursor: "pointer", fontWeight: 600 } }, "levels & full playbook"), /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { marginTop: 8, fontSize: 12.5 } }, /* @__PURE__ */ React.createElement("tbody", null, levels.map((z, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, (z.kinds || []).join(" + ") || z.role), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("b", null, fmt3(z.price, 1))))))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#playbook" }, "open the full playbook \u2192"))));
+    const regenerate = async () => {
+      setBusy(true);
+      setNote(null);
+      try {
+        await recomputePlaybook(void 0, sym);
+        if (onReload) await onReload();
+        setNote("levels regenerated");
+      } catch (e) {
+        setNote("regenerate failed");
+      } finally {
+        setBusy(false);
+      }
+    };
+    const showPine = async (kind) => {
+      setPineTitle(kind === "reclaim" ? "Reclaim Strategy Pine" : "Playbook Pine");
+      setPine({ loading: true });
+      const res = kind === "reclaim" ? await getReclaimPine(void 0, sym) : await getPlaybookPine(void 0, sym);
+      setPine(res && res.available ? { script: res.script } : { error: true });
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Why \xB7 today's read"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: regenerate }, busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Regenerating\u2026") : "\u21BB Regenerate levels"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("playbook") }, "Pine"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("reclaim") }, "Reclaim Pine"))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: {
+      margin: "4px 0 0",
+      fontSize: 11,
+      color: note.includes("fail") ? "var(--vg-down)" : "var(--vg-up)"
+    } }, "\u2713 ", note), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6, color: "var(--vg-dim)" } }, lede || /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("b", null, reg.gamma === "negative" ? "Negative" : "Positive", " gamma"), reg.vix ? /* @__PURE__ */ React.createElement(React.Fragment, null, ", VIX ", fmt3(reg.vix, 1)) : null, reg.gamma === "negative" ? " \u2014 dealer hedging amplifies moves: a momentum tape. Trade with the move, not against it." : " \u2014 dealer hedging dampens moves: expect mean reversion between the walls.")), gex.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8, flexWrap: "wrap" } }, gex.map((g, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "vg-badge plain", title: g.label }, g.label, ": ", /* @__PURE__ */ React.createElement("b", null, fmt3(g.price, 0))))), /* @__PURE__ */ React.createElement("details", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-note", style: { cursor: "pointer", fontWeight: 600 } }, "levels & full playbook"), /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { marginTop: 8, fontSize: 12.5 } }, /* @__PURE__ */ React.createElement("tbody", null, levels.map((z, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, (z.kinds || []).join(" + ") || z.role), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("b", null, fmt3(z.price, 1))))))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#playbook" }, "open the full playbook \u2192"))), pine && /* @__PURE__ */ React.createElement(
+      PineModal,
+      {
+        pine,
+        session: pb.session,
+        title: pineTitle,
+        symbol: sym,
+        onClose: () => setPine(null)
+      }
+    ));
   }
   function StrategyCard({ perf }) {
     const s = perf && perf.summary || null;

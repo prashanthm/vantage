@@ -852,6 +852,23 @@ export async function getPlaybookPine(date, symbol = "SPX") {
   return { available: false };
 }
 
+// The PREFILLED reclaim-strategy indicator (this symbol's GEX levels baked into
+// the input), as text for the UI to copy — the reclaim counterpart to
+// getPlaybookPine. No disk file: /api/spx/reclaim/pine renders from the stored
+// scaffold and returns the script.
+export async function getReclaimPine(date, symbol = "SPX") {
+  const params = [];
+  if (date) params.push(`date=${encodeURIComponent(date)}`);
+  if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
+  const q = params.length ? `?${params.join("&")}` : "";
+  const v = await getJson(`${backendBase()}/api/spx/reclaim/pine${q}`, { timeoutMs: 20000 });
+  if (v && v.available) {
+    return { available: true, session: v.session, script: v.script,
+             gexLevels: v.gex_levels, prefilled: v.prefilled };
+  }
+  return { available: false };
+}
+
 // Stage an order ticket for a reclaim trade at a playbook level. STAGED ONLY:
 // the server computes entry/stop/targets + risk-based qty (index symbols come
 // back rescaled into the tradeable proxy ETF, e.g. SPX→SPY) — the operator

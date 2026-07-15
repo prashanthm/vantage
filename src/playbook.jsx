@@ -524,7 +524,7 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
 // Export modal: shows the generated Pine v5 script with copy-to-clipboard and the
 // TradingView paste note. The script is externally-computed context (levels baked
 // nightly; only the price-vs-flip regime is live) — the caveats ride in the script.
-function PineModal({ pine, session, onClose }) {
+export function PineModal({ pine, session, onClose, title = "TradingView Pine", symbol = "SPX" }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try { await navigator.clipboard.writeText(pine.script || ""); setCopied(true); }
@@ -535,18 +535,18 @@ function PineModal({ pine, session, onClose }) {
       <div className="vg-modal" onClick={(e) => e.stopPropagation()}>
         <div className="vg-row" style={{ justifyContent: "space-between", alignItems: "center" }}>
           <div className="vg-kicker" style={{ margin: 0 }}>
-            TradingView Pine{session ? ` · ${session}` : ""}
+            {title}{session ? ` · ${session}` : ""}
           </div>
           <button className="vg-linkbtn" onClick={onClose}>close</button>
         </div>
         {pine.loading && <p className="vg-note" style={{ margin: "10px 0" }}>Generating script…</p>}
         {pine.error && <p className="vg-note" style={{ margin: "10px 0" }}>
-          No script — generate the playbook first (Recompute, or the nightly job).</p>}
+          No script — regenerate the levels first.</p>}
         {pine.script && (
           <>
             <p className="vg-note" style={{ margin: "8px 0" }}>
-              Copy → TradingView <b>Pine Editor</b> → Add to chart on an <b>SPX</b> chart.
-              Levels &amp; setups are baked from tonight's data; the green/red background and
+              Copy → TradingView <b>Pine Editor</b> → Add to chart on a <b>{symbol}</b> chart.
+              Levels &amp; setups are baked from the latest data; the green/red background and
               the arrows update live off price vs the gamma flip. <b>Not financial advice</b> —
               conditional context, and the GEX read is 0DTE-blind.
             </p>
