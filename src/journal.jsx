@@ -106,54 +106,110 @@ export function JournalView({ refreshNonce }) {
 
   return (
     <div className="vg-pane-body vg-jr">
-      <div className="vg-pb-head">
-        <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Trading journal
-            <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}> · last night's forecast vs. today · what I did</span>
-          </h2>
-          <div className="vg-row" style={{ gap: 10, marginTop: 6, alignItems: "center" }}>
-            <SymbolSwitcher value={sym} onChange={setSym} />
-            <span className="vg-note">
-              {d ? `${snaps.length} ${sym} day${snaps.length === 1 ? "" : "s"} journaled` : "loading…"}
-            </span>
-          </div>
+      {/* compact header: title + underlying + jump-to-month — one line */}
+      <div className="vg-jr-topbar">
+        <h2 style={{ margin: 0, fontSize: 18 }}>Trading journal</h2>
+        <div className="vg-row" style={{ gap: 10, alignItems: "center" }}>
+          <SymbolSwitcher value={sym} onChange={setSym} />
+          <MonthJump view={view} setView={setView} byDay={byDay}
+            selDay={selDay} onSelect={setSelDay} />
         </div>
-        {acc.n_scored > 0 && (
-          <div className="vg-pb-levels">
-            <Tile label="Level accuracy" value={pct(acc.avg_level_accuracy)} tone={acc.avg_level_accuracy >= 0.5 ? "good" : "bad"} />
-            <Tile label="Regime calls right" value={pct(acc.regime_hit_rate)} tone={acc.regime_hit_rate >= 0.5 ? "good" : "bad"} />
-            <Tile label="Scored" value={acc.n_scored} />
-          </div>
-        )}
       </div>
 
-      {/* month calendar — click a day to open its detail below */}
-      <div className="vg-card">
-        <Calendar view={view} setView={setView} byDay={byDay}
-          selDay={selDay} onSelect={setSelDay} />
-      </div>
+      {/* the day STRIP — recent trading days, newest right; the whole calendar
+          shrunk to one scannable row so the trades get the pane */}
+      <DayStrip byDay={byDay} selDay={selDay} onSelect={setSelDay} />
 
-      {/* selected day's detail */}
+      {/* THE HERO: the selected day's trades */}
       {selSnap ? (
         <DayDetail key={selSnap.id} s={selSnap} busy={busy}
           onDelete={doDelete} onSaveEntry={doSaveEntry} onAttach={doAttach} />
       ) : (
-        <div className="vg-note" style={{ padding: "4px 2px" }}>
+        <div className="vg-note" style={{ padding: "20px 2px" }}>
           {selDay === todayISO()
             ? (d ? "Setting up today's entry — it freezes last night's forecast and scores it against today's SPX price…" : "loading…")
             : `No journal entry for ${selDay}.`}
         </div>
       )}
-
-      <div className="vg-pb-caveats">
-        <div>Each day freezes a playbook forecast (prior session by default); scoring compares its levels to actual SPX price action over the session.</div>
-        <div>Journal / analysis only. Places no orders (ADR-010). Not financial advice.</div>
-      </div>
     </div>
   );
 }
 
-// ── month calendar ───────────────────────────────────────────────────────────
+// ── day strip: the calendar, shrunk to one scannable row ─────────────────────
+//
+// The full month grid dominated the screen and pushed the trades — the actual
+// subject — below the fold. The strip is the daily navigator: recent trading
+// days as small pills (weekday · date · a score dot), newest on the right,
+// horizontally scrollable. Jumping far back is the MonthJump popover, not the
+// default view.
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function DayStrip({ byDay, selDay, onSelect }) {
+  const stripRef = useRef(null);
+  // the last ~14 WEEKDAYS up to today (journaled or not — an untraded day is
+  // still a day you can open), newest last
+  const days = useMemo(() => {
+    const out = [];
+    const d = new Date();
+    while (out.length < 14) {
+      const dow = d.getDay();
+      if (dow !== 0 && dow !== 6) {
+        out.unshift(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+      }
+      d.setDate(d.getDate() - 1);
+    }
+    return out;
+  }, []);
+  // keep the selected pill in view
+  useEffect(() => {
+    const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
+    if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [selDay]);
+
+  const today = todayISO();
+  return (
+    <div className="vg-daystrip" ref={stripRef}>
+      {days.map((iso) => {
+        const snap = byDay[iso];
+        const tone = snap ? dayTone(snap) : null;
+        const [y, m, dd] = iso.split("-");
+        const wd = WD[new Date(Number(y), Number(m) - 1, Number(dd)).getDay()];
+        return (
+          <button key={iso}
+            className={cls("vg-daystrip-pill", iso === selDay && "sel", iso === today && "today")}
+            onClick={() => onSelect(iso)}>
+            <span className="vg-daystrip-wd">{iso === today ? "Today" : wd}</span>
+            <span className="vg-daystrip-date">{MONTHS[Number(m) - 1].slice(0, 3)} {Number(dd)}</span>
+            <span className={cls("vg-daystrip-dot", tone || "empty")} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Jump to any past day via the full month grid — opened on demand, not the
+// default screen.
+function MonthJump({ view, setView, byDay, selDay, onSelect }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="vg-monthjump">
+      <button className="vg-btn-sm" onClick={() => setOpen(!open)}
+        title="Jump to a past day">📅 {MONTHS[view.m].slice(0, 3)}</button>
+      {open && (
+        <>
+          <div className="vg-monthjump-backdrop" onClick={() => setOpen(false)} />
+          <div className="vg-monthjump-pop">
+            <Calendar view={view} setView={setView} byDay={byDay}
+              selDay={selDay} onSelect={(d) => { onSelect(d); setOpen(false); }} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── month calendar (now inside the jump popover) ─────────────────────────────
 
 function Calendar({ view, setView, byDay, selDay, onSelect }) {
   const { y, m } = view;
@@ -258,58 +314,60 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
 
   return (
     <div className="vg-jr-detail">
-      <div className="vg-row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
-        <div className="vg-kicker" style={{ margin: 0 }}>
-          {dayLabel}{s.session ? ` · ${s.session} playbook` : ""}
-          <span className="vg-note" style={{ fontSize: 11, marginLeft: 6, fontWeight: 400 }}>vs. {kindLabel}</span>
+      {/* the day, in one line — heavy on the date, light on chrome */}
+      <div className="vg-jr-dayhead">
+        <div>
+          <div className="vg-jr-dayname">{dayLabel === todayISO() ? "Today" : dayLabel}</div>
+          <span className="vg-note" style={{ fontSize: 12 }}>
+            {s.session ? `${s.session} playbook · ` : ""}vs. {kindLabel}
+            {sc && sc.regime && <> · <span className={sc.regime.correct ? "vg-up" : "vg-down"}>
+              {sc.regime.correct ? "forecast held ✓" : "forecast missed ✗"}</span></>}
+          </span>
         </div>
         <button className="vg-linkbtn" disabled={busy === `del${s.id}`} onClick={() => onDelete(s.id)}>
           {busy === `del${s.id}` ? "…" : "delete"}
         </button>
       </div>
 
-      {/* forecast | actual, side by side */}
-      <div className="vg-jr-tiles">
-        <div className="vg-jr-tile">
-          <h4>The forecast</h4>
-          {f.plan
-            ? <div className="big">{f.gamma} gamma</div>
-            : <div className="big" style={{ fontWeight: 400 }}>No forecast frozen</div>}
-          {f.plan && <div className="sub">{f.plan}</div>}
-          {f.spot != null && <div className="sub">spot at forecast: {Math.round(f.spot)}
-            {f.gamma_flip != null ? ` · flip ${Math.round(f.gamma_flip)}` : ""}</div>}
-        </div>
-        <div className="vg-jr-tile">
-          <h4>Actual</h4>
-          {sc ? (
-            <>
-              <div className="big">
-                {sc.regime
-                  ? <span className={sc.regime.correct ? "up" : "down"}>{sc.regime.correct ? "✓ forecast held" : "✗ forecast missed"}</span>
-                  : "session read"}
-              </div>
+      {/* THE HERO: every decision, correlated to the forecast, annotated */}
+      <TradesPanel snap={s} thoughts={thoughts} onThought={setThought} />
+
+      {/* the forecast context — secondary, collapsed below the trades */}
+      <details className="vg-jr-forecast">
+        <summary className="vg-note" style={{ cursor: "pointer", fontWeight: 600, marginTop: 14 }}>
+          Forecast vs. actual{sc && sc.level_accuracy != null ? ` · levels ${pct(sc.level_accuracy)}` : ""}
+          {sc && sc.regime ? ` · ${sc.regime.outcome} (${sc.regime.moved_pct}%)` : ""}
+        </summary>
+        <div className="vg-jr-tiles" style={{ marginTop: 10 }}>
+          <div className="vg-jr-tile">
+            <h4>The forecast</h4>
+            {f.plan
+              ? <div className="big">{f.gamma} gamma</div>
+              : <div className="big" style={{ fontWeight: 400 }}>No forecast frozen</div>}
+            {f.plan && <div className="sub">{f.plan}</div>}
+            {f.spot != null && <div className="sub">spot at forecast: {Math.round(f.spot)}
+              {f.gamma_flip != null ? ` · flip ${Math.round(f.gamma_flip)}` : ""}</div>}
+          </div>
+          <div className="vg-jr-tile">
+            <h4>Actual</h4>
+            {sc ? (
               <div className="sub">
                 price {sc.price_low}–{sc.price_high} (last {sc.price_last})
                 {sc.regime && <> · {sc.regime.outcome} ({sc.regime.moved_pct}% move)</>}
                 {sc.level_accuracy != null && <> · levels {pct(sc.level_accuracy)}</>}
               </div>
-            </>
-          ) : (
-            <div className="sub">Not scored yet — scores against today's session once bars print.</div>
-          )}
+            ) : (
+              <div className="sub">Not scored yet — scores against today's session once bars print.</div>
+            )}
+          </div>
         </div>
-      </div>
-
-      {/* per-level table: each forecasted level vs. what price did */}
-      {(f.levels || []).length > 0 && (
-        <div className="vg-jr-tile">
-          <h4>Levels — forecast vs. actual</h4>
-          <LevelTable forecast={f} scorecard={sc} />
-        </div>
-      )}
-
-      {/* THE MEAT: every decision, correlated to the forecast, annotated */}
-      <TradesPanel snap={s} thoughts={thoughts} onThought={setThought} />
+        {(f.levels || []).length > 0 && (
+          <div className="vg-jr-tile" style={{ marginTop: 8 }}>
+            <h4>Levels — forecast vs. actual</h4>
+            <LevelTable forecast={f} scorecard={sc} />
+          </div>
+        )}
+      </details>
 
       {/* the day's overall reflection */}
       <div className="vg-jr-form" style={{ marginTop: 14 }}>

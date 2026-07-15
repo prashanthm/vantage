@@ -750,18 +750,51 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-jr-thought::placeholder { color: var(--vg-faint); }
 
 /* ── Trading journal: the trade log (the meat) ── */
-.vg-trade { border: 1px solid var(--vg-hairline); border-radius: 9px; background: var(--vg-card); overflow: hidden; }
-.vg-trade.open { border-color: var(--vg-rule); }
+/* Trades are the subject — bigger type, more room, the focus of the pane. */
+.vg-trade { border: 1px solid var(--vg-hairline); border-radius: 11px; background: var(--vg-card); overflow: hidden; }
+.vg-trade.open { border-color: var(--vg-rule); box-shadow: 0 2px 14px -10px rgba(19,26,42,.4); }
 .vg-trade-row {
-  display: grid; grid-template-columns: 48px minmax(150px,1.4fr) 90px 92px 78px auto 20px;
-  align-items: center; gap: 10px; padding: 9px 12px; cursor: pointer; font-size: 13px;
+  display: grid; grid-template-columns: 52px minmax(170px,1.6fr) 104px 108px 92px auto 22px;
+  align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; font-size: 15px;
 }
 .vg-trade-row:hover { background: var(--vg-pane); }
 .vg-trade-time { color: var(--vg-faint); font-variant-numeric: tabular-nums; font-size: 12px; }
-.vg-trade-name b { font-weight: 650; }
-.vg-trade-spx { font-variant-numeric: tabular-nums; color: var(--vg-dim); }
-.vg-trade-pnl { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.vg-trade-name { font-size: 16px; letter-spacing: -.01em; }
+.vg-trade-name b { font-weight: 700; }
+.vg-trade-spx { font-variant-numeric: tabular-nums; color: var(--vg-dim); font-size: 13px; }
+.vg-trade-pnl { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; font-size: 16px; }
 .vg-trade-caret { color: var(--vg-faint); text-align: center; }
+
+/* ── day strip: the compact daily navigator ── */
+.vg-jr-topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.vg-daystrip {
+  display: flex; gap: 6px; overflow-x: auto; padding: 2px 2px 8px; margin-bottom: 6px;
+  scrollbar-width: thin;
+}
+.vg-daystrip-pill {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-width: 58px; padding: 7px 10px; border-radius: 10px; cursor: pointer;
+  background: var(--vg-card); border: 1px solid var(--vg-hairline); font: inherit;
+}
+.vg-daystrip-pill:hover { background: var(--vg-pane); }
+.vg-daystrip-pill.sel { border-color: var(--vg-accent); background: var(--vg-accent-soft); }
+.vg-daystrip-wd { font-size: 10px; color: var(--vg-faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+.vg-daystrip-pill.today .vg-daystrip-wd { color: var(--vg-accent); }
+.vg-daystrip-date { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
+.vg-daystrip-dot { width: 6px; height: 6px; border-radius: 50%; }
+.vg-daystrip-dot.good { background: var(--vg-up); }
+.vg-daystrip-dot.warn { background: var(--vg-warn); }
+.vg-daystrip-dot.bad  { background: var(--vg-down); }
+.vg-daystrip-dot.empty { background: transparent; border: 1px solid var(--vg-rule); }
+
+/* ── month-jump popover ── */
+.vg-monthjump { position: relative; }
+.vg-monthjump-backdrop { position: fixed; inset: 0; z-index: 40; }
+.vg-monthjump-pop {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; width: 320px;
+  background: var(--vg-card); border: 1px solid var(--vg-rule); border-radius: 12px;
+  padding: 12px; box-shadow: 0 12px 40px -12px rgba(19,26,42,.5);
+}
 .vg-trade-detail { padding: 4px 14px 14px; border-top: 1px solid var(--vg-hairline); background: var(--vg-pane); }
 .vg-trade-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 10px; }
 @media (max-width: 820px) { .vg-trade-grid { grid-template-columns: 1fr; } }
@@ -782,3 +815,10 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   padding: 10px 12px; border-radius: 8px; background: var(--vg-pane);
   border: 1px solid var(--vg-hairline); color: var(--vg-ink);
 }
+
+/* ── day header (above the trades) + collapsed forecast context ── */
+.vg-jr-dayhead { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 4px; }
+.vg-jr-dayname { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.vg-jr-forecast summary::-webkit-details-marker { display: none; }
+.vg-jr-forecast summary::before { content: "▸ "; }
+.vg-jr-forecast[open] summary::before { content: "▾ "; }

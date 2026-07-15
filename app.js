@@ -2994,8 +2994,8 @@
     if (d && d.available === false) {
       return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "Trading journal"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, d.note || "Journal needs the SQLite backend + a generated playbook."));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Trading journal", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, " \xB7 last night's forecast vs. today \xB7 what I did")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym }), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, d ? `${snaps.length} ${sym} day${snaps.length === 1 ? "" : "s"} journaled` : "loading\u2026"))), acc.n_scored > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(Tile2, { label: "Level accuracy", value: pct3(acc.avg_level_accuracy), tone: acc.avg_level_accuracy >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Regime calls right", value: pct3(acc.regime_hit_rate), tone: acc.regime_hit_rate >= 0.5 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile2, { label: "Scored", value: acc.n_scored }))), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(
-      Calendar,
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-topbar" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 18 } }, "Trading journal"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym }), /* @__PURE__ */ React.createElement(
+      MonthJump,
       {
         view,
         setView,
@@ -3003,7 +3003,7 @@
         selDay,
         onSelect: setSelDay
       }
-    )), selSnap ? /* @__PURE__ */ React.createElement(
+    ))), /* @__PURE__ */ React.createElement(DayStrip, { byDay, selDay, onSelect: setSelDay }), selSnap ? /* @__PURE__ */ React.createElement(
       DayDetail,
       {
         key: selSnap.id,
@@ -3013,7 +3013,70 @@
         onSaveEntry: doSaveEntry,
         onAttach: doAttach
       }
-    ) : /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { padding: "4px 2px" } }, selDay === todayISO() ? d ? "Setting up today's entry \u2014 it freezes last night's forecast and scores it against today's SPX price\u2026" : "loading\u2026" : `No journal entry for ${selDay}.`), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "Each day freezes a playbook forecast (prior session by default); scoring compares its levels to actual SPX price action over the session."), /* @__PURE__ */ React.createElement("div", null, "Journal / analysis only. Places no orders (ADR-010). Not financial advice.")));
+    ) : /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { padding: "20px 2px" } }, selDay === todayISO() ? d ? "Setting up today's entry \u2014 it freezes last night's forecast and scores it against today's SPX price\u2026" : "loading\u2026" : `No journal entry for ${selDay}.`));
+  }
+  var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  function DayStrip({ byDay, selDay, onSelect }) {
+    const stripRef = useRef2(null);
+    const days = useMemo4(() => {
+      const out = [];
+      const d = /* @__PURE__ */ new Date();
+      while (out.length < 14) {
+        const dow = d.getDay();
+        if (dow !== 0 && dow !== 6) {
+          out.unshift(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+        }
+        d.setDate(d.getDate() - 1);
+      }
+      return out;
+    }, []);
+    useEffect7(() => {
+      const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
+      if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
+    }, [selDay]);
+    const today = todayISO();
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-daystrip", ref: stripRef }, days.map((iso) => {
+      const snap = byDay[iso];
+      const tone = snap ? dayTone(snap) : null;
+      const [y, m, dd] = iso.split("-");
+      const wd = WD[new Date(Number(y), Number(m) - 1, Number(dd)).getDay()];
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: iso,
+          className: cls("vg-daystrip-pill", iso === selDay && "sel", iso === today && "today"),
+          onClick: () => onSelect(iso)
+        },
+        /* @__PURE__ */ React.createElement("span", { className: "vg-daystrip-wd" }, iso === today ? "Today" : wd),
+        /* @__PURE__ */ React.createElement("span", { className: "vg-daystrip-date" }, MONTHS[Number(m) - 1].slice(0, 3), " ", Number(dd)),
+        /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-dot", tone || "empty") })
+      );
+    }));
+  }
+  function MonthJump({ view, setView, byDay, selDay, onSelect }) {
+    const [open, setOpen] = useState10(false);
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-monthjump" }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        onClick: () => setOpen(!open),
+        title: "Jump to a past day"
+      },
+      "\u{1F4C5} ",
+      MONTHS[view.m].slice(0, 3)
+    ), open && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-monthjump-backdrop", onClick: () => setOpen(false) }), /* @__PURE__ */ React.createElement("div", { className: "vg-monthjump-pop" }, /* @__PURE__ */ React.createElement(
+      Calendar,
+      {
+        view,
+        setView,
+        byDay,
+        selDay,
+        onSelect: (d) => {
+          onSelect(d);
+          setOpen(false);
+        }
+      }
+    ))));
   }
   function Calendar({ view, setView, byDay, selDay, onSelect }) {
     const { y, m } = view;
@@ -3111,7 +3174,7 @@
     const f = s.forecast || {};
     const dayLabel = dayOf(s);
     const kindLabel = s.forecast_kind === "live" ? "today's live forecast" : "last night's forecast";
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-jr-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "space-between", alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, dayLabel, s.session ? ` \xB7 ${s.session} playbook` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11, marginLeft: 6, fontWeight: 400 } }, "vs. ", kindLabel)), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", disabled: busy === `del${s.id}`, onClick: () => onDelete(s.id) }, busy === `del${s.id}` ? "\u2026" : "delete")), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tiles" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "The forecast"), f.plan ? /* @__PURE__ */ React.createElement("div", { className: "big" }, f.gamma, " gamma") : /* @__PURE__ */ React.createElement("div", { className: "big", style: { fontWeight: 400 } }, "No forecast frozen"), f.plan && /* @__PURE__ */ React.createElement("div", { className: "sub" }, f.plan), f.spot != null && /* @__PURE__ */ React.createElement("div", { className: "sub" }, "spot at forecast: ", Math.round(f.spot), f.gamma_flip != null ? ` \xB7 flip ${Math.round(f.gamma_flip)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "Actual"), sc ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "big" }, sc.regime ? /* @__PURE__ */ React.createElement("span", { className: sc.regime.correct ? "up" : "down" }, sc.regime.correct ? "\u2713 forecast held" : "\u2717 forecast missed") : "session read"), /* @__PURE__ */ React.createElement("div", { className: "sub" }, "price ", sc.price_low, "\u2013", sc.price_high, " (last ", sc.price_last, ")", sc.regime && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", sc.regime.outcome, " (", sc.regime.moved_pct, "% move)"), sc.level_accuracy != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 levels ", pct3(sc.level_accuracy)))) : /* @__PURE__ */ React.createElement("div", { className: "sub" }, "Not scored yet \u2014 scores against today's session once bars print."))), (f.levels || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "Levels \u2014 forecast vs. actual"), /* @__PURE__ */ React.createElement(LevelTable, { forecast: f, scorecard: sc })), /* @__PURE__ */ React.createElement(TradesPanel, { snap: s, thoughts, onThought: setThought }), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0 } }, "My journal \u2014 the day overall"), ENTRY_FIELDS.map(([k, label, ph]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-jr-field" }, /* @__PURE__ */ React.createElement("label", null, label), k === "notes" ? /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-jr-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-dayhead" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-dayname" }, dayLabel === todayISO() ? "Today" : dayLabel), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, s.session ? `${s.session} playbook \xB7 ` : "", "vs. ", kindLabel, sc && sc.regime && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("span", { className: sc.regime.correct ? "vg-up" : "vg-down" }, sc.regime.correct ? "forecast held \u2713" : "forecast missed \u2717")))), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", disabled: busy === `del${s.id}`, onClick: () => onDelete(s.id) }, busy === `del${s.id}` ? "\u2026" : "delete")), /* @__PURE__ */ React.createElement(TradesPanel, { snap: s, thoughts, onThought: setThought }), /* @__PURE__ */ React.createElement("details", { className: "vg-jr-forecast" }, /* @__PURE__ */ React.createElement("summary", { className: "vg-note", style: { cursor: "pointer", fontWeight: 600, marginTop: 14 } }, "Forecast vs. actual", sc && sc.level_accuracy != null ? ` \xB7 levels ${pct3(sc.level_accuracy)}` : "", sc && sc.regime ? ` \xB7 ${sc.regime.outcome} (${sc.regime.moved_pct}%)` : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tiles", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "The forecast"), f.plan ? /* @__PURE__ */ React.createElement("div", { className: "big" }, f.gamma, " gamma") : /* @__PURE__ */ React.createElement("div", { className: "big", style: { fontWeight: 400 } }, "No forecast frozen"), f.plan && /* @__PURE__ */ React.createElement("div", { className: "sub" }, f.plan), f.spot != null && /* @__PURE__ */ React.createElement("div", { className: "sub" }, "spot at forecast: ", Math.round(f.spot), f.gamma_flip != null ? ` \xB7 flip ${Math.round(f.gamma_flip)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile" }, /* @__PURE__ */ React.createElement("h4", null, "Actual"), sc ? /* @__PURE__ */ React.createElement("div", { className: "sub" }, "price ", sc.price_low, "\u2013", sc.price_high, " (last ", sc.price_last, ")", sc.regime && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", sc.regime.outcome, " (", sc.regime.moved_pct, "% move)"), sc.level_accuracy != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 levels ", pct3(sc.level_accuracy))) : /* @__PURE__ */ React.createElement("div", { className: "sub" }, "Not scored yet \u2014 scores against today's session once bars print."))), (f.levels || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-jr-tile", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("h4", null, "Levels \u2014 forecast vs. actual"), /* @__PURE__ */ React.createElement(LevelTable, { forecast: f, scorecard: sc }))), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-form", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0 } }, "My journal \u2014 the day overall"), ENTRY_FIELDS.map(([k, label, ph]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-jr-field" }, /* @__PURE__ */ React.createElement("label", null, label), k === "notes" ? /* @__PURE__ */ React.createElement(
       "textarea",
       {
         rows: 2,
@@ -3209,9 +3272,6 @@
         VERDICT_LABEL[v] || v
       ) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: "lvl-actual vg-note" }, actualForLevel(lv, v, scorecard)));
     }))));
-  }
-  function Tile2({ label, value, tone }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
   }
   var STATUS_TONE2 = {
     closed: "plain",
