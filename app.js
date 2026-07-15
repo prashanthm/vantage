@@ -3488,7 +3488,15 @@
     const setTag = (level) => onThought(encode(level, rawExit, why));
     const setExitTag = (level) => onThought(encode(rawTag, level, why));
     const setWhy = (v) => onThought(encode(rawTag, rawExit, v));
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-trade", expanded && "open") }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-row", onClick: onToggle }, /* @__PURE__ */ React.createElement("span", { className: "vg-trade-time" }, t.opened_et || (t.opened_at || "").slice(11, 16) || "\u2014"), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-name" }, /* @__PURE__ */ React.createElement("b", { className: long ? "vg-up" : "vg-down" }, t.label)), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-spx" }, "SPX ", fmtLvl(t.spot_at_entry)), /* @__PURE__ */ React.createElement("span", null, nearest2 ? /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-trade", expanded && "open") }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-row", onClick: onToggle }, /* @__PURE__ */ React.createElement("span", { className: "vg-trade-time" }, t.opened_et || (t.opened_at || "").slice(11, 16) || "\u2014"), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-name" }, /* @__PURE__ */ React.createElement("b", { className: long ? "vg-up" : "vg-down" }, t.label), t.account_label && /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        className: "vg-badge plain",
+        style: { marginLeft: 6, fontSize: 10 },
+        title: `account: ${t.account_label}`
+      },
+      t.account_label
+    )), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-spx" }, "SPX ", fmtLvl(t.spot_at_entry)), /* @__PURE__ */ React.createElement("span", null, nearest2 ? /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", corr.at_level ? "good" : "plain"),

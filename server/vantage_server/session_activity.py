@@ -456,25 +456,30 @@ def fills_for(store, day: str, underlying: str | None = None) -> list[dict]:
     return sorted(prior + today, key=lambda r: str(r.get("date") or ""))
 
 
+def _acct_of(r: dict) -> str:
+    return str(r.get("account") or r.get("broker_account") or "?")
+
+
 def _prior_opens_for_closes(hist: list[dict], today: list[dict], day: str) -> list[dict]:
-    """For each contract closed (net-reduced) on ``day``, the earlier fills back
-    to when it was last FLAT — its opening leg. Returns only rows dated before
-    ``day`` (today's own rows are already included by the caller)."""
+    """For each (account, contract) closed (net-reduced) on ``day``, the earlier
+    fills back to when it was last FLAT — its opening leg. Keyed on ACCOUNT too,
+    so a close in one broker account never pulls an open from another. Returns
+    only rows dated before ``day`` (today's own rows are already included)."""
     from collections import defaultdict
-    # today's signed net per symbol
-    today_net: dict[str, float] = defaultdict(float)
+    # today's signed net per (account, symbol)
+    today_net: dict[tuple, float] = defaultdict(float)
     for r in today:
         q = abs(_f2(r.get("quantity")))
-        today_net[str(r.get("symbol"))] += q if r.get("side") == "buy" else -q
+        today_net[(_acct_of(r), str(r.get("symbol")))] += q if r.get("side") == "buy" else -q
 
     out: list[dict] = []
-    for sym, net_today in today_net.items():
+    for (acct, sym), net_today in today_net.items():
         # a same-day round trip (net 0) or a pure open (net same sign as its
         # first fill) needs no history; only a NET REDUCE of a prior position
         # (today sold more than it bought, or bought back more than it shorted)
-        # pulls the opener. Walk this symbol's full history and keep the tail
-        # from the last flat point up to (but not including) today.
-        legs = [r for r in hist if str(r.get("symbol")) == sym]
+        # pulls the opener. Walk this (account, symbol)'s full history and keep
+        # the tail from the last flat point up to (but not including) today.
+        legs = [r for r in hist if str(r.get("symbol")) == sym and _acct_of(r) == acct]
         run = 0.0
         flat_idx = 0
         for i, r in enumerate(legs):
@@ -517,6 +522,28 @@ def _settle_price(day: str, symbol: str = "^GSPC") -> float | None:
     return None
 
 
+_ACCT_LABELS: dict = {}
+
+
+def _account_label(store, account_id: str | None) -> str | None:
+    """A friendly display name for a trade's broker account (the account's
+    ``name``/``short``, e.g. 'RH Margin'), falling back to the raw id. Cached
+    per store so the per-trade loop doesn't re-query."""
+    if not account_id:
+        return None
+    key = id(store)
+    labels = _ACCT_LABELS.get(key)
+    if labels is None:
+        labels = {}
+        try:
+            for a in store.load_accounts():
+                labels[str(a.id)] = a.name or a.short or str(a.id)
+        except Exception:  # noqa: BLE001
+            labels = {}
+        _ACCT_LABELS[key] = labels
+    return labels.get(str(account_id), str(account_id))
+
+
 def _session_closed(day: str, *, now=None) -> bool:
     """Has ``day``'s RTH session ended? A PAST date is always closed; TODAY is
     closed only once it is ≥ 16:00 ET. Governs whether a 0DTE expiring on
@@ -543,7 +570,21 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
     und = (underlying or "SPX").upper()
 
     fills = fills_for(store, day, und)
-    trades = build_trades(group_orders(fills))
+    # Reconstruct positions PER ACCOUNT — a buy in one broker account must never
+    # net against a sell in another (the same 0DTE strike traded in both rh-main
+    # and rh-margin would otherwise pair into a phantom round-trip, corrupting
+    # size and P&L, live 2026-07-15 7535C). Group by account, build each
+    # independently, tag every trade with its account, then merge.
+    by_acct: dict[str, list[dict]] = defaultdict(list)
+    for f in fills:
+        by_acct[str(f.get("account") or f.get("broker_account") or "?")].append(f)
+    trades = []
+    for acct, afills in by_acct.items():
+        acct_trades = build_trades(group_orders(afills))
+        for t in acct_trades:
+            t["account"] = acct
+        trades.extend(acct_trades)
+    trades.sort(key=lambda t: t.get("opened_at") or t.get("closed_at") or "")
 
     settle = _settle_price(day) if und == "SPX" else _settle_price(day, und)
     closed = _session_closed(day)
@@ -603,6 +644,7 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         # ET display times for the card (raw opened_at/closed_at stay for math)
         t["opened_et"] = et_hm(t.get("opened_at"))
         t["closed_et"] = et_hm(t.get("closed_at"))
+        t["account_label"] = _account_label(store, t.get("account"))
         t["label"] = _label(t)
 
     summary = summarize(day, und, trades, settle)
@@ -655,7 +697,13 @@ def day_pnl_range(store, days: list[str], underlying: str = "SPX") -> dict:
         by_day.setdefault(d, []).append(r)
     for d in days:
         rows = by_day.get(d, [])
-        trades = build_trades(group_orders(rows))
+        # per-account (same reason as session(): no cross-account netting)
+        per_acct: dict[str, list[dict]] = defaultdict(list)
+        for r in rows:
+            per_acct[_acct_of(r)].append(r)
+        trades = []
+        for arows in per_acct.values():
+            trades.extend(build_trades(group_orders(arows)))
         realized = round(sum(t["cost"] + t["proceeds"] for t in trades), 2)
         out[d] = {"realized": realized, "trades": len(trades),
                   "has_fills": bool(rows)}

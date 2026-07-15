@@ -735,6 +735,10 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
         <span className="vg-trade-time">{t.opened_et || (t.opened_at || "").slice(11, 16) || "—"}</span>
         <span className="vg-trade-name">
           <b className={long ? "vg-up" : "vg-down"}>{t.label}</b>
+          {t.account_label && (
+            <span className="vg-badge plain" style={{ marginLeft: 6, fontSize: 10 }}
+              title={`account: ${t.account_label}`}>{t.account_label}</span>
+          )}
         </span>
         <span className="vg-trade-spx">SPX {fmtLvl(t.spot_at_entry)}</span>
         <span>
