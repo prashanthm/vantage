@@ -3354,24 +3354,17 @@
         }
         if (evt.kind === "done") {
           abortRef.current = null;
-          const routed = text.trimStart().startsWith("[") && /\{"/.test(text);
-          const finalText = routed ? "" : text;
-          if (finalText.trim() && res.trade_key) {
+          if (text.trim() && res.trade_key) {
             saveTradeAnalysis({
               day,
               trade_key: res.trade_key,
               underlying,
               label: res.dna.label,
               dna: res.dna,
-              analysis: finalText
+              analysis: text
             });
           }
-          setState({
-            text: finalText,
-            dna: res.dna,
-            saved: !!finalText.trim(),
-            modelUnavailable: routed
-          });
+          setState({ text, dna: res.dna, saved: !!text.trim() });
           return;
         }
         const chunk = evt.text || evt.delta || evt.content || "";
@@ -3418,7 +3411,7 @@
     const e = dna.entry, x = dna.exit;
     const win = (w) => (w || []).map((b) => `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  \xABFILL\xBB" : ""}`).join("\n");
     return [
-      `You are a trading-desk analyst. Read the complete DNA of this one options position below and give a specific, numbers-driven review of the decision quality. Do not ask for more data \u2014 everything is here.`,
+      `Review this options trade and grade the decision quality \u2014 entry, exit, and whether it respected the plan. All the DNA is below; be specific with the numbers and use ONLY these numbers.`,
       ``,
       `TRADE: ${dna.label} (${dna.strategy}), a ${dna.timeframe} on ${dna.underlying}. Opened ${dna.opened_at}, closed ${dna.closed_at}. Realized P&L $${dna.realized}.`,
       dna.coarse ? `Note: price action is 15-minute bars (1-minute unavailable this far back).` : ``,

@@ -722,20 +722,16 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, label }) {
       if (evt.kind === "error") { setState({ error: evt.message || "Mira error" }); return; }
       if (evt.kind === "done") {
         abortRef.current = null;
-        // Mira's supervisor classifies trade-data prompts to a specialist whose
-        // turn-path synthesis is still deterministic (echoes tool JSON, not
-        // prose) — detect that and fall back to the structured DNA read, which
-        // IS the full picture, rather than showing raw JSON.
-        const routed = text.trimStart().startsWith("[") && /\{"/.test(text);
-        const finalText = routed ? "" : text;
-        if (finalText.trim() && res.trade_key) {
+        // The trade-analyst routes and the supervisor synthesizes with the
+        // model, so `text` is a real prose review. Freeze it + the DNA into
+        // the record (survives 1m bars ageing out).
+        if (text.trim() && res.trade_key) {
           saveTradeAnalysis({
             day, trade_key: res.trade_key, underlying, label: res.dna.label,
-            dna: res.dna, analysis: finalText,
+            dna: res.dna, analysis: text,
           });
         }
-        setState({ text: finalText, dna: res.dna, saved: !!finalText.trim(),
-                   modelUnavailable: routed });
+        setState({ text, dna: res.dna, saved: !!text.trim() });
         return;
       }
       const chunk = evt.text || evt.delta || evt.content || "";
@@ -852,14 +848,12 @@ function buildAnalystPrompt(dna, why, session, day, tradeIndex, underlying) {
   const e = dna.entry, x = dna.exit;
   const win = (w) => (w || []).map((b) =>
     `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  «FILL»" : ""}`).join("\n");
-  // NOTE: framed to reach Mira's direct-model turn, NOT the supervisor's
-  // routed specialists — those are a Phase-1 deterministic scaffold with no
-  // live model yet (they echo tool JSON, not prose). The dedicated
-  // trade_analyst card + vantage.trade_dna MCP tool are registered and route
-  // correctly; they'll produce the read once Mira wires model synthesis into
-  // the turn path. Until then the direct model gives a real DNA read.
+  // Routes to Mira's trade_analyst specialist ("review this trade" keywords);
+  // the supervisor synthesizes the read with the model (Option A). The DNA is
+  // inlined ONCE below (single source of truth — no TRADE_REF re-fetch, which
+  // gave the model two framings of the same trade and muddled the numbers).
   return [
-    `You are a trading-desk analyst. Read the complete DNA of this one options position below and give a specific, numbers-driven review of the decision quality. Do not ask for more data — everything is here.`,
+    `Review this options trade and grade the decision quality — entry, exit, and whether it respected the plan. All the DNA is below; be specific with the numbers and use ONLY these numbers.`,
     ``,
     `TRADE: ${dna.label} (${dna.strategy}), a ${dna.timeframe} on ${dna.underlying}. Opened ${dna.opened_at}, closed ${dna.closed_at}. Realized P&L $${dna.realized}.`,
     dna.coarse ? `Note: price action is 15-minute bars (1-minute unavailable this far back).` : ``,
