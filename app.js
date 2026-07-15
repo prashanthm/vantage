@@ -3432,6 +3432,8 @@
   function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
     const [state, setState] = useState10(null);
     const abortRef = useRef2(null);
+    const readRef = useRef2(null);
+    const busy = state === "loading" || state === "streaming";
     const run = async () => {
       setState("loading");
       const res = await getTradeDna(day, tradeIndex, underlying);
@@ -3441,7 +3443,7 @@
       }
       const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag }, res.playbook_session);
       let text = "";
-      setState({ text: "" });
+      setState("streaming");
       abortRef.current = streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
         if (evt.kind === "error") {
           setState({ error: evt.message || "Mira error" });
@@ -3460,6 +3462,7 @@
             });
           }
           setState({ text, dna: res.dna, saved: !!text.trim() });
+          setTimeout(() => readRef.current && readRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
           return;
         }
         const chunk = evt.text || evt.delta || evt.content || "";
@@ -3487,7 +3490,17 @@
         if (abortRef.current) abortRef.current();
       };
     }, [day, tradeIndex, underlying]);
-    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "The DNA \u2014 Mira's read"), (!state || state.error) && /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u{1F9EC} Analyze this trade"), state && state.text != null && /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u21BB Re-analyze")), state === "loading" && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Building the DNA (price action \xB7 volume \xB7 technicals \xB7 levels) and reading news + sentiment\u2026"), state && state.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, state.error), state && state.text != null && /* @__PURE__ */ React.createElement(React.Fragment, null, state.text.trim() && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, state.text), state.dna && /* @__PURE__ */ React.createElement(DnaReadout, { dna: state.dna }), state.modelUnavailable && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 6 } }, "The narrative read is pending Mira's turn-path model synthesis; the full structured DNA above is the complete record."), state.saved && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 4 } }, "\u2713 saved to this trade's record", state.analyzedAt ? ` \xB7 ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : "")));
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "The DNA \u2014 Mira's read"), busy ? /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        disabled: true,
+        "aria-busy": "true",
+        style: { opacity: 0.7, cursor: "wait" }
+      },
+      /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"),
+      " Analyzing\u2026"
+    ) : typeof state === "object" && state && state.text != null ? /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u21BB Re-analyze") : /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u{1F9EC} Analyze this trade")), busy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, state === "loading" ? "Building the DNA (price action \xB7 volume \xB7 technicals \xB7 levels) and reading news + sentiment\u2026" : "Mira is writing the desk review\u2026"), typeof state === "object" && state && state.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, state.error), typeof state === "object" && state && state.text != null && /* @__PURE__ */ React.createElement("div", { ref: readRef }, state.text.trim() && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, state.text), state.dna && /* @__PURE__ */ React.createElement(DnaReadout, { dna: state.dna }), state.modelUnavailable && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 6 } }, "The narrative read is pending Mira's turn-path model synthesis; the full structured DNA above is the complete record."), state.saved && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 4 } }, "\u2713 saved to this trade's record", state.analyzedAt ? ` \xB7 ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : "")));
   }
   function DnaReadout({ dna }) {
     const e = dna.entry, x = dna.exit;

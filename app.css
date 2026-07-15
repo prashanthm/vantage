@@ -285,6 +285,7 @@ body {
 .vg-scope-head .vg-kicker { margin: 0; }
 .vg-acct .actions { margin-left: 8px; display: inline-flex; align-items: center; }
 @keyframes vg-spin { to { transform: rotate(360deg); } }
+.vg-spin { display: inline-block; animation: vg-spin 0.8s linear infinite; }
 
 /* ---------- stat tiles ---------- */
 .vg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--vg-sp-3); }

@@ -790,8 +790,13 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
 // that ALSO asks Mira to weigh news + sentiment for the underlying, and streams
 // the read. The "entire DNA of the trade" in one place.
 function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
-  const [state, setState] = useState(null);   // null | "loading" | {text} | {error}
+  const [state, setState] = useState(null);   // null | "loading" | "streaming" | {text} | {error}
   const abortRef = useRef(null);
+  const readRef = useRef(null);
+  // a run is in flight while we're building the DNA ("loading") or the model is
+  // still streaming with nothing rendered yet ("streaming") — used to disable
+  // the button and show a spinner so a click is never mistaken for "did nothing".
+  const busy = state === "loading" || state === "streaming";
 
   const run = async () => {
     setState("loading");
@@ -802,7 +807,7 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
     }
     const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag }, res.playbook_session);
     let text = "";
-    setState({ text: "" });
+    setState("streaming");
     abortRef.current = streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
       if (evt.kind === "error") { setState({ error: evt.message || "Mira error" }); return; }
       if (evt.kind === "done") {
@@ -817,6 +822,10 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
           });
         }
         setState({ text, dna: res.dna, saved: !!text.trim() });
+        // pull the finished read into view — it renders below the fold, so
+        // completion was invisible if the operator had scrolled away.
+        setTimeout(() => readRef.current &&
+          readRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
         return;
       }
       const chunk = evt.text || evt.delta || evt.content || "";
@@ -842,21 +851,28 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
     <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" }}>
       <div className="vg-spread">
         <div className="vg-kicker" style={{ margin: 0 }}>The DNA — Mira's read</div>
-        {(!state || state.error) && (
+        {busy ? (
+          <button className="vg-btn-sm" disabled aria-busy="true"
+            style={{ opacity: 0.7, cursor: "wait" }}>
+            <span className="vg-spin" aria-hidden="true">⟳</span> Analyzing…
+          </button>
+        ) : (typeof state === "object" && state && state.text != null) ? (
+          <button className="vg-btn-sm" onClick={run}>↻ Re-analyze</button>
+        ) : (
           <button className="vg-btn-sm" onClick={run}>🧬 Analyze this trade</button>
         )}
-        {state && state.text != null && (
-          <button className="vg-btn-sm" onClick={run}>↻ Re-analyze</button>
-        )}
       </div>
-      {state === "loading" && (
+      {busy && (
         <p className="vg-note" style={{ marginTop: 8 }}>
-          Building the DNA (price action · volume · technicals · levels) and reading news + sentiment…
+          {state === "loading"
+            ? "Building the DNA (price action · volume · technicals · levels) and reading news + sentiment…"
+            : "Mira is writing the desk review…"}
         </p>
       )}
-      {state && state.error && <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{state.error}</p>}
-      {state && state.text != null && (
-        <>
+      {typeof state === "object" && state && state.error &&
+        <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{state.error}</p>}
+      {typeof state === "object" && state && state.text != null && (
+        <div ref={readRef}>
         {/* the model's narrative read, when the direct path produced one */}
         {state.text.trim() && (
           <div className="vg-dna-read" style={{ marginTop: 8 }}>{state.text}</div>
@@ -874,7 +890,7 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
             ✓ saved to this trade's record{state.analyzedAt ? ` · ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : ""}
           </p>
         )}
-        </>
+        </div>
       )}
     </div>
   );
