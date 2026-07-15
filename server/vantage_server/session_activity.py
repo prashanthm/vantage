@@ -373,19 +373,21 @@ def _f(v):
 
 def gex_anchors(scaffold: dict, store=None, day: str | None = None,
                 underlying: str = "SPX") -> list[dict]:
-    """The GEX/regime price anchors as taggable levels: gamma flip, call/put
-    walls, max pain, prior spot.
+    """The GEX price anchors as taggable levels: gamma flip, call/put walls,
+    max pain, prior spot.
 
-    The playbook SCAFFOLD's ``regime`` block only carries ``spot`` and a
-    *word* for gamma ("negative") — never the numeric flip/walls (live
-    2026-07-14: the journal dropdown offered only "prior spot"). The real
-    numbers live in the ``gex_history`` table, recorded nightly per underlying
-    under a "^"-prefixed symbol (^SPX / QQQ / IWM). So we read THAT for the
-    day's flip/call_wall/put_wall/max_pain, and fall back to the scaffold's
-    spot. ``store``/``day`` optional so callers without them still get the
-    scaffold-only behaviour (used in tests)."""
+    Sourced from the SAME playbook scaffold as the confluence/forecast levels
+    — its ``level_ladder`` rows whose ``source == "GEX"`` — so the journal's
+    GEX numbers are consistent with the playbook the trade was actually framed
+    by (and correctly dated: the session loads the playbook generated the
+    evening before). Earlier this read the separate ``gex_history`` table,
+    which is a DIFFERENTLY-TIMED computation and disagreed with the playbook
+    (live 2026-07-14: playbook call wall 7524 vs gex_history 7550) — the Pine
+    script / 0DTE playbook the operator sees is authoritative, so we key off
+    it. ``store``/``day``/``underlying`` kept in the signature for the caller
+    but no longer needed."""
+    ladder = scaffold.get("level_ladder") or []
     reg = scaffold.get("regime") or {}
-    gex = scaffold.get("gex") or {}
     out: list[dict] = []
     seen: set[float] = set()
 
@@ -395,46 +397,21 @@ def gex_anchors(scaffold: dict, store=None, day: str | None = None,
             seen.add(round(v, 2))
             out.append({"price": v, "label": label})
 
-    # the numeric GEX levels from gex_history (the authoritative source)
-    row = _gex_row_for(store, day, underlying) if store is not None else None
-    if row:
-        _add(row.get("gamma_flip"), "gamma flip")
-        _add(row.get("call_wall"), "call wall")
-        _add(row.get("put_wall"), "put wall")
-        _add(row.get("max_pain"), "max pain")
+    # the four dealer-gamma levels straight off the playbook ladder (GEX source)
+    _LABELS = (("call wall", "call wall"), ("put wall", "put wall"),
+               ("gamma flip", "gamma flip"), ("max pain", "max pain"))
+    for row in ladder:
+        if str(row.get("source") or "").upper() != "GEX":
+            continue
+        kind = str(row.get("kind") or "").lower()
+        for needle, label in _LABELS:
+            if needle in kind:
+                _add(row.get("price"), label)
+                break
 
-    # scaffold fallbacks (spot, and flip/walls IF a scaffold ever carries them)
-    for key, label in (("flip", "gamma flip"), ("call_wall", "call wall"),
-                       ("put_wall", "put wall"), ("max_pain", "max pain"),
-                       ("vol_trigger", "vol trigger"), ("spot", "prior spot")):
-        _add(reg.get(key) or gex.get(key), label)
+    # prior spot (from the scaffold regime) as an extra anchor when present
+    _add(reg.get("spot"), "prior spot")
     return out
-
-
-def _gex_row_for(store, day: str | None, underlying: str) -> dict | None:
-    """The GEX snapshot that FRAMED ``day``'s session — the most recent row
-    dated STRICTLY BEFORE ``day``, for the underlying's history symbol (SPX→
-    ^SPX). None on any miss — never guessed.
-
-    Why strictly-before, not the row dated ``day``: the snapshot is an EOD
-    dealer-gamma estimate stamped with the date it was COMPUTED (gex.record →
-    now.date(), from that day's close-of-book OI). So the row dated ``day`` is
-    measured at ``day``'s CLOSE — hours after an intraday/0DTE fill. The
-    positioning a trader actually traded against is the PRIOR close's snapshot
-    (a 2026-07-14 0DTE was framed by the 2026-07-13 EOD GEX). Using the
-    same-day row mis-correlated by up to ~50pt on the call wall (7550 on 07-13
-    vs 7600 on 07-14), inverting reads like 'bought the 7600 call AT the call
-    wall' when it was really ABOVE a 7550 wall."""
-    if store is None or day is None:
-        return None
-    sym = "^SPX" if underlying.upper() == "SPX" else underlying.upper()
-    try:
-        rows = store.load_gex_history(sym)
-    except Exception as e:  # noqa: BLE001
-        log.warning("gex_history unavailable for %s: %s", sym, e)
-        return None
-    prior = [r for r in rows if str(r.get("date") or "") < day]
-    return prior[-1] if prior else None
 
 
 # ──────────────────────────────────────────────────────────── the session build
