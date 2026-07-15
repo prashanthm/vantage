@@ -221,11 +221,18 @@ def build_trades(orders: list[dict]) -> list[dict]:
 
 # ───────────────────────────────────────────────── expiry: the invisible closes
 
-def settle_expired(trade: dict, day: str, settle_price: float | None) -> dict:
+def settle_expired(trade: dict, day: str, settle_price: float | None,
+                   market_closed: bool = True) -> dict:
     """Resolve a trade left open past its expiry. THE thing fills cannot tell
     you: an expired 0DTE has no closing fill and no settlement row — Robinhood
     just stops listing it. Worthless = the full debit is lost; ITM = cash paid
     at intrinsic. Untouched when the contracts have not expired yet.
+
+    ``market_closed`` guards SAME-DAY expiry: a 0DTE that expires on ``day``
+    is only actually settled once the session has CLOSED. Viewed intraday
+    (``day`` is today, before 4pm ET) it is a LIVE open position, not a
+    realized loss — settling it early mislabelled today's open longs as
+    'expired worthless' (live 2026-07-15). A past ``day`` is always closed.
 
     ``trade["net"]`` is the SIGNED contract count still held per symbol,
     computed from the fills themselves (buys − sells) rather than from a
@@ -244,6 +251,8 @@ def settle_expired(trade: dict, day: str, settle_price: float | None) -> dict:
             if l.get("expiration") and l["symbol"] in held}
     if not exps or min(exps) > day:
         return trade                                    # still live
+    if min(exps) == day and not market_closed:
+        return trade                # expires today, market still open — LIVE
     if settle_price is None:
         trade["status"] = "expired_unpriced"            # honest: cannot settle
         return trade
@@ -417,17 +426,73 @@ def gex_anchors(scaffold: dict, store=None, day: str | None = None,
 # ──────────────────────────────────────────────────────────── the session build
 
 def fills_for(store, day: str, underlying: str | None = None) -> list[dict]:
-    """Every FILLED execution on ``day``, oldest first. ``underlying="SPX"``
-    also matches SPXW contracts (the 0DTE weeklies)."""
-    rows = [r for r in store.load_history()
-            if str(r.get("date") or "").startswith(day)
-            and str(r.get("state") or "").lower() == "filled"]
-    if underlying:
-        u = underlying.upper()
-        rows = [r for r in rows
-                if str(r.get("symbol") or "").upper().startswith((u, u + "W"))]
-    rows.sort(key=lambda r: str(r.get("date") or ""))
-    return rows
+    """The fills that make up ``day``'s DECISIONS. Primarily ``day``'s own
+    filled executions, PLUS the prior-day opening fills of any contract that is
+    CLOSED on ``day`` — so a position opened earlier and sold today shows its
+    real entry and cost basis, not a naked sell with fabricated P&L (live
+    2026-07-15, a 7600C opened 07-14 and sold 07-15 read +$280 off the sell
+    alone). ``underlying="SPX"`` also matches SPXW contracts."""
+    u = (underlying or "").upper()
+
+    def _match(r):
+        if str(r.get("state") or "").lower() != "filled":
+            return False
+        if not underlying:
+            return True
+        return str(r.get("symbol") or "").upper().startswith((u, u + "W"))
+
+    hist = [r for r in store.load_history() if _match(r)]
+    hist.sort(key=lambda r: str(r.get("date") or ""))
+    today = [r for r in hist if str(r.get("date") or "").startswith(day)]
+
+    # contracts that today's fills REDUCE below where today's own buys/sells
+    # would leave them (i.e. a close of a position that predates today)
+    prior = _prior_opens_for_closes(hist, today, day)
+    return sorted(prior + today, key=lambda r: str(r.get("date") or ""))
+
+
+def _prior_opens_for_closes(hist: list[dict], today: list[dict], day: str) -> list[dict]:
+    """For each contract closed (net-reduced) on ``day``, the earlier fills back
+    to when it was last FLAT — its opening leg. Returns only rows dated before
+    ``day`` (today's own rows are already included by the caller)."""
+    from collections import defaultdict
+    # today's signed net per symbol
+    today_net: dict[str, float] = defaultdict(float)
+    for r in today:
+        q = abs(_f2(r.get("quantity")))
+        today_net[str(r.get("symbol"))] += q if r.get("side") == "buy" else -q
+
+    out: list[dict] = []
+    for sym, net_today in today_net.items():
+        # a same-day round trip (net 0) or a pure open (net same sign as its
+        # first fill) needs no history; only a NET REDUCE of a prior position
+        # (today sold more than it bought, or bought back more than it shorted)
+        # pulls the opener. Walk this symbol's full history and keep the tail
+        # from the last flat point up to (but not including) today.
+        legs = [r for r in hist if str(r.get("symbol")) == sym]
+        run = 0.0
+        flat_idx = 0
+        for i, r in enumerate(legs):
+            if str(r.get("date") or "").startswith(day):
+                break                       # reached today's fills
+            q = abs(_f2(r.get("quantity")))
+            run += q if r.get("side") == "buy" else -q
+            if abs(run) < 1e-9:
+                flat_idx = i + 1            # position went flat here
+        prior_run = run
+        # include the prior tail only if it left an open position that today's
+        # fills act to CLOSE (opposite sign, or reduce magnitude)
+        if abs(prior_run) > 1e-9 and (prior_run > 0) == (net_today < 0):
+            out.extend(r for r in legs[flat_idx:]
+                       if not str(r.get("date") or "").startswith(day))
+    return out
+
+
+def _f2(v) -> float:
+    try:
+        return float(v) if v is not None else 0.0
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _settle_price(day: str, symbol: str = "^GSPC") -> float | None:
@@ -447,6 +512,21 @@ def _settle_price(day: str, symbol: str = "^GSPC") -> float | None:
     return None
 
 
+def _session_closed(day: str, *, now=None) -> bool:
+    """Has ``day``'s RTH session ended? A PAST date is always closed; TODAY is
+    closed only once it is ≥ 16:00 ET. Governs whether a 0DTE expiring on
+    ``day`` gets settled (closed) or shown as a live open position (intraday).
+    ``now`` injectable for tests."""
+    from zoneinfo import ZoneInfo
+    et = now or _dt.datetime.now(ZoneInfo("America/New_York"))
+    today_et = et.date().isoformat()
+    if day < today_et:
+        return True
+    if day > today_et:
+        return False                        # future session — not closed
+    return (et.hour, et.minute) >= (16, 0)  # today: closed at/after 4pm ET
+
+
 def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
     """One session's trading as DECISIONS — multi-leg trades, expiry settled,
     each stamped with the underlying's price at entry and the forecast level
@@ -461,8 +541,9 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
     trades = build_trades(group_orders(fills))
 
     settle = _settle_price(day) if und == "SPX" else _settle_price(day, und)
+    closed = _session_closed(day)
     for t in trades:
-        settle_expired(t, day, settle)
+        settle_expired(t, day, settle, market_closed=closed)
 
     # MINUTE bars so "SPX when I pulled the trigger" is honest (a 15m close is
     # up to 9 min / ~15pt off the fill on a 0DTE). Fall back to 15m if the 1m
@@ -497,8 +578,16 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
             "distance_pct": corr["nearest"]["distance_pct"],
             "at_level": corr["at_level"],
         } if corr else None)
-        # realized = credits received + settlement − debits paid (cost is signed)
-        t["realized"] = round(t["cost"] + t["proceeds"] + t.get("settlement", 0.0), 2)
+        # realized P&L only exists once the decision is DONE (closed/expired).
+        # An OPEN position has no realized number — cost+proceeds is just the
+        # debit paid so far, not a result. None so the UI shows 'open', not a
+        # misleading loss (live 2026-07-15, an open 2-lot 7565C read −$1,510).
+        # cost_basis carries the paid debit for the open-position display.
+        if t["status"] == "open":
+            t["realized"] = None
+            t["cost_basis"] = round(t["cost"] + t["proceeds"], 2)
+        else:
+            t["realized"] = round(t["cost"] + t["proceeds"] + t.get("settlement", 0.0), 2)
         # the fill ladder + its scale read — the scale-in/out geometry the one
         # grouped line item hides (blended, no invented per-lot P&L)
         t["fills"] = fills_ladder(t)

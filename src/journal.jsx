@@ -689,7 +689,9 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
             </span>
           )}
         </span>
-        <span className={cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down")}>{money(t.realized)}</span>
+        {t.status === "open"
+          ? <span className="vg-trade-pnl vg-note" title="open position — no realized P&L yet">open</span>
+          : <span className={cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down")}>{money(t.realized)}</span>}
         <span className={cls("vg-badge", STATUS_TONE[t.status] || "plain")}>{STATUS_LABEL[t.status] || t.status}</span>
         <span className="vg-trade-caret">{expanded ? "▾" : "▸"}</span>
       </div>
@@ -712,7 +714,9 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
                 <tr><td>cost</td><td>{money(t.cost)}</td></tr>
                 {t.proceeds ? <tr><td>proceeds</td><td>{money(t.proceeds)}</td></tr> : null}
                 {t.settlement != null && <tr><td>settlement</td><td>{money(t.settlement)} @ SPX {fmtLvl(t.settle_price)}</td></tr>}
-                <tr><td><b>realized</b></td><td><b className={t.realized >= 0 ? "vg-up" : "vg-down"}>{money(t.realized)}</b></td></tr>
+                {t.status === "open"
+                  ? <tr><td><b>status</b></td><td><b>open</b> <span className="vg-note">· {money(t.cost_basis)} in, no realized P&amp;L yet</span></td></tr>
+                  : <tr><td><b>realized</b></td><td><b className={t.realized >= 0 ? "vg-up" : "vg-down"}>{money(t.realized)}</b></td></tr>}
               </tbody></table>
               <FillLadder fills={t.fills} scale={t.scale} />
             </div>
@@ -933,8 +937,10 @@ function DnaReadout({ dna }) {
         <tr><td /><td className="vg-note">VWAP {xt.vwap} ({xt.vs_vwap >= 0 ? "+" : ""}{xt.vs_vwap} vs price)
           {xt.rsi != null ? ` · RSI ${Math.round(xt.rsi)}${xt.rsi >= 70 ? " (extended)" : ""}` : ""} · rel-vol {xt.rel_volume}× · ATR {xt.atr}</td></tr>
         <tr><td><b>Result</b></td>
-          <td><b className={dna.realized >= 0 ? "vg-up" : "vg-down"}>{dna.realized >= 0 ? "+" : "−"}${Math.abs(dna.realized).toLocaleString()}</b>
-            {" "}· {dna.status.replace("_", " ")}</td></tr>
+          {dna.realized == null
+            ? <td><b>open</b> <span className="vg-note">· no realized P&amp;L yet</span></td>
+            : <td><b className={dna.realized >= 0 ? "vg-up" : "vg-down"}>{dna.realized >= 0 ? "+" : "−"}${Math.abs(dna.realized).toLocaleString()}</b>
+              {" "}· {dna.status.replace("_", " ")}</td>}</tr>
       </tbody></table>
     </div>
   );
