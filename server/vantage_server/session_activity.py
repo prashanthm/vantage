@@ -388,10 +388,19 @@ def gex_anchors(scaffold: dict, store=None, day: str | None = None,
 
 
 def _gex_row_for(store, day: str | None, underlying: str) -> dict | None:
-    """The recorded GEX row for ``day`` (the nightly snapshot that framed the
-    session), for the underlying's history symbol (SPX→^SPX). Prefers the row
-    dated ``day``; else the most recent row at/before it (the framing snapshot
-    is stored the evening before). None on any miss — never guessed."""
+    """The GEX snapshot that FRAMED ``day``'s session — the most recent row
+    dated STRICTLY BEFORE ``day``, for the underlying's history symbol (SPX→
+    ^SPX). None on any miss — never guessed.
+
+    Why strictly-before, not the row dated ``day``: the snapshot is an EOD
+    dealer-gamma estimate stamped with the date it was COMPUTED (gex.record →
+    now.date(), from that day's close-of-book OI). So the row dated ``day`` is
+    measured at ``day``'s CLOSE — hours after an intraday/0DTE fill. The
+    positioning a trader actually traded against is the PRIOR close's snapshot
+    (a 2026-07-14 0DTE was framed by the 2026-07-13 EOD GEX). Using the
+    same-day row mis-correlated by up to ~50pt on the call wall (7550 on 07-13
+    vs 7600 on 07-14), inverting reads like 'bought the 7600 call AT the call
+    wall' when it was really ABOVE a 7550 wall."""
     if store is None or day is None:
         return None
     sym = "^SPX" if underlying.upper() == "SPX" else underlying.upper()
@@ -400,12 +409,7 @@ def _gex_row_for(store, day: str | None, underlying: str) -> dict | None:
     except Exception as e:  # noqa: BLE001
         log.warning("gex_history unavailable for %s: %s", sym, e)
         return None
-    if not rows:
-        return None
-    exact = [r for r in rows if str(r.get("date")) == day]
-    if exact:
-        return exact[-1]
-    prior = [r for r in rows if str(r.get("date") or "") <= day]
+    prior = [r for r in rows if str(r.get("date") or "") < day]
     return prior[-1] if prior else None
 
 
