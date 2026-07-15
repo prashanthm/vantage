@@ -840,6 +840,59 @@ function SwotRender({ swot }) {
   );
 }
 
+// The saved detail of ONE stored analysis — scorecard (scores + patterns) then
+// the SWOT (structured grid or prose fallback). Rendered INSIDE an expanded
+// history row. Pure from the stored row `h`; no Mira call.
+function AnalysisDetail({ h }) {
+  const recs = (h.recommendations && h.recommendations.length)
+    ? h.recommendations
+    : Object.entries(h.scores || {}).map(([dim, score]) => ({
+        dimension: dim, label: RUBRIC_LABELS[dim] || dim, score,
+        status: "new", delta: null,
+      }));
+  return (
+    <div className="vg-ja-detail">
+      <div className="vg-spread">
+        <div className="vg-kicker" style={{ margin: 0 }}>Scorecard</div>
+        <span className="vg-note" style={{ fontSize: 12 }}>
+          {h.trades} trades · net <b className={h.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(h.net_pnl)}</b> · rubric v{h.rubric_version}
+        </span>
+      </div>
+      <div className="vg-scores">
+        {recs.map((r) => (
+          <div key={r.dimension} className="vg-score">
+            <div className="vg-spread" style={{ alignItems: "baseline" }}>
+              <span style={{ fontSize: 13 }}>{r.label}</span>
+              <span className="vg-row" style={{ gap: 6, alignItems: "baseline" }}>
+                <b className={cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`)}>{r.score}</b>
+                {r.delta != null
+                  ? <span className={cls("vg-badge", REC_TONE[r.status])} style={{ fontSize: 10 }}>
+                      {r.delta > 0 ? "▲" : r.delta < 0 ? "▼" : "—"}{Math.abs(r.delta)} · {r.status}</span>
+                  : <span className="vg-badge plain" style={{ fontSize: 10 }}>baseline</span>}
+              </span>
+            </div>
+            <div className="vg-score-track"><div className={cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`)} style={{ width: `${r.score}%` }} /></div>
+          </div>
+        ))}
+      </div>
+      {(h.patterns || []).length > 0 && (<>
+        <div className="vg-kicker" style={{ marginTop: 16 }}>Recurring patterns</div>
+        <table className="vg-mini" style={{ marginTop: 4 }}><tbody>
+          {h.patterns.map((p, i) => (
+            <tr key={i}>
+              <td style={{ width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 }}>{p.count}×</td>
+              <td>{p.pattern}<span className="vg-note" style={{ fontSize: 11 }}> · {(p.cites || []).length} trades</span></td>
+            </tr>
+          ))}
+        </tbody></table>
+      </>)}
+      <div className="vg-kicker" style={{ marginTop: 16 }}>SWOT &amp; read</div>
+      {h.swot ? <SwotRender swot={h.swot} />
+        : <div className="vg-dna-read" style={{ marginTop: 8 }}>{h.narrative || "(no narrative saved)"}</div>}
+    </div>
+  );
+}
+
 function JournalAnalysisPanel({ sym }) {
   const [win, setWin] = useState(() => {
     const to = todayISO();
@@ -852,45 +905,22 @@ function JournalAnalysisPanel({ sym }) {
   const [hist, setHist] = useState(null);
   const abortRef = useRef(null);
 
-  const [openId, setOpenId] = useState(null);   // which stored analysis is shown
+  const [openId, setOpenId] = useState(null);   // expanded history row (like a trade card)
 
-  // Render a STORED analysis (no Mira call) — reconstruct the scorecard from
-  // its saved scores/patterns and show its saved SWOT/narrative. This is what
-  // makes a prior analysis clickable and re-openable after navigating away.
-  const showStored = (h) => {
-    setOpenId(h.id);
-    setSaved(true);
-    setBundle({
-      window_from: h.window_from, window_to: h.window_to,
-      rubric_version: h.rubric_version, trades: h.trades,
-      analyzed: (h.patterns && h.patterns.length) ? undefined : undefined,
-      net_pnl: h.net_pnl, scores: h.scores || {},
-      patterns: h.patterns || [],
-      // recommendations weren't stored on older rows; derive display from scores
-      recommendations: (h.recommendations && h.recommendations.length)
-        ? h.recommendations
-        : Object.entries(h.scores || {}).map(([dim, score]) => ({
-            dimension: dim, label: RUBRIC_LABELS[dim] || dim, score,
-            status: "new", delta: null, text: "",
-          })),
-    });
-    setRead(h.swot
-      ? { text: h.narrative, swot: h.swot, mode: "structured" }
-      : { text: h.narrative || "", mode: "prose" });
-  };
+  // Toggle a stored analysis open/closed — click the row to expand its saved
+  // detail inline, click again (or its header) to collapse. Same feel as the
+  // trade cards.
+  const toggleStored = (h) => setOpenId((cur) => (cur === h.id ? null : h.id));
 
-  const loadHist = async (autoOpen = false) => {
+  const loadHist = async () => {
     const h = await getJournalAnalyses(sym);
     const list = h && h.available ? (h.analyses || []) : [];
     setHist(list);
-    // auto-open the most recent stored analysis so the panel isn't blank on
-    // return (the operator's last run persists visibly).
-    if (autoOpen && list.length) showStored(list[0]);
     return list;
   };
   useEffect(() => {
     setBundle(null); setRead(null); setSaved(false); setOpenId(null);
-    loadHist(true);   // reload history AND surface the latest saved analysis
+    loadHist();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sym]);
 
@@ -921,7 +951,15 @@ function JournalAnalysisPanel({ sym }) {
             trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
             patterns: b.patterns, recommendations: b.recommendations,
             swot: swot || null, narrative: text,
-          }).then((r) => { setSaved(true); if (r && r.id) setOpenId(r.id); loadHist(); });
+          }).then((r) => {
+            setSaved(true);
+            // the run is now a saved history row — clear the live view and
+            // expand the fresh row inline (so there's one place it lives).
+            loadHist().then(() => {
+              setRead(null); setBundle(null);
+              if (r && r.id) setOpenId(r.id);
+            });
+          });
         }
         return;
       }
@@ -975,8 +1013,10 @@ function JournalAnalysisPanel({ sym }) {
         </p>
       </div>
 
-      {/* the deterministic scorecard + patterns (from the bundle) */}
-      {b && (
+      {/* the LIVE run only — the deterministic scorecard + patterns while a
+          fresh analysis streams. Stored analyses expand inline in the history
+          below, so this shows only during generate. */}
+      {b && read && (
         <div className="vg-card" style={{ marginTop: 12 }}>
           <div className="vg-spread">
             <div className="vg-kicker" style={{ margin: 0 }}>Scorecard · {b.window_from} → {b.window_to}</div>
@@ -1047,11 +1087,12 @@ function JournalAnalysisPanel({ sym }) {
         </div>
       )}
 
-      {/* history — prior runs (the compounding record). Each row is clickable
-          and re-renders its SAVED analysis above (no Mira call). */}
+      {/* the analyses (the compounding record). Each row expands inline on
+          click to its saved detail (scorecard + SWOT) — same feel as a trade
+          card; click the header again to collapse. */}
       {hist && hist.length > 0 && (
         <div className="vg-card" style={{ marginTop: 12 }}>
-          <div className="vg-kicker">Prior analyses · click to reopen · knowledge compounds</div>
+          <div className="vg-kicker">Analyses · click a row to open · knowledge compounds</div>
           <table className="vg-mini vg-ja-hist" style={{ marginTop: 6 }}><tbody>
             <tr className="vg-note" style={{ fontSize: 10 }}>
               <td>window</td><td>tag</td><td style={{ textAlign: "right" }}>entry</td>
@@ -1060,18 +1101,26 @@ function JournalAnalysisPanel({ sym }) {
             </tr>
             {hist.map((h) => {
               const s = h.scores || {};
+              const isOpen = openId === h.id;
               return (
-                <tr key={h.id} className={cls("vg-ja-row", openId === h.id && "open")}
-                  onClick={() => showStored(h)} style={{ cursor: "pointer" }}
-                  title="Reopen this analysis">
-                  <td>{openId === h.id ? "▸ " : ""}{h.window_from} → {h.window_to}</td>
-                  <td><span className="vg-badge plain" style={{ fontSize: 10 }}>{h.period}</span></td>
-                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.entry_discipline || 0)}`}>{s.entry_discipline ?? "—"}</td>
-                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.exit_discipline || 0)}`}>{s.exit_discipline ?? "—"}</td>
-                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.risk_sizing || 0)}`}>{s.risk_sizing ?? "—"}</td>
-                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.plan_adherence || 0)}`}>{s.plan_adherence ?? "—"}</td>
-                  <td style={{ textAlign: "right" }} className={h.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(h.net_pnl)}</td>
-                </tr>
+                <React.Fragment key={h.id}>
+                  <tr className={cls("vg-ja-row", isOpen && "open")}
+                    onClick={() => toggleStored(h)} style={{ cursor: "pointer" }}
+                    title={isOpen ? "Collapse" : "Expand this analysis"}>
+                    <td>{isOpen ? "▾ " : "▸ "}{h.window_from} → {h.window_to}</td>
+                    <td><span className="vg-badge plain" style={{ fontSize: 10 }}>{h.period}</span></td>
+                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.entry_discipline || 0)}`}>{s.entry_discipline ?? "—"}</td>
+                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.exit_discipline || 0)}`}>{s.exit_discipline ?? "—"}</td>
+                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.risk_sizing || 0)}`}>{s.risk_sizing ?? "—"}</td>
+                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.plan_adherence || 0)}`}>{s.plan_adherence ?? "—"}</td>
+                    <td style={{ textAlign: "right" }} className={h.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(h.net_pnl)}</td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="vg-ja-detail-row">
+                      <td colSpan={7}><AnalysisDetail h={h} /></td>
+                    </tr>
+                  )}
+                </React.Fragment>
               );
             })}
           </tbody></table>

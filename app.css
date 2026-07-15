@@ -885,3 +885,10 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-ja-hist .vg-ja-row:hover { background: rgba(0,0,0,.04); }
 .vg-ja-hist .vg-ja-row.open { background: var(--vg-accent-soft); }
 .vg-ja-hist .vg-ja-row.open td:first-child { font-weight: 600; }
+
+/* Journal Analysis: inline-expandable analysis rows (trade-card feel) */
+.vg-ja-detail-row > td { padding: 0 !important; }
+.vg-ja-detail { padding: 14px 12px 16px; border-top: 1px solid var(--vg-hairline);
+  background: rgba(0,0,0,.015); }
+.vg-ja-hist .vg-ja-row.open { background: var(--vg-accent-soft); font-weight: 600; }
+.vg-ja-hist .vg-ja-row td:first-child { white-space: nowrap; }
