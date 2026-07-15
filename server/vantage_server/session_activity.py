@@ -322,43 +322,48 @@ def _bar_price_at(bars, when: str) -> float | None:
 
 
 def correlate_levels(price: float | None, levels: list[dict],
-                     anchors: list[dict]) -> dict | None:
+                     anchors: list[dict], durable: list[dict] | None = None) -> dict | None:
     """ALL the forecast levels this trade was near — not just the nearest.
 
     A 0DTE decision keys off structure: a strike sitting at a call wall, an
     entry taken as price tests the gamma flip. So for the trade's SPX print we
-    return every confluence level AND GEX anchor within threshold, nearest
-    first, each with its signed distance in points and %. The UI turns this
-    into a dropdown to TAG which level the operator actually traded — "SPX was
-    7525.94, forecast had 7525 resistance (call wall + fib 78.6%), tag it".
+    return every CONFLUENCE level, GEX anchor, AND DURABLE level (the ★-marked
+    "has held N days" S/R the playbook table shows) within threshold, nearest
+    first, each with its signed distance in points and %. The candidate set
+    MATCHES the playbook's A–I table so the journal's tag dropdown offers every
+    level the operator actually planned around — durable levels (7621/7579/7468
+    on 2026-07-15) were missing before.
 
     ``at_level`` is true when the closest is within LEVEL_TOL_PCT; ``nearby``
     is everything within 3× that (the candidate tags)."""
     if price is None:
         return None
     cands: list[dict] = []
+    seen: set[float] = set()
+
+    def _add(lp, source, role, kinds):
+        lp = _f(lp)
+        if lp is None or round(lp, 2) in seen:
+            return
+        seen.add(round(lp, 2))
+        dist = lp - price
+        cands.append({
+            "level": round(lp, 2), "source": source,
+            "role": role, "kinds": kinds or [],
+            "distance": round(dist, 2),
+            "distance_pct": round(abs(dist) / price * 100, 3) if price else None,
+        })
+
     for z in (levels or []):
-        lp = _f(z.get("price"))
-        if lp is None:
-            continue
-        dist = lp - price
-        cands.append({
-            "level": round(lp, 2), "source": "confluence",
-            "role": z.get("role"), "kinds": z.get("kinds") or [],
-            "distance": round(dist, 2),
-            "distance_pct": round(abs(dist) / price * 100, 3) if price else None,
-        })
+        _add(z.get("price"), "confluence", z.get("role"), z.get("kinds"))
     for a in (anchors or []):
-        lp = _f(a.get("price"))
-        if lp is None:
-            continue
-        dist = lp - price
-        cands.append({
-            "level": round(lp, 2), "source": "gex",
-            "role": a.get("label"), "kinds": [a.get("label")],
-            "distance": round(dist, 2),
-            "distance_pct": round(abs(dist) / price * 100, 3) if price else None,
-        })
+        _add(a.get("price"), "gex", a.get("label"), [a.get("label")])
+    # durable S/R — the ★-marked "held N sessions" levels from the playbook
+    for d in (durable or []):
+        sess = d.get("sessions")
+        label = d.get("kind") or d.get("role") or "durable"
+        kinds = [f"{label}" + (f" ★{sess}d" if sess else "")]
+        _add(d.get("price"), "durable", d.get("role"), kinds)
     if not cands:
         return None
     cands.sort(key=lambda c: abs(c["distance"]))
@@ -556,6 +561,9 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
     scaffold = (row or {}).get("scaffold") or {}
     levels = scaffold.get("confluence") or []
     anchors = gex_anchors(scaffold, store, day, und)
+    # the ★-marked durable S/R the playbook table shows (held N sessions) —
+    # planned-around levels the confluence/GEX lists don't carry
+    durable = scaffold.get("durable") or []
 
     for t in trades:
         t["spot_at_entry"] = _bar_price_at(bars, t.get("opened_at"))
@@ -566,10 +574,10 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
             t["spot_at_exit"] = round(float(t["settle_price"]), 2)
         else:
             t["spot_at_exit"] = _bar_price_at(bars, t.get("closed_at"))
-        t["correlation"] = correlate_levels(t["spot_at_entry"], levels, anchors)
+        t["correlation"] = correlate_levels(t["spot_at_entry"], levels, anchors, durable)
         # the EXIT correlation — where was SPX when I got out, and was THAT a
         # level? Half the decision the entry-only view was missing.
-        t["exit_correlation"] = correlate_levels(t["spot_at_exit"], levels, anchors)
+        t["exit_correlation"] = correlate_levels(t["spot_at_exit"], levels, anchors, durable)
         # legacy alias the table still reads (nearest + at_level)
         corr = t["correlation"]
         t["level_at_entry"] = ({
@@ -610,6 +618,14 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         "settle_price": settle,
         "forecast_levels": levels,       # the full ladder, for the "other…" tag
         "gex_anchors": anchors,
+        # the ★-marked durable S/R for the tag dropdown (matches the playbook
+        # table's ★Nd rows the confluence/GEX lists don't include)
+        "durable_levels": [
+            {"price": d.get("price"),
+             "label": (d.get("kind") or d.get("role") or "durable")
+                      + (f" ★{d.get('sessions')}d" if d.get("sessions") else "")}
+            for d in durable if _f(d.get("price")) is not None
+        ],
         "playbook_session": (row or {}).get("session"),
         "trades": trades,
         "summary": summary,

@@ -591,7 +591,8 @@ function TradesPanel({ snap, thoughts, onThought }) {
   const allLevels = [
     ...(data.forecast_levels || []).map((z) => ({ ...z, source: "confluence" })),
     ...(data.gex_anchors || []).map((a) => ({ price: a.price, role: a.label, kinds: [a.label], source: "gex" })),
-  ];
+    ...(data.durable_levels || []).map((d) => ({ price: d.price, role: d.label, kinds: [d.label], source: "durable" })),
+  ].sort((a, b) => (b.price || 0) - (a.price || 0));
 
   return (
     <div className="vg-card" style={{ marginTop: 14 }}>
