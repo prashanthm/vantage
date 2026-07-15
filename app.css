@@ -880,3 +880,8 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   border-radius: 7px; background: var(--vg-panel, #fff); color: inherit; }
 .vg-ticker-badge { margin-right: 6px; font-size: 10px; font-weight: 700; letter-spacing: .03em; }
 .vg-badge.accent { background: var(--vg-accent-soft); color: var(--vg-accent); border: 1px solid var(--vg-accent-soft); }
+
+/* ── Journal Analysis history rows (clickable, reopen) ────────────────────── */
+.vg-ja-hist .vg-ja-row:hover { background: rgba(0,0,0,.04); }
+.vg-ja-hist .vg-ja-row.open { background: var(--vg-accent-soft); }
+.vg-ja-hist .vg-ja-row.open td:first-child { font-weight: 600; }

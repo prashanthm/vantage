@@ -3484,6 +3484,13 @@
   }
   var REC_TONE = { improving: "good", worse: "bad", flat: "plain", new: "plain" };
   var SCORE_TONE = (s) => s >= 70 ? "good" : s >= 45 ? "warn" : "bad";
+  var RUBRIC_LABELS = {
+    entry_discipline: "Entry discipline",
+    exit_discipline: "Exit discipline",
+    risk_sizing: "Risk & sizing",
+    plan_adherence: "Plan adherence",
+    emotional_control: "Emotional control"
+  };
   function parseSwot(text) {
     if (!text) return null;
     let raw = String(text).trim();
@@ -3541,15 +3548,44 @@
     const [saved, setSaved] = useState10(false);
     const [hist, setHist] = useState10(null);
     const abortRef = useRef2(null);
-    const loadHist = async () => {
+    const [openId, setOpenId] = useState10(null);
+    const showStored = (h) => {
+      setOpenId(h.id);
+      setSaved(true);
+      setBundle({
+        window_from: h.window_from,
+        window_to: h.window_to,
+        rubric_version: h.rubric_version,
+        trades: h.trades,
+        analyzed: h.patterns && h.patterns.length ? void 0 : void 0,
+        net_pnl: h.net_pnl,
+        scores: h.scores || {},
+        patterns: h.patterns || [],
+        // recommendations weren't stored on older rows; derive display from scores
+        recommendations: h.recommendations && h.recommendations.length ? h.recommendations : Object.entries(h.scores || {}).map(([dim, score]) => ({
+          dimension: dim,
+          label: RUBRIC_LABELS[dim] || dim,
+          score,
+          status: "new",
+          delta: null,
+          text: ""
+        }))
+      });
+      setRead(h.swot ? { text: h.narrative, swot: h.swot, mode: "structured" } : { text: h.narrative || "", mode: "prose" });
+    };
+    const loadHist = async (autoOpen = false) => {
       const h = await getJournalAnalyses(sym);
-      setHist(h && h.available ? h.analyses || [] : []);
+      const list = h && h.available ? h.analyses || [] : [];
+      setHist(list);
+      if (autoOpen && list.length) showStored(list[0]);
+      return list;
     };
     useEffect7(() => {
-      loadHist();
       setBundle(null);
       setRead(null);
       setSaved(false);
+      setOpenId(null);
+      loadHist(true);
     }, [sym]);
     const generate = async () => {
       setRead({ loading: true });
@@ -3586,8 +3622,9 @@
               recommendations: b2.recommendations,
               swot: swot || null,
               narrative: text
-            }).then(() => {
+            }).then((r) => {
               setSaved(true);
+              if (r && r.id) setOpenId(r.id);
               loadHist();
             });
           }
@@ -3628,9 +3665,25 @@
       from: new Date(Date.now() - back * 864e5).toISOString().slice(0, 10),
       to: todayISO(),
       period: back === 0 ? "daily" : back === 6 ? "weekly" : "monthly"
-    }) }, lab)))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: busy || streaming, onClick: generate }, busy || streaming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing\u2026") : "\u{1F9E0} Generate analysis")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "Scores the window against a rubric, aggregates every recorded trade review into a SWOT, and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days \u2192 Analyze today).")), b && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard \xB7 ", b.window_from, " \u2192 ", b.window_to), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, b.trades, " trades \xB7 ", b.analyzed, " reviewed \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: b.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(b.net_pnl)), " ", "\xB7 rubric v", b.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, b.recommendations.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 10 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status), r.delta == null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, b.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, " \xB7 ", p.cites.length, " trades"))))))), read && (read.text != null || read.error || read.loading) && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "SWOT & read ", saved && /* @__PURE__ */ React.createElement("span", { className: "vg-up", style: { fontSize: 11 } }, "\u2713 saved")), read.mode === "prose" && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 10 }, title: "the model's output wasn't structured JSON \u2014 showing the prose read" }, "prose fallback")), read.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Aggregating your reviews and scoring the window\u2026"), read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error), read.text != null && read.mode == null && !read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Mira is writing the desk review\u2026"), read.mode === "structured" && read.swot && /* @__PURE__ */ React.createElement(SwotRender, { swot: read.swot }), read.mode === "prose" && read.text && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, read.text)), hist && hist.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior analyses \xB7 knowledge compounds"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", { className: "vg-note", style: { fontSize: 10 } }, /* @__PURE__ */ React.createElement("td", null, "window"), /* @__PURE__ */ React.createElement("td", null, "tag"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "entry"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "exit"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "risk"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "plan"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "net")), hist.map((h) => {
+    }) }, lab)))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: busy || streaming, onClick: generate }, busy || streaming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing\u2026") : "\u{1F9E0} Generate analysis")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "Scores the window against a rubric, aggregates every recorded trade review into a SWOT, and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days \u2192 Analyze today).")), b && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard \xB7 ", b.window_from, " \u2192 ", b.window_to), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, b.trades, " trades", b.analyzed != null ? ` \xB7 ${b.analyzed} reviewed` : "", " \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: b.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(b.net_pnl)), " ", "\xB7 rubric v", b.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, b.recommendations.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 10 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status), r.delta == null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, b.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, " \xB7 ", p.cites.length, " trades"))))))), read && (read.text != null || read.error || read.loading) && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "SWOT & read ", saved && /* @__PURE__ */ React.createElement("span", { className: "vg-up", style: { fontSize: 11 } }, "\u2713 saved")), read.mode === "prose" && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 10 }, title: "the model's output wasn't structured JSON \u2014 showing the prose read" }, "prose fallback")), read.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Aggregating your reviews and scoring the window\u2026"), read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error), read.text != null && read.mode == null && !read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Mira is writing the desk review\u2026"), read.mode === "structured" && read.swot && /* @__PURE__ */ React.createElement(SwotRender, { swot: read.swot }), read.mode === "prose" && read.text && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, read.text)), hist && hist.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior analyses \xB7 click to reopen \xB7 knowledge compounds"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini vg-ja-hist", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", { className: "vg-note", style: { fontSize: 10 } }, /* @__PURE__ */ React.createElement("td", null, "window"), /* @__PURE__ */ React.createElement("td", null, "tag"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "entry"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "exit"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "risk"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "plan"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "net")), hist.map((h) => {
       const s = h.scores || {};
-      return /* @__PURE__ */ React.createElement("tr", { key: h.id }, /* @__PURE__ */ React.createElement("td", null, h.window_from, " \u2192 ", h.window_to), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, h.period)), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.entry_discipline || 0)}` }, s.entry_discipline ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.exit_discipline || 0)}` }, s.exit_discipline ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.risk_sizing || 0)}` }, s.risk_sizing ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.plan_adherence || 0)}` }, s.plan_adherence ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: h.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(h.net_pnl)));
+      return /* @__PURE__ */ React.createElement(
+        "tr",
+        {
+          key: h.id,
+          className: cls("vg-ja-row", openId === h.id && "open"),
+          onClick: () => showStored(h),
+          style: { cursor: "pointer" },
+          title: "Reopen this analysis"
+        },
+        /* @__PURE__ */ React.createElement("td", null, openId === h.id ? "\u25B8 " : "", h.window_from, " \u2192 ", h.window_to),
+        /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, h.period)),
+        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.entry_discipline || 0)}` }, s.entry_discipline ?? "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.exit_discipline || 0)}` }, s.exit_discipline ?? "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.risk_sizing || 0)}` }, s.risk_sizing ?? "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.plan_adherence || 0)}` }, s.plan_adherence ?? "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: h.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(h.net_pnl))
+      );
     })))));
   }
   function operatorFor(t, thought) {

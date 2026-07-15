@@ -731,6 +731,11 @@ function TradesPanel({ snap, thoughts, onThought }) {
 // shows the score trend + recommendation status vs the prior run.
 const REC_TONE = { improving: "good", worse: "bad", flat: "plain", new: "plain" };
 const SCORE_TONE = (s) => (s >= 70 ? "good" : s >= 45 ? "warn" : "bad");
+const RUBRIC_LABELS = {
+  entry_discipline: "Entry discipline", exit_discipline: "Exit discipline",
+  risk_sizing: "Risk & sizing", plan_adherence: "Plan adherence",
+  emotional_control: "Emotional control",
+};
 
 // Extract + SHAPE-VALIDATE the model's JSON. Four failure modes, all handled:
 // (a) malformed JSON / wrapped in fences / prose preamble → tolerant extract of
@@ -847,11 +852,47 @@ function JournalAnalysisPanel({ sym }) {
   const [hist, setHist] = useState(null);
   const abortRef = useRef(null);
 
-  const loadHist = async () => {
-    const h = await getJournalAnalyses(sym);
-    setHist(h && h.available ? (h.analyses || []) : []);
+  const [openId, setOpenId] = useState(null);   // which stored analysis is shown
+
+  // Render a STORED analysis (no Mira call) — reconstruct the scorecard from
+  // its saved scores/patterns and show its saved SWOT/narrative. This is what
+  // makes a prior analysis clickable and re-openable after navigating away.
+  const showStored = (h) => {
+    setOpenId(h.id);
+    setSaved(true);
+    setBundle({
+      window_from: h.window_from, window_to: h.window_to,
+      rubric_version: h.rubric_version, trades: h.trades,
+      analyzed: (h.patterns && h.patterns.length) ? undefined : undefined,
+      net_pnl: h.net_pnl, scores: h.scores || {},
+      patterns: h.patterns || [],
+      // recommendations weren't stored on older rows; derive display from scores
+      recommendations: (h.recommendations && h.recommendations.length)
+        ? h.recommendations
+        : Object.entries(h.scores || {}).map(([dim, score]) => ({
+            dimension: dim, label: RUBRIC_LABELS[dim] || dim, score,
+            status: "new", delta: null, text: "",
+          })),
+    });
+    setRead(h.swot
+      ? { text: h.narrative, swot: h.swot, mode: "structured" }
+      : { text: h.narrative || "", mode: "prose" });
   };
-  useEffect(() => { loadHist(); setBundle(null); setRead(null); setSaved(false); }, [sym]);
+
+  const loadHist = async (autoOpen = false) => {
+    const h = await getJournalAnalyses(sym);
+    const list = h && h.available ? (h.analyses || []) : [];
+    setHist(list);
+    // auto-open the most recent stored analysis so the panel isn't blank on
+    // return (the operator's last run persists visibly).
+    if (autoOpen && list.length) showStored(list[0]);
+    return list;
+  };
+  useEffect(() => {
+    setBundle(null); setRead(null); setSaved(false); setOpenId(null);
+    loadHist(true);   // reload history AND surface the latest saved analysis
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sym]);
 
   // Generate: pull the bundle, stream Mira, then store the run (compounding).
   const generate = async () => {
@@ -880,7 +921,7 @@ function JournalAnalysisPanel({ sym }) {
             trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
             patterns: b.patterns, recommendations: b.recommendations,
             swot: swot || null, narrative: text,
-          }).then(() => { setSaved(true); loadHist(); });
+          }).then((r) => { setSaved(true); if (r && r.id) setOpenId(r.id); loadHist(); });
         }
         return;
       }
@@ -940,7 +981,7 @@ function JournalAnalysisPanel({ sym }) {
           <div className="vg-spread">
             <div className="vg-kicker" style={{ margin: 0 }}>Scorecard · {b.window_from} → {b.window_to}</div>
             <span className="vg-note" style={{ fontSize: 12 }}>
-              {b.trades} trades · {b.analyzed} reviewed · net <b className={b.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(b.net_pnl)}</b>
+              {b.trades} trades{b.analyzed != null ? ` · ${b.analyzed} reviewed` : ""} · net <b className={b.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(b.net_pnl)}</b>
               {" "}· rubric v{b.rubric_version}
             </span>
           </div>
@@ -1006,11 +1047,12 @@ function JournalAnalysisPanel({ sym }) {
         </div>
       )}
 
-      {/* history — prior runs (the compounding record) */}
+      {/* history — prior runs (the compounding record). Each row is clickable
+          and re-renders its SAVED analysis above (no Mira call). */}
       {hist && hist.length > 0 && (
         <div className="vg-card" style={{ marginTop: 12 }}>
-          <div className="vg-kicker">Prior analyses · knowledge compounds</div>
-          <table className="vg-mini" style={{ marginTop: 6 }}><tbody>
+          <div className="vg-kicker">Prior analyses · click to reopen · knowledge compounds</div>
+          <table className="vg-mini vg-ja-hist" style={{ marginTop: 6 }}><tbody>
             <tr className="vg-note" style={{ fontSize: 10 }}>
               <td>window</td><td>tag</td><td style={{ textAlign: "right" }}>entry</td>
               <td style={{ textAlign: "right" }}>exit</td><td style={{ textAlign: "right" }}>risk</td>
@@ -1019,8 +1061,10 @@ function JournalAnalysisPanel({ sym }) {
             {hist.map((h) => {
               const s = h.scores || {};
               return (
-                <tr key={h.id}>
-                  <td>{h.window_from} → {h.window_to}</td>
+                <tr key={h.id} className={cls("vg-ja-row", openId === h.id && "open")}
+                  onClick={() => showStored(h)} style={{ cursor: "pointer" }}
+                  title="Reopen this analysis">
+                  <td>{openId === h.id ? "▸ " : ""}{h.window_from} → {h.window_to}</td>
                   <td><span className="vg-badge plain" style={{ fontSize: 10 }}>{h.period}</span></td>
                   <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.entry_discipline || 0)}`}>{s.entry_discipline ?? "—"}</td>
                   <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.exit_discipline || 0)}`}>{s.exit_discipline ?? "—"}</td>
