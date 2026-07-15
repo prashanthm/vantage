@@ -165,6 +165,7 @@
     getBarsOverlay: () => getBarsOverlay,
     getBotPerformance: () => getBotPerformance,
     getBotStatus: () => getBotStatus,
+    getCoachPine: () => getCoachPine,
     getDayPnl: () => getDayPnl,
     getExits: () => getExits,
     getExplanation: () => getExplanation,
@@ -913,6 +914,15 @@
         prefilled: v.prefilled
       };
     }
+    return { available: false };
+  }
+  async function getCoachPine(date, symbol = "SPX") {
+    const params = [];
+    if (date) params.push(`date=${encodeURIComponent(date)}`);
+    if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
+    const q = params.length ? `?${params.join("&")}` : "";
+    const v = await getJson(`${backendBase()}/api/spx/coach/pine${q}`, { timeoutMs: 2e4 });
+    if (v && v.available) return { available: true, session: v.session, script: v.script };
     return { available: false };
   }
   async function getTicket(symbol, side, level, risk = 500, entry = null) {
@@ -2676,12 +2686,21 @@
       }
     };
     const showPine = async (kind) => {
-      setPineTitle(kind === "reclaim" ? "Reclaim Strategy Pine" : "Playbook Pine");
+      setPineTitle(kind === "reclaim" ? "Reclaim Strategy Pine" : kind === "coach" ? "Coach Pine (live discipline)" : "Playbook Pine");
       setPine({ loading: true });
-      const res = kind === "reclaim" ? await getReclaimPine(void 0, sym) : await getPlaybookPine(void 0, sym);
+      const res = kind === "reclaim" ? await getReclaimPine(void 0, sym) : kind === "coach" ? await getCoachPine(void 0, sym) : await getPlaybookPine(void 0, sym);
       setPine(res && res.available ? { script: res.script } : { error: true });
     };
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Why \xB7 today's read"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: regenerate }, busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Regenerating\u2026") : "\u21BB Regenerate levels"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("playbook") }, "Pine"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("reclaim") }, "Reclaim Pine"))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Why \xB7 today's read"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: regenerate }, busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Regenerating\u2026") : "\u21BB Regenerate levels"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("playbook") }, "Pine"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("reclaim") }, "Reclaim Pine"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        disabled: busy,
+        onClick: () => showPine("coach"),
+        title: "Live discipline coach \u2014 WAIT/ENTER/EXIT/HOLD/WARN with your GEX levels baked in"
+      },
+      "\u{1F3AF} Coach Pine"
+    ))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: {
       margin: "4px 0 0",
       fontSize: 11,
       color: note.includes("fail") ? "var(--vg-down)" : "var(--vg-up)"

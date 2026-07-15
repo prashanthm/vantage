@@ -335,6 +335,28 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         session=row["session"], symbol=sym,
                         gex_levels=levels, prefilled=bool(levels), script=script)
 
+    @app.get("/api/spx/coach/pine")
+    def spx_coach_pine(date: str | None = Query(None),
+                       symbol: str = Query("SPX")):
+        """The COACH indicator — a live TradingView discipline coach with the
+        session's GEX + pivot levels BAKED from the stored playbook. Tracks
+        session VWAP / volume / RSI and flashes WAIT / ENTER / EXIT / HOLD /
+        WARN, warning on the operator's documented leaks (front-run, wrong-side,
+        extended, knife). Regenerate each session as the levels move. Context,
+        not a signal (ADR-008); levels are the 0DTE-blind nightly estimate."""
+        from . import coach_pine
+        snap = state.snapshot()
+        sym = (symbol or "SPX").upper()
+        row = store.load_spx_playbook(date, symbol=sym)
+        if row is None:
+            return envelope(snap, available=False,
+                            note=f"No {sym} playbook generated yet — needed for "
+                                 f"the coach's baked levels.")
+        scaffold = row["scaffold"] or {}
+        script = coach_pine.build_coach_indicator(scaffold)
+        return envelope(snap, available=bool(script), date=row["date"],
+                        session=row["session"], symbol=sym, script=script)
+
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
                               risk: float, date: str | None,
                               entry: float | None = None):

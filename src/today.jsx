@@ -19,7 +19,7 @@
 import { TicketModal, PineModal } from "./playbook.jsx";
 import { getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook,
          getTradeablePositions, recomputePlaybook, getPlaybookPine,
-         getReclaimPine } from "./live.js";
+         getReclaimPine, getCoachPine } from "./live.js";
 import { cls, StatTile } from "./util.jsx";
 
 const { useEffect, useState } = React;
@@ -285,10 +285,11 @@ function WhyCard({ pb, onReload }) {
   // Pine (playbook or reclaim) rendered on demand from the fresh scaffold, as
   // text in a copy modal — never written to disk.
   const showPine = async (kind) => {
-    setPineTitle(kind === "reclaim" ? "Reclaim Strategy Pine" : "Playbook Pine");
+    setPineTitle(kind === "reclaim" ? "Reclaim Strategy Pine"
+      : kind === "coach" ? "Coach Pine (live discipline)" : "Playbook Pine");
     setPine({ loading: true });
-    const res = kind === "reclaim"
-      ? await getReclaimPine(undefined, sym)
+    const res = kind === "reclaim" ? await getReclaimPine(undefined, sym)
+      : kind === "coach" ? await getCoachPine(undefined, sym)
       : await getPlaybookPine(undefined, sym);
     setPine(res && res.available ? { script: res.script } : { error: true });
   };
@@ -304,6 +305,8 @@ function WhyCard({ pb, onReload }) {
           </button>
           <button className="vg-btn-sm" disabled={busy} onClick={() => showPine("playbook")}>Pine</button>
           <button className="vg-btn-sm" disabled={busy} onClick={() => showPine("reclaim")}>Reclaim Pine</button>
+          <button className="vg-btn-sm" disabled={busy} onClick={() => showPine("coach")}
+            title="Live discipline coach — WAIT/ENTER/EXIT/HOLD/WARN with your GEX levels baked in">🎯 Coach Pine</button>
         </div>
       </div>
       {note && <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 11,

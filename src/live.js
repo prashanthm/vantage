@@ -869,6 +869,19 @@ export async function getReclaimPine(date, symbol = "SPX") {
   return { available: false };
 }
 
+// The COACH indicator — a live discipline coach with the session's GEX + pivot
+// levels baked in (WAIT/ENTER/EXIT/HOLD/WARN over VWAP/volume/RSI). Text for
+// the UI to copy into TradingView; no disk file.
+export async function getCoachPine(date, symbol = "SPX") {
+  const params = [];
+  if (date) params.push(`date=${encodeURIComponent(date)}`);
+  if (symbol && symbol !== "SPX") params.push(`symbol=${encodeURIComponent(symbol)}`);
+  const q = params.length ? `?${params.join("&")}` : "";
+  const v = await getJson(`${backendBase()}/api/spx/coach/pine${q}`, { timeoutMs: 20000 });
+  if (v && v.available) return { available: true, session: v.session, script: v.script };
+  return { available: false };
+}
+
 // Stage an order ticket for a reclaim trade at a playbook level. STAGED ONLY:
 // the server computes entry/stop/targets + risk-based qty (index symbols come
 // back rescaled into the tradeable proxy ETF, e.g. SPX→SPY) — the operator
