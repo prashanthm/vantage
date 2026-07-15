@@ -3370,12 +3370,32 @@
     const [data, setData] = useState10(null);
     const [busy, setBusy] = useState10(false);
     const [open, setOpen] = useState10(null);
+    const [batch, setBatch] = useState10(null);
     const day = String(snap.created_at || "").slice(0, 10);
     const load = async () => {
       setBusy(true);
       const v = await getSessionActivity(day, snap.symbol || "SPX");
       setBusy(false);
       setData(v && v.available ? v : { empty: true });
+    };
+    const analyzeToday = async () => {
+      const trades = data && data.trades || [];
+      const targets = trades.map((t, i) => ({ t, i })).filter(({ t }) => t.status !== "open");
+      if (!targets.length) return;
+      setBatch({ done: 0, total: targets.length, running: true });
+      let done = 0;
+      for (const { t, i } of targets) {
+        const key = `${t.opened_at || i}|${t.label}`;
+        const operator = operatorFor(t, thoughts && thoughts[key] || "");
+        try {
+          await analyzeTradeOnce(day, i, snap.symbol || "SPX", operator);
+        } catch (e) {
+        }
+        done += 1;
+        setBatch({ done, total: targets.length, running: done < targets.length });
+      }
+      setBatch({ done, total: targets.length, running: false });
+      await load();
     };
     useEffect7(() => {
       setData(null);
@@ -3405,7 +3425,16 @@
       ...(data.gex_anchors || []).map((a) => ({ price: a.price, role: a.label, kinds: [a.label], source: "gex" })),
       ...(data.durable_levels || []).map((d) => ({ price: d.price, role: d.label, kinds: [d.label], source: "durable" }))
     ].sort((a, b) => (b.price || 0) - (a.price || 0));
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "My trades \u2014 ", s.trades, " decisions", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, " ", "\xB7 click a trade to correlate it to the plan")), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "\u2026" : "\u27F3")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money4(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money4(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money4(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money4(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, (data.trades || []).map((t, i) => {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "My trades \u2014 ", s.trades, " decisions", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12, fontWeight: 400 } }, " ", "\xB7 click a trade to correlate it to the plan")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6 } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        disabled: busy || batch && batch.running,
+        onClick: analyzeToday,
+        title: "Run + record Mira's desk review for every closed trade that doesn't have one yet"
+      },
+      batch && batch.running ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing ", batch.done, "/", batch.total, "\u2026") : "\u{1F9EC} Analyze today"
+    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "\u2026" : "\u27F3"))), batch && !batch.running && batch.total > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 11, color: "var(--vg-up)" } }, "\u2713 analyzed ", batch.total, " trade", batch.total === 1 ? "" : "s", " (already-analyzed ones skipped)"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money4(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money4(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money4(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money4(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, (data.trades || []).map((t, i) => {
       const key = `${t.opened_at || i}|${t.label}`;
       return /* @__PURE__ */ React.createElement(
         TradeCard,
@@ -3425,6 +3454,21 @@
       );
     })), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 8 } }, "SPX price is the 1-minute print at submission. Tag the level you were trading \u2014 the broker says WHAT you did; only you can say WHY. Everything saves with the entry."));
   }
+  function operatorFor(t, thought) {
+    const m = (thought || "").match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
+    const why = (thought || "").replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");
+    const corr = t.correlation, exitCorr = t.exit_correlation;
+    const nearest2 = corr && corr.nearest, exitNearest = exitCorr && exitCorr.nearest;
+    const autoEntry = corr && corr.at_level && nearest2 ? String(nearest2.level) : null;
+    const autoExit = exitCorr && exitCorr.at_level && exitNearest ? String(exitNearest.level) : null;
+    return {
+      why,
+      entryTag: m[1] || autoEntry,
+      exitTag: m[2] || autoExit,
+      entryTagAuto: !m[1] && !!autoEntry,
+      exitTagAuto: !m[2] && !!autoExit
+    };
+  }
   function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, thought, onThought, allLevels }) {
     const corr = t.correlation;
     const nearest2 = corr && corr.nearest;
@@ -3432,16 +3476,18 @@
     const exitNearest = exitCorr && exitCorr.nearest;
     const long = String(t.strategy).includes("call");
     const m = thought.match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
-    const tag = m[1] || null;
-    const exitTag = m[2] || null;
-    const why = thought.replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");
+    const op = operatorFor(t, thought);
+    const why = op.why;
+    const tag = op.entryTag, exitTag = op.exitTag;
+    const tagAuto = op.entryTagAuto, exitTagAuto = op.exitTagAuto;
+    const rawTag = m[1] || null, rawExit = m[2] || null;
     const encode = (e, x, w) => {
       if (!e && !x) return w;
       return `@${e || ""}${x ? `/${x}` : ""}|${w}`;
     };
-    const setTag = (level) => onThought(encode(level, exitTag, why));
-    const setExitTag = (level) => onThought(encode(tag, level, why));
-    const setWhy = (v) => onThought(encode(tag, exitTag, v));
+    const setTag = (level) => onThought(encode(level, rawExit, why));
+    const setExitTag = (level) => onThought(encode(rawTag, level, why));
+    const setWhy = (v) => onThought(encode(rawTag, rawExit, v));
     return /* @__PURE__ */ React.createElement("div", { className: cls("vg-trade", expanded && "open") }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-row", onClick: onToggle }, /* @__PURE__ */ React.createElement("span", { className: "vg-trade-time" }, t.opened_et || (t.opened_at || "").slice(11, 16) || "\u2014"), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-name" }, /* @__PURE__ */ React.createElement("b", { className: long ? "vg-up" : "vg-down" }, t.label)), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-spx" }, "SPX ", fmtLvl(t.spot_at_entry)), /* @__PURE__ */ React.createElement("span", null, nearest2 ? /* @__PURE__ */ React.createElement(
       "span",
       {
@@ -3465,7 +3511,7 @@
         corr: exitCorr,
         openSpace: "exit was in open space"
       }
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I entered on"), /* @__PURE__ */ React.createElement("select", { value: tag || "", onChange: (e) => setTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : "")))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I exited on"), /* @__PURE__ */ React.createElement("select", { value: exitTag || "", onChange: (e) => setExitTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : ""))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("label", null, "My thinking \u2014 why did I take this trade?"), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I entered on ", tagAuto && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\xB7 auto")), /* @__PURE__ */ React.createElement("select", { value: tag || "", onChange: (e) => setTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : "")))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I exited on ", exitTagAuto && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\xB7 auto")), /* @__PURE__ */ React.createElement("select", { value: exitTag || "", onChange: (e) => setExitTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : ""))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("label", null, "My thinking \u2014 why did I take this trade?"), /* @__PURE__ */ React.createElement(
       "textarea",
       {
         rows: 2,
@@ -3485,6 +3531,42 @@
         label: t.label
       }
     )));
+  }
+  async function analyzeTradeOnce(day, tradeIndex, underlying, operator, { force = false, onChunk } = {}) {
+    const res = await getTradeDna(day, tradeIndex, underlying);
+    if (!res || !res.available || !res.dna) return { status: "error", note: res && res.note || "no DNA" };
+    if (!force && res.stored && (res.stored.analysis || "").trim()) return { status: "skipped" };
+    const prompt = buildAnalystPrompt(res.dna, operator || {}, res.playbook_session);
+    let text = "";
+    return await new Promise((resolve) => {
+      streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
+        if (evt.kind === "error") {
+          resolve({ status: "error", note: evt.message });
+          return;
+        }
+        if (evt.kind === "done") {
+          if (text.trim() && res.trade_key) {
+            saveTradeAnalysis({
+              day,
+              trade_key: res.trade_key,
+              underlying,
+              label: res.dna.label,
+              dna: res.dna,
+              analysis: text
+            });
+            resolve({ status: "saved" });
+          } else {
+            resolve({ status: "empty" });
+          }
+          return;
+        }
+        const chunk = evt.text || evt.delta || evt.content || "";
+        if (chunk) {
+          text += chunk;
+          if (onChunk) onChunk(text);
+        }
+      });
+    });
   }
   function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
     const [state, setState] = useState10(null);

@@ -543,6 +543,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);          // expanded trade key
+  const [batch, setBatch] = useState(null);        // {done, total, running} for Analyze-today
 
   const day = String(snap.created_at || "").slice(0, 10);
   const load = async () => {
@@ -551,6 +552,32 @@ function TradesPanel({ snap, thoughts, onThought }) {
     setBusy(false);
     setData(v && v.available ? v : { empty: true });
   };
+  // Analyze-today: run + record the Mira desk review for each CLOSED trade
+  // that lacks one. Idempotent — analyzeTradeOnce skips already-analyzed
+  // trades; open positions are never analyzed (an unfinished decision). Uses
+  // each trade's operator note + AUTO-tagged levels (the same at-level
+  // inference the card shows), so the read is grounded even without manual tags.
+  const analyzeToday = async () => {
+    const trades = (data && data.trades) || [];
+    const targets = trades
+      .map((t, i) => ({ t, i }))
+      .filter(({ t }) => t.status !== "open");     // completed decisions only
+    if (!targets.length) return;
+    setBatch({ done: 0, total: targets.length, running: true });
+    let done = 0;
+    for (const { t, i } of targets) {
+      const key = `${t.opened_at || i}|${t.label}`;
+      const operator = operatorFor(t, (thoughts && thoughts[key]) || "");
+      try {
+        await analyzeTradeOnce(day, i, snap.symbol || "SPX", operator);
+      } catch (e) { /* one failure never blocks the rest */ }
+      done += 1;
+      setBatch({ done, total: targets.length, running: done < targets.length });
+    }
+    setBatch({ done, total: targets.length, running: false });
+    await load();   // re-pull so the freshly-saved reads show on the cards
+  };
+
   // auto-load the day's trades on open (and when the day/underlying changes) —
   // this is a trade log; it should show the trades, not a button to fetch them.
   // A manual ⟳ stays for a mid-session re-pull.
@@ -602,8 +629,22 @@ function TradesPanel({ snap, thoughts, onThought }) {
             {" "}· click a trade to correlate it to the plan
           </span>
         </h3>
-        <button className="vg-btn-sm" onClick={load} disabled={busy}>{busy ? "…" : "⟳"}</button>
+        <div className="vg-row" style={{ gap: 6 }}>
+          <button className="vg-btn-sm" disabled={busy || (batch && batch.running)}
+            onClick={analyzeToday}
+            title="Run + record Mira's desk review for every closed trade that doesn't have one yet">
+            {batch && batch.running
+              ? <><span className="vg-spin" aria-hidden="true">⟳</span> Analyzing {batch.done}/{batch.total}…</>
+              : "🧬 Analyze today"}
+          </button>
+          <button className="vg-btn-sm" onClick={load} disabled={busy}>{busy ? "…" : "⟳"}</button>
+        </div>
       </div>
+      {batch && !batch.running && batch.total > 0 && (
+        <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 11, color: "var(--vg-up)" }}>
+          ✓ analyzed {batch.total} trade{batch.total === 1 ? "" : "s"} (already-analyzed ones skipped)
+        </p>
+      )}
 
       {/* the day, reconciled — including the money no fill showed */}
       <div className="vg-row" style={{ gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 }}>
@@ -644,6 +685,24 @@ function TradesPanel({ snap, thoughts, onThought }) {
   );
 }
 
+// The operator's intent for a trade: the free-text WHY plus the entry/exit
+// level TAGS — the operator's own tag when set, else AUTO-correlated to the
+// nearest level the trade was AT (within tolerance; open-space stays blank).
+// Shared by the card and the batch analyzer so both ground the read the same.
+function operatorFor(t, thought) {
+  const m = (thought || "").match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
+  const why = (thought || "").replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");
+  const corr = t.correlation, exitCorr = t.exit_correlation;
+  const nearest = corr && corr.nearest, exitNearest = exitCorr && exitCorr.nearest;
+  const autoEntry = (corr && corr.at_level && nearest) ? String(nearest.level) : null;
+  const autoExit = (exitCorr && exitCorr.at_level && exitNearest) ? String(exitNearest.level) : null;
+  return {
+    why,
+    entryTag: m[1] || autoEntry, exitTag: m[2] || autoExit,
+    entryTagAuto: !m[1] && !!autoEntry, exitTagAuto: !m[2] && !!autoExit,
+  };
+}
+
 function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, thought, onThought, allLevels }) {
   const corr = t.correlation;
   const nearest = corr && corr.nearest;
@@ -651,18 +710,23 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
   const exitNearest = exitCorr && exitCorr.nearest;
   const long = String(t.strategy).includes("call");
   // persisted as "@<entry>[/<exit>]|<why>" — entry level, optional exit level,
-  // then the free-text thinking. Parse the three back out.
+  // then the free-text thinking. Parse the three back out (raw, for the setters).
   const m = thought.match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
-  const tag = m[1] || null;
-  const exitTag = m[2] || null;
-  const why = thought.replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");
+  // the operator's intent, with auto-correlation applied (shared with the batch)
+  const op = operatorFor(t, thought);
+  const why = op.why;
+  const tag = op.entryTag, exitTag = op.exitTag;
+  const tagAuto = op.entryTagAuto, exitTagAuto = op.exitTagAuto;
+  // Setters persist the RAW operator tags (m[1]/m[2]), never the auto-filled
+  // ones — editing the WHY must not silently commit a system-inferred level.
+  const rawTag = m[1] || null, rawExit = m[2] || null;
   const encode = (e, x, w) => {
     if (!e && !x) return w;
     return `@${e || ""}${x ? `/${x}` : ""}|${w}`;
   };
-  const setTag = (level) => onThought(encode(level, exitTag, why));
-  const setExitTag = (level) => onThought(encode(tag, level, why));
-  const setWhy = (v) => onThought(encode(tag, exitTag, v));
+  const setTag = (level) => onThought(encode(level, rawExit, why));
+  const setExitTag = (level) => onThought(encode(rawTag, level, why));
+  const setWhy = (v) => onThought(encode(rawTag, rawExit, v));
 
   return (
     <div className={cls("vg-trade", expanded && "open")}>
@@ -747,7 +811,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
               {/* TAG the levels you were actually trading — in and out */}
               <div className="vg-row" style={{ gap: 10, marginTop: 10, flexWrap: "wrap" }}>
                 <div className="vg-trade-field" style={{ flex: 1, minWidth: 150 }}>
-                  <label>Level I entered on</label>
+                  <label>Level I entered on {tagAuto && <span className="vg-note" style={{ fontWeight: 400 }}>· auto</span>}</label>
                   <select value={tag || ""} onChange={(e) => setTag(e.target.value || null)}>
                     <option value="">— none / open space —</option>
                     {allLevels.map((l, i) => (
@@ -758,7 +822,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
                   </select>
                 </div>
                 <div className="vg-trade-field" style={{ flex: 1, minWidth: 150 }}>
-                  <label>Level I exited on</label>
+                  <label>Level I exited on {exitTagAuto && <span className="vg-note" style={{ fontWeight: 400 }}>· auto</span>}</label>
                   <select value={exitTag || ""} onChange={(e) => setExitTag(e.target.value || null)}>
                     <option value="">— none / open space —</option>
                     {allLevels.map((l, i) => (
@@ -793,6 +857,35 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
 // Step 2 of the two-step flow. Pulls the full DNA from Vantage (price action,
 // volume, technicals, level correlation), wraps it in a trade-analyst brief
 // that ALSO asks Mira to weigh news + sentiment for the underlying, and streams
+// Run ONE trade's analysis end to end (DNA → prompt → model stream → save) as
+// a promise, for the batch "Analyze today" runner. Resolves {status:'saved'|
+// 'skipped'|'empty'|'error'}. onChunk is optional (live streaming into a UI).
+// Skips a trade that already has a stored analysis unless force is set.
+async function analyzeTradeOnce(day, tradeIndex, underlying, operator, { force = false, onChunk } = {}) {
+  const res = await getTradeDna(day, tradeIndex, underlying);
+  if (!res || !res.available || !res.dna) return { status: "error", note: (res && res.note) || "no DNA" };
+  if (!force && res.stored && (res.stored.analysis || "").trim()) return { status: "skipped" };
+  const prompt = buildAnalystPrompt(res.dna, operator || {}, res.playbook_session);
+  let text = "";
+  return await new Promise((resolve) => {
+    streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
+      if (evt.kind === "error") { resolve({ status: "error", note: evt.message }); return; }
+      if (evt.kind === "done") {
+        if (text.trim() && res.trade_key) {
+          saveTradeAnalysis({ day, trade_key: res.trade_key, underlying,
+            label: res.dna.label, dna: res.dna, analysis: text });
+          resolve({ status: "saved" });
+        } else {
+          resolve({ status: "empty" });
+        }
+        return;
+      }
+      const chunk = evt.text || evt.delta || evt.content || "";
+      if (chunk) { text += chunk; if (onChunk) onChunk(text); }
+    });
+  });
+}
+
 // the read. The "entire DNA of the trade" in one place.
 function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
   const [state, setState] = useState(null);   // null | "loading" | "streaming" | {text} | {error}
