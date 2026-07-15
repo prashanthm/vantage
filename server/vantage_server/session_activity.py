@@ -347,19 +347,66 @@ def _f(v):
         return None
 
 
-def gex_anchors(scaffold: dict) -> list[dict]:
-    """The GEX/regime price anchors as taggable levels: spot, gamma flip,
-    call/put walls, max pain, vol trigger — whatever the scaffold carries."""
+def gex_anchors(scaffold: dict, store=None, day: str | None = None,
+                underlying: str = "SPX") -> list[dict]:
+    """The GEX/regime price anchors as taggable levels: gamma flip, call/put
+    walls, max pain, prior spot.
+
+    The playbook SCAFFOLD's ``regime`` block only carries ``spot`` and a
+    *word* for gamma ("negative") — never the numeric flip/walls (live
+    2026-07-14: the journal dropdown offered only "prior spot"). The real
+    numbers live in the ``gex_history`` table, recorded nightly per underlying
+    under a "^"-prefixed symbol (^SPX / QQQ / IWM). So we read THAT for the
+    day's flip/call_wall/put_wall/max_pain, and fall back to the scaffold's
+    spot. ``store``/``day`` optional so callers without them still get the
+    scaffold-only behaviour (used in tests)."""
     reg = scaffold.get("regime") or {}
     gex = scaffold.get("gex") or {}
-    out = []
+    out: list[dict] = []
+    seen: set[float] = set()
+
+    def _add(v, label):
+        v = _f(v)
+        if v is not None and round(v, 2) not in seen:
+            seen.add(round(v, 2))
+            out.append({"price": v, "label": label})
+
+    # the numeric GEX levels from gex_history (the authoritative source)
+    row = _gex_row_for(store, day, underlying) if store is not None else None
+    if row:
+        _add(row.get("gamma_flip"), "gamma flip")
+        _add(row.get("call_wall"), "call wall")
+        _add(row.get("put_wall"), "put wall")
+        _add(row.get("max_pain"), "max pain")
+
+    # scaffold fallbacks (spot, and flip/walls IF a scaffold ever carries them)
     for key, label in (("flip", "gamma flip"), ("call_wall", "call wall"),
                        ("put_wall", "put wall"), ("max_pain", "max pain"),
                        ("vol_trigger", "vol trigger"), ("spot", "prior spot")):
-        v = _f(reg.get(key)) or _f(gex.get(key))
-        if v is not None:
-            out.append({"price": v, "label": label})
+        _add(reg.get(key) or gex.get(key), label)
     return out
+
+
+def _gex_row_for(store, day: str | None, underlying: str) -> dict | None:
+    """The recorded GEX row for ``day`` (the nightly snapshot that framed the
+    session), for the underlying's history symbol (SPX→^SPX). Prefers the row
+    dated ``day``; else the most recent row at/before it (the framing snapshot
+    is stored the evening before). None on any miss — never guessed."""
+    if store is None or day is None:
+        return None
+    sym = "^SPX" if underlying.upper() == "SPX" else underlying.upper()
+    try:
+        rows = store.load_gex_history(sym)
+    except Exception as e:  # noqa: BLE001
+        log.warning("gex_history unavailable for %s: %s", sym, e)
+        return None
+    if not rows:
+        return None
+    exact = [r for r in rows if str(r.get("date")) == day]
+    if exact:
+        return exact[-1]
+    prior = [r for r in rows if str(r.get("date") or "") <= day]
+    return prior[-1] if prior else None
 
 
 # ──────────────────────────────────────────────────────────── the session build
@@ -422,7 +469,7 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
     row = store.load_spx_playbook_before(day, symbol=und) or store.load_spx_playbook(day, symbol=und)
     scaffold = (row or {}).get("scaffold") or {}
     levels = scaffold.get("confluence") or []
-    anchors = gex_anchors(scaffold)
+    anchors = gex_anchors(scaffold, store, day, und)
 
     for t in trades:
         t["spot_at_entry"] = _bar_price_at(bars, t.get("opened_at"))
