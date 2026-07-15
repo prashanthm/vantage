@@ -207,10 +207,13 @@ def _fake_history_call(tool, payload):
 def test_fetch_history_normalizes_to_the_contract(monkeypatch):
     monkeypatch.setattr(robinhood, "_call", _fake_history_call)
     rows = robinhood.fetch_history("532189024")
-    # exact contract keys on every row
+    # the contract keys are present on EVERY row; rows may also carry optional
+    # extra fields (limit_price, fees, time_in_force, submitted_at, ...) that
+    # round-trip through the store's `extra` blob — additive, not part of the
+    # required contract.
     contract = {"account", "broker_account", "date", "kind", "symbol",
                 "description", "side", "quantity", "price", "amount", "state"}
-    assert all(set(r) == contract for r in rows)
+    assert all(contract <= set(r) for r in rows)
     # newest first across BOTH sources
     assert [r["date"] for r in rows] == sorted(
         (r["date"] for r in rows), reverse=True)

@@ -260,6 +260,15 @@ def to_et(when: str):
     return ts.astimezone(ZoneInfo("America/New_York"))
 
 
+def et_hm(when: str) -> str | None:
+    """A fill/trade time as "HH:MM" in market (Eastern) time — the timezone all
+    the price correlation is done in, so the displayed clock matches the bar the
+    trade is pinned to. Broker stamps are UTC; showing the raw stamp put every
+    time 4-5h off (a 08:46 CT / 09:46 ET fill read "13:46"). None when unparseable."""
+    et = to_et(when)
+    return et.strftime("%H:%M") if et else None
+
+
 def _bar_price_at(bars, when: str) -> float | None:
     """The underlying's price at the MINUTE of a trade. 0DTE moves points in
     minutes: a 15m bar's close can be 9 minutes and 15 points away from the
@@ -442,6 +451,9 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         # grouped line item hides (blended, no invented per-lot P&L)
         t["fills"] = fills_ladder(t)
         t["scale"] = scale_read(t["fills"], t.get("peak_contracts") or 0.0)
+        # ET display times for the card (raw opened_at/closed_at stay for math)
+        t["opened_et"] = et_hm(t.get("opened_at"))
+        t["closed_et"] = et_hm(t.get("closed_at"))
         t["label"] = _label(t)
 
     summary = summarize(day, und, trades, settle)
@@ -562,6 +574,7 @@ def fills_ladder(t: dict) -> list[dict]:
             r["qty"] if r["side"] == "buy" else -r["qty"])
         net = round(sum(abs(q) for q in running.values()), 2)
         r["running"] = net
+        r["at_et"] = et_hm(r["at"])          # display time in market (ET) hours
     return rows
 
 

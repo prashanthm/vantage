@@ -415,9 +415,12 @@ def _normalize_equity_order(order: dict, broker_account: str) -> dict:
         desc = f"{order.get('type') or 'order'} {side_raw} {quantity:g} {symbol}"
         if price is not None:
             desc += f" @ {price:g}"
+        executions = order.get("executions") or []
+        fill_ts = _last_exec_timestamp(executions)
+        created = str(order.get("created_at") or "")
         return _history_row(
             broker_account,
-            date=str(order.get("created_at") or ""),
+            date=fill_ts or created,
             kind="equity",
             symbol=symbol,
             description=desc,
@@ -426,6 +429,13 @@ def _normalize_equity_order(order: dict, broker_account: str) -> dict:
             price=price,
             amount=amount,
             state=str(order.get("state") or ""),
+            # extra fields (round-trip via `extra`, no schema change)
+            limit_price=(_f(order.get("price"), None)
+                         if order.get("price") not in (None, "") else None),
+            fees=(_f(order.get("fees"), None)
+                  if order.get("fees") not in (None, "") else _leg_fees(executions)),
+            time_in_force=str(order.get("time_in_force") or "") or None,
+            submitted_at=created or None,
         )
     except Exception:  # defensive: surface, never drop
         return _history_row(
@@ -435,6 +445,23 @@ def _normalize_equity_order(order: dict, broker_account: str) -> dict:
             description=repr(order)[:300],
             state=str(order.get("state") or "unparseable") if isinstance(order, dict) else "unparseable",
         )
+
+
+def _last_exec_timestamp(executions: list[dict]) -> str | None:
+    """The timestamp of the last execution — the moment the leg actually
+    finished filling. Robinhood executions carry ``timestamp`` (ISO, UTC);
+    fall back to ``trade_date`` when absent. None when no execution has one."""
+    stamps = [str(e.get("timestamp") or e.get("trade_date") or "")
+              for e in (executions or [])]
+    stamps = [s for s in stamps if s]
+    return max(stamps) if stamps else None
+
+
+def _leg_fees(executions: list[dict]) -> float | None:
+    """Total regulatory fees across this leg's executions, in dollars. None
+    when no execution reports a fee (unfilled/legacy rows)."""
+    fees = [_f(e.get("fees")) for e in (executions or []) if e.get("fees") not in (None, "")]
+    return round(sum(fees), 4) if fees else None
 
 
 def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
@@ -488,9 +515,13 @@ def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
                 str(leg.get("option_type") or ""),
             )
             desc = f"{strategy} {leg.get('position_effect') or ''} ({direction})".strip()
+            # the actual fill timestamp (last execution) is more precise than the
+            # order's created_at — an order placed at 08:45 may fill at 08:46. Use
+            # it as the row date when present; keep created_at as the submit time.
+            fill_ts = _last_exec_timestamp(executions)
             rows.append(_history_row(
                 broker_account,
-                date=created,
+                date=fill_ts or created,
                 kind="option",
                 symbol=symbol,
                 description=desc,
@@ -499,6 +530,16 @@ def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
                 price=price,
                 amount=amount,
                 state=state,
+                # extra fields (round-trip via the store's `extra` JSON blob —
+                # no schema change): the fuller Robinhood record the journal
+                # dropped. limit_price is per-SHARE (x100 for contract cost);
+                # fees are regulatory $; submitted_at is order placement.
+                limit_price=(_f(order.get("price"), None)
+                             if order.get("price") not in (None, "") else None),
+                fees=_leg_fees(executions),
+                time_in_force=str(order.get("time_in_force") or "") or None,
+                submitted_at=created or None,
+                position_effect=str(leg.get("position_effect") or "") or None,
             ))
         return rows
     except Exception:  # defensive: surface, never drop

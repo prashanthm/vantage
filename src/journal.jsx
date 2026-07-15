@@ -667,7 +667,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
     <div className={cls("vg-trade", expanded && "open")}>
       {/* collapsed summary row */}
       <div className="vg-trade-row" onClick={onToggle}>
-        <span className="vg-trade-time">{(t.opened_at || "").slice(11, 16) || "—"}</span>
+        <span className="vg-trade-time">{t.opened_et || (t.opened_at || "").slice(11, 16) || "—"}</span>
         <span className="vg-trade-name">
           <b className={long ? "vg-up" : "vg-down"}>{t.label}</b>
         </span>
@@ -707,8 +707,8 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
                   <tr key={i}><td>{l.side}</td>
                     <td>{l.qty} × {(l.symbol || "").replace(/^\S+\s\S+\s/, "")} @ {l.price}</td></tr>
                 ))}
-                <tr><td>opened</td><td>{(t.opened_at || "—").replace("T", " ")} ET</td></tr>
-                {t.closed_at && <tr><td>closed</td><td>{t.closed_at.replace("T", " ")} ET</td></tr>}
+                <tr><td>opened</td><td>{t.opened_et ? `${t.opened_et} ET` : "—"}</td></tr>
+                {t.closed_at && <tr><td>closed</td><td>{t.closed_et ? `${t.closed_et} ET` : "—"}</td></tr>}
                 <tr><td>cost</td><td>{money(t.cost)}</td></tr>
                 {t.proceeds ? <tr><td>proceeds</td><td>{money(t.proceeds)}</td></tr> : null}
                 {t.settlement != null && <tr><td>settlement</td><td>{money(t.settlement)} @ SPX {fmtLvl(t.settle_price)}</td></tr>}
@@ -1022,9 +1022,10 @@ function FillLadder({ fills, scale }) {
       </button>
       {open && (
         <table className="vg-mini" style={{ marginTop: 4 }}><tbody>
+          <tr><td colSpan={5} className="vg-note" style={{ fontSize: 10, paddingBottom: 2 }}>times in ET (market hours)</td></tr>
           {fills.map((r, i) => (
             <tr key={i}>
-              <td>{(r.at || "").slice(11, 16)}</td>
+              <td>{r.at_et || (r.at || "").slice(11, 16)}</td>
               <td className={r.side === "buy" ? "vg-up" : "vg-down"}>{r.side}</td>
               <td style={{ textAlign: "right" }}>{r.qty}×</td>
               <td style={{ textAlign: "right" }}>{svg(r.price)}</td>
