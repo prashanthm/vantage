@@ -709,6 +709,109 @@ function TradesPanel({ snap, thoughts, onThought }) {
 const REC_TONE = { improving: "good", worse: "bad", flat: "plain", new: "plain" };
 const SCORE_TONE = (s) => (s >= 70 ? "good" : s >= 45 ? "warn" : "bad");
 
+// Extract + SHAPE-VALIDATE the model's JSON. Four failure modes, all handled:
+// (a) malformed JSON / wrapped in fences / prose preamble → tolerant extract of
+//     the first balanced {…}; (b) valid JSON but wrong shape → validateSwot
+//     rejects it; (c) missing/empty fields → components render defensively;
+//     (d) fabricated content → citations come from Vantage, not this. Returns
+//     the validated object, or null (→ the caller renders the prose fallback).
+function parseSwot(text) {
+  if (!text) return null;
+  let raw = String(text).trim();
+  // strip ```json … ``` fences if present
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) raw = fence[1].trim();
+  // find the first balanced top-level object (tolerates prose before/after)
+  const start = raw.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0, end = -1;
+  for (let i = start; i < raw.length; i++) {
+    if (raw[i] === "{") depth++;
+    else if (raw[i] === "}") { depth--; if (depth === 0) { end = i; break; } }
+  }
+  if (end < 0) return null;
+  let obj;
+  try { obj = JSON.parse(raw.slice(start, end + 1)); }
+  catch { return null; }
+  return validateSwot(obj) ? obj : null;
+}
+
+// Shape validation — NOT just "did it parse". The card reads obj.swot.strengths
+// etc., so we require exactly that structure or fall back to prose.
+function validateSwot(o) {
+  if (!o || typeof o !== "object") return false;
+  const s = o.swot;
+  if (!s || typeof s !== "object") return false;
+  const quads = ["strengths", "weaknesses", "opportunities", "threats"];
+  for (const q of quads) {
+    if (!Array.isArray(s[q])) return false;
+    // every item must at least carry a `point` string
+    if (s[q].some((it) => !it || typeof it.point !== "string")) return false;
+  }
+  // need at least one populated quadrant to be worth the rich render
+  if (!quads.some((q) => s[q].length > 0)) return false;
+  return true;
+}
+
+// One SWOT quadrant — colored, its points, each with citation chips.
+function SwotQuad({ kind, title, tag, items }) {
+  return (
+    <div className={cls("vg-swot-q", kind)}>
+      <div className="vg-swot-head">
+        <span className="vg-swot-badge">{kind.toUpperCase()}</span>
+        <b>{title}</b><span className="vg-note vg-swot-tag">{tag}</span>
+      </div>
+      {items.length ? (
+        <ul className="vg-swot-items">
+          {items.map((it, i) => (
+            <li key={i}>
+              <span>{it.point}</span>
+              {Array.isArray(it.cites) && it.cites.length > 0 && (
+                <span className="vg-swot-cites">
+                  {it.cites.map((c, j) => <span key={j} className={cls("vg-cite", kind)}>{c}</span>)}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 12 }}>none noted this window</p>}
+    </div>
+  );
+}
+
+// The full structured render: headline, SWOT grid, pattern callout, do-next.
+function SwotRender({ swot }) {
+  const s = swot.swot || {};
+  return (
+    <div className="vg-swot">
+      {swot.headline && <h3 className="vg-swot-headline">{swot.headline}</h3>}
+      <div className="vg-swot-grid">
+        <SwotQuad kind="s" title="Strengths" tag="keep" items={s.strengths || []} />
+        <SwotQuad kind="w" title="Weaknesses" tag="fix" items={s.weaknesses || []} />
+        <SwotQuad kind="o" title="Opportunities" tag="capture" items={s.opportunities || []} />
+        <SwotQuad kind="t" title="Threats" tag="guard" items={s.threats || []} />
+      </div>
+      {swot.pattern && (
+        <div className="vg-swot-pattern">
+          <span className="vg-kicker" style={{ margin: 0 }}>The pattern</span>
+          <p style={{ margin: "4px 0 0" }}>{swot.pattern}</p>
+        </div>
+      )}
+      {swot.scores_read && <p className="vg-note" style={{ marginTop: 10 }}>{swot.scores_read}</p>}
+      {Array.isArray(swot.do_next) && swot.do_next.length > 0 && (
+        <>
+          <div className="vg-kicker" style={{ marginTop: 14 }}>Do this next</div>
+          <ol className="vg-donext">
+            {swot.do_next.map((d, i) => (
+              <li key={i}><b>{d.title}</b>{d.detail ? <> — <span className="vg-note">{d.detail}</span></> : null}</li>
+            ))}
+          </ol>
+        </>
+      )}
+    </div>
+  );
+}
+
 function JournalAnalysisPanel({ sym }) {
   const [win, setWin] = useState(() => {
     const to = todayISO();
@@ -741,7 +844,11 @@ function JournalAnalysisPanel({ sym }) {
       if (evt.kind === "error") { setRead({ error: evt.message || "Mira error" }); return; }
       if (evt.kind === "done") {
         abortRef.current = null;
-        setRead({ text });
+        // Try to render the model's output as the structured SWOT grid; if the
+        // JSON is malformed or the wrong shape, fall back to the prose read —
+        // the operator always gets a usable result, never a broken card.
+        const swot = parseSwot(text);
+        setRead({ text, swot, mode: swot ? "structured" : "prose" });
         if (text.trim()) {
           const b = res.bundle;
           saveJournalAnalysis({
@@ -749,7 +856,7 @@ function JournalAnalysisPanel({ sym }) {
             underlying: sym, rubric_version: b.rubric_version,
             trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
             patterns: b.patterns, recommendations: b.recommendations,
-            swot: null, narrative: text,
+            swot: swot || null, narrative: text,
           }).then(() => { setSaved(true); loadHist(); });
         }
         return;
@@ -846,15 +953,33 @@ function JournalAnalysisPanel({ sym }) {
         </div>
       )}
 
-      {/* Mira's SWOT + read */}
+      {/* Mira's SWOT + read. Structured JSON can't render mid-stream, so while
+          streaming we show a writing state; on `done` we parse+validate and
+          render the SWOT grid, or fall back to the prose read. */}
       {read && (read.text != null || read.error || read.loading) && (
         <div className="vg-card" style={{ marginTop: 12 }}>
           <div className="vg-spread">
-            <div className="vg-kicker" style={{ margin: 0 }}>SWOT &amp; read {saved && <span className="vg-up" style={{ fontSize: 11 }}>✓ saved</span>}</div>
+            <div className="vg-kicker" style={{ margin: 0 }}>
+              SWOT &amp; read {saved && <span className="vg-up" style={{ fontSize: 11 }}>✓ saved</span>}
+            </div>
+            {read.mode === "prose" && (
+              <span className="vg-note" style={{ fontSize: 10 }} title="the model's output wasn't structured JSON — showing the prose read">
+                prose fallback
+              </span>
+            )}
           </div>
           {read.loading && <p className="vg-note" style={{ marginTop: 8 }}>Aggregating your reviews and scoring the window…</p>}
           {read.error && <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{read.error}</p>}
-          {read.text && <div className="vg-dna-read" style={{ marginTop: 8 }}>{read.text}</div>}
+          {/* streaming (text arriving, not yet parsed) → writing state */}
+          {read.text != null && read.mode == null && !read.error && (
+            <p className="vg-note" style={{ marginTop: 8 }}>
+              <span className="vg-spin" aria-hidden="true">⟳</span> Mira is writing the desk review…
+            </p>
+          )}
+          {/* done → structured SWOT, or prose fallback */}
+          {read.mode === "structured" && read.swot && <SwotRender swot={read.swot} />}
+          {read.mode === "prose" && read.text &&
+            <div className="vg-dna-read" style={{ marginTop: 8 }}>{read.text}</div>}
         </div>
       )}
 

@@ -219,38 +219,55 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
     }
 
 
+# The JSON contract the journal_analyst must return. The UI renders this into
+# the SWOT grid + do-next cards; the deterministic parts (scores, pattern
+# counts, per-day P&L) are NOT asked of the model — Vantage already has them
+# exact. The model fills only the JUDGMENT prose. A response that fails to
+# match this shape degrades to a prose render (never a broken card), so the
+# schema is a target, not a hard gate.
+OUTPUT_SCHEMA = {
+    "headline": "one punchy sentence — the thesis of the window",
+    "swot": {
+        "strengths": [{"point": "what's working", "cites": ["trade label + $"]}],
+        "weaknesses": [{"point": "a chronic mistake", "cites": ["trade label + $"]}],
+        "opportunities": [{"point": "a fixable edge"}],
+        "threats": [{"point": "what blows up the account if unaddressed"}],
+    },
+    "pattern": "the single root habit behind the weaknesses, one sentence",
+    "scores_read": "one sentence on the scores; if a prior exists, the direction + whether the advice is working",
+    "do_next": [{"title": "a short imperative", "detail": "the concrete mechanical change"}],
+}
+
+
 def build_prompt(bundle: dict) -> str:
-    """The DeepSeek prompt: turn the deterministic bundle into a SWOT + read.
-    Kept here so the exact prompt is versioned with the scorer that feeds it.
-    The Mira journal_analyst uses this verbatim."""
+    """The DeepSeek prompt: turn the deterministic bundle into a STRUCTURED
+    JSON analysis (OUTPUT_SCHEMA) the UI renders as a SWOT grid. Versioned with
+    the scorer that feeds it; the Mira journal_analyst uses it verbatim."""
     import json
     b = bundle
     prior = b.get("prior")
     prior_line = (
         f"\nPRIOR ANALYSIS (through {prior['window_to']}): scores {json.dumps(prior['scores'])}. "
-        f"Its read began: \"{prior['narrative'][:300]}...\". BUILD ON IT — say what changed since, and "
-        f"for each standing recommendation state whether the operator is IMPROVING, FLAT, or WORSE.\n"
+        f"BUILD ON IT — in `scores_read`, say what changed and whether the advice is working.\n"
         if prior else "\nNo prior analysis — this is the baseline.\n")
 
     return (
-        "You are a demanding trading-desk coach writing a JOURNAL ANALYSIS — an aggregate self-assessment "
+        "You are a demanding trading-desk coach producing a JOURNAL ANALYSIS — an aggregate self-assessment "
         f"of an SPX 0DTE operator over {b['window_from']} to {b['window_to']} ({b['trades']} trades, "
         f"{b['analyzed']} with recorded reviews, net ${b['net_pnl']}). Use ONLY the data below.\n"
         f"{prior_line}"
-        f"\nRUBRIC SCORES (0-100, rubric v{b['rubric_version']}): {json.dumps(b['scores'])}. "
-        f"Dimensions: {json.dumps(b['rubric'])}.\n"
-        f"\nPATTERN CENSUS (how often each mistake was flagged across the reviews, with the trades that "
-        f"evidence it): {json.dumps(b['patterns'])}.\n"
+        f"\nRUBRIC SCORES (already computed — do NOT restate the numbers, read them): "
+        f"{json.dumps(b['scores'])}. Dimensions: {json.dumps(b['rubric'])}.\n"
+        f"\nPATTERN CENSUS (mistake -> flag count + the trades that evidence it): {json.dumps(b['patterns'])}.\n"
         f"\nPER-DAY DISCIPLINE: {json.dumps(b['per_day'])}.\n"
-        f"\nThe per-trade reviews this is built from (excerpts): "
+        f"\nPer-trade review excerpts: "
         f"{json.dumps([{'d': t['day'], 'trade': t['label'], 'read': t['analysis'][:400]} for t in b['trade_reads']])}\n"
-        "\nWrite the analysis in this exact structure:\n"
-        "**SWOT** — four short sections. STRENGTHS (what's working, cite the winning trades), WEAKNESSES "
-        "(the chronic mistakes, cite the losing trades), OPPORTUNITIES (the fixable edge), THREATS (what "
-        "will blow up the account if unaddressed). Cite specific trade labels + dollar amounts from the data.\n"
-        "**THE PATTERN** — the single root habit behind the weaknesses, stated plainly.\n"
-        "**SCORES** — read each rubric dimension's number; if there's a prior, say the direction and whether "
-        "the standing recommendation is working.\n"
-        "**DO THIS NEXT** — 3-4 concrete, mechanical changes, ranked by impact.\n"
-        "Be direct, cite the numbers, no disclaimers. This is educational, not financial advice."
+        "\nRESPOND WITH ONLY A SINGLE JSON OBJECT — no markdown, no prose before or after — matching this shape "
+        "EXACTLY (same keys):\n"
+        f"{json.dumps(OUTPUT_SCHEMA, indent=1)}\n"
+        "Rules: `swot` MUST have exactly the keys strengths/weaknesses/opportunities/threats, each an array of "
+        "objects with a `point` string (strengths & weaknesses also take a `cites` array of trade labels + $ "
+        "amounts drawn from the data above — never invent a trade). `do_next` is 3-4 items, most impactful "
+        "first. Be specific and direct; cite the real numbers. Educational only — not financial advice. "
+        "Output the JSON and nothing else."
     )

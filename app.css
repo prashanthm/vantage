@@ -844,3 +844,33 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-score-fill { height:100%; border-radius:5px; }
 .bg-good { background:var(--vg-up); } .bg-warn { background:var(--vg-warn); } .bg-bad { background:var(--vg-down); }
 .vg-good { color:var(--vg-up); } .vg-warn { color:var(--vg-warn); } .vg-bad { color:var(--vg-down); }
+
+/* ── Journal Analysis: structured SWOT render ─────────────────────────────── */
+.vg-swot { margin-top: 10px; }
+.vg-swot-headline { margin: 0 0 12px; font-size: 17px; letter-spacing: -0.01em; }
+.vg-swot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 680px) { .vg-swot-grid { grid-template-columns: 1fr; } }
+.vg-swot-q { border: 1px solid var(--vg-hairline); border-radius: 12px; padding: 14px 15px; }
+.vg-swot-q.s { background: var(--vg-up-soft);   border-color: rgba(31,157,107,.30); }
+.vg-swot-q.w { background: var(--vg-down-soft);  border-color: rgba(217,59,78,.30); }
+.vg-swot-q.o { background: rgba(47,109,246,.10); border-color: rgba(47,109,246,.30); }
+.vg-swot-q.t { background: var(--vg-warn-soft);  border-color: rgba(185,122,22,.30); }
+.vg-swot-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.vg-swot-badge { width: 24px; height: 24px; border-radius: 7px; display: grid; place-items: center;
+  font-weight: 700; font-size: 12px; color: #fff; flex: none; }
+.vg-swot-q.s .vg-swot-badge { background: var(--vg-up); }
+.vg-swot-q.w .vg-swot-badge { background: var(--vg-down); }
+.vg-swot-q.o .vg-swot-badge { background: #2f6df6; }
+.vg-swot-q.t .vg-swot-badge { background: var(--vg-warn); }
+.vg-swot-head b { font-size: 14px; }
+.vg-swot-tag { margin-left: auto; font-size: 10px; letter-spacing: .06em; text-transform: uppercase; }
+.vg-swot-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.vg-swot-items li { font-size: 13px; line-height: 1.42; }
+.vg-swot-cites { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.vg-cite { font-size: 10.5px; font-family: ui-monospace, Menlo, monospace; padding: 2px 6px;
+  border-radius: 5px; background: rgba(0,0,0,.05); white-space: nowrap; }
+.vg-cite.s { color: var(--vg-up); } .vg-cite.w { color: var(--vg-down); }
+.vg-swot-pattern { margin-top: 12px; padding: 12px 14px; border-radius: 10px;
+  background: rgba(0,0,0,.03); border: 1px solid var(--vg-hairline); }
+.vg-donext { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; }
+.vg-donext li { font-size: 13.5px; }
