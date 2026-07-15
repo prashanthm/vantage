@@ -3243,9 +3243,21 @@
     useEffect7(() => {
       setData(null);
       setOpen(null);
-    }, [snap.id]);
+      let live = true;
+      (async () => {
+        setBusy(true);
+        const v = await getSessionActivity(day, snap.symbol || "SPX");
+        if (live) {
+          setData(v && v.available ? v : { empty: true });
+          setBusy(false);
+        }
+      })();
+      return () => {
+        live = false;
+      };
+    }, [snap.id, day, snap.symbol]);
     if (!data) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "My trades \u2014 what I actually did"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 4, fontSize: 12 } }, "Every decision reconstructed from your broker fills \u2014 pinned to the SPX price at the minute you submitted it, correlated to the levels you forecast, expiries settled against the SPX print.")), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "Pulling\u2026" : "\u27F3 Pull my trades")));
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "My trades \u2014 what I actually did"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 4, fontSize: 12 } }, "Every decision reconstructed from your broker fills \u2014 pinned to the SPX price at the minute you submitted it, correlated to the levels you forecast, expiries settled against the SPX print.")), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, busy ? "Loading your trades\u2026" : "")));
     }
     if (data.empty) {
       return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No ", snap.symbol || "SPX", " trades on ", day, "."));

@@ -477,7 +477,19 @@ function TradesPanel({ snap, thoughts, onThought }) {
     setBusy(false);
     setData(v && v.available ? v : { empty: true });
   };
-  useEffect(() => { setData(null); setOpen(null); }, [snap.id]);
+  // auto-load the day's trades on open (and when the day/underlying changes) —
+  // this is a trade log; it should show the trades, not a button to fetch them.
+  // A manual ⟳ stays for a mid-session re-pull.
+  useEffect(() => {
+    setData(null); setOpen(null);
+    let live = true;
+    (async () => {
+      setBusy(true);
+      const v = await getSessionActivity(day, snap.symbol || "SPX");
+      if (live) { setData(v && v.available ? v : { empty: true }); setBusy(false); }
+    })();
+    return () => { live = false; };
+  }, [snap.id, day, snap.symbol]);
 
   if (!data) {
     return (
@@ -491,9 +503,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
               settled against the SPX print.
             </p>
           </div>
-          <button className="vg-btn-sm" onClick={load} disabled={busy}>
-            {busy ? "Pulling…" : "⟳ Pull my trades"}
-          </button>
+          <span className="vg-note">{busy ? "Loading your trades…" : ""}</span>
         </div>
       </div>
     );
