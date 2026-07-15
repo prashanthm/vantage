@@ -12,7 +12,7 @@ import { cls, SymbolSwitcher } from "./util.jsx";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
-  getSessionActivity,
+  getSessionActivity, getTradeDna, saveTradeAnalysis, streamTurn,
 } from "./live.js";
 
 const { useState, useRef, useEffect, useMemo } = React;
@@ -543,7 +543,8 @@ function TradesPanel({ snap, thoughts, onThought }) {
         {(data.trades || []).map((t, i) => {
           const key = `${t.opened_at || i}|${t.label}`;
           return (
-            <TradeCard key={key} t={t} tkey={key}
+            <TradeCard key={key} t={t} tkey={key} tradeIndex={i}
+              day={day} underlying={snap.symbol || "SPX"}
               expanded={open === key} onToggle={() => setOpen(open === key ? null : key)}
               thought={(thoughts && thoughts[key]) || ""} onThought={(v) => onThought(key, v)}
               allLevels={allLevels} />
@@ -558,7 +559,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
   );
 }
 
-function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels }) {
+function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, thought, onThought, allLevels }) {
   const corr = t.correlation;
   const nearest = corr && corr.nearest;
   const exitCorr = t.exit_correlation;
@@ -687,10 +688,202 @@ function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels 
             <textarea rows={2} value={why} onChange={(e) => setWhy(e.target.value)}
               placeholder="the read, the trigger, what I was expecting — the WHY the broker can't record" />
           </div>
+
+          {/* step 2: the full DNA read by Mira (news + sentiment + the tape) */}
+          <AnalyzeTrade day={day} tradeIndex={tradeIndex} underlying={underlying}
+            why={why} label={t.label} />
         </div>
       )}
     </div>
   );
+}
+
+// ── Analyze this trade: Vantage DNA → Mira trade-analyst ──────────────────────
+//
+// Step 2 of the two-step flow. Pulls the full DNA from Vantage (price action,
+// volume, technicals, level correlation), wraps it in a trade-analyst brief
+// that ALSO asks Mira to weigh news + sentiment for the underlying, and streams
+// the read. The "entire DNA of the trade" in one place.
+function AnalyzeTrade({ day, tradeIndex, underlying, why, label }) {
+  const [state, setState] = useState(null);   // null | "loading" | {text} | {error}
+  const abortRef = useRef(null);
+
+  const run = async () => {
+    setState("loading");
+    const res = await getTradeDna(day, tradeIndex, underlying);
+    if (!res || !res.available || !res.dna) {
+      setState({ error: (res && res.note) || "couldn't build the trade DNA" });
+      return;
+    }
+    const prompt = buildAnalystPrompt(res.dna, why, res.playbook_session, day, tradeIndex, underlying);
+    let text = "";
+    setState({ text: "" });
+    abortRef.current = streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
+      if (evt.kind === "error") { setState({ error: evt.message || "Mira error" }); return; }
+      if (evt.kind === "done") {
+        abortRef.current = null;
+        // Mira's supervisor classifies trade-data prompts to a specialist whose
+        // turn-path synthesis is still deterministic (echoes tool JSON, not
+        // prose) — detect that and fall back to the structured DNA read, which
+        // IS the full picture, rather than showing raw JSON.
+        const routed = text.trimStart().startsWith("[") && /\{"/.test(text);
+        const finalText = routed ? "" : text;
+        if (finalText.trim() && res.trade_key) {
+          saveTradeAnalysis({
+            day, trade_key: res.trade_key, underlying, label: res.dna.label,
+            dna: res.dna, analysis: finalText,
+          });
+        }
+        setState({ text: finalText, dna: res.dna, saved: !!finalText.trim(),
+                   modelUnavailable: routed });
+        return;
+      }
+      const chunk = evt.text || evt.delta || evt.content || "";
+      if (chunk) { text += chunk; setState({ text, dna: res.dna }); }
+    });
+  };
+
+  // show a previously-saved read on open, so the record persists across sessions
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const res = await getTradeDna(day, tradeIndex, underlying);
+      if (live && res && res.stored) {
+        setState({ text: res.stored.analysis || "",
+                   dna: (res.stored.dna && res.stored.dna.label) ? res.stored.dna : res.dna,
+                   saved: true, analyzedAt: res.stored.analyzed_at });
+      }
+    })();
+    return () => { live = false; if (abortRef.current) abortRef.current(); };
+  }, [day, tradeIndex, underlying]);
+
+  return (
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" }}>
+      <div className="vg-spread">
+        <div className="vg-kicker" style={{ margin: 0 }}>The DNA — Mira's read</div>
+        {(!state || state.error) && (
+          <button className="vg-btn-sm" onClick={run}>🧬 Analyze this trade</button>
+        )}
+        {state && state.text != null && (
+          <button className="vg-btn-sm" onClick={run}>↻ Re-analyze</button>
+        )}
+      </div>
+      {state === "loading" && (
+        <p className="vg-note" style={{ marginTop: 8 }}>
+          Building the DNA (price action · volume · technicals · levels) and reading news + sentiment…
+        </p>
+      )}
+      {state && state.error && <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{state.error}</p>}
+      {state && state.text != null && (
+        <>
+        {/* the model's narrative read, when the direct path produced one */}
+        {state.text.trim() && (
+          <div className="vg-dna-read" style={{ marginTop: 8 }}>{state.text}</div>
+        )}
+        {/* the structured DNA read — always shown; this IS the full picture */}
+        {state.dna && <DnaReadout dna={state.dna} />}
+        {state.modelUnavailable && (
+          <p className="vg-note" style={{ fontSize: 11, marginTop: 6 }}>
+            The narrative read is pending Mira's turn-path model synthesis; the full
+            structured DNA above is the complete record.
+          </p>
+        )}
+        {state.saved && (
+          <p className="vg-note" style={{ fontSize: 11, marginTop: 4 }}>
+            ✓ saved to this trade's record{state.analyzedAt ? ` · ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : ""}
+          </p>
+        )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// The DNA as a structured read — the full picture in plain English, deterministic.
+// This is what "the entire DNA of the trade" means: every fact, judged.
+function DnaReadout({ dna }) {
+  const e = dna.entry, x = dna.exit;
+  const et = e.technicals || {}, xt = x.technicals || {};
+  const eq = e.quality || {}, xq = x.quality || {};
+  const en = e.correlation && e.correlation.nearest;
+  const xn = x.correlation && x.correlation.nearest;
+  const pts = (v) => (v == null ? "—" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(1)}pt`);
+  const call = String(dna.strategy).includes("call");
+  // read the fill quality in words
+  const entryRead = eq.pre_move == null ? "" :
+    (eq.pre_move < 0 ? `price pulled back ${pts(eq.pre_move)} into the fill (bought the dip)`
+     : `price ran ${pts(eq.pre_move)} into the fill (bought strength)`)
+    + (eq.post_move != null ? `, then moved ${pts(eq.post_move)} in your favor` : "");
+  const exitRead = xq.pre_move == null ? "" :
+    (xq.pre_move > 0 ? `price spiked ${pts(xq.pre_move)} into the exit (sold into strength)`
+     : `price was falling ${pts(xq.pre_move)} into the exit`)
+    + (xq.post_move != null ? `, then went ${pts(xq.post_move)} after` : "");
+  return (
+    <div style={{ marginTop: 8 }}>
+      <table className="vg-mini" style={{ maxWidth: 560 }}><tbody>
+        <tr><td style={{ width: 70 }}><b>Timeframe</b></td>
+          <td>{dna.timeframe} · {dna.bar_interval} bars{dna.coarse ? " (1m unavailable — coarse)" : ""}</td></tr>
+        <tr><td><b>Entry</b></td>
+          <td>SPX <b>{e.spot}</b>{en ? <> — {en.at_level || (e.correlation && e.correlation.at_level) ? "at " : "near "}
+            the <b>{en.level}</b> {en.role} ({(en.kinds || []).join(" + ")}), {pts(en.distance)} away</> : ""}.
+            {" "}{entryRead}.</td></tr>
+        <tr><td /><td className="vg-note">VWAP {et.vwap} ({et.vs_vwap >= 0 ? "+" : ""}{et.vs_vwap} vs price)
+          {et.rsi != null ? ` · RSI ${Math.round(et.rsi)}` : ""} · rel-vol {et.rel_volume}× · ATR {et.atr}</td></tr>
+        <tr><td><b>Exit</b></td>
+          <td>SPX <b>{x.spot}</b>{x.is_settlement ? " (expiry settlement)" : ""}{xn ? <> — {(x.correlation && x.correlation.at_level) ? "at " : "near "}
+            the <b>{xn.level}</b> {xn.role} ({(xn.kinds || []).join(" + ")}), {pts(xn.distance)} away</> : ""}.
+            {" "}{exitRead}.</td></tr>
+        <tr><td /><td className="vg-note">VWAP {xt.vwap} ({xt.vs_vwap >= 0 ? "+" : ""}{xt.vs_vwap} vs price)
+          {xt.rsi != null ? ` · RSI ${Math.round(xt.rsi)}${xt.rsi >= 70 ? " (extended)" : ""}` : ""} · rel-vol {xt.rel_volume}× · ATR {xt.atr}</td></tr>
+        <tr><td><b>Result</b></td>
+          <td><b className={dna.realized >= 0 ? "vg-up" : "vg-down"}>{dna.realized >= 0 ? "+" : "−"}${Math.abs(dna.realized).toLocaleString()}</b>
+            {" "}· {dna.status.replace("_", " ")}</td></tr>
+      </tbody></table>
+    </div>
+  );
+}
+
+// Turn the structured DNA into an analyst brief. Deliberately framed as a
+// self-contained REVIEW (not "analyze <ticker>") so Mira's supervisor routes
+// it to the direct model turn rather than the equity fan-out — the DNA is the
+// full payload, so the read should reason over THAT, not re-fetch facets.
+function buildAnalystPrompt(dna, why, session, day, tradeIndex, underlying) {
+  const j = (o) => JSON.stringify(o);
+  const e = dna.entry, x = dna.exit;
+  const win = (w) => (w || []).map((b) =>
+    `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  «FILL»" : ""}`).join("\n");
+  // NOTE: framed to reach Mira's direct-model turn, NOT the supervisor's
+  // routed specialists — those are a Phase-1 deterministic scaffold with no
+  // live model yet (they echo tool JSON, not prose). The dedicated
+  // trade_analyst card + vantage.trade_dna MCP tool are registered and route
+  // correctly; they'll produce the read once Mira wires model synthesis into
+  // the turn path. Until then the direct model gives a real DNA read.
+  return [
+    `You are a trading-desk analyst. Read the complete DNA of this one options position below and give a specific, numbers-driven review of the decision quality. Do not ask for more data — everything is here.`,
+    ``,
+    `TRADE: ${dna.label} (${dna.strategy}), a ${dna.timeframe} on ${dna.underlying}. Opened ${dna.opened_at}, closed ${dna.closed_at}. Realized P&L $${dna.realized}.`,
+    dna.coarse ? `Note: price action is 15-minute bars (1-minute unavailable this far back).` : ``,
+    ``,
+    `THE FORECAST for the session (levels the operator planned around): ${j(dna.forecast_levels)}. GEX anchors: ${j(dna.gex_anchors)}.`,
+    ``,
+    `ENTRY at ${dna.underlying} ${e.spot}. Nearest forecast level: ${j(e.correlation && e.correlation.nearest)}. Technicals at entry: ${j(e.technicals)}. Fill-quality read: ${j(e.quality)}.`,
+    `Price action around the entry:`,
+    win(e.window),
+    ``,
+    `EXIT at ${dna.underlying} ${x.spot}${x.is_settlement ? " (this was the expiry settlement, not a sell)" : ""}. Nearest forecast level: ${j(x.correlation && x.correlation.nearest)}. Technicals at exit: ${j(x.technicals)}. Fill-quality read: ${j(x.quality)}.`,
+    `Price action around the exit:`,
+    win(x.window),
+    ``,
+    why ? `The operator's own note on why they took it: "${why}"` : `The operator left no note on their thinking.`,
+    ``,
+    `Write a tight desk review, specific with the numbers:`,
+    `1. ENTRY quality — did they buy into strength or catch a falling knife? Was it at a real level? What did volume say?`,
+    `2. EXIT quality — did they sell into a spike or give the move back? Did it hit a level? Was it extended (VWAP/RSI)?`,
+    `3. Did the trade RESPECT THE PLAN — enter and exit at forecast levels, in line with the tape?`,
+    `4. Based on the price action and the broad ${dna.underlying} tape that session, does the market context support this trade, and what would you flag about news/sentiment risk for a ${dna.day} 0DTE?`,
+    `5. One concrete LESSON.`,
+    `Be direct. No disclaimers.`,
+  ].filter((l) => l !== ``).join("\n");
 }
 
 // One side of the correlation (entry or exit): the levels near this SPX print.

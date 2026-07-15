@@ -1496,6 +1496,61 @@ class Store:
             out.append(d)
         return out
 
+    # ── persisted trade analysis (DNA snapshot + Mira's read) ───────────────
+
+    def save_trade_analysis(self, *, day: str, trade_key: str, underlying: str,
+                            label: str | None, dna: dict,
+                            analysis: str | None) -> int:
+        """Freeze one trade's DNA snapshot + Mira read. Upsert by (day,
+        trade_key): re-analyzing overwrites. Returns the row id."""
+        if not self.uses_sqlite:
+            raise RuntimeError("save_trade_analysis requires the SQLite backend")
+        import datetime as _dt
+        import json as _json
+        now = _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat()
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT INTO trade_analysis"
+                "(day, trade_key, underlying, label, analyzed_at, dna, analysis) "
+                "VALUES(?,?,?,?,?,?,?) "
+                "ON CONFLICT(day, trade_key) DO UPDATE SET "
+                "underlying=excluded.underlying, label=excluded.label, "
+                "analyzed_at=excluded.analyzed_at, dna=excluded.dna, "
+                "analysis=excluded.analysis",
+                (day, trade_key, underlying, label, now,
+                 _json.dumps(dna), analysis))
+            row = conn.execute(
+                "SELECT id FROM trade_analysis WHERE day=? AND trade_key=?",
+                (day, trade_key)).fetchone()
+            return int(row["id"])
+
+    def load_trade_analysis(self, day: str,
+                            trade_key: str | None = None) -> list[dict]:
+        """Persisted trade analyses for ``day`` (one when ``trade_key`` is
+        given). ``dna`` is JSON-decoded back to a dict."""
+        if not self.uses_sqlite:
+            return []
+        import json as _json
+        conn = self._backend._conn()
+        try:
+            sql = "SELECT * FROM trade_analysis WHERE day=?"
+            params: list = [day]
+            if trade_key is not None:
+                sql += " AND trade_key=?"; params.append(trade_key)
+            sql += " ORDER BY analyzed_at DESC"
+            rows = conn.execute(sql, params).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["dna"] = _json.loads(d.get("dna") or "{}")
+            except (ValueError, TypeError):
+                d["dna"] = {}
+            out.append(d)
+        return out
+
     # ── chart-snapshot journal (SQLite metadata; image bytes on disk) ────────
 
     def record_journal_snapshot(self, snap: dict) -> int:

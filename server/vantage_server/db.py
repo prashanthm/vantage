@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 15  # v15: paper_trades.spy_opposing (retarget-at-fill book)
+SCHEMA_VERSION = 16  # v16: trade_analysis (persisted DNA snapshot + Mira read)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -421,6 +421,25 @@ CREATE TABLE IF NOT EXISTS nightly_runs (
     jobs        TEXT NOT NULL       -- JSON array [{job, ok, duration_sec, tail}]
 );
 CREATE INDEX IF NOT EXISTS ix_nightly_started ON nightly_runs(started_at);
+
+-- Persisted trade analysis: the DNA snapshot (price action / volume /
+-- technicals / level correlation frozen at analysis time) AND Mira's read of
+-- it, keyed by the trade's identity. Frozen so the record survives even after
+-- 1-minute bars age out of yfinance (~30 days) — the DNA a swing/0DTE was
+-- judged on is preserved verbatim, not recomputed. One row per (day, trade
+-- key); re-analyzing overwrites it.
+CREATE TABLE IF NOT EXISTS trade_analysis (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    day         TEXT NOT NULL,       -- session date (YYYY-MM-DD)
+    trade_key   TEXT NOT NULL,       -- the trade's stable identity (opened_at|label)
+    underlying  TEXT NOT NULL,
+    label       TEXT,                -- human label, for listing
+    analyzed_at TEXT NOT NULL,       -- when the read was produced
+    dna         TEXT NOT NULL,       -- JSON: the frozen DNA snapshot
+    analysis    TEXT,                -- Mira's prose read (may be null if unsaved)
+    UNIQUE (day, trade_key)
+);
+CREATE INDEX IF NOT EXISTS ix_trade_analysis_day ON trade_analysis(day, underlying);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard

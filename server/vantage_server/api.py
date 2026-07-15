@@ -930,12 +930,36 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         if trade < 0 or trade >= len(trades):
             return envelope(snap, available=False,
                             note=f"trade {trade} out of range (day has {len(trades)})")
-        dna = _dna.build(store, day, trades[trade],
+        t = trades[trade]
+        dna = _dna.build(store, day, t,
                          sess.get("forecast_levels") or [],
                          sess.get("gex_anchors") or [], underlying or "SPX")
-        return envelope(snap, available=True, dna=dna,
+        trade_key = f"{t.get('opened_at') or trade}|{t.get('label')}"
+        # a stored analysis (frozen DNA + Mira read) if this trade was analyzed
+        prior = store.load_trade_analysis(day, trade_key)
+        return envelope(snap, available=True, dna=dna, trade_key=trade_key,
+                        stored=(prior[0] if prior else None),
                         playbook_session=sess.get("playbook_session"),
                         settle_price=sess.get("settle_price"))
+
+    @app.post("/api/journal/trade-analysis")
+    def journal_trade_analysis(body: dict = Body(default={})):
+        """Freeze a trade's DNA snapshot + Mira's read into the store, so the
+        record survives even after 1m bars age out. Body: {day, trade_key,
+        underlying, label, dna, analysis}. Store-only write (ADR-010)."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        day = str(body.get("day") or "")
+        tk = str(body.get("trade_key") or "")
+        dna = body.get("dna")
+        if not day or not tk or not isinstance(dna, dict):
+            return envelope(snap, available=False, note="need day, trade_key, dna")
+        rid = store.save_trade_analysis(
+            day=day, trade_key=tk, underlying=str(body.get("underlying") or "SPX"),
+            label=body.get("label"), dna=dna,
+            analysis=(str(body["analysis"]) if body.get("analysis") else None))
+        return envelope(snap, available=True, id=rid)
 
     @app.post("/api/journal/entry")
     def journal_entry(body: dict = Body(default={})):

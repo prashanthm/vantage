@@ -927,6 +927,18 @@ export const getSessionActivity = (day, underlying) => {
                  { timeoutMs: 20000 });
 };
 
+// The full DNA of one trade (step 1: pure Vantage data — price action, volume,
+// technicals, level correlation, forecast). `trade` is the index into the day's
+// session-activity trade list. Feeds the Mira trade-analyst (step 2).
+export const getTradeDna = (day, trade, underlying = "SPX") =>
+  getJson(`${backendBase()}/api/journal/trade-dna?day=${encodeURIComponent(day)}` +
+          `&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 30000 });
+
+// Freeze a trade's DNA snapshot + Mira's read into Vantage — permanent record,
+// survives 1-minute bars ageing out of yfinance.
+export const saveTradeAnalysis = (body) =>
+  postJson(`${backendBase()}/api/journal/trade-analysis`, body);
+
 // The positions that matter while trading: reclaim proxies you actually hold,
 // each flagged with whether the exit monitor is protecting it.
 export const getTradeablePositions = () =>

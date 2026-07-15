@@ -182,6 +182,7 @@
     getSignals: () => getSignals,
     getStrategies: () => getStrategies,
     getTicket: () => getTicket,
+    getTradeDna: () => getTradeDna,
     getTradeStats: () => getTradeStats,
     getTradeablePositions: () => getTradeablePositions,
     health: () => health,
@@ -220,6 +221,7 @@
     refreshAll: () => refreshAll,
     saveBotConfig: () => saveBotConfig,
     saveJournalEntry: () => saveJournalEntry,
+    saveTradeAnalysis: () => saveTradeAnalysis,
     scoreJournal: () => scoreJournal,
     settlePaper: () => settlePaper,
     streamTurn: () => streamTurn,
@@ -931,6 +933,8 @@
       { timeoutMs: 2e4 }
     );
   };
+  var getTradeDna = (day, trade, underlying = "SPX") => getJson(`${backendBase()}/api/journal/trade-dna?day=${encodeURIComponent(day)}&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 3e4 });
+  var saveTradeAnalysis = (body) => postJson(`${backendBase()}/api/journal/trade-analysis`, body);
   var getTradeablePositions = () => getJson(`${backendBase()}/api/positions/tradeable`);
   async function recomputePlaybook(asOf, symbol = "SPX") {
     const base = backendBase();
@@ -3259,6 +3263,9 @@
           key,
           t,
           tkey: key,
+          tradeIndex: i,
+          day,
+          underlying: snap.symbol || "SPX",
           expanded: open === key,
           onToggle: () => setOpen(open === key ? null : key),
           thought: thoughts && thoughts[key] || "",
@@ -3268,7 +3275,7 @@
       );
     })), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 8 } }, "SPX price is the 1-minute print at submission. Tag the level you were trading \u2014 the broker says WHAT you did; only you can say WHY. Everything saves with the entry."));
   }
-  function TradeCard({ t, tkey, expanded, onToggle, thought, onThought, allLevels }) {
+  function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, thought, onThought, allLevels }) {
     const corr = t.correlation;
     const nearest2 = corr && corr.nearest;
     const exitCorr = t.exit_correlation;
@@ -3316,7 +3323,126 @@
         onChange: (e) => setWhy(e.target.value),
         placeholder: "the read, the trigger, what I was expecting \u2014 the WHY the broker can't record"
       }
-    ))));
+    )), /* @__PURE__ */ React.createElement(
+      AnalyzeTrade,
+      {
+        day,
+        tradeIndex,
+        underlying,
+        why,
+        label: t.label
+      }
+    )));
+  }
+  function AnalyzeTrade({ day, tradeIndex, underlying, why, label }) {
+    const [state, setState] = useState10(null);
+    const abortRef = useRef2(null);
+    const run = async () => {
+      setState("loading");
+      const res = await getTradeDna(day, tradeIndex, underlying);
+      if (!res || !res.available || !res.dna) {
+        setState({ error: res && res.note || "couldn't build the trade DNA" });
+        return;
+      }
+      const prompt = buildAnalystPrompt(res.dna, why, res.playbook_session, day, tradeIndex, underlying);
+      let text = "";
+      setState({ text: "" });
+      abortRef.current = streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
+        if (evt.kind === "error") {
+          setState({ error: evt.message || "Mira error" });
+          return;
+        }
+        if (evt.kind === "done") {
+          abortRef.current = null;
+          const routed = text.trimStart().startsWith("[") && /\{"/.test(text);
+          const finalText = routed ? "" : text;
+          if (finalText.trim() && res.trade_key) {
+            saveTradeAnalysis({
+              day,
+              trade_key: res.trade_key,
+              underlying,
+              label: res.dna.label,
+              dna: res.dna,
+              analysis: finalText
+            });
+          }
+          setState({
+            text: finalText,
+            dna: res.dna,
+            saved: !!finalText.trim(),
+            modelUnavailable: routed
+          });
+          return;
+        }
+        const chunk = evt.text || evt.delta || evt.content || "";
+        if (chunk) {
+          text += chunk;
+          setState({ text, dna: res.dna });
+        }
+      });
+    };
+    useEffect7(() => {
+      let live = true;
+      (async () => {
+        const res = await getTradeDna(day, tradeIndex, underlying);
+        if (live && res && res.stored) {
+          setState({
+            text: res.stored.analysis || "",
+            dna: res.stored.dna && res.stored.dna.label ? res.stored.dna : res.dna,
+            saved: true,
+            analyzedAt: res.stored.analyzed_at
+          });
+        }
+      })();
+      return () => {
+        live = false;
+        if (abortRef.current) abortRef.current();
+      };
+    }, [day, tradeIndex, underlying]);
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "The DNA \u2014 Mira's read"), (!state || state.error) && /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u{1F9EC} Analyze this trade"), state && state.text != null && /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u21BB Re-analyze")), state === "loading" && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Building the DNA (price action \xB7 volume \xB7 technicals \xB7 levels) and reading news + sentiment\u2026"), state && state.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, state.error), state && state.text != null && /* @__PURE__ */ React.createElement(React.Fragment, null, state.text.trim() && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, state.text), state.dna && /* @__PURE__ */ React.createElement(DnaReadout, { dna: state.dna }), state.modelUnavailable && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 6 } }, "The narrative read is pending Mira's turn-path model synthesis; the full structured DNA above is the complete record."), state.saved && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 4 } }, "\u2713 saved to this trade's record", state.analyzedAt ? ` \xB7 ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : "")));
+  }
+  function DnaReadout({ dna }) {
+    const e = dna.entry, x = dna.exit;
+    const et = e.technicals || {}, xt = x.technicals || {};
+    const eq = e.quality || {}, xq = x.quality || {};
+    const en = e.correlation && e.correlation.nearest;
+    const xn = x.correlation && x.correlation.nearest;
+    const pts2 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(1)}pt`;
+    const call = String(dna.strategy).includes("call");
+    const entryRead = eq.pre_move == null ? "" : (eq.pre_move < 0 ? `price pulled back ${pts2(eq.pre_move)} into the fill (bought the dip)` : `price ran ${pts2(eq.pre_move)} into the fill (bought strength)`) + (eq.post_move != null ? `, then moved ${pts2(eq.post_move)} in your favor` : "");
+    const exitRead = xq.pre_move == null ? "" : (xq.pre_move > 0 ? `price spiked ${pts2(xq.pre_move)} into the exit (sold into strength)` : `price was falling ${pts2(xq.pre_move)} into the exit`) + (xq.post_move != null ? `, then went ${pts2(xq.post_move)} after` : "");
+    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { maxWidth: 560 } }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { style: { width: 70 } }, /* @__PURE__ */ React.createElement("b", null, "Timeframe")), /* @__PURE__ */ React.createElement("td", null, dna.timeframe, " \xB7 ", dna.bar_interval, " bars", dna.coarse ? " (1m unavailable \u2014 coarse)" : "")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "Entry")), /* @__PURE__ */ React.createElement("td", null, "SPX ", /* @__PURE__ */ React.createElement("b", null, e.spot), en ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", en.at_level || e.correlation && e.correlation.at_level ? "at " : "near ", "the ", /* @__PURE__ */ React.createElement("b", null, en.level), " ", en.role, " (", (en.kinds || []).join(" + "), "), ", pts2(en.distance), " away") : "", ".", " ", entryRead, ".")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null), /* @__PURE__ */ React.createElement("td", { className: "vg-note" }, "VWAP ", et.vwap, " (", et.vs_vwap >= 0 ? "+" : "", et.vs_vwap, " vs price)", et.rsi != null ? ` \xB7 RSI ${Math.round(et.rsi)}` : "", " \xB7 rel-vol ", et.rel_volume, "\xD7 \xB7 ATR ", et.atr)), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "Exit")), /* @__PURE__ */ React.createElement("td", null, "SPX ", /* @__PURE__ */ React.createElement("b", null, x.spot), x.is_settlement ? " (expiry settlement)" : "", xn ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", x.correlation && x.correlation.at_level ? "at " : "near ", "the ", /* @__PURE__ */ React.createElement("b", null, xn.level), " ", xn.role, " (", (xn.kinds || []).join(" + "), "), ", pts2(xn.distance), " away") : "", ".", " ", exitRead, ".")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null), /* @__PURE__ */ React.createElement("td", { className: "vg-note" }, "VWAP ", xt.vwap, " (", xt.vs_vwap >= 0 ? "+" : "", xt.vs_vwap, " vs price)", xt.rsi != null ? ` \xB7 RSI ${Math.round(xt.rsi)}${xt.rsi >= 70 ? " (extended)" : ""}` : "", " \xB7 rel-vol ", xt.rel_volume, "\xD7 \xB7 ATR ", xt.atr)), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "Result")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", { className: dna.realized >= 0 ? "vg-up" : "vg-down" }, dna.realized >= 0 ? "+" : "\u2212", "$", Math.abs(dna.realized).toLocaleString()), " ", "\xB7 ", dna.status.replace("_", " "))))));
+  }
+  function buildAnalystPrompt(dna, why, session, day, tradeIndex, underlying) {
+    const j = (o) => JSON.stringify(o);
+    const e = dna.entry, x = dna.exit;
+    const win = (w) => (w || []).map((b) => `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  \xABFILL\xBB" : ""}`).join("\n");
+    return [
+      `You are a trading-desk analyst. Read the complete DNA of this one options position below and give a specific, numbers-driven review of the decision quality. Do not ask for more data \u2014 everything is here.`,
+      ``,
+      `TRADE: ${dna.label} (${dna.strategy}), a ${dna.timeframe} on ${dna.underlying}. Opened ${dna.opened_at}, closed ${dna.closed_at}. Realized P&L $${dna.realized}.`,
+      dna.coarse ? `Note: price action is 15-minute bars (1-minute unavailable this far back).` : ``,
+      ``,
+      `THE FORECAST for the session (levels the operator planned around): ${j(dna.forecast_levels)}. GEX anchors: ${j(dna.gex_anchors)}.`,
+      ``,
+      `ENTRY at ${dna.underlying} ${e.spot}. Nearest forecast level: ${j(e.correlation && e.correlation.nearest)}. Technicals at entry: ${j(e.technicals)}. Fill-quality read: ${j(e.quality)}.`,
+      `Price action around the entry:`,
+      win(e.window),
+      ``,
+      `EXIT at ${dna.underlying} ${x.spot}${x.is_settlement ? " (this was the expiry settlement, not a sell)" : ""}. Nearest forecast level: ${j(x.correlation && x.correlation.nearest)}. Technicals at exit: ${j(x.technicals)}. Fill-quality read: ${j(x.quality)}.`,
+      `Price action around the exit:`,
+      win(x.window),
+      ``,
+      why ? `The operator's own note on why they took it: "${why}"` : `The operator left no note on their thinking.`,
+      ``,
+      `Write a tight desk review, specific with the numbers:`,
+      `1. ENTRY quality \u2014 did they buy into strength or catch a falling knife? Was it at a real level? What did volume say?`,
+      `2. EXIT quality \u2014 did they sell into a spike or give the move back? Did it hit a level? Was it extended (VWAP/RSI)?`,
+      `3. Did the trade RESPECT THE PLAN \u2014 enter and exit at forecast levels, in line with the tape?`,
+      `4. Based on the price action and the broad ${dna.underlying} tape that session, does the market context support this trade, and what would you flag about news/sentiment risk for a ${dna.day} 0DTE?`,
+      `5. One concrete LESSON.`,
+      `Be direct. No disclaimers.`
+    ].filter((l) => l !== ``).join("\n");
   }
   function CorrTable({ title, corr, openSpace }) {
     const nearest2 = corr && corr.nearest;

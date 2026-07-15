@@ -733,6 +733,34 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                         baseline_win_rate=block.get("baseline_win_rate"),
                         notable=to_jsonable(list(block.get("notable") or [])))
 
+    @mcp.tool(
+        name="vantage.trade_dna",
+        annotations=_READ_ONLY,
+        description="The full DNA of ONE executed trade for review: the ±5-bar "
+                    "price action around entry AND exit with volume (1-minute "
+                    "for a 0DTE, 15-minute for a swing), the technicals at each "
+                    "fill (session VWAP + vs-VWAP, ATR, RSI, relative volume), a "
+                    "fill-quality read (points moved before/after, fill vs "
+                    "prior volume), and how the entry/exit price correlated to "
+                    "the session's forecast levels + GEX anchors. Args: day "
+                    "(YYYY-MM-DD), trade (integer index into that day's trade "
+                    "list), underlying (default SPX — catches SPXW). This is the "
+                    "data a trade-analyst reasons over; it does no judging.",
+    )
+    def trade_dna(day: str, trade: int, underlying: str = "SPX") -> dict:
+        from vantage_server import session_activity as _sa
+        from vantage_server import trade_dna as _dna
+        snap = snapshot()
+        sess = _sa.session(store, day, underlying or "SPX")
+        trades = sess.get("trades") or []
+        if trade < 0 or trade >= len(trades):
+            return envelope("trade_dna", snap, available=False,
+                            note=f"trade {trade} out of range ({len(trades)} trades)")
+        dna = _dna.build(store, day, trades[trade],
+                         sess.get("forecast_levels") or [],
+                         sess.get("gex_anchors") or [], underlying or "SPX")
+        return envelope("trade_dna", snap, available=True, dna=dna)
+
     return mcp
 
 

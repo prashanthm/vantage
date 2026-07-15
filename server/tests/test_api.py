@@ -466,6 +466,8 @@ ALLOWED_WRITE_ROUTES = {
     "/api/reclaim-bot/nightly-report",
     # Nightly pipeline snapshot into our own SQLite (posted by nightly-docker.sh).
     "/api/nightly/record",
+    # Persist a trade's DNA snapshot + Mira read into our store.
+    "/api/journal/trade-analysis",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the
