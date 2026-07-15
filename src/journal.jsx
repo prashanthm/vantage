@@ -1093,37 +1093,38 @@ function JournalAnalysisPanel({ sym }) {
       {hist && hist.length > 0 && (
         <div className="vg-card" style={{ marginTop: 12 }}>
           <div className="vg-kicker">Analyses · click a row to open · knowledge compounds</div>
-          <table className="vg-mini vg-ja-hist" style={{ marginTop: 6 }}><tbody>
-            <tr className="vg-note" style={{ fontSize: 10 }}>
-              <td>window</td><td>tag</td><td style={{ textAlign: "right" }}>entry</td>
-              <td style={{ textAlign: "right" }}>exit</td><td style={{ textAlign: "right" }}>risk</td>
-              <td style={{ textAlign: "right" }}>plan</td><td style={{ textAlign: "right" }}>net</td>
-            </tr>
+          {/* flex rows (not a table) so an expanded row's rich detail fills the
+              panel width instead of fighting table column widths (which clipped
+              the content on the left). */}
+          <div className="vg-ja-list" style={{ marginTop: 6 }}>
+            <div className="vg-ja-hrow vg-ja-head vg-note">
+              <span className="c-win">window</span>
+              <span className="c-tag">tag</span>
+              <span className="c-sc">entry</span><span className="c-sc">exit</span>
+              <span className="c-sc">risk</span><span className="c-sc">plan</span>
+              <span className="c-net">net</span>
+            </div>
             {hist.map((h) => {
               const s = h.scores || {};
               const isOpen = openId === h.id;
               return (
-                <React.Fragment key={h.id}>
-                  <tr className={cls("vg-ja-row", isOpen && "open")}
-                    onClick={() => toggleStored(h)} style={{ cursor: "pointer" }}
+                <div key={h.id} className="vg-ja-item">
+                  <div className={cls("vg-ja-hrow", "vg-ja-row", isOpen && "open")}
+                    onClick={() => toggleStored(h)}
                     title={isOpen ? "Collapse" : "Expand this analysis"}>
-                    <td>{isOpen ? "▾ " : "▸ "}{h.window_from} → {h.window_to}</td>
-                    <td><span className="vg-badge plain" style={{ fontSize: 10 }}>{h.period}</span></td>
-                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.entry_discipline || 0)}`}>{s.entry_discipline ?? "—"}</td>
-                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.exit_discipline || 0)}`}>{s.exit_discipline ?? "—"}</td>
-                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.risk_sizing || 0)}`}>{s.risk_sizing ?? "—"}</td>
-                    <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.plan_adherence || 0)}`}>{s.plan_adherence ?? "—"}</td>
-                    <td style={{ textAlign: "right" }} className={h.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(h.net_pnl)}</td>
-                  </tr>
-                  {isOpen && (
-                    <tr className="vg-ja-detail-row">
-                      <td colSpan={7}><AnalysisDetail h={h} /></td>
-                    </tr>
-                  )}
-                </React.Fragment>
+                    <span className="c-win">{isOpen ? "▾ " : "▸ "}{h.window_from} → {h.window_to}</span>
+                    <span className="c-tag"><span className="vg-badge plain" style={{ fontSize: 10 }}>{h.period}</span></span>
+                    <span className={cls("c-sc", `vg-${SCORE_TONE(s.entry_discipline || 0)}`)}>{s.entry_discipline ?? "—"}</span>
+                    <span className={cls("c-sc", `vg-${SCORE_TONE(s.exit_discipline || 0)}`)}>{s.exit_discipline ?? "—"}</span>
+                    <span className={cls("c-sc", `vg-${SCORE_TONE(s.risk_sizing || 0)}`)}>{s.risk_sizing ?? "—"}</span>
+                    <span className={cls("c-sc", `vg-${SCORE_TONE(s.plan_adherence || 0)}`)}>{s.plan_adherence ?? "—"}</span>
+                    <span className={cls("c-net", h.net_pnl >= 0 ? "vg-up" : "vg-down")}>{money(h.net_pnl)}</span>
+                  </div>
+                  {isOpen && <AnalysisDetail h={h} />}
+                </div>
               );
             })}
-          </tbody></table>
+          </div>
         </div>
       )}
     </div>
