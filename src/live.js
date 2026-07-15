@@ -927,6 +927,12 @@ export const getSessionActivity = (day, underlying) => {
                  { timeoutMs: 20000 });
 };
 
+// Realized P&L per day for a set of dates (cheap — fills only), so the day
+// strip can tint each pill by outcome.
+export const getDayPnl = (days, underlying = "SPX") =>
+  getJson(`${backendBase()}/api/journal/day-pnl?days=${encodeURIComponent(days.join(","))}` +
+          `&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 15000 });
+
 // The full DNA of one trade (step 1: pure Vantage data — price action, volume,
 // technicals, level correlation, forecast). `trade` is the index into the day's
 // session-activity trade list. Feeds the Mira trade-analyst (step 2).

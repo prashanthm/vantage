@@ -448,6 +448,36 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
     }
 
 
+def day_pnl_range(store, days: list[str], underlying: str = "SPX") -> dict:
+    """Realized P&L per day for a set of dates — CHEAP: fills only, no bar
+    fetches, no level correlation, no expiry settlement (the strip just needs a
+    +/− tint, not the full DNA). Returns {day: {realized, trades, has_fills}}.
+
+    NOTE realized here is fill cash-flow (credits − debits); it excludes expiry
+    settlement, so a day whose only outcome was a 0DTE expiry reads flat. The
+    full per-trade P&L on the day panel is authoritative; this is a glance."""
+    out: dict[str, dict] = {}
+    want = set(days)
+    # one pass over history, bucketed by day
+    by_day: dict[str, list[dict]] = {}
+    for r in store.load_history():
+        d = str(r.get("date") or "")[:10]
+        if d not in want or str(r.get("state") or "").lower() != "filled":
+            continue
+        sym = str(r.get("symbol") or "").upper()
+        u = underlying.upper()
+        if not (sym.startswith(u) or sym.startswith(u + "W")):
+            continue
+        by_day.setdefault(d, []).append(r)
+    for d in days:
+        rows = by_day.get(d, [])
+        trades = build_trades(group_orders(rows))
+        realized = round(sum(t["cost"] + t["proceeds"] for t in trades), 2)
+        out[d] = {"realized": realized, "trades": len(trades),
+                  "has_fills": bool(rows)}
+    return out
+
+
 def _intraday_bars(symbol: str, day: str):
     """Minute bars for ``day`` (best), falling back to the stored 15m series.
     RTH only, ET-indexed — the reference for pinning a fill to a price."""

@@ -12,7 +12,7 @@ import { cls, SymbolSwitcher } from "./util.jsx";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
-  getSessionActivity, getTradeDna, saveTradeAnalysis, streamTurn,
+  getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis, streamTurn,
 } from "./live.js";
 
 const { useState, useRef, useEffect, useMemo } = React;
@@ -118,7 +118,7 @@ export function JournalView({ refreshNonce }) {
 
       {/* the day STRIP — recent trading days, newest right; the whole calendar
           shrunk to one scannable row so the trades get the pane */}
-      <DayStrip byDay={byDay} selDay={selDay} onSelect={setSelDay} />
+      <DayStrip byDay={byDay} selDay={selDay} onSelect={setSelDay} sym={sym} />
 
       {/* THE HERO: the selected day's trades */}
       {selSnap ? (
@@ -144,8 +144,9 @@ export function JournalView({ refreshNonce }) {
 // default view.
 const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-function DayStrip({ byDay, selDay, onSelect }) {
+function DayStrip({ byDay, selDay, onSelect, sym }) {
   const stripRef = useRef(null);
+  const [pnl, setPnl] = useState({});     // {day: {realized, trades}}
   // the last ~14 WEEKDAYS up to today (journaled or not — an untraded day is
   // still a day you can open), newest last
   const days = useMemo(() => {
@@ -160,27 +161,42 @@ function DayStrip({ byDay, selDay, onSelect }) {
     }
     return out;
   }, []);
+  // one cheap call fetches per-day realized P&L for the whole strip
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      const v = await getDayPnl(days, sym || "SPX");
+      if (live && v && v.pnl) setPnl(v.pnl);
+    })();
+    return () => { live = false; };
+  }, [days.join(","), sym]);
   // keep the selected pill in view
   useEffect(() => {
     const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
     if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
   }, [selDay]);
 
+  const money = (n) => `${n >= 0 ? "+" : "−"}$${Math.abs(n) >= 1000 ? (Math.abs(n) / 1000).toFixed(1) + "k" : Math.abs(n).toFixed(0)}`;
   const today = todayISO();
   return (
     <div className="vg-daystrip" ref={stripRef}>
       {days.map((iso) => {
         const snap = byDay[iso];
         const tone = snap ? dayTone(snap) : null;
+        const p = pnl[iso];
         const [y, m, dd] = iso.split("-");
         const wd = WD[new Date(Number(y), Number(m) - 1, Number(dd)).getDay()];
+        const traded = p && p.trades > 0;
         return (
           <button key={iso}
-            className={cls("vg-daystrip-pill", iso === selDay && "sel", iso === today && "today")}
+            className={cls("vg-daystrip-pill", iso === selDay && "sel", iso === today && "today",
+                           traded && (p.realized >= 0 ? "up" : "down"))}
             onClick={() => onSelect(iso)}>
             <span className="vg-daystrip-wd">{iso === today ? "Today" : wd}</span>
             <span className="vg-daystrip-date">{MONTHS[Number(m) - 1].slice(0, 3)} {Number(dd)}</span>
-            <span className={cls("vg-daystrip-dot", tone || "empty")} />
+            {traded
+              ? <span className={cls("vg-daystrip-pnl", p.realized >= 0 ? "vg-up" : "vg-down")}>{money(p.realized)}</span>
+              : <span className={cls("vg-daystrip-dot", tone || "empty")} />}
           </button>
         );
       })}

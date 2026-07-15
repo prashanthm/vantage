@@ -165,6 +165,7 @@
     getBarsOverlay: () => getBarsOverlay,
     getBotPerformance: () => getBotPerformance,
     getBotStatus: () => getBotStatus,
+    getDayPnl: () => getDayPnl,
     getExits: () => getExits,
     getExplanation: () => getExplanation,
     getFuturesAnalysis: () => getFuturesAnalysis,
@@ -933,6 +934,7 @@
       { timeoutMs: 2e4 }
     );
   };
+  var getDayPnl = (days, underlying = "SPX") => getJson(`${backendBase()}/api/journal/day-pnl?days=${encodeURIComponent(days.join(","))}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 15e3 });
   var getTradeDna = (day, trade, underlying = "SPX") => getJson(`${backendBase()}/api/journal/trade-dna?day=${encodeURIComponent(day)}&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 3e4 });
   var saveTradeAnalysis = (body) => postJson(`${backendBase()}/api/journal/trade-analysis`, body);
   var getTradeablePositions = () => getJson(`${backendBase()}/api/positions/tradeable`);
@@ -3003,7 +3005,7 @@
         selDay,
         onSelect: setSelDay
       }
-    ))), /* @__PURE__ */ React.createElement(DayStrip, { byDay, selDay, onSelect: setSelDay }), selSnap ? /* @__PURE__ */ React.createElement(
+    ))), /* @__PURE__ */ React.createElement(DayStrip, { byDay, selDay, onSelect: setSelDay, sym }), selSnap ? /* @__PURE__ */ React.createElement(
       DayDetail,
       {
         key: selSnap.id,
@@ -3016,8 +3018,9 @@
     ) : /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { padding: "20px 2px" } }, selDay === todayISO() ? d ? "Setting up today's entry \u2014 it freezes last night's forecast and scores it against today's SPX price\u2026" : "loading\u2026" : `No journal entry for ${selDay}.`));
   }
   var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  function DayStrip({ byDay, selDay, onSelect }) {
+  function DayStrip({ byDay, selDay, onSelect, sym }) {
     const stripRef = useRef2(null);
+    const [pnl, setPnl] = useState10({});
     const days = useMemo4(() => {
       const out = [];
       const d = /* @__PURE__ */ new Date();
@@ -3031,25 +3034,43 @@
       return out;
     }, []);
     useEffect7(() => {
+      let live = true;
+      (async () => {
+        const v = await getDayPnl(days, sym || "SPX");
+        if (live && v && v.pnl) setPnl(v.pnl);
+      })();
+      return () => {
+        live = false;
+      };
+    }, [days.join(","), sym]);
+    useEffect7(() => {
       const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
       if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
     }, [selDay]);
+    const money5 = (n) => `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n) >= 1e3 ? (Math.abs(n) / 1e3).toFixed(1) + "k" : Math.abs(n).toFixed(0)}`;
     const today = todayISO();
     return /* @__PURE__ */ React.createElement("div", { className: "vg-daystrip", ref: stripRef }, days.map((iso) => {
       const snap = byDay[iso];
       const tone = snap ? dayTone(snap) : null;
+      const p = pnl[iso];
       const [y, m, dd] = iso.split("-");
       const wd = WD[new Date(Number(y), Number(m) - 1, Number(dd)).getDay()];
+      const traded = p && p.trades > 0;
       return /* @__PURE__ */ React.createElement(
         "button",
         {
           key: iso,
-          className: cls("vg-daystrip-pill", iso === selDay && "sel", iso === today && "today"),
+          className: cls(
+            "vg-daystrip-pill",
+            iso === selDay && "sel",
+            iso === today && "today",
+            traded && (p.realized >= 0 ? "up" : "down")
+          ),
           onClick: () => onSelect(iso)
         },
         /* @__PURE__ */ React.createElement("span", { className: "vg-daystrip-wd" }, iso === today ? "Today" : wd),
         /* @__PURE__ */ React.createElement("span", { className: "vg-daystrip-date" }, MONTHS[Number(m) - 1].slice(0, 3), " ", Number(dd)),
-        /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-dot", tone || "empty") })
+        traded ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-pnl", p.realized >= 0 ? "vg-up" : "vg-down") }, money5(p.realized)) : /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-dot", tone || "empty") })
       );
     }));
   }

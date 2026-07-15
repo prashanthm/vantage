@@ -910,6 +910,19 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         act = _sa.session(store, d, underlying or "SPX")
         return envelope(snap, available=bool(act["trades"]), **act)
 
+    @app.get("/api/journal/day-pnl")
+    def journal_day_pnl(days: str = Query(...), underlying: str = Query("SPX")):
+        """Realized P&L per day for a comma-separated list of dates — cheap
+        (fills only, no bars) so the day strip can tint each pill by outcome.
+        Returns {day: {realized, trades, has_fills}}. Read-only."""
+        from . import session_activity as _sa
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        want = [d.strip() for d in (days or "").split(",") if d.strip()][:40]
+        return envelope(snap, available=True,
+                        pnl=_sa.day_pnl_range(store, want, underlying or "SPX"))
+
     @app.get("/api/journal/trade-dna")
     def journal_trade_dna(day: str = Query(...), trade: int = Query(...),
                           underlying: str = Query("SPX")):

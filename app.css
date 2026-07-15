@@ -754,8 +754,12 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-trade { border: 1px solid var(--vg-hairline); border-radius: 11px; background: var(--vg-card); overflow: hidden; }
 .vg-trade.open { border-color: var(--vg-rule); box-shadow: 0 2px 14px -10px rgba(19,26,42,.4); }
 .vg-trade-row {
-  display: grid; grid-template-columns: 52px minmax(170px,1.6fr) 104px 108px 92px auto 22px;
-  align-items: center; gap: 12px; padding: 14px 16px; cursor: pointer; font-size: 15px;
+  /* time · name (grows) · SPX · level-arc · P&L (right-anchored) · status · caret
+     the two middle data columns are content-sized so they sit next to the name
+     instead of drifting to mid-row; P&L is pushed right by the name's fr. */
+  display: grid;
+  grid-template-columns: 48px minmax(150px,1fr) max-content max-content max-content max-content 18px;
+  align-items: center; gap: 16px; padding: 14px 16px; cursor: pointer; font-size: 15px;
 }
 .vg-trade-row:hover { background: var(--vg-pane); }
 .vg-trade-time { color: var(--vg-faint); font-variant-numeric: tabular-nums; font-size: 12px; }
@@ -773,11 +777,14 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 }
 .vg-daystrip-pill {
   flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 3px;
-  min-width: 58px; padding: 7px 10px; border-radius: 10px; cursor: pointer;
+  min-width: 62px; padding: 7px 10px; border-radius: 10px; cursor: pointer;
   background: var(--vg-card); border: 1px solid var(--vg-hairline); font: inherit;
 }
 .vg-daystrip-pill:hover { background: var(--vg-pane); }
+.vg-daystrip-pill.up  { border-color: var(--vg-up-soft); background: var(--vg-up-soft); }
+.vg-daystrip-pill.down { border-color: var(--vg-down-soft); background: var(--vg-down-soft); }
 .vg-daystrip-pill.sel { border-color: var(--vg-accent); background: var(--vg-accent-soft); }
+.vg-daystrip-pnl { font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .vg-daystrip-wd { font-size: 10px; color: var(--vg-faint); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
 .vg-daystrip-pill.today .vg-daystrip-wd { color: var(--vg-accent); }
 .vg-daystrip-date { font-size: 13px; font-weight: 650; font-variant-numeric: tabular-nums; }
