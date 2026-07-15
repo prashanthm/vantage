@@ -874,3 +874,9 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   background: rgba(0,0,0,.03); border: 1px solid var(--vg-hairline); }
 .vg-donext { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; }
 .vg-donext li { font-size: 13.5px; }
+
+/* ── ticker filter + per-trade ticker badge ───────────────────────────────── */
+.vg-ticker-filter { font-size: 12px; padding: 3px 8px; border: 1px solid var(--vg-hairline);
+  border-radius: 7px; background: var(--vg-panel, #fff); color: inherit; }
+.vg-ticker-badge { margin-right: 6px; font-size: 10px; font-weight: 700; letter-spacing: .03em; }
+.vg-badge.accent { background: var(--vg-accent-soft); color: var(--vg-accent); border: 1px solid var(--vg-accent-soft); }

@@ -945,10 +945,12 @@ export const getSessionActivity = (day, underlying) => {
 };
 
 // Realized P&L per day for a set of dates (cheap — fills only), so the day
-// strip can tint each pill by outcome.
-export const getDayPnl = (days, underlying = "SPX") =>
-  getJson(`${backendBase()}/api/journal/day-pnl?days=${encodeURIComponent(days.join(","))}` +
-          `&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 15000 });
+// strip can tint each pill by outcome. Omit underlying → sums all tickers.
+export const getDayPnl = (days, underlying) => {
+  const q = new URLSearchParams({ days: days.join(",") });
+  if (underlying) q.set("underlying", underlying);
+  return getJson(`${backendBase()}/api/journal/day-pnl?${q.toString()}`, { timeoutMs: 15000 });
+};
 
 // The full DNA of one trade (step 1: pure Vantage data — price action, volume,
 // technicals, level correlation, forecast). `trade` is the index into the day's

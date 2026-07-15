@@ -559,15 +559,70 @@ def _session_closed(day: str, *, now=None) -> bool:
     return (et.hour, et.minute) >= (16, 0)  # today: closed at/after 4pm ET
 
 
-def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
-    """One session's trading as DECISIONS — multi-leg trades, expiry settled,
-    each stamped with the underlying's price at entry and the forecast level
-    it was taken against.
+#: The tradeable-index tickers that settle for cash and use SPXW-style weekly
+#: symbols. Others are equities/ETFs whose options carry the ticker directly.
+_INDEX = {"SPX", "NDX", "RUT", "VIX"}
 
-    Returns {day, underlying, settle_price, trades[], summary{...}}."""
+
+def _ticker_of(trade: dict) -> str:
+    """A trade's UNDERLYING ticker, parsed from its contract legs (SPXW -> SPX,
+    PLTR -> PLTR). Falls back to '?' for an unparseable/equity-less trade."""
+    for l in trade.get("legs", []):
+        u = str((parse_contract(l.get("symbol")) or {}).get("underlying") or "")
+        if u:
+            # SPXW/NDXP-style weekly wrappers -> the index ticker
+            for idx in _INDEX:
+                if u.startswith(idx):
+                    return idx
+            return u
+    return "?"
+
+
+class _TickerCtx:
+    """Per-ticker context for correlation, resolved once and cached: the day's
+    intraday bars, the playbook levels/anchors/durable that framed the session,
+    and the settlement price. A non-index or no-playbook ticker just yields
+    empty levels — the trade still shows, only correlation is blank."""
+    def __init__(self, store, day):
+        self._store, self._day = store, day
+        self._cache: dict[str, dict] = {}
+
+    def get(self, tk: str) -> dict:
+        if tk in self._cache:
+            return self._cache[tk]
+        bar_sym = "^GSPC" if tk == "SPX" else tk
+        bars = _intraday_bars(bar_sym, self._day)
+        row = (self._store.load_spx_playbook_before(self._day, symbol=tk)
+               or self._store.load_spx_playbook(self._day, symbol=tk))
+        scaf = (row or {}).get("scaffold") or {}
+        settle = _settle_price(self._day) if tk == "SPX" else (
+            _settle_price(self._day, tk) if tk in _INDEX else None)
+        ctx = {
+            "bars": bars, "settle": settle,
+            "levels": scaf.get("confluence") or [],
+            "anchors": gex_anchors(scaf, self._store, self._day, tk),
+            "durable": scaf.get("durable") or [],
+            "playbook_session": (row or {}).get("session"),
+        }
+        self._cache[tk] = ctx
+        return ctx
+
+
+def session(store, day: str | None = None, underlying: str | None = "SPX") -> dict:
+    """One session's trading as DECISIONS — multi-leg trades, expiry settled,
+    each stamped with the underlying's price at entry and the forecast level it
+    was taken against.
+
+    ``underlying`` selects ONE ticker (SPX catches SPXW). Pass None or "all" to
+    reconstruct EVERY ticker's trades in the session, each tagged with its own
+    ticker and correlated against ITS OWN playbook (index/ETF with a stored
+    playbook get levels; anything else shows the trade + P&L + DNA, no levels).
+
+    Returns {day, underlying, trades[], summary{...}, ...}."""
     from . import spx_playbook as _pb
     day = day or _dt.date.today().isoformat()
-    und = (underlying or "SPX").upper()
+    all_tickers = underlying in (None, "", "all", "ALL", "All")
+    und = None if all_tickers else (underlying or "SPX").upper()
 
     fills = fills_for(store, day, und)
     # Reconstruct positions PER ACCOUNT — a buy in one broker account must never
@@ -586,27 +641,19 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         trades.extend(acct_trades)
     trades.sort(key=lambda t: t.get("opened_at") or t.get("closed_at") or "")
 
-    settle = _settle_price(day) if und == "SPX" else _settle_price(day, und)
     closed = _session_closed(day)
+    # per-ticker context (bars + that ticker's playbook + settle), resolved and
+    # cached lazily — so a multi-ticker session correlates each trade against
+    # ITS OWN levels, not one shared underlying's.
+    ctxs = _TickerCtx(store, day)
     for t in trades:
-        settle_expired(t, day, settle, market_closed=closed)
-
-    # MINUTE bars so "SPX when I pulled the trigger" is honest (a 15m close is
-    # up to 9 min / ~15pt off the fill on a 0DTE). Fall back to 15m if the 1m
-    # window is unavailable (yfinance caps 1m at ~30 days).
-    bars = _intraday_bars("^GSPC" if und == "SPX" else und, day)
-
-    # the playbook FOR this session is the one whose `session` == day (it is
-    # generated the evening before, so it is stored under the PRIOR date).
-    row = store.load_spx_playbook_before(day, symbol=und) or store.load_spx_playbook(day, symbol=und)
-    scaffold = (row or {}).get("scaffold") or {}
-    levels = scaffold.get("confluence") or []
-    anchors = gex_anchors(scaffold, store, day, und)
-    # the ★-marked durable S/R the playbook table shows (held N sessions) —
-    # planned-around levels the confluence/GEX lists don't carry
-    durable = scaffold.get("durable") or []
+        t["ticker"] = _ticker_of(t)
+        c = ctxs.get(t["ticker"])
+        settle_expired(t, day, c["settle"], market_closed=closed)
 
     for t in trades:
+        c = ctxs.get(t["ticker"])
+        bars, levels, anchors, durable = c["bars"], c["levels"], c["anchors"], c["durable"]
         t["spot_at_entry"] = _bar_price_at(bars, t.get("opened_at"))
         # an EXPIRED trade "closes" at the settlement print (its closed_at is
         # 16:00), so the exit price IS the settlement — the fill bar would be
@@ -616,7 +663,7 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         else:
             t["spot_at_exit"] = _bar_price_at(bars, t.get("closed_at"))
         t["correlation"] = correlate_levels(t["spot_at_entry"], levels, anchors, durable)
-        # the EXIT correlation — where was SPX when I got out, and was THAT a
+        # the EXIT correlation — where price was when I got out, and was THAT a
         # level? Half the decision the entry-only view was missing.
         t["exit_correlation"] = correlate_levels(t["spot_at_exit"], levels, anchors, durable)
         # legacy alias the table still reads (nearest + at_level)
@@ -647,19 +694,38 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
         t["account_label"] = _account_label(store, t.get("account"))
         t["label"] = _label(t)
 
-    summary = summarize(day, und, trades, settle)
+    # the level-tag dropdown context comes from a PRIMARY ticker — the selected
+    # one, or SPX / the most-traded when showing all. (Per-trade correlation is
+    # already exact per-ticker above; this only frames the tag dropdown + the
+    # session summary.)
+    if und:
+        primary = und
+    else:
+        from collections import Counter
+        cnt = Counter(t["ticker"] for t in trades)
+        primary = "SPX" if "SPX" in cnt else (cnt.most_common(1)[0][0] if cnt else "SPX")
+    pc = ctxs.get(primary)
+    settle, levels, durable = pc["settle"], pc["levels"], pc["durable"]
+
+    summary = summarize(day, primary, trades, settle)
     # drop internal scaffolding from the wire payload — opens/closes/net were
     # the machinery for grouping and settling; the client reads fills/scale.
     for t in trades:
         for k in ("opens", "closes", "net"):
             t.pop(k, None)
 
+    # every ticker traded this session, most-traded first — for the UI filter
+    from collections import Counter as _Counter
+    tickers = [tk for tk, _ in _Counter(t["ticker"] for t in trades).most_common()]
+
     return {
         "day": day,
-        "underlying": und,
+        "underlying": und or "all",
+        "primary": primary,
+        "tickers": tickers,              # the filter options (all tickers traded)
         "settle_price": settle,
         "forecast_levels": levels,       # the full ladder, for the "other…" tag
-        "gex_anchors": anchors,
+        "gex_anchors": pc["anchors"],
         # the ★-marked durable S/R for the tag dropdown (matches the playbook
         # table's ★Nd rows the confluence/GEX lists don't include)
         "durable_levels": [
@@ -668,13 +734,13 @@ def session(store, day: str | None = None, underlying: str = "SPX") -> dict:
                       + (f" ★{d.get('sessions')}d" if d.get("sessions") else "")}
             for d in durable if _f(d.get("price")) is not None
         ],
-        "playbook_session": (row or {}).get("session"),
+        "playbook_session": pc["playbook_session"],
         "trades": trades,
         "summary": summary,
     }
 
 
-def day_pnl_range(store, days: list[str], underlying: str = "SPX") -> dict:
+def day_pnl_range(store, days: list[str], underlying: str | None = None) -> dict:
     """Realized P&L per day for a set of dates — CHEAP: fills only, no bar
     fetches, no level correlation, no expiry settlement (the strip just needs a
     +/− tint, not the full DNA). Returns {day: {realized, trades, has_fills}}.
@@ -684,15 +750,18 @@ def day_pnl_range(store, days: list[str], underlying: str = "SPX") -> dict:
     full per-trade P&L on the day panel is authoritative; this is a glance."""
     out: dict[str, dict] = {}
     want = set(days)
+    all_tk = underlying in (None, "", "all", "ALL", "All")
+    u = None if all_tk else underlying.upper()
     # one pass over history, bucketed by day
     by_day: dict[str, list[dict]] = {}
     for r in store.load_history():
         d = str(r.get("date") or "")[:10]
         if d not in want or str(r.get("state") or "").lower() != "filled":
             continue
+        if str(r.get("kind") or "") not in ("option", "equity"):
+            continue
         sym = str(r.get("symbol") or "").upper()
-        u = underlying.upper()
-        if not (sym.startswith(u) or sym.startswith(u + "W")):
+        if u is not None and not (sym.startswith(u) or sym.startswith(u + "W")):
             continue
         by_day.setdefault(d, []).append(r)
     for d in days:

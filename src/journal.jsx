@@ -118,7 +118,6 @@ export function JournalView({ refreshNonce }) {
           </div>
         </div>
         <div className="vg-row" style={{ gap: 10, alignItems: "center" }}>
-          <SymbolSwitcher value={sym} onChange={setSym} />
           {tab === "days" && <MonthJump view={view} setView={setView} byDay={byDay}
             selDay={selDay} onSelect={setSelDay} />}
         </div>
@@ -128,8 +127,9 @@ export function JournalView({ refreshNonce }) {
         <JournalAnalysisPanel sym={sym} />
       ) : (<>
       {/* the day STRIP — recent trading days, newest right; the whole calendar
-          shrunk to one scannable row so the trades get the pane */}
-      <DayStrip byDay={byDay} selDay={selDay} onSelect={setSelDay} sym={sym} />
+          shrunk to one scannable row so the trades get the pane. P&L sums ALL
+          tickers (the strip is the whole book, not one underlying). */}
+      <DayStrip byDay={byDay} selDay={selDay} onSelect={setSelDay} sym={undefined} />
 
       {/* THE HERO: the selected day's trades */}
       {selSnap ? (
@@ -177,7 +177,7 @@ function DayStrip({ byDay, selDay, onSelect, sym }) {
   useEffect(() => {
     let live = true;
     (async () => {
-      const v = await getDayPnl(days, sym || "SPX");
+      const v = await getDayPnl(days, sym);   // undefined → all tickers
       if (live && v && v.pnl) setPnl(v.pnl);
     })();
     return () => { live = false; };
@@ -556,11 +556,13 @@ function TradesPanel({ snap, thoughts, onThought }) {
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);          // expanded trade key
   const [batch, setBatch] = useState(null);        // {done, total, running} for Analyze-today
+  const [tk, setTk] = useState("all");             // ticker filter (all | SPX | MU | …)
 
   const day = String(snap.created_at || "").slice(0, 10);
   const load = async () => {
     setBusy(true);
-    const v = await getSessionActivity(day, snap.symbol || "SPX");
+    // ALL tickers — the journal is every trade; the filter is client-side
+    const v = await getSessionActivity(day, undefined);
     setBusy(false);
     setData(v && v.available ? v : { empty: true });
   };
@@ -578,10 +580,11 @@ function TradesPanel({ snap, thoughts, onThought }) {
     setBatch({ done: 0, total: targets.length, running: true });
     let done = 0;
     for (const { t, i } of targets) {
-      const key = `${t.opened_at || i}|${t.label}`;
+      const key = `${t.account || ""}|${t.opened_at || i}|${t.label}`;   // match the row key
       const operator = operatorFor(t, (thoughts && thoughts[key]) || "");
       try {
-        await analyzeTradeOnce(day, i, snap.symbol || "SPX", operator);
+        // each trade analyzed under ITS OWN ticker; index is into the full list
+        await analyzeTradeOnce(day, i, t.ticker || "SPX", operator);
       } catch (e) { /* one failure never blocks the rest */ }
       done += 1;
       setBatch({ done, total: targets.length, running: done < targets.length });
@@ -594,15 +597,15 @@ function TradesPanel({ snap, thoughts, onThought }) {
   // this is a trade log; it should show the trades, not a button to fetch them.
   // A manual ⟳ stays for a mid-session re-pull.
   useEffect(() => {
-    setData(null); setOpen(null);
+    setData(null); setOpen(null); setTk("all");
     let live = true;
     (async () => {
       setBusy(true);
-      const v = await getSessionActivity(day, snap.symbol || "SPX");
+      const v = await getSessionActivity(day, undefined);
       if (live) { setData(v && v.available ? v : { empty: true }); setBusy(false); }
     })();
     return () => { live = false; };
-  }, [snap.id, day, snap.symbol]);
+  }, [snap.id, day]);
 
   if (!data) {
     return (
@@ -611,9 +614,9 @@ function TradesPanel({ snap, thoughts, onThought }) {
           <div>
             <h3 style={{ margin: 0, fontSize: 16 }}>My trades — what I actually did</h3>
             <p className="vg-note" style={{ marginTop: 4, fontSize: 12 }}>
-              Every decision reconstructed from your broker fills — pinned to the SPX price
-              at the minute you submitted it, correlated to the levels you forecast, expiries
-              settled against the SPX print.
+              Every decision reconstructed from your broker fills — pinned to the underlying's
+              price at the minute you submitted it, correlated to the levels you forecast,
+              expiries settled against the print.
             </p>
           </div>
           <span className="vg-note">{busy ? "Loading your trades…" : ""}</span>
@@ -623,10 +626,16 @@ function TradesPanel({ snap, thoughts, onThought }) {
   }
   if (data.empty) {
     return <div className="vg-card" style={{ marginTop: 14 }}>
-      <p className="vg-note">No {snap.symbol || "SPX"} trades on {day}.</p></div>;
+      <p className="vg-note">No trades on {day}.</p></div>;
   }
 
   const s = data.summary || {};
+  const tickers = data.tickers || [];
+  // client-side ticker filter over the full list; keep original indices so the
+  // DNA/analyze endpoint (which indexes into the FULL day) stays correct
+  const rows = (data.trades || [])
+    .map((t, i) => ({ t, i }))
+    .filter(({ t }) => tk === "all" || t.ticker === tk);
   const allLevels = [
     ...(data.forecast_levels || []).map((z) => ({ ...z, source: "confluence" })),
     ...(data.gex_anchors || []).map((a) => ({ price: a.price, role: a.label, kinds: [a.label], source: "gex" })),
@@ -636,12 +645,19 @@ function TradesPanel({ snap, thoughts, onThought }) {
   return (
     <div className="vg-card" style={{ marginTop: 14 }}>
       <div className="vg-spread">
-        <h3 style={{ margin: 0, fontSize: 16 }}>My trades — {s.trades} decisions
+        <h3 style={{ margin: 0, fontSize: 16 }}>My trades — {rows.length}{tk !== "all" ? ` of ${s.trades}` : ""} decisions
           <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}>
             {" "}· click a trade to correlate it to the plan
           </span>
         </h3>
-        <div className="vg-row" style={{ gap: 6 }}>
+        <div className="vg-row" style={{ gap: 6, alignItems: "center" }}>
+          {tickers.length > 1 && (
+            <select className="vg-ticker-filter" value={tk} onChange={(e) => setTk(e.target.value)}
+              title="Filter by ticker">
+              <option value="all">All tickers</option>
+              {tickers.map((x) => <option key={x} value={x}>{x}</option>)}
+            </select>
+          )}
           <button className="vg-btn-sm" disabled={busy || (batch && batch.running)}
             onClick={analyzeToday}
             title="Run + record Mira's desk review for every closed trade that doesn't have one yet">
@@ -676,13 +692,20 @@ function TradesPanel({ snap, thoughts, onThought }) {
         )}
       </div>
 
-      {/* the trade log — a row per decision, expandable */}
+      {/* the trade log — a row per decision, expandable. rows are the ticker-
+          filtered view; `i` is the ORIGINAL index into the full day (the DNA/
+          analyze endpoint indexes into that), so filtering never mis-targets. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {(data.trades || []).map((t, i) => {
-          const key = `${t.opened_at || i}|${t.label}`;
+        {rows.map(({ t, i }) => {
+          // include the ACCOUNT so the key is unique AND stable: two per-account
+          // trades can share opened_at + label (a strike traded in both RH
+          // accounts), which collided the React key and left a stale row on
+          // filter. Account is stable across reloads, so persisted thoughts
+          // still reattach (unlike a positional index).
+          const key = `${t.account || ""}|${t.opened_at || i}|${t.label}`;
           return (
             <TradeCard key={key} t={t} tkey={key} tradeIndex={i}
-              day={day} underlying={snap.symbol || "SPX"}
+              day={day} underlying={t.ticker || "SPX"}
               expanded={open === key} onToggle={() => setOpen(open === key ? null : key)}
               thought={(thoughts && thoughts[key]) || ""} onThought={(v) => onThought(key, v)}
               allLevels={allLevels} />
@@ -690,8 +713,8 @@ function TradesPanel({ snap, thoughts, onThought }) {
         })}
       </div>
       <p className="vg-note" style={{ fontSize: 11, marginTop: 8 }}>
-        SPX price is the 1-minute print at submission. Tag the level you were trading —
-        the broker says WHAT you did; only you can say WHY. Everything saves with the entry.
+        Price is the 1-minute print at submission, per the trade's own ticker. Tag the level
+        you were trading — the broker says WHAT you did; only you can say WHY. Saves with the entry.
       </p>
     </div>
   );
@@ -1059,13 +1082,16 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
       <div className="vg-trade-row" onClick={onToggle}>
         <span className="vg-trade-time">{t.opened_et || (t.opened_at || "").slice(11, 16) || "—"}</span>
         <span className="vg-trade-name">
+          {t.ticker && (
+            <span className="vg-badge accent vg-ticker-badge" title={`ticker: ${t.ticker}`}>{t.ticker}</span>
+          )}
           <b className={long ? "vg-up" : "vg-down"}>{t.label}</b>
           {t.account_label && (
             <span className="vg-badge plain" style={{ marginLeft: 6, fontSize: 10 }}
               title={`account: ${t.account_label}`}>{t.account_label}</span>
           )}
         </span>
-        <span className="vg-trade-spx">SPX {fmtLvl(t.spot_at_entry)}</span>
+        <span className="vg-trade-spx">{t.ticker || "SPX"} {fmtLvl(t.spot_at_entry)}</span>
         <span>
           {nearest
             ? <span className={cls("vg-badge", corr.at_level ? "good" : "plain")}

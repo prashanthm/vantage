@@ -895,10 +895,12 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     def journal_activity(day: str | None = Query(None),
                          underlying: str | None = Query(None)):
         """Your session as TRADES (decisions), not fills: multi-leg orders
-        grouped into one trade, 0DTEs left to expire settled against the SPX
-        print (worthless or cash-settled — money that appears in NO fill), and
-        each trade stamped with SPX-at-entry plus the forecast level it was
-        taken against. ``underlying=SPX`` catches SPXW contracts too.
+        grouped into one trade, 0DTEs left to expire settled against the print
+        (money that appears in NO fill), and each trade stamped with its
+        underlying's price at entry plus the forecast level it was taken
+        against. Omit ``underlying`` (or pass 'all') for EVERY ticker traded
+        that day, each correlated to its own playbook; pass one (e.g. SPX,
+        catches SPXW) to filter. ``tickers`` lists everything traded.
 
         This is the FACTUAL half of a journal entry; the operator writes the
         thinking. Read-only."""
@@ -908,13 +910,16 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="SQLite backend required.")
         d = day or _dtmod.date.today().isoformat()
-        act = _sa.session(store, d, underlying or "SPX")
+        # None / 'all' → every ticker; a specific symbol → filter to it
+        act = _sa.session(store, d, underlying)
         return envelope(snap, available=bool(act["trades"]), **act)
 
     @app.get("/api/journal/day-pnl")
-    def journal_day_pnl(days: str = Query(...), underlying: str = Query("SPX")):
+    def journal_day_pnl(days: str = Query(...),
+                        underlying: str | None = Query(None)):
         """Realized P&L per day for a comma-separated list of dates — cheap
         (fills only, no bars) so the day strip can tint each pill by outcome.
+        Omit ``underlying`` (or 'all') to sum EVERY ticker; pass one to filter.
         Returns {day: {realized, trades, has_fills}}. Read-only."""
         from . import session_activity as _sa
         snap = state.snapshot()
@@ -922,7 +927,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             return envelope(snap, available=False, note="SQLite backend required.")
         want = [d.strip() for d in (days or "").split(",") if d.strip()][:40]
         return envelope(snap, available=True,
-                        pnl=_sa.day_pnl_range(store, want, underlying or "SPX"))
+                        pnl=_sa.day_pnl_range(store, want, underlying))
 
     @app.get("/api/journal/trade-dna")
     def journal_trade_dna(day: str = Query(...), trade: int = Query(...),
