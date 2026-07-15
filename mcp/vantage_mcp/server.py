@@ -761,6 +761,29 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                          sess.get("gex_anchors") or [], underlying or "SPX")
         return envelope("trade_dna", snap, available=True, dna=dna)
 
+    @mcp.tool(
+        name="vantage.journal_analysis",
+        annotations=_READ_ONLY,
+        description="The DETERMINISTIC bundle for a JOURNAL ANALYSIS — an "
+                    "aggregate self-assessment of the desk over a date window. "
+                    "Returns rubric scores (0-100 per dimension: entry/exit "
+                    "discipline, risk & sizing, plan adherence, emotional "
+                    "control), a pattern census (each recurring mistake's flag "
+                    "count + the trades that evidence it), per-day discipline, "
+                    "the per-trade review excerpts it's built from, and the "
+                    "PRIOR analysis (so knowledge compounds). Args: window_from, "
+                    "window_to (YYYY-MM-DD), underlying (default SPX). A "
+                    "journal-analyst reasons over this to write the SWOT + read; "
+                    "this tool does no judging.",
+    )
+    def journal_analysis(window_from: str, window_to: str,
+                         underlying: str = "SPX") -> dict:
+        from vantage_server import journal_analysis as _ja
+        snap = snapshot()
+        bundle = _ja.gather(store, window_from, window_to, underlying or "SPX")
+        return envelope("journal_analysis", snap, available=True, bundle=bundle,
+                        prompt=_ja.build_prompt(bundle))
+
     return mcp
 
 

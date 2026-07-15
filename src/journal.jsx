@@ -13,6 +13,7 @@ import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
   getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis, streamTurn,
+  getJournalAnalysisBundle, saveJournalAnalysis, getJournalAnalyses,
 } from "./live.js";
 
 const { useState, useRef, useEffect, useMemo } = React;
@@ -52,6 +53,7 @@ export function JournalView({ refreshNonce }) {
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState("");
   const [sym, setSym] = useState("SPX");     // SPX | QQQ | IWM
+  const [tab, setTab] = useState("days");    // days | analysis
   const [selDay, setSelDay] = useState(todayISO());
   // which month the calendar is showing: {y, m} (m 0-based)
   const now = new Date();
@@ -106,16 +108,25 @@ export function JournalView({ refreshNonce }) {
 
   return (
     <div className="vg-pane-body vg-jr">
-      {/* compact header: title + underlying + jump-to-month — one line */}
+      {/* compact header: title + view tabs + underlying + jump-to-month */}
       <div className="vg-jr-topbar">
-        <h2 style={{ margin: 0, fontSize: 18 }}>Trading journal</h2>
+        <div className="vg-row" style={{ gap: 12, alignItems: "center" }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Trading journal</h2>
+          <div className="vg-seg">
+            <button className={cls("vg-seg-btn", tab === "days" && "on")} onClick={() => setTab("days")}>Days</button>
+            <button className={cls("vg-seg-btn", tab === "analysis" && "on")} onClick={() => setTab("analysis")}>Analysis</button>
+          </div>
+        </div>
         <div className="vg-row" style={{ gap: 10, alignItems: "center" }}>
           <SymbolSwitcher value={sym} onChange={setSym} />
-          <MonthJump view={view} setView={setView} byDay={byDay}
-            selDay={selDay} onSelect={setSelDay} />
+          {tab === "days" && <MonthJump view={view} setView={setView} byDay={byDay}
+            selDay={selDay} onSelect={setSelDay} />}
         </div>
       </div>
 
+      {tab === "analysis" ? (
+        <JournalAnalysisPanel sym={sym} />
+      ) : (<>
       {/* the day STRIP — recent trading days, newest right; the whole calendar
           shrunk to one scannable row so the trades get the pane */}
       <DayStrip byDay={byDay} selDay={selDay} onSelect={setSelDay} sym={sym} />
@@ -131,6 +142,7 @@ export function JournalView({ refreshNonce }) {
             : `No journal entry for ${selDay}.`}
         </div>
       )}
+      </>)}
     </div>
   );
 }
@@ -689,6 +701,194 @@ function TradesPanel({ snap, thoughts, onThought }) {
 // level TAGS — the operator's own tag when set, else AUTO-correlated to the
 // nearest level the trade was AT (within tolerance; open-space stays blank).
 // Shared by the card and the batch analyzer so both ground the read the same.
+// ── Journal Analysis: the compounding aggregate self-assessment ──────────────
+// Picks a window (tagged daily/weekly/monthly), pulls the deterministic bundle
+// (scores + pattern census + citations + the PRIOR analysis), streams Mira's
+// journal_analyst for the SWOT + read, stores it so knowledge compounds, and
+// shows the score trend + recommendation status vs the prior run.
+const REC_TONE = { improving: "good", worse: "bad", flat: "plain", new: "plain" };
+const SCORE_TONE = (s) => (s >= 70 ? "good" : s >= 45 ? "warn" : "bad");
+
+function JournalAnalysisPanel({ sym }) {
+  const [win, setWin] = useState(() => {
+    const to = todayISO();
+    const from = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
+    return { from, to, period: "weekly" };
+  });
+  const [bundle, setBundle] = useState(null);
+  const [read, setRead] = useState(null);      // {loading|text|error}
+  const [saved, setSaved] = useState(false);
+  const [hist, setHist] = useState(null);
+  const abortRef = useRef(null);
+
+  const loadHist = async () => {
+    const h = await getJournalAnalyses(sym);
+    setHist(h && h.available ? (h.analyses || []) : []);
+  };
+  useEffect(() => { loadHist(); setBundle(null); setRead(null); setSaved(false); }, [sym]);
+
+  // Generate: pull the bundle, stream Mira, then store the run (compounding).
+  const generate = async () => {
+    setRead({ loading: true }); setSaved(false);
+    const res = await getJournalAnalysisBundle(win.from, win.to, sym);
+    if (!res || !res.available || !res.bundle) {
+      setRead({ error: (res && res.note) || "couldn't build the bundle" }); return;
+    }
+    setBundle(res.bundle);
+    let text = "";
+    setRead({ text: "" });
+    abortRef.current = streamTurn(res.prompt, `journal-${win.from}-${win.to}`, (evt) => {
+      if (evt.kind === "error") { setRead({ error: evt.message || "Mira error" }); return; }
+      if (evt.kind === "done") {
+        abortRef.current = null;
+        setRead({ text });
+        if (text.trim()) {
+          const b = res.bundle;
+          saveJournalAnalysis({
+            period: win.period, window_from: win.from, window_to: win.to,
+            underlying: sym, rubric_version: b.rubric_version,
+            trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
+            patterns: b.patterns, recommendations: b.recommendations,
+            swot: null, narrative: text,
+          }).then(() => { setSaved(true); loadHist(); });
+        }
+        return;
+      }
+      const chunk = evt.text || evt.delta || evt.content || "";
+      if (chunk) { text += chunk; setRead({ text }); }
+    });
+  };
+  useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
+
+  const b = bundle;
+  const busy = read && read.loading;
+  const streaming = read && read.text != null && !saved && !read.error;
+
+  return (
+    <div className="vg-ja">
+      {/* window + period picker */}
+      <div className="vg-card" style={{ marginTop: 12 }}>
+        <div className="vg-spread" style={{ alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
+          <div className="vg-row" style={{ gap: 12, alignItems: "flex-end", flexWrap: "wrap" }}>
+            <div className="vg-trade-field"><label>From</label>
+              <input type="date" value={win.from} max={win.to}
+                onChange={(e) => setWin({ ...win, from: e.target.value })} /></div>
+            <div className="vg-trade-field"><label>To</label>
+              <input type="date" value={win.to} min={win.from} max={todayISO()}
+                onChange={(e) => setWin({ ...win, to: e.target.value })} /></div>
+            <div className="vg-trade-field"><label>Tag this run</label>
+              <select value={win.period} onChange={(e) => setWin({ ...win, period: e.target.value })}>
+                <option value="daily">daily</option>
+                <option value="weekly">weekly</option>
+                <option value="monthly">monthly</option>
+                <option value="on-demand">on-demand</option>
+              </select></div>
+            <div className="vg-row" style={{ gap: 4 }}>
+              {[["1D", 0], ["7D", 6], ["30D", 29]].map(([lab, back]) => (
+                <button key={lab} className="vg-btn-sm" onClick={() => setWin({
+                  ...win, from: new Date(Date.now() - back * 864e5).toISOString().slice(0, 10), to: todayISO(),
+                  period: back === 0 ? "daily" : back === 6 ? "weekly" : "monthly",
+                })}>{lab}</button>
+              ))}
+            </div>
+          </div>
+          <button className="vg-btn" disabled={busy || streaming} onClick={generate}>
+            {busy || streaming
+              ? <><span className="vg-spin" aria-hidden="true">⟳</span> Analyzing…</>
+              : "🧠 Generate analysis"}
+          </button>
+        </div>
+        <p className="vg-note" style={{ marginTop: 8, fontSize: 12 }}>
+          Scores the window against a rubric, aggregates every recorded trade review into a SWOT,
+          and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days → Analyze today).
+        </p>
+      </div>
+
+      {/* the deterministic scorecard + patterns (from the bundle) */}
+      {b && (
+        <div className="vg-card" style={{ marginTop: 12 }}>
+          <div className="vg-spread">
+            <div className="vg-kicker" style={{ margin: 0 }}>Scorecard · {b.window_from} → {b.window_to}</div>
+            <span className="vg-note" style={{ fontSize: 12 }}>
+              {b.trades} trades · {b.analyzed} reviewed · net <b className={b.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(b.net_pnl)}</b>
+              {" "}· rubric v{b.rubric_version}
+            </span>
+          </div>
+          <div className="vg-scores">
+            {b.recommendations.map((r) => (
+              <div key={r.dimension} className="vg-score">
+                <div className="vg-spread" style={{ alignItems: "baseline" }}>
+                  <span style={{ fontSize: 13 }}>{r.label}</span>
+                  <span className="vg-row" style={{ gap: 6, alignItems: "baseline" }}>
+                    <b className={cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`)}>{r.score}</b>
+                    {r.delta != null && (
+                      <span className={cls("vg-badge", REC_TONE[r.status])} style={{ fontSize: 10 }}>
+                        {r.delta > 0 ? "▲" : r.delta < 0 ? "▼" : "—"}{Math.abs(r.delta)} · {r.status}
+                      </span>
+                    )}
+                    {r.delta == null && <span className="vg-badge plain" style={{ fontSize: 10 }}>baseline</span>}
+                  </span>
+                </div>
+                <div className="vg-score-track"><div className={cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`)} style={{ width: `${r.score}%` }} /></div>
+              </div>
+            ))}
+          </div>
+          {/* pattern census with citations */}
+          <div className="vg-kicker" style={{ marginTop: 16 }}>Recurring patterns</div>
+          <table className="vg-mini" style={{ marginTop: 4 }}><tbody>
+            {b.patterns.map((p, i) => (
+              <tr key={i}>
+                <td style={{ width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 }}>{p.count}×</td>
+                <td>{p.pattern}<span className="vg-note" style={{ fontSize: 11 }}> · {p.cites.length} trades</span></td>
+              </tr>
+            ))}
+          </tbody></table>
+        </div>
+      )}
+
+      {/* Mira's SWOT + read */}
+      {read && (read.text != null || read.error || read.loading) && (
+        <div className="vg-card" style={{ marginTop: 12 }}>
+          <div className="vg-spread">
+            <div className="vg-kicker" style={{ margin: 0 }}>SWOT &amp; read {saved && <span className="vg-up" style={{ fontSize: 11 }}>✓ saved</span>}</div>
+          </div>
+          {read.loading && <p className="vg-note" style={{ marginTop: 8 }}>Aggregating your reviews and scoring the window…</p>}
+          {read.error && <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{read.error}</p>}
+          {read.text && <div className="vg-dna-read" style={{ marginTop: 8 }}>{read.text}</div>}
+        </div>
+      )}
+
+      {/* history — prior runs (the compounding record) */}
+      {hist && hist.length > 0 && (
+        <div className="vg-card" style={{ marginTop: 12 }}>
+          <div className="vg-kicker">Prior analyses · knowledge compounds</div>
+          <table className="vg-mini" style={{ marginTop: 6 }}><tbody>
+            <tr className="vg-note" style={{ fontSize: 10 }}>
+              <td>window</td><td>tag</td><td style={{ textAlign: "right" }}>entry</td>
+              <td style={{ textAlign: "right" }}>exit</td><td style={{ textAlign: "right" }}>risk</td>
+              <td style={{ textAlign: "right" }}>plan</td><td style={{ textAlign: "right" }}>net</td>
+            </tr>
+            {hist.map((h) => {
+              const s = h.scores || {};
+              return (
+                <tr key={h.id}>
+                  <td>{h.window_from} → {h.window_to}</td>
+                  <td><span className="vg-badge plain" style={{ fontSize: 10 }}>{h.period}</span></td>
+                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.entry_discipline || 0)}`}>{s.entry_discipline ?? "—"}</td>
+                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.exit_discipline || 0)}`}>{s.exit_discipline ?? "—"}</td>
+                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.risk_sizing || 0)}`}>{s.risk_sizing ?? "—"}</td>
+                  <td style={{ textAlign: "right" }} className={`vg-${SCORE_TONE(s.plan_adherence || 0)}`}>{s.plan_adherence ?? "—"}</td>
+                  <td style={{ textAlign: "right" }} className={h.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(h.net_pnl)}</td>
+                </tr>
+              );
+            })}
+          </tbody></table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function operatorFor(t, thought) {
   const m = (thought || "").match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
   const why = (thought || "").replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");

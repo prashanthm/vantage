@@ -172,6 +172,8 @@
     getHistory: () => getHistory,
     getInsights: () => getInsights,
     getJournal: () => getJournal,
+    getJournalAnalyses: () => getJournalAnalyses,
+    getJournalAnalysisBundle: () => getJournalAnalysisBundle,
     getJson: () => getJson,
     getNightlyStatus: () => getNightlyStatus,
     getNotebook: () => getNotebook,
@@ -222,6 +224,7 @@
     refreshAccount: () => refreshAccount,
     refreshAll: () => refreshAll,
     saveBotConfig: () => saveBotConfig,
+    saveJournalAnalysis: () => saveJournalAnalysis,
     saveJournalEntry: () => saveJournalEntry,
     saveTradeAnalysis: () => saveTradeAnalysis,
     scoreJournal: () => scoreJournal,
@@ -955,6 +958,12 @@
   var getDayPnl = (days, underlying = "SPX") => getJson(`${backendBase()}/api/journal/day-pnl?days=${encodeURIComponent(days.join(","))}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 15e3 });
   var getTradeDna = (day, trade, underlying = "SPX") => getJson(`${backendBase()}/api/journal/trade-dna?day=${encodeURIComponent(day)}&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 3e4 });
   var saveTradeAnalysis = (body) => postJson(`${backendBase()}/api/journal/trade-analysis`, body);
+  var getJournalAnalysisBundle = (from, to, underlying = "SPX") => getJson(
+    `${backendBase()}/api/journal/analysis/bundle?window_from=${encodeURIComponent(from)}&window_to=${encodeURIComponent(to)}&underlying=${encodeURIComponent(underlying)}`,
+    { timeoutMs: 2e4 }
+  );
+  var saveJournalAnalysis = (body) => postJson(`${backendBase()}/api/journal/analysis`, body);
+  var getJournalAnalyses = (underlying = "SPX") => getJson(`${backendBase()}/api/journal/analysis?underlying=${encodeURIComponent(underlying)}`);
   var getTradeablePositions = () => getJson(`${backendBase()}/api/positions/tradeable`);
   async function recomputePlaybook(asOf, symbol = "SPX") {
     const base = backendBase();
@@ -3004,6 +3013,7 @@
     const [nonce, setNonce] = useState10(0);
     const [busy, setBusy] = useState10("");
     const [sym, setSym] = useState10("SPX");
+    const [tab, setTab] = useState10("days");
     const [selDay, setSelDay] = useState10(todayISO());
     const now = /* @__PURE__ */ new Date();
     const [view, setView] = useState10({ y: now.getFullYear(), m: now.getMonth() });
@@ -3052,7 +3062,7 @@
     if (d && d.available === false) {
       return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "Trading journal"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, d.note || "Journal needs the SQLite backend + a generated playbook."));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-topbar" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 18 } }, "Trading journal"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym }), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-topbar" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 18 } }, "Trading journal"), /* @__PURE__ */ React.createElement("div", { className: "vg-seg" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-seg-btn", tab === "days" && "on"), onClick: () => setTab("days") }, "Days"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-seg-btn", tab === "analysis" && "on"), onClick: () => setTab("analysis") }, "Analysis"))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym }), tab === "days" && /* @__PURE__ */ React.createElement(
       MonthJump,
       {
         view,
@@ -3061,7 +3071,7 @@
         selDay,
         onSelect: setSelDay
       }
-    ))), /* @__PURE__ */ React.createElement(DayStrip, { byDay, selDay, onSelect: setSelDay, sym }), selSnap ? /* @__PURE__ */ React.createElement(
+    ))), tab === "analysis" ? /* @__PURE__ */ React.createElement(JournalAnalysisPanel, { sym }) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(DayStrip, { byDay, selDay, onSelect: setSelDay, sym }), selSnap ? /* @__PURE__ */ React.createElement(
       DayDetail,
       {
         key: selSnap.id,
@@ -3071,7 +3081,7 @@
         onSaveEntry: doSaveEntry,
         onAttach: doAttach
       }
-    ) : /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { padding: "20px 2px" } }, selDay === todayISO() ? d ? "Setting up today's entry \u2014 it freezes last night's forecast and scores it against today's SPX price\u2026" : "loading\u2026" : `No journal entry for ${selDay}.`));
+    ) : /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { padding: "20px 2px" } }, selDay === todayISO() ? d ? "Setting up today's entry \u2014 it freezes last night's forecast and scores it against today's SPX price\u2026" : "loading\u2026" : `No journal entry for ${selDay}.`)));
   }
   var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function DayStrip({ byDay, selDay, onSelect, sym }) {
@@ -3453,6 +3463,110 @@
         }
       );
     })), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 8 } }, "SPX price is the 1-minute print at submission. Tag the level you were trading \u2014 the broker says WHAT you did; only you can say WHY. Everything saves with the entry."));
+  }
+  var REC_TONE = { improving: "good", worse: "bad", flat: "plain", new: "plain" };
+  var SCORE_TONE = (s) => s >= 70 ? "good" : s >= 45 ? "warn" : "bad";
+  function JournalAnalysisPanel({ sym }) {
+    const [win, setWin] = useState10(() => {
+      const to = todayISO();
+      const from = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
+      return { from, to, period: "weekly" };
+    });
+    const [bundle, setBundle] = useState10(null);
+    const [read, setRead] = useState10(null);
+    const [saved, setSaved] = useState10(false);
+    const [hist, setHist] = useState10(null);
+    const abortRef = useRef2(null);
+    const loadHist = async () => {
+      const h = await getJournalAnalyses(sym);
+      setHist(h && h.available ? h.analyses || [] : []);
+    };
+    useEffect7(() => {
+      loadHist();
+      setBundle(null);
+      setRead(null);
+      setSaved(false);
+    }, [sym]);
+    const generate = async () => {
+      setRead({ loading: true });
+      setSaved(false);
+      const res = await getJournalAnalysisBundle(win.from, win.to, sym);
+      if (!res || !res.available || !res.bundle) {
+        setRead({ error: res && res.note || "couldn't build the bundle" });
+        return;
+      }
+      setBundle(res.bundle);
+      let text = "";
+      setRead({ text: "" });
+      abortRef.current = streamTurn(res.prompt, `journal-${win.from}-${win.to}`, (evt) => {
+        if (evt.kind === "error") {
+          setRead({ error: evt.message || "Mira error" });
+          return;
+        }
+        if (evt.kind === "done") {
+          abortRef.current = null;
+          setRead({ text });
+          if (text.trim()) {
+            const b2 = res.bundle;
+            saveJournalAnalysis({
+              period: win.period,
+              window_from: win.from,
+              window_to: win.to,
+              underlying: sym,
+              rubric_version: b2.rubric_version,
+              trades: b2.trades,
+              net_pnl: b2.net_pnl,
+              scores: b2.scores,
+              patterns: b2.patterns,
+              recommendations: b2.recommendations,
+              swot: null,
+              narrative: text
+            }).then(() => {
+              setSaved(true);
+              loadHist();
+            });
+          }
+          return;
+        }
+        const chunk = evt.text || evt.delta || evt.content || "";
+        if (chunk) {
+          text += chunk;
+          setRead({ text });
+        }
+      });
+    };
+    useEffect7(() => () => {
+      if (abortRef.current) abortRef.current();
+    }, []);
+    const b = bundle;
+    const busy = read && read.loading;
+    const streaming = read && read.text != null && !saved && !read.error;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-ja" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "flex-end", flexWrap: "wrap", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 12, alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field" }, /* @__PURE__ */ React.createElement("label", null, "From"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "date",
+        value: win.from,
+        max: win.to,
+        onChange: (e) => setWin({ ...win, from: e.target.value })
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field" }, /* @__PURE__ */ React.createElement("label", null, "To"), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "date",
+        value: win.to,
+        min: win.from,
+        max: todayISO(),
+        onChange: (e) => setWin({ ...win, to: e.target.value })
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field" }, /* @__PURE__ */ React.createElement("label", null, "Tag this run"), /* @__PURE__ */ React.createElement("select", { value: win.period, onChange: (e) => setWin({ ...win, period: e.target.value }) }, /* @__PURE__ */ React.createElement("option", { value: "daily" }, "daily"), /* @__PURE__ */ React.createElement("option", { value: "weekly" }, "weekly"), /* @__PURE__ */ React.createElement("option", { value: "monthly" }, "monthly"), /* @__PURE__ */ React.createElement("option", { value: "on-demand" }, "on-demand"))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 4 } }, [["1D", 0], ["7D", 6], ["30D", 29]].map(([lab, back]) => /* @__PURE__ */ React.createElement("button", { key: lab, className: "vg-btn-sm", onClick: () => setWin({
+      ...win,
+      from: new Date(Date.now() - back * 864e5).toISOString().slice(0, 10),
+      to: todayISO(),
+      period: back === 0 ? "daily" : back === 6 ? "weekly" : "monthly"
+    }) }, lab)))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: busy || streaming, onClick: generate }, busy || streaming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing\u2026") : "\u{1F9E0} Generate analysis")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "Scores the window against a rubric, aggregates every recorded trade review into a SWOT, and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days \u2192 Analyze today).")), b && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard \xB7 ", b.window_from, " \u2192 ", b.window_to), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, b.trades, " trades \xB7 ", b.analyzed, " reviewed \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: b.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(b.net_pnl)), " ", "\xB7 rubric v", b.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, b.recommendations.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 10 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status), r.delta == null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, b.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, " \xB7 ", p.cites.length, " trades"))))))), read && (read.text != null || read.error || read.loading) && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "SWOT & read ", saved && /* @__PURE__ */ React.createElement("span", { className: "vg-up", style: { fontSize: 11 } }, "\u2713 saved"))), read.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Aggregating your reviews and scoring the window\u2026"), read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error), read.text && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, read.text)), hist && hist.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior analyses \xB7 knowledge compounds"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", { className: "vg-note", style: { fontSize: 10 } }, /* @__PURE__ */ React.createElement("td", null, "window"), /* @__PURE__ */ React.createElement("td", null, "tag"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "entry"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "exit"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "risk"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "plan"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, "net")), hist.map((h) => {
+      const s = h.scores || {};
+      return /* @__PURE__ */ React.createElement("tr", { key: h.id }, /* @__PURE__ */ React.createElement("td", null, h.window_from, " \u2192 ", h.window_to), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, h.period)), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.entry_discipline || 0)}` }, s.entry_discipline ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.exit_discipline || 0)}` }, s.exit_discipline ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.risk_sizing || 0)}` }, s.risk_sizing ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: `vg-${SCORE_TONE(s.plan_adherence || 0)}` }, s.plan_adherence ?? "\u2014"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" }, className: h.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(h.net_pnl)));
+    })))));
   }
   function operatorFor(t, thought) {
     const m = (thought || "").match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];

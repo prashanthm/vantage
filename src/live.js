@@ -962,6 +962,23 @@ export const getTradeDna = (day, trade, underlying = "SPX") =>
 export const saveTradeAnalysis = (body) =>
   postJson(`${backendBase()}/api/journal/trade-analysis`, body);
 
+// ── Journal Analysis (the compounding aggregate self-assessment) ────────────
+// The deterministic bundle (scores, pattern census, citations, prior analysis)
+// + the ready DeepSeek prompt for a date window. The client streams Mira with
+// the prompt, then saves the result via saveJournalAnalysis.
+export const getJournalAnalysisBundle = (from, to, underlying = "SPX") =>
+  getJson(`${backendBase()}/api/journal/analysis/bundle?window_from=${encodeURIComponent(from)}` +
+          `&window_to=${encodeURIComponent(to)}&underlying=${encodeURIComponent(underlying)}`,
+          { timeoutMs: 20000 });
+
+// Store one Journal Analysis run (tagged period + window) so it compounds.
+export const saveJournalAnalysis = (body) =>
+  postJson(`${backendBase()}/api/journal/analysis`, body);
+
+// Recorded Journal Analyses, newest window first (the history + score trend).
+export const getJournalAnalyses = (underlying = "SPX") =>
+  getJson(`${backendBase()}/api/journal/analysis?underlying=${encodeURIComponent(underlying)}`);
+
 // The positions that matter while trading: reclaim proxies you actually hold,
 // each flagged with whether the exit monitor is protecting it.
 export const getTradeablePositions = () =>

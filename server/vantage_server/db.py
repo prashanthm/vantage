@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 16  # v16: trade_analysis (persisted DNA snapshot + Mira read)
+SCHEMA_VERSION = 17  # v17: journal_analysis (compounding periodic self-assessment)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -440,6 +440,32 @@ CREATE TABLE IF NOT EXISTS trade_analysis (
     UNIQUE (day, trade_key)
 );
 CREATE INDEX IF NOT EXISTS ix_trade_analysis_day ON trade_analysis(day, underlying);
+
+-- Journal Analysis (v17): the compounding, periodic self-assessment. Each row
+-- is one run over a date window, TAGGED daily|weekly|monthly, scored against a
+-- versioned rubric, carrying the SWOT + patterns + recommendations. The next
+-- run reads the prior one (prior_id) so knowledge compounds, and tracks
+-- whether earlier recommendations moved the scores. One row per
+-- (period, window_from, window_to, underlying); re-running overwrites.
+CREATE TABLE IF NOT EXISTS journal_analysis (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    period         TEXT NOT NULL,       -- 'daily' | 'weekly' | 'monthly'
+    window_from    TEXT NOT NULL,       -- YYYY-MM-DD (inclusive)
+    window_to      TEXT NOT NULL,       -- YYYY-MM-DD (inclusive)
+    underlying     TEXT NOT NULL,
+    generated_at   TEXT NOT NULL,
+    rubric_version INTEGER NOT NULL,    -- which scoring rubric produced `scores`
+    prior_id       INTEGER,             -- the analysis this one built on (compounding)
+    trades         INTEGER,             -- n trades in the window
+    net_pnl        REAL,                -- realized net over the window
+    scores         TEXT,                -- JSON {dimension: 0-100, ...}
+    swot           TEXT,                -- JSON {strengths, weaknesses, opportunities, threats}
+    patterns       TEXT,                -- JSON [{pattern, count, cites[]}]
+    recommendations TEXT,               -- JSON [{text, status, evidence}]
+    narrative      TEXT,                -- the model's prose synthesis
+    UNIQUE (period, window_from, window_to, underlying)
+);
+CREATE INDEX IF NOT EXISTS ix_journal_analysis_win ON journal_analysis(window_to, period, underlying);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard

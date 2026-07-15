@@ -1555,6 +1555,86 @@ class Store:
             out.append(d)
         return out
 
+    def load_trade_analyses(self) -> list[dict]:
+        """EVERY recorded per-trade analysis (across all days) — the raw
+        material the Journal Analysis aggregates. ``dna`` JSON-decoded."""
+        if not self.uses_sqlite:
+            return []
+        import json as _json
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT day, trade_key, underlying, label, analyzed_at, analysis "
+                "FROM trade_analysis ORDER BY day, trade_key").fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
+    # ── Journal Analysis (compounding periodic self-assessment) ──────────────
+
+    def save_journal_analysis(self, rec: dict) -> int:
+        """Upsert one Journal Analysis run (unique per period+window+underlying).
+        JSON fields (scores/swot/patterns/recommendations) are dumped. Returns
+        the row id."""
+        if not self.uses_sqlite:
+            raise RuntimeError("save_journal_analysis requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO journal_analysis"
+                "(period, window_from, window_to, underlying, generated_at,"
+                " rubric_version, prior_id, trades, net_pnl, scores, swot,"
+                " patterns, recommendations, narrative) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (rec["period"], rec["window_from"], rec["window_to"],
+                 rec.get("underlying", "SPX"), rec["generated_at"],
+                 rec["rubric_version"], rec.get("prior_id"),
+                 rec.get("trades"), rec.get("net_pnl"),
+                 _db.dumps(rec.get("scores")), _db.dumps(rec.get("swot")),
+                 _db.dumps(rec.get("patterns")), _db.dumps(rec.get("recommendations")),
+                 rec.get("narrative")))
+            row = conn.execute(
+                "SELECT id FROM journal_analysis WHERE period=? AND window_from=? "
+                "AND window_to=? AND underlying=?",
+                (rec["period"], rec["window_from"], rec["window_to"],
+                 rec.get("underlying", "SPX"))).fetchone()
+        return int(row["id"]) if row else 0
+
+    def _decode_ja(self, r) -> dict:
+        d = dict(r)
+        for k in ("scores", "swot", "patterns", "recommendations"):
+            d[k] = _db.loads(d.get(k), None)
+        return d
+
+    def load_latest_journal_analysis(self, before: str, underlying: str = "SPX") -> dict | None:
+        """The most recent Journal Analysis whose window ended STRICTLY BEFORE
+        ``before`` — the 'prior' a new run compounds on. None when none."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            r = conn.execute(
+                "SELECT * FROM journal_analysis WHERE window_to < ? AND underlying=? "
+                "ORDER BY window_to DESC, id DESC LIMIT 1",
+                (before, underlying.upper())).fetchone()
+        finally:
+            conn.close()
+        return self._decode_ja(r) if r else None
+
+    def load_journal_analyses(self, underlying: str = "SPX", limit: int = 60) -> list[dict]:
+        """Recorded Journal Analyses, newest window first — the history the UI
+        lists and the score trend is drawn from."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM journal_analysis WHERE underlying=? "
+                "ORDER BY window_to DESC, id DESC LIMIT ?",
+                (underlying.upper(), limit)).fetchall()
+        finally:
+            conn.close()
+        return [self._decode_ja(r) for r in rows]
+
     # ── chart-snapshot journal (SQLite metadata; image bytes on disk) ────────
 
     def record_journal_snapshot(self, snap: dict) -> int:

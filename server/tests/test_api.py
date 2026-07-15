@@ -468,6 +468,9 @@ ALLOWED_WRITE_ROUTES = {
     "/api/nightly/record",
     # Persist a trade's DNA snapshot + Mira read into our store.
     "/api/journal/trade-analysis",
+    # Store one Journal Analysis run (aggregate self-assessment) — writes only
+    # our own SQLite so the periodic analysis compounds; no broker/order path.
+    "/api/journal/analysis",
     "/api/ticker/{symbol}/plan",
     "/api/ticker/{symbol}/note",
     # Regenerates the SPX playbook on demand — writes only our own store (the

@@ -830,3 +830,17 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-jr-forecast summary::-webkit-details-marker { display: none; }
 .vg-jr-forecast summary::before { content: "▸ "; }
 .vg-jr-forecast[open] summary::before { content: "▾ "; }
+
+/* ── Journal Analysis (aggregate self-assessment) ─────────────────────────── */
+.vg-seg { display:inline-flex; border:1px solid var(--vg-hairline); border-radius:8px; overflow:hidden; }
+.vg-seg-btn { border:none; background:transparent; padding:4px 12px; font-size:12.5px; cursor:pointer; color:var(--vg-ink,#333); }
+.vg-seg-btn.on { background:var(--vg-up-soft); color:var(--vg-up); font-weight:600; }
+.vg-seg-btn:not(.on):hover { background:rgba(0,0,0,.04); }
+
+.vg-scores { display:grid; grid-template-columns:1fr 1fr; gap:12px 20px; margin-top:10px; }
+@media (max-width:640px){ .vg-scores { grid-template-columns:1fr; } }
+.vg-score-n { font-size:16px; font-variant-numeric:tabular-nums; }
+.vg-score-track { height:6px; background:var(--vg-hairline); border-radius:5px; overflow:hidden; margin-top:5px; }
+.vg-score-fill { height:100%; border-radius:5px; }
+.bg-good { background:var(--vg-up); } .bg-warn { background:var(--vg-warn); } .bg-bad { background:var(--vg-down); }
+.vg-good { color:var(--vg-up); } .vg-warn { color:var(--vg-warn); } .vg-bad { color:var(--vg-down); }

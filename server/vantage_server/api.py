@@ -975,6 +975,65 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             analysis=(str(body["analysis"]) if body.get("analysis") else None))
         return envelope(snap, available=True, id=rid)
 
+    @app.get("/api/journal/analysis/bundle")
+    def journal_analysis_bundle(window_from: str = Query(...),
+                                window_to: str = Query(...),
+                                underlying: str = Query("SPX")):
+        """The deterministic Journal-Analysis bundle for a window + the ready
+        DeepSeek prompt: rubric scores, the pattern census with trade citations,
+        per-day discipline, the per-trade review excerpts, and the PRIOR
+        analysis (so the read compounds). The client streams Mira with the
+        prompt, then POSTs the result to /api/journal/analysis. Read-only."""
+        from . import journal_analysis as _ja
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        bundle = _ja.gather(store, window_from, window_to, underlying or "SPX")
+        return envelope(snap, available=True, bundle=bundle,
+                        prompt=_ja.build_prompt(bundle))
+
+    @app.post("/api/journal/analysis")
+    def journal_analysis_save(body: dict = Body(default={})):
+        """Store one Journal-Analysis run (tagged daily|weekly|monthly, with the
+        date window), so knowledge compounds — the next run reads this one. Body:
+        {period, window_from, window_to, underlying, rubric_version, trades,
+        net_pnl, scores, swot, patterns, recommendations, narrative}. The
+        deterministic fields come from the bundle; swot+narrative from Mira.
+        Store-only write (ADR-010)."""
+        import datetime as _dt
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        wf, wt = str(body.get("window_from") or ""), str(body.get("window_to") or "")
+        if not wf or not wt:
+            return envelope(snap, available=False, note="need window_from, window_to")
+        und = str(body.get("underlying") or "SPX").upper()
+        prior = store.load_latest_journal_analysis(wf, und)
+        rid = store.save_journal_analysis({
+            "period": str(body.get("period") or "on-demand"),
+            "window_from": wf, "window_to": wt, "underlying": und,
+            "generated_at": _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat(),
+            "rubric_version": int(body.get("rubric_version") or 1),
+            "prior_id": (prior or {}).get("id"),
+            "trades": body.get("trades"), "net_pnl": body.get("net_pnl"),
+            "scores": body.get("scores"), "swot": body.get("swot"),
+            "patterns": body.get("patterns"),
+            "recommendations": body.get("recommendations"),
+            "narrative": (str(body["narrative"]) if body.get("narrative") else None),
+        })
+        return envelope(snap, available=True, id=rid)
+
+    @app.get("/api/journal/analysis")
+    def journal_analysis_list(underlying: str = Query("SPX"),
+                              limit: int = Query(60)):
+        """Recorded Journal Analyses, newest window first — the history the
+        Journal Analysis tab lists, and the score-trend source. Read-only."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        rows = store.load_journal_analyses(underlying or "SPX", limit=int(limit))
+        return envelope(snap, available=True, analyses=rows)
+
     @app.post("/api/journal/entry")
     def journal_entry(body: dict = Body(default={})):
         """Save / update the structured trade-action log ('what I did') for a
