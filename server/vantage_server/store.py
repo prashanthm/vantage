@@ -839,8 +839,12 @@ class Store:
             # a round-trip restores exactly the source keys — a row carrying an
             # explicit ``price: None`` must not lose the key on read.
             present = [c for c in _db.HISTORY_COLUMNS if c in r]
+            # order_id rides in `extra` so it round-trips: the journal groups a
+            # decision by the SOURCE order id (all executions of one Robinhood
+            # order), not a minute-heuristic. It's also the row_key (computed
+            # above), so storing it costs nothing and reconstruction is exact.
             extra = {k: v for k, v in r.items()
-                     if k not in _db.HISTORY_COLUMNS and k != "order_id"}
+                     if k not in _db.HISTORY_COLUMNS}
             conn.execute(
                 "INSERT OR REPLACE INTO history"
                 "(row_key, account, broker_account, date, kind, symbol, description, "

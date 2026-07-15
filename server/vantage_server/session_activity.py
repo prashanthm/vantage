@@ -83,21 +83,41 @@ def intrinsic(kind: str, strike: float, settle: float) -> float:
 # ─────────────────────────────────────────────────────── grouping fills → trades
 
 def _order_key(fill: dict) -> tuple:
-    """Legs of ONE order share a timestamp and a strategy description — that
-    is the decision unit. (RH gives us no order id in the history row.)"""
+    """The decision a fill belongs to. PREFER the source Robinhood order id
+    (stored as order_id = "{order}:{execution}" for options, "{order}" for
+    equity) — every execution and leg of one order groups together, exactly as
+    the broker structured it. Fall back to the (minute, strategy, effect)
+    heuristic only for rows synced before the id was captured."""
+    oid = str(fill.get("order_id") or "")
+    if oid:
+        order = oid.split(":", 1)[0]          # drop the execution suffix
+        return ("oid", order)
     strat, effect = strategy_of(fill.get("description"))
     return (str(fill.get("date") or "")[:16], strat, effect)
 
 
 def group_orders(fills: list[dict]) -> list[dict]:
     """Fills -> ORDERS (one decision each), legs grouped. Each order:
-    {at, strategy, effect, legs[], debit (signed cash), contracts}."""
+    {at, strategy, effect, legs[], debit (signed cash), contracts}.
+
+    Grouping is by the SOURCE order identity when present (the row's stored
+    order_id: "{order}:{execution}" for options, "{order}" for equity — so all
+    executions/legs of one Robinhood order collapse into one decision), falling
+    back to the (minute, strategy, effect) heuristic for rows synced before the
+    id was captured. No timestamp-window dedupe: duplicate executions can't
+    reach here anymore because they share an id and collapse at storage."""
     by_key: dict[tuple, list[dict]] = defaultdict(list)
     for f in fills:
         by_key[_order_key(f)].append(f)
 
     orders = []
-    for (at, strat, effect), legs in by_key.items():
+    for _key, legs in by_key.items():
+        # at/strategy/effect come from the FILLS, not the grouping key — the key
+        # may be the source order id (opaque) or the minute heuristic. Use the
+        # earliest fill's minute and its strategy/effect description.
+        legs = sorted(legs, key=lambda l: str(l.get("date") or ""))
+        strat, effect = strategy_of(legs[0].get("description"))
+        at = str(legs[0].get("date") or "")[:16]
         cash = sum(float(l.get("amount") or 0) for l in legs)
         orders.append({
             "at": at,
@@ -168,10 +188,14 @@ def build_trades(orders: list[dict]) -> list[dict]:
                 t["legs"].append(l)
                 known.add(sym)
         t["open_contracts"] = round(sum(abs(q) for q in t["net"].values()), 2)
-        # peak size the position ever held — the true "×N" of the decision,
-        # tracked across scale-ins (a 3-lot ladder peaks at 3 even though it
-        # ends flat). Drives the label and the scale read.
-        t["peak_contracts"] = max(t.get("peak_contracts", 0.0), t["open_contracts"])
+        # peak SIZE the position ever held — the true "×N" of the decision. For
+        # a spread the size is the number of SPREADS (the max magnitude across
+        # legs), NOT the sum of both legs' contracts: a 10-lot call spread is
+        # ×10 (10 long + 10 short), not ×20. Single-leg trades are unaffected
+        # (one symbol → max == that leg). Tracked across scale-ins so a 3-lot
+        # ladder peaks at 3 even though it ends flat.
+        held = max((abs(q) for q in t["net"].values()), default=0.0)
+        t["peak_contracts"] = max(t.get("peak_contracts", 0.0), round(held, 2))
         if t["open_contracts"] <= 1e-9:
             t["status"] = "closed"                     # the decision is finished
 
@@ -635,7 +659,16 @@ def scale_read(ladder: list[dict], peak: float) -> dict | None:
     or one-shot. This is the discipline signal a single blended P&L can't show.
 
     Prices are contract prices (per share); averages are qty-weighted. Returns
-    None for an un-scaled trade (single in, single out) — nothing to read."""
+    None for an un-scaled trade (single in, single out) — nothing to read.
+
+    ONLY for single-leg trades: in a spread a 'buy' and 'sell' are structural
+    legs, not entry vs exit, so added-on-strength / averaged-down is
+    meaningless (and a 2-order spread's 2 buys + 2 sells would falsely read as
+    a ladder). Multi-leg structures still get the full fill table, just no
+    scale read."""
+    symbols = {r.get("symbol") for r in ladder}
+    if len(symbols) > 1:
+        return None                         # multi-leg — scale read doesn't apply
     buys = [r for r in ladder if r["side"] == "buy"]
     sells = [r for r in ladder if r["side"] == "sell"]
     if len(buys) + len(sells) <= 2:

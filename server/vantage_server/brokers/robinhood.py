@@ -436,6 +436,11 @@ def _normalize_equity_order(order: dict, broker_account: str) -> dict:
                   if order.get("fees") not in (None, "") else _leg_fees(executions)),
             time_in_force=str(order.get("time_in_force") or "") or None,
             submitted_at=created or None,
+            # the source order id — history_row_key prefers it, so a re-fetch of
+            # the same order collapses instead of doubling on a jittered
+            # timestamp. (Equity stays one-row-per-order; the per-execution
+            # split is options-only, where laddering matters.)
+            order_id=(str(order.get("id")) if order.get("id") else None),
         )
     except Exception:  # defensive: surface, never drop
         return _history_row(
@@ -491,23 +496,15 @@ def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
                        or order.get("closing_strategy") or "option order")
         order_qty = _f(order.get("quantity"))
         processed = _f(order.get("processed_quantity"))
+        oid = str(order.get("id") or "")
+        tif = str(order.get("time_in_force") or "") or None
+        limit_px = (_f(order.get("price"), None)
+                    if order.get("price") not in (None, "") else None)
         rows = []
         for leg in legs:
             side = "buy" if str(leg.get("side") or "") == "buy" else "sell"
             ratio = _f(leg.get("ratio_quantity"), 1.0) or 1.0
-            executions = leg.get("executions") or []
-            exec_qty = sum(_f(e.get("quantity")) for e in executions)
-            exec_notional = sum(_f(e.get("quantity")) * _f(e.get("price"))
-                                for e in executions)
-            quantity = exec_qty if exec_qty > 0 else (processed or order_qty) * ratio
-            price = (exec_notional / exec_qty) if exec_qty > 0 else (
-                _f(order["price"], None) if order.get("price") not in (None, "") else None
-            )
-            # amount = contract dollars that actually moved on this leg
-            # (executions are per share -> x multiplier), negative for buys.
-            amount = 0.0
-            if exec_qty > 0:
-                amount = round(exec_notional * multiplier * (-1 if side == "buy" else 1), 2)
+            lid = str(leg.get("id") or "")
             symbol = option_display_symbol(
                 str(order.get("chain_symbol") or ""),
                 str(leg.get("expiration_date") or ""),
@@ -515,32 +512,49 @@ def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
                 str(leg.get("option_type") or ""),
             )
             desc = f"{strategy} {leg.get('position_effect') or ''} ({direction})".strip()
-            # the actual fill timestamp (last execution) is more precise than the
-            # order's created_at — an order placed at 08:45 may fill at 08:46. Use
-            # it as the row date when present; keep created_at as the submit time.
-            fill_ts = _last_exec_timestamp(executions)
-            rows.append(_history_row(
-                broker_account,
-                date=fill_ts or created,
-                kind="option",
-                symbol=symbol,
-                description=desc,
-                side=side,
-                quantity=quantity,
-                price=price,
-                amount=amount,
-                state=state,
-                # extra fields (round-trip via the store's `extra` JSON blob —
-                # no schema change): the fuller Robinhood record the journal
-                # dropped. limit_price is per-SHARE (x100 for contract cost);
-                # fees are regulatory $; submitted_at is order placement.
-                limit_price=(_f(order.get("price"), None)
-                             if order.get("price") not in (None, "") else None),
-                fees=_leg_fees(executions),
-                time_in_force=str(order.get("time_in_force") or "") or None,
-                submitted_at=created or None,
-                position_effect=str(leg.get("position_effect") or "") or None,
-            ))
+            pos_effect = str(leg.get("position_effect") or "") or None
+            sign = -1 if side == "buy" else 1
+            executions = leg.get("executions") or []
+
+            def _row(*, date, qty, price, amount, key, fees=None):
+                # ONE history row = ONE Robinhood execution (or one unfilled
+                # leg). Keyed on the SOURCE id — order_id prefers it in
+                # history_row_key, so a re-fetch of the same order/execution
+                # collapses exactly, no timestamp guessing. The ladder is then
+                # literally the execution list, verbatim.
+                return _history_row(
+                    broker_account, date=date, kind="option", symbol=symbol,
+                    description=desc, side=side, quantity=qty, price=price,
+                    amount=amount, state=state,
+                    limit_price=limit_px, fees=fees, time_in_force=tif,
+                    submitted_at=created or None, position_effect=pos_effect,
+                    order_id=key,
+                )
+
+            if executions:
+                # one row PER execution — the finest source grain
+                for e in executions:
+                    eq = _f(e.get("quantity"))
+                    ep = _f(e.get("price"))
+                    when = str(e.get("timestamp") or e.get("trade_date") or created)
+                    eid = str(e.get("id") or "")
+                    # execution id is unique; fall back to a positional key only
+                    # if the broker ever omits it (keeps rows distinct per fill)
+                    key = (f"{oid}:{eid}" if oid and eid
+                           else f"{oid}:{lid}:{when}" if oid and lid else None)
+                    rows.append(_row(
+                        date=when, qty=eq, price=ep,
+                        amount=round(eq * ep * multiplier * sign, 2),
+                        fees=_f(e.get("fees")), key=key,
+                    ))
+            else:
+                # unfilled / cancelled leg — one row, keyed by order:leg so a
+                # re-fetch of the cancelled order collapses too
+                q = (processed or order_qty) * ratio
+                rows.append(_row(
+                    date=created, qty=q, price=limit_px, amount=0.0,
+                    key=(f"{oid}:{lid}" if oid and lid else None),
+                ))
         return rows
     except Exception:  # defensive: surface, never drop
         return [_history_row(
@@ -555,12 +569,36 @@ def _normalize_option_order(order: dict, broker_account: str) -> list[dict]:
 def _option_orders(account_number: str, *, limit: int = 200) -> list[dict]:
     """RAW-but-unwrapped get_option_orders rows (the shape documented in
     _normalize_option_order), newest first. The single network path for option
-    orders — both fetch_history and fetch_option_orders read through it."""
+    orders — both fetch_history and fetch_option_orders read through it.
+
+    Deduped by order ``id``: paging over get_option_orders can return the SAME
+    order under overlapping pages (live 2026-07-14, every order came back twice
+    — a 10-lot spread showed as ×40, each fill doubled). The order id is the
+    stable identity; keep the first sighting of each."""
     orders = _paged("get_option_orders", {"account_number": account_number},
                     "orders", max_rows=limit)[:limit]
+    orders = _dedupe_orders(orders)
     orders.sort(key=lambda o: str(o.get("created_at") or "") if isinstance(o, dict) else "",
                 reverse=True)
     return orders
+
+
+def _dedupe_orders(orders: list[dict]) -> list[dict]:
+    """Collapse orders that share an ``id`` (a paging artifact — the same order
+    fetched twice). Orders with no id (shouldn't happen for real fills) are all
+    kept. Preserves first-seen order."""
+    seen: set[str] = set()
+    out: list[dict] = []
+    for o in orders:
+        if not isinstance(o, dict):
+            continue
+        oid = str(o.get("id") or "")
+        if oid and oid in seen:
+            continue
+        if oid:
+            seen.add(oid)
+        out.append(o)
+    return out
 
 
 def fetch_option_orders(account_number: str, *, limit: int = 200) -> list[dict]:
@@ -583,8 +621,10 @@ def fetch_history(account_number: str, *, limit: int = 200) -> list[dict]:
     masked to the last four digits."""
     masked = f"...{str(account_number)[-4:]}"
     rows: list[dict] = []
-    for order in _paged("get_equity_orders", {"account_number": account_number},
-                        "orders", max_rows=limit)[:limit]:
+    equity = _dedupe_orders(_paged("get_equity_orders",
+                                   {"account_number": account_number},
+                                   "orders", max_rows=limit)[:limit])
+    for order in equity:
         rows.append(_normalize_equity_order(order, masked))
     for order in _option_orders(account_number, limit=limit):
         rows.extend(_normalize_option_order(order, masked))
