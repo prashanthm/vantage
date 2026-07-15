@@ -937,22 +937,33 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         (VWAP/ATR/RSI/rel-vol) at each fill, the entry/exit level correlation,
         and the forecast it was taken against. Resolution follows the
         timeframe — 1-minute for a 0DTE, 15-minute for a swing (labelled when
-        1m is unavailable). ``trade`` is the index into that day's
-        session-activity trade list. Feeds the Mira trade-analyst. Read-only."""
+        1m is unavailable). ``trade`` is the index into the day's FULL
+        (all-ticker) session-activity trade list — the same list the journal
+        shows; the trade's own ticker drives its DNA. Read-only."""
         from . import session_activity as _sa
         from . import trade_dna as _dna
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="SQLite backend required.")
-        sess = _sa.session(store, day, underlying or "SPX")
+        # index into the ALL-ticker session (what the UI indexes into) — a
+        # per-ticker fetch re-indexed and put every non-primary trade out of
+        # range (live: MU trade 10 in a 16-trade day fetched as 'day has 1').
+        sess = _sa.session(store, day, None)
         trades = sess.get("trades") or []
         if trade < 0 or trade >= len(trades):
             return envelope(snap, available=False,
                             note=f"trade {trade} out of range (day has {len(trades)})")
         t = trades[trade]
+        # the trade carries its own ticker; correlation is already per-ticker in
+        # session(), so t.correlation/exit_correlation frame the DNA correctly.
+        tk = t.get("ticker") or underlying or "SPX"
+        # only attach the session's forecast-levels context when it's THIS
+        # trade's ticker (session returns the PRIMARY ticker's levels); a
+        # different-ticker trade (e.g. MU) has no playbook here, so pass none.
+        same = (tk == sess.get("primary"))
         dna = _dna.build(store, day, t,
-                         sess.get("forecast_levels") or [],
-                         sess.get("gex_anchors") or [], underlying or "SPX")
+                         (sess.get("forecast_levels") or []) if same else [],
+                         (sess.get("gex_anchors") or []) if same else [], tk)
         trade_key = f"{t.get('opened_at') or trade}|{t.get('label')}"
         # a stored analysis (frozen DNA + Mira read) if this trade was analyzed
         prior = store.load_trade_analysis(day, trade_key)

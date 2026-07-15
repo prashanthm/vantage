@@ -1246,14 +1246,14 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
                 out <b>{fmtLvl(t.spot_at_exit)}</b>
                 {exitNearest && <span className={cls("vg-badge", exitCorr.at_level ? "good" : "plain")} style={{ marginLeft: 4 }}>{fmtLvl(exitNearest.level)}</span>}
                 {t.spot_at_entry != null && t.spot_at_exit != null && (
-                  <span className="vg-note"> · {(t.spot_at_exit - t.spot_at_entry) >= 0 ? "+" : ""}{(t.spot_at_exit - t.spot_at_entry).toFixed(1)}pt SPX
+                  <span className="vg-note"> · {(t.spot_at_exit - t.spot_at_entry) >= 0 ? "+" : ""}{(t.spot_at_exit - t.spot_at_entry).toFixed(1)}pt {t.ticker || "SPX"}
                     {String(t.status).startsWith("expired") ? " (settlement)" : ""}</span>
                 )}
               </div>
 
-              <CorrTable title={`Entry · SPX ${fmtLvl(t.spot_at_entry)}`} corr={corr} openSpace="entry was in open space" />
+              <CorrTable title={`Entry · ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_entry)}`} corr={corr} openSpace="entry was in open space" />
               <div style={{ marginTop: 8 }}>
-                <CorrTable title={`Exit · SPX ${fmtLvl(t.spot_at_exit)}${String(t.status).startsWith("expired") ? " (settled)" : ""}`}
+                <CorrTable title={`Exit · ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_exit)}${String(t.status).startsWith("expired") ? " (settled)" : ""}`}
                   corr={exitCorr} openSpace="exit was in open space" />
               </div>
 
@@ -1468,13 +1468,13 @@ function DnaReadout({ dna }) {
         <tr><td style={{ width: 70 }}><b>Timeframe</b></td>
           <td>{dna.timeframe} · {dna.bar_interval} bars{dna.coarse ? " (1m unavailable — coarse)" : ""}</td></tr>
         <tr><td><b>Entry</b></td>
-          <td>SPX <b>{e.spot}</b>{en ? <> — {en.at_level || (e.correlation && e.correlation.at_level) ? "at " : "near "}
+          <td>{dna.underlying || "SPX"} <b>{e.spot}</b>{en ? <> — {en.at_level || (e.correlation && e.correlation.at_level) ? "at " : "near "}
             the <b>{en.level}</b> {en.role} ({(en.kinds || []).join(" + ")}), {pts(en.distance)} away</> : ""}.
             {" "}{entryRead}.</td></tr>
         <tr><td /><td className="vg-note">VWAP {et.vwap} ({et.vs_vwap >= 0 ? "+" : ""}{et.vs_vwap} vs price)
           {et.rsi != null ? ` · RSI ${Math.round(et.rsi)}` : ""} · rel-vol {et.rel_volume}× · ATR {et.atr}</td></tr>
         <tr><td><b>Exit</b></td>
-          <td>SPX <b>{x.spot}</b>{x.is_settlement ? " (expiry settlement)" : ""}{xn ? <> — {(x.correlation && x.correlation.at_level) ? "at " : "near "}
+          <td>{dna.underlying || "SPX"} <b>{x.spot}</b>{x.is_settlement ? " (expiry settlement)" : ""}{xn ? <> — {(x.correlation && x.correlation.at_level) ? "at " : "near "}
             the <b>{xn.level}</b> {xn.role} ({(xn.kinds || []).join(" + ")}), {pts(xn.distance)} away</> : ""}.
             {" "}{exitRead}.</td></tr>
         <tr><td /><td className="vg-note">VWAP {xt.vwap} ({xt.vs_vwap >= 0 ? "+" : ""}{xt.vs_vwap} vs price)
