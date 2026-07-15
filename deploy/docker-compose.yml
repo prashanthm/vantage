@@ -1,4 +1,4 @@
-# Vantage + Mira containerized stack (PROD / portable path).
+# Vantage containerized stack (PROD / portable path).
 #
 # Dev path stays `./stack` (venv runner) at the repo root — see deploy/README.md.
 #
@@ -6,9 +6,10 @@
 #
 # Service graph:
 #   vantage-backend (:8641)  owns vantage.db  (READ-WRITE volume) + refresh writes
-#   vantage-mcp     (:8640)  reads the SAME db (READ-ONLY volume)
+#   vantage-mcp     (:8640)  reads the SAME db (READ-ONLY volume) — Mira reads it too
 #   vantage-spa     (:8642)  static SPA shell (browser talks to host-published ports)
-#   mira            (:8080)  → vantage-mcp:8640/mcp (tools) + host Ollama (LLM)
+#
+# Mira runs from its OWN stack (mira/deploy/), reaching vantage-mcp on host :8640.
 #
 # The named volume `vantage-data` starts EMPTY. Seed it once before first `up`
 # (see deploy/README.md "Seeding the database") or the backend serves an empty
@@ -138,50 +139,11 @@ services:
       retries: 3
     restart: unless-stopped
 
-  mira:
-    build:
-      # Sibling checkout (vantage/ and mira/ side by side) — portable, unlike
-      # a home-absolute path.
-      context: ../../mira
-      dockerfile: Dockerfile
-    image: mira:local
-    ports:
-      - "8080:8080"
-    environment:
-      # Deployment profile: `local` (in-memory providers, no cloud SDK) is the
-      # right shape for this self-hosted Docker stack. WITHOUT it, build_app gets
-      # no profile and the /turn path degrades — the supervisor emits an empty
-      # synthesis and the reasoning loop never runs, so chat returns nothing.
-      DEPLOYMENT_PROFILE: "${DEPLOYMENT_PROFILE:-local}"
-      PLATFORM: "${PLATFORM:-local}"
-      # Vantage MCP over the compose network (container DNS name), NOT localhost.
-      MCP_BASE_URL: "${MCP_BASE_URL:-http://vantage-mcp:8640/mcp}"
-      # Host Ollama (OpenAI-compatible). Override in .env for a different LLM.
-      LLM_BASE_URL: "${LLM_BASE_URL:-http://host.docker.internal:11434/v1}"
-      # Must be a tag Ollama actually has (`ollama list`) — a bare "qwen2.5"
-      # with no tag 404s and the advisor returns empty. Override in .env.
-      LLM_MODEL: "${LLM_MODEL:-qwen2.5:7b}"
-      LLM_API_KEY: "${LLM_API_KEY:-ollama}"
-      # Model-tier routing (ADR-052). MODEL_ROUTES maps capability tiers to
-      # concrete models against LLM_BASE_URL: /analyze synthesis asks for the
-      # `deep` tier (strong model, grounded multi-domain prose), the playbook
-      # narrator and facets ride `light`. Unset = no router, everything on
-      # LLM_MODEL. ENABLE_TIER_ESCALATION adds the one-retry quality escalator.
-      MODEL_ROUTES: "${MODEL_ROUTES:-}"
-      ENABLE_TIER_ESCALATION: "${ENABLE_TIER_ESCALATION:-}"
-    extra_hosts:
-      # Linux needs this mapping for host.docker.internal (no-op on Docker Desktop).
-      - "host.docker.internal:host-gateway"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=10).status==200 else 1)"]
-      interval: 30s
-      timeout: 15s
-      retries: 5
-      start_period: 20s
-    depends_on:
-      vantage-mcp:
-        condition: service_healthy
-    restart: unless-stopped
+  # NOTE: Mira is NOT part of this stack. It has its own deploy scripts in the
+  # mira repo (mira/deploy/) — separate compose, env, and Makefile. Vantage
+  # publishes vantage-mcp on host :8640, and Mira reaches it from its own stack
+  # via host.docker.internal:8640. Bring Vantage up first, then Mira. The SPA
+  # calls Mira at http://localhost:8080 (a browser→host call, provider-agnostic).
 
 volumes:
   vantage-data:
