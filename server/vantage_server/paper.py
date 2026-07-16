@@ -65,6 +65,10 @@ BREAK_PCT = 0.0015    # ~0.15% ≈ 11pt at SPX 7500
 #: keep counter-trend tickets visible (flagged), rather than dropping them. Flip
 #: to True to suppress tickets that fight the higher-timeframe trend.
 SUPPRESS_COUNTER_TREND = False
+#: with-trend only in a CLEAR trend (uptrend→longs, downtrend→shorts; range and
+#: transition allow both). Backtest-validated (coach-edge goal): WR 0.58 → 0.64,
+#: PF 2.42 → 3.10 vs no gate. Set False to reproduce the pre-2026-07-16 pipeline.
+DIRECTION_GATE = True
 
 
 # ── underlying → proxy translation ───────────────────────────────────────────
@@ -362,6 +366,18 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
 
     if SUPPRESS_COUNTER_TREND:
         tickets = [t for t in tickets if not t["counter_trend"]]
+
+    # DIRECTION GATE (coach-edge goal, 2026-07-16): in a clear trend, take only
+    # with-trend setups — uptrend → longs, downtrend → shorts. Range/transition
+    # allows both. Mirrors the backtest's direction_gate="structure", which
+    # lifted WR 0.58 → 0.64 / PF 2.42 → 3.10 by dropping counter-trend shorts
+    # (the weak side). Toggle off with DIRECTION_GATE = False to reproduce old.
+    if DIRECTION_GATE:
+        tickets = [
+            t for t in tickets
+            if not (trend_state == "uptrend" and t["side"] != "long")
+            and not (trend_state == "downtrend" and t["side"] != "short")
+        ]
     return tickets
 
 

@@ -92,7 +92,9 @@ def test_no_tickets_without_confluence():
 
 # ------------------------------------------------------- demand/supply enrich
 
-def test_trend_filter_flags_counter_trend():
+def test_trend_filter_flags_counter_trend(monkeypatch):
+    # test the counter_trend FLAG in isolation (gate off, so both sides survive)
+    monkeypatch.setattr(paper, "DIRECTION_GATE", False)
     sc = _scaffold()
     sc["chart"] = {"structure": {"state": "uptrend"}}
     sc["regime"]["gamma"] = "negative"
@@ -103,12 +105,23 @@ def test_trend_filter_flags_counter_trend():
     assert long_["counter_trend"] is False     # buy-dip aligns with the uptrend
 
 
-def test_positive_gamma_is_never_counter_trend():
+def test_positive_gamma_is_never_counter_trend(monkeypatch):
+    monkeypatch.setattr(paper, "DIRECTION_GATE", False)
     sc = _scaffold()
     sc["chart"] = {"structure": {"state": "uptrend"}}
     sc["regime"]["gamma"] = "positive"          # mean-revert regime → reversion ok
     tickets = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=_NOON)
     assert all(t["counter_trend"] is False for t in tickets)
+
+
+def test_direction_gate_drops_counter_trend_in_a_clear_trend():
+    # coach-edge fix: in a clear uptrend the pipeline drops SHORT tests entirely
+    # (with-trend only), keeping longs. Range/transition would allow both.
+    sc = _scaffold()
+    sc["chart"] = {"structure": {"state": "uptrend"}}
+    tickets = paper.build_tickets(sc, 754.3, 10.0, session_range=_QUIET, now_et=_NOON)
+    assert tickets, "expected with-trend tickets to survive"
+    assert all(t["side"] == "long" for t in tickets)
 
 
 def test_break_setup_on_closed_through_resistance():
@@ -227,10 +240,14 @@ def test_close_manually_and_stats(tmp_path):
 
 
 def _pending_trade(store, side="long", level=750.0):
+    # target +7 / stop -2 → R:R stays above the 1.5 floor even after the fill
+    # moves the entry up to the reclaim close (coach-edge: MIN_REWARD_RISK=1.5).
+    tgt = level + 7 if side == "long" else level - 7
+    stop = level - 2 if side == "long" else level + 2
     return paper.open_paper_trade(store, {
         "signal": f"reclaim {level}", "side": side, "spx_level": level * 10,
-        "spy_level": level, "spy_entry": level, "spy_target": level + 5,
-        "spy_stop": level - 2, "shares": 100,
+        "spy_level": level, "spy_entry": level, "spy_target": tgt,
+        "spy_stop": stop, "shares": 100,
         "entry_trigger": "reclaim-3x5m",
         "entry_note": "enter after 3 consecutive 5m closes back above"},
         now=_dt.datetime(2026, 7, 10, 10, 0))
@@ -275,9 +292,9 @@ def test_try_fill_short_side_needs_closes_below(tmp_path):
 
 def test_settle_open_fills_then_settles_on_5m(tmp_path, monkeypatch):
     store = _sqlite_store(tmp_path)
-    _pending_trade(store)  # level 750, target 755, stop 748
+    _pending_trade(store)  # level 750, target 757, stop 748
     # fill at 3 consecutive closes above 750, then a bar tags the target
-    bars = _bars5([750.4, 750.6, 750.9, 752.0, 756.0])
+    bars = _bars5([750.4, 750.6, 750.9, 752.0, 758.0])
     monkeypatch.setattr(paper, "_fetch_proxy_5m", lambda proxy: bars)
     out = paper.settle_open(store)
     assert out["filled"] == 1 and out["closed"] == 1

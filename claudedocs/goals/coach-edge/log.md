@@ -55,6 +55,30 @@ shorts were the drag; gating them out lifts both. n=25 ≥ 20. Trade-off: n fall
 from 36, so fewer setups — but far cleaner.
 kept: yes — candidate prod config.
 
+## H3 (pre-registered) — the COACH's own rules, backtested before shipping
+prediction: the coach's arm→trigger→target/stop rules, replayed on the frozen
+window, are profitable when the target-beyond-entry + rr_min guards are applied;
+without a gate the coach still works on clean levels but arms low-R:R junk.
+IMPORTANT caveat registered before running: GEX levels are LIVE-ONLY and absent
+from historical scaffolds, so the coach's SPX GEX path is UNBACKTESTABLE — this
+tests the mechanics on confluence zones (the same levels the paper pipeline uses).
+experiment: new `coach_rules_backtest.py` replaying coach_pine's rules on frozen
+15m bars, levels = confluence zones (GEX table empty historically).
+result:
+  - no gate: n=68, **WR 0.677, PF 4.60**, net +14.2%, wrong_side_target_losses=0
+  - rr_min 1.5: n=26, **WR 0.731, PF 6.92**, net +7.1%, below_rr filtered 290,
+    wrong_side_target_losses=0
+verdict: CONFIRMED (mechanics). The coach's rules ARE profitable on real levels,
+and rr_min 1.5 raises quality (WR 0.68→0.73, PF 4.6→6.9) at the cost of volume
+(68→26 trades). BUT the live coach_pine.py LACKED both guards (no rr_min, no
+target-beyond-entry check) — it would have armed the junk the backtester filtered.
+kept: yes — added rrMin input (default 1.5) + target-beyond-entry gate to
+coach_pine.py so the LIVE indicator matches the backtested rules.
+
+**Honest limit of H3:** this validates the coach's arm/trigger/target/R:R
+MECHANICS, NOT the GEX overlay. GEX cannot be reconstructed historically; the
+coach's SPX GEX edge remains unmeasured and must be judged live.
+
 ## Interim decision (after H2)
 The predicate is CLEARED by the corrected config: WR 0.640 ≥ 0.45, PF 3.095 ≥
 1.2, no_target=0 (the wrong-side-target bug is structurally impossible once

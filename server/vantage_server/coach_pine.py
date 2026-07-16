@@ -131,6 +131,7 @@ float gexFlip = {flip_line}
 reclaimN = input.int(2, "Reclaim = this many closes back through the level", minval=1, maxval=5, group="Plan", tooltip="The TRIGGER. A long arms at a support/put-wall/flip; it fires only after this many consecutive closes back ABOVE it (reclaim, not just a touch). Shorts mirror at resistance/call-wall.")
 stopPad  = input.float(0.06, "Stop pad (% beyond the trigger level)", minval=0.0, step=0.02, group="Plan", tooltip="Stop sits this far beyond the trigger level. 0.06% ~= 4.5pt at SPX 7500.")
 armDist  = input.float(0.20, "Arm when price within this % of a level", minval=0.05, step=0.05, group="Plan", tooltip="How close price must get to a level before the coach ARMS that setup and starts watching for the trigger.")
+rrMin    = input.float(1.5, "Min reward:risk to fire", minval=0.0, step=0.1, group="Plan", tooltip="A setup only TRIGGERS if the target (next opposing level) sits beyond the entry AND reward:risk from the entry is at least this. Backtest-validated: this is the fix for the wrong-side-target + low-R:R losers that sank the live paper trades (24% WR).")
 tagTol   = input.float(0.05, "Tag tolerance (% of price)", minval=0.01, maxval=0.5, step=0.01, group="Coach", tooltip="How close counts as 'at' a level.")
 volLen   = input.int(20, "Rel-volume lookback (bars)", minval=5, group="Coach")
 rsiLen   = input.int(14, "RSI length", minval=2, group="Coach")
@@ -253,8 +254,26 @@ armShort = not na(resPx) and distRes <= armTol      // near a resistance → wat
 // the TRIGGER: `reclaimN` closes back through the level (long above sup, short below res)
 closesAboveSup = armLong  ? (ta.barssince(close <= supPx) >= reclaimN) : false
 closesBelowRes = armShort ? (ta.barssince(close >= resPx) >= reclaimN) : false
-triggerLong  = armLong  and closesAboveSup and close > supPx
-triggerShort = armShort and closesBelowRes and close < resPx
+rawTrigLong  = armLong  and closesAboveSup and close > supPx
+rawTrigShort = armShort and closesBelowRes and close < resPx
+
+// ── R:R GATE (backtest-validated, coach-edge goal) ───────────────────────────
+// Entry is the reclaim CLOSE (where it fires), not the level. Two guards a
+// trade must clear or it does NOT fire — the exact bugs that sank the live
+// paper trades (24% WR): (1) the target must sit STRICTLY BEYOND the entry
+// (a resistance that's already below a long's fill = instant loss); (2) R:R
+// from the entry must be >= rrMin. On the frozen window these lift the coach's
+// rules to WR 0.73 / PF 6.9 with zero wrong-side-target losses.
+padGate   = close * stopPad / 100.0
+longStopG = supPx - padGate
+shrtStopG = resPx + padGate
+longRiskG = close - longStopG
+shrtRiskG = shrtStopG - close
+// target = the OPPOSING level, only if it's genuinely beyond the entry close
+longTgtOk = rawTrigLong  and not na(resPx) and resPx > close and longRiskG > 0 and (resPx - close) / longRiskG >= rrMin
+shrtTgtOk = rawTrigShort and not na(supPx) and supPx < close and shrtRiskG > 0 and (close - supPx) / shrtRiskG >= rrMin
+triggerLong  = rawTrigLong  and longTgtOk
+triggerShort = rawTrigShort and shrtTgtOk
 
 // which setup does the PANEL describe? the one closer to triggering (long if it
 // just fired, else the nearer armed side). entry/stop/target follow from it.
@@ -276,12 +295,13 @@ var float tPeak  = na       // best favorable excursion — powers the scale-out
 var string tOutcome = na
 firedNow = false            // did a trigger fire on THIS bar?
 
-// fire a new trade on a trigger (only when flat)
+// fire a new trade on a trigger (only when flat). Entry = the reclaim close;
+// stop = pad beyond the reclaimed level; T1 = the validated opposing target.
 if tDir == 0 and (triggerLong or triggerShort)
     tDir := triggerLong ? 1 : -1
     tEntry := close
-    tStop := armStop
-    tT1 := armT1
+    tStop := triggerLong ? longStopG : shrtStopG
+    tT1 := triggerLong ? resPx : supPx
     tPeak := close
     tOutcome := na
     firedNow := true

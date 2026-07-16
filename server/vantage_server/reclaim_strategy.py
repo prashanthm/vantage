@@ -44,7 +44,11 @@ def stop_for(level: float, side: str) -> float:
 #: or the trade is not worth taking. Live 2026-07-14: signals were arming at
 #: R:R 0.53 (risk $242 to make $128) because targets were measured from the
 #: LEVEL while the fill happened at the reclaim close, well past it.
-MIN_REWARD_RISK = 1.0
+#: Raised 1.0 → 1.5 on 2026-07-16 after the coach-edge goal: the frozen-window
+#: backtest of the reclaim config found rr_min=1.5 lifts PF 2.38 → 2.42 and
+#: drives no_target to zero, and combined with the trend gate reaches WR 0.64 /
+#: PF 3.10 — vs the live pipeline's 24% at the old 1.0 floor.
+MIN_REWARD_RISK = 1.5
 
 
 def target_for(level: float, side: str,

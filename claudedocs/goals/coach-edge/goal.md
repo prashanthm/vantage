@@ -34,9 +34,15 @@
   that the strategy is proven profitable live. GEX-gated setups can't be
   backtested here at all — those remain unvalidated.
 
-Status: **predicate cleared in backtest (H2)** · started 2026-07-16 · 2 of 10
-experiments used. Backtest of corrected config (reclaim + rr_min 1.5 +
-direction_gate structure) = WR 0.640 / PF 3.095 / no_target 0, vs live paper
-WR 0.24. Remaining: port the fix into the paper/coach codepath, then re-audit
-live trades to confirm zero wrong-side targets and zero sub-1.5R arms (the
-implementation half of the predicate).
+Status: **achieved (backtest) — fix ported to both codepaths** · started
+2026-07-16 · 3 experiments.
+- H1/H2: corrected config backtests to WR 0.64 / PF 3.10 / no_target 0 (paper
+  pipeline), vs live paper WR 0.24.
+- H3: the COACH's own rules backtest to WR 0.68–0.73 / PF 4.6–6.9 on confluence
+  levels; the live coach lacked the guards and was armng junk.
+- Ported: `MIN_REWARD_RISK` 1.0→1.5 + `DIRECTION_GATE` in paper.py; `rrMin`
+  input (1.5) + target-beyond-entry gate in coach_pine.py. 93 tests green.
+- **Honest limit:** the GEX overlay is live-only and UNBACKTESTABLE; only the
+  mechanics on confluence levels are validated. Live re-audit of paper trades
+  (confirming zero wrong-side / sub-1.5R arms post-fix) still pending as new
+  paper trades accrue.

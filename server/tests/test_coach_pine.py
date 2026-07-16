@@ -92,6 +92,21 @@ def test_coach_no_bgcolor_small_markers_both_sides():
     assert "bar_index + 500" not in s
 
 
+def test_coach_rr_gate_blocks_wrong_side_and_low_rr():
+    s = cp.build_coach_indicator(_SCAFFOLD)
+    # a min-R:R input exists and defaults to 1.5 (backtest-validated fix)
+    assert "rrMin" in s and 'input.float(1.5' in s
+    # the trigger is GATED: raw reclaim must clear the target/R:R check to fire
+    assert "rawTrigLong" in s and "rawTrigShort" in s
+    assert "longTgtOk" in s and "shrtTgtOk" in s
+    # target must sit strictly beyond the entry close (no wrong-side targets)
+    assert "resPx > close" in s and "supPx < close" in s
+    # and reward:risk from the entry must clear rrMin
+    assert ">= rrMin" in s
+    trig_l = next(ln for ln in s.splitlines() if ln.strip().startswith("triggerLong  ="))
+    assert "longTgtOk" in trig_l
+
+
 def test_coach_flip_missing_is_typed_na():
     """A scaffold with no gamma-flip row must still compile: `gexFlip` has to
     be a TYPED float, else Pine rejects `gexFlip = na` (untyped na assignment)."""

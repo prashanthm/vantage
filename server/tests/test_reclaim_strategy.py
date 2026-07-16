@@ -438,10 +438,18 @@ def test_is_worth_taking_rejects_sub_1_reward_risk():
 
 
 def test_is_worth_taking_accepts_a_real_setup_and_open_ended():
-    ok, why = spec.is_worth_taking(751.12, 753.76, 747.19, "short")   # R:R 1.49
-    assert ok and "1.49" in why
+    # MIN_REWARD_RISK is 1.5 (raised from 1.0, coach-edge goal). A clean 2.0R
+    # setup passes; an open-ended runner (no opposing level) is allowed.
+    ok, why = spec.is_worth_taking(750.0, 748.0, 754.0, "long")       # R:R 2.0
+    assert ok and "2.0" in why
     ok, why = spec.is_worth_taking(752.10, 749.68, None, "long")      # runner
     assert ok and "open-ended" in why
+
+
+def test_is_worth_taking_rejects_below_the_1_5_floor():
+    # a 1.49R setup that passed under the old 1.0 floor is now rejected
+    ok, why = spec.is_worth_taking(751.12, 753.76, 747.19, "short")   # R:R 1.49
+    assert not ok and "below the 1.5 minimum" in why
 
 
 def test_is_worth_taking_rejects_a_zero_risk_stop():
