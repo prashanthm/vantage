@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 18  # v18: intraday_bars (persist 1m session bars for FVG testing)
+SCHEMA_VERSION = 19  # v19: spx_forecast (persisted SPX-analyst forecasts + scoring)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -95,6 +95,22 @@ CREATE TABLE IF NOT EXISTS quotes (
     price       REAL,
     day_pct     REAL,
     asset_class TEXT
+);
+
+-- SPX-analyst FORECASTS: a persisted "what will price do?" read + its later
+-- accuracy score against the elapsed price action. Compounds like the journal.
+CREATE TABLE IF NOT EXISTS spx_forecast (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol       TEXT NOT NULL,
+    day          TEXT NOT NULL,
+    as_of        TEXT NOT NULL,   -- the bar time the forecast was made at
+    created_at   TEXT,
+    price_at     REAL,            -- price when forecast was made
+    snapshot     TEXT,            -- JSON: the full snapshot it reasoned over
+    forecast     TEXT,            -- JSON: the analyst's structured forecast (bias/path/targets/invalidation)
+    forecast_text TEXT,           -- the raw analyst reply (prose fallback)
+    scored_at    TEXT,            -- when accuracy was computed (null = unscored)
+    score        TEXT             -- JSON: {hit_target, hit_invalidation, direction_ok, verdict, moved_pt}
 );
 
 -- Per-session INTRADAY (1m) bars, captured when the trade-DNA path fetches them

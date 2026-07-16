@@ -762,6 +762,36 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         return envelope("trade_dna", snap, available=True, dna=dna)
 
     @mcp.tool(
+        name="vantage.spx_snapshot",
+        annotations=_READ_ONLY,
+        description="The chart-centric SNAPSHOT the SPX-analyst reasons over to "
+                    "answer 'what will price do?': current price + session shape, "
+                    "the coach's playbook levels, live technicals (VWAP + "
+                    "vs-VWAP, RSI, relative volume, ATR), and the ICT structures "
+                    "— unswept liquidity (BSL above / SSL below), active order "
+                    "blocks, fresh FVGs, and the level-based DRAW (the nearer "
+                    "opposing playbook level; NOT a 1m FVG). From the persisted "
+                    "1m bars. Args: day (YYYY-MM-DD; default the latest stored "
+                    "session), as_of (ISO time to truncate mid-session), "
+                    "underlying (default SPX). Data only — it does no judging.",
+    )
+    def spx_snapshot(day: str | None = None, as_of: str | None = None,
+                     underlying: str = "SPX") -> dict:
+        from vantage_server import spx_snapshot as _snap
+        snap = snapshot()
+        sym = (underlying or "SPX").upper()
+        d = day
+        if d is None:
+            bar_sym = "^GSPC" if sym == "SPX" else sym
+            d = store.latest_intraday_day(bar_sym, "1m") if getattr(
+                store, "uses_sqlite", False) else None
+        out = _snap.build_snapshot(store, d, symbol=sym, as_of=as_of) if d else None
+        if out is None:
+            return envelope("spx_snapshot", snap, available=False,
+                            note="No persisted 1m bars for the session.")
+        return envelope("spx_snapshot", snap, available=True, snapshot=out)
+
+    @mcp.tool(
         name="vantage.journal_analysis",
         annotations=_READ_ONLY,
         description="The DETERMINISTIC bundle for a JOURNAL ANALYSIS — an "

@@ -111,3 +111,101 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
             "draw": draw,                      # the validated level-based magnet
         },
     }
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def score_forecast(store, forecast_row: dict) -> dict | None:
+    """Grade a persisted forecast against the elapsed price AFTER its as_of.
+
+    Uses the forecast's structured fields when present ({bias, target,
+    invalidation}); reads the day's 1m bars past as_of and checks: was the target
+    reached before the invalidation? did price go the called direction? Returns a
+    score dict, or None if there are no post-as_of bars yet (too early to score)."""
+    day = forecast_row.get("day")
+    sym = forecast_row.get("symbol") or "SPX"
+    as_of = forecast_row.get("as_of")
+    bar_sym = "^GSPC" if sym == "SPX" else sym
+    ohlc = store.load_intraday_bars(bar_sym, day, "1m")
+    if not ohlc or not ohlc.get("ts") or not as_of:
+        return None
+    ts, hi, lo, cl = ohlc["ts"], ohlc["high"], ohlc["low"], ohlc["close"]
+    # bars strictly AFTER as_of
+    fut = [k for k, t in enumerate(ts) if t > as_of]
+    if not fut:
+        return None
+    price_at = _num(forecast_row.get("price_at"))
+    fc = forecast_row.get("forecast") or {}
+    # pull bias/target/invalidation from the structured forecast (best-effort —
+    # the analyst emits them via the A2UI keyvals; also accept top-level keys)
+    bias = str(fc.get("bias") or _dig(fc, "bias") or "").lower()
+    target = _num(fc.get("target") or _dig(fc, "target"))
+    invalid = _num(fc.get("invalidation") or _dig(fc, "invalidation"))
+
+    fut_hi = max(hi[k] for k in fut)
+    fut_lo = min(lo[k] for k in fut)
+    last = cl[fut[-1]]
+    moved = round(last - price_at, 1) if price_at is not None else None
+
+    # DIRECTION-AWARE reach: a target ABOVE the entry is reached when price rises
+    # to it (high >= target); a target BELOW when price falls to it (low <= target).
+    # This is keyed off where the level sits relative to the price at forecast
+    # time — so a "down, target 7530" call isn't falsely "hit" by an up move.
+    def _reached(level, k=None):
+        if level is None or price_at is None:
+            return False
+        h = hi[k] if k is not None else fut_hi
+        l = lo[k] if k is not None else fut_lo
+        return (h >= level) if level >= price_at else (l <= level)
+
+    hit_target = target is not None and _reached(target)
+    hit_invalid = invalid is not None and _reached(invalid)
+    first = None
+    if target is not None or invalid is not None:
+        for k in fut:
+            if target is not None and _reached(target, k) and first is None:
+                first = "target"
+            if invalid is not None and _reached(invalid, k) and first is None:
+                first = "invalidation"
+            if first:
+                break
+
+    direction_ok = None
+    if bias in ("up", "down") and price_at is not None:
+        direction_ok = (bias == "up" and last > price_at) or (bias == "down" and last < price_at)
+
+    if first == "target":
+        verdict = "hit target"
+    elif first == "invalidation":
+        verdict = "invalidated"
+    elif direction_ok is True:
+        verdict = "direction correct"
+    elif direction_ok is False:
+        verdict = "direction wrong"
+    else:
+        verdict = "inconclusive"
+
+    return {
+        "verdict": verdict,
+        "hit_target": hit_target, "hit_invalidation": hit_invalid,
+        "first_touched": first, "direction_ok": direction_ok,
+        "moved_pt": moved, "post_high": round(fut_hi, 1), "post_low": round(fut_lo, 1),
+        "bars_elapsed": len(fut),
+    }
+
+
+def _dig(fc, key):
+    """Find `key` in the A2UI forecast JSON (top-level, or a keyvals row)."""
+    if not isinstance(fc, dict):
+        return None
+    for sec in fc.get("sections") or []:
+        for r in (sec.get("rows") or []):
+            k = str(r.get("k") or "").lower()
+            if key in k:
+                return r.get("v")
+    return None

@@ -21,6 +21,7 @@ import { getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook,
          getTradeablePositions, recomputePlaybook, getPlaybookPine,
          getReclaimPine, getCoachPine } from "./live.js";
 import { cls, StatTile } from "./util.jsx";
+import { SpxForecastPanel } from "./spx_forecast.jsx";
 
 const { useEffect, useState } = React;
 
@@ -100,6 +101,8 @@ export function TodayView({ refreshNonce }) {
       <PositionsCard rows={pos} />
 
       <WhyCard pb={pb} onReload={load} />
+
+      <SpxForecastPanel symbol="SPX" />
 
       <div className="vg-stats" style={{ marginTop: 14, gridTemplateColumns: "1fr 1fr" }}>
         <StrategyCard perf={perf} />

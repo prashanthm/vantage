@@ -500,6 +500,10 @@ ALLOWED_WRITE_ROUTES = {
     # send one outbound Telegram message — no broker / order path (ADR-010 holds).
     "/api/reclaim-bot/webhook-secret",
     "/webhook/tradingview",
+    # SPX-analyst forecasts — persist a 'what will price do' read + score it later.
+    # Writes only our own SQLite; no broker/order path (ADR-010 holds).
+    "/api/spx/forecast",
+    "/api/spx/forecast/{fid}/score",
 }
 
 

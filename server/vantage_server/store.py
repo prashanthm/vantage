@@ -1125,6 +1125,75 @@ class Store:
         except Exception:
             return None
 
+    # ── SPX-analyst forecasts (SQLite-only) ──────────────────────────────────
+
+    def save_spx_forecast(self, *, symbol: str, day: str, as_of: str,
+                          price_at: float | None, snapshot: dict,
+                          forecast: dict | None, forecast_text: str) -> int | None:
+        """Persist a 'what will price do?' forecast. Returns the row id or None."""
+        if not self.uses_sqlite:
+            return None
+        import datetime as _d
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "INSERT INTO spx_forecast (symbol, day, as_of, created_at, "
+                "price_at, snapshot, forecast, forecast_text) VALUES (?,?,?,?,?,?,?,?)",
+                (symbol, day, as_of, _d.datetime.now(_d.timezone.utc).isoformat(),
+                 price_at, _db.dumps(snapshot), _db.dumps(forecast) if forecast else None,
+                 forecast_text))
+            return cur.lastrowid
+
+    def _forecast_row(self, row) -> dict:
+        return {
+            "id": row["id"], "symbol": row["symbol"], "day": row["day"],
+            "as_of": row["as_of"], "created_at": row["created_at"],
+            "price_at": row["price_at"],
+            "snapshot": _db.loads(row["snapshot"]) if row["snapshot"] else None,
+            "forecast": _db.loads(row["forecast"]) if row["forecast"] else None,
+            "forecast_text": row["forecast_text"],
+            "scored_at": row["scored_at"],
+            "score": _db.loads(row["score"]) if row["score"] else None,
+        }
+
+    def list_spx_forecasts(self, symbol: str = "SPX", day: str | None = None,
+                           limit: int = 50) -> list[dict]:
+        """Stored forecasts, newest first."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            if day:
+                rows = conn.execute(
+                    "SELECT * FROM spx_forecast WHERE symbol=? AND day=? "
+                    "ORDER BY id DESC LIMIT ?", (symbol, day, limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM spx_forecast WHERE symbol=? ORDER BY id DESC "
+                    "LIMIT ?", (symbol, limit)).fetchall()
+        finally:
+            conn.close()
+        return [self._forecast_row(r) for r in rows]
+
+    def load_spx_forecast(self, fid: int) -> dict | None:
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute("SELECT * FROM spx_forecast WHERE id=?", (fid,)).fetchone()
+        finally:
+            conn.close()
+        return self._forecast_row(row) if row else None
+
+    def save_spx_forecast_score(self, fid: int, score: dict) -> bool:
+        if not self.uses_sqlite:
+            return False
+        import datetime as _d
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "UPDATE spx_forecast SET scored_at=?, score=? WHERE id=?",
+                (_d.datetime.now(_d.timezone.utc).isoformat(), _db.dumps(score), fid))
+            return cur.rowcount > 0
+
     # ── durable level memory (SQLite-only) ───────────────────────────────────
 
     def record_levels(self, session: str, symbol: str, levels: list[dict],

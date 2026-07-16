@@ -435,6 +435,53 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                                  "nightly 1m seed or open the day in the journal.")
         return envelope(snap, available=True, **out)
 
+    @app.post("/api/spx/forecast")
+    def spx_forecast_save(body: dict = Body(default={})):
+        """Persist a 'what will price do?' forecast the SPA generated via Mira's
+        spx_analyst. Body: {day, as_of, symbol?, snapshot, forecast?, forecast_text}.
+        Backend stays Mira-free (the SPA owns the LLM call); this only stores the
+        result so it compounds and can be scored later. Returns the new id."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="forecasts need the SQLite backend")
+        sc = body.get("snapshot") or {}
+        fid = store.save_spx_forecast(
+            symbol=(body.get("symbol") or "SPX").upper(),
+            day=body.get("day") or sc.get("day"),
+            as_of=body.get("as_of") or sc.get("as_of"),
+            price_at=sc.get("price"),
+            snapshot=sc,
+            forecast=body.get("forecast"),
+            forecast_text=str(body.get("forecast_text") or ""))
+        return envelope(snap, available=True, id=fid)
+
+    @app.get("/api/spx/forecast")
+    def spx_forecast_list(day: str | None = Query(None),
+                          symbol: str = Query("SPX"),
+                          limit: int = Query(50)):
+        """Stored SPX forecasts (newest first), each with its accuracy score if
+        scored. Powers the compounding 'was the forecast right?' view."""
+        snap = state.snapshot()
+        rows = store.list_spx_forecasts((symbol or "SPX").upper(), day, limit) \
+            if getattr(store, "uses_sqlite", False) else []
+        return envelope(snap, available=True, forecasts=rows)
+
+    @app.post("/api/spx/forecast/{fid}/score")
+    def spx_forecast_score(fid: int):
+        """Grade a stored forecast against the elapsed price action after its
+        as_of (target reached vs invalidation, direction). Persists the score."""
+        from . import spx_snapshot as _snap
+        snap = state.snapshot()
+        row = store.load_spx_forecast(fid) if getattr(store, "uses_sqlite", False) else None
+        if row is None:
+            return envelope(snap, available=False, note=f"forecast {fid} not found")
+        score = _snap.score_forecast(store, row)
+        if score is None:
+            return envelope(snap, available=False,
+                            note="too early to score — no price action after the forecast yet")
+        store.save_spx_forecast_score(fid, score)
+        return envelope(snap, available=True, id=fid, score=score)
+
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
                               risk: float, date: str | None,
                               entry: float | None = None):
