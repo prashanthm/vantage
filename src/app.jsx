@@ -9,6 +9,7 @@ import {
   loadSettings, SETTINGS_KEY, StatTile, syncedAgo,
   useTheme, THEME_ICON,
 } from "./util.jsx";
+import { MiraRender } from "./mira-render.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
@@ -1570,7 +1571,9 @@ function ChatPanel({ settings, onClose, docked }) {
                   {m.plan.map((s, j) => <div key={j}>· {s}</div>)}
                 </div>
               )}
-              {m.text || (m.pending ? "…" : "")}
+              {m.who === "ai" && !m.pending && m.text
+                ? <MiraRender text={m.text} />
+                : (m.text || (m.pending ? "…" : ""))}
               {m.offline && (
                 <div className="vg-note" style={{ marginTop: 6 }}>offline — canned reply</div>
               )}

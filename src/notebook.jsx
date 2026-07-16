@@ -12,6 +12,7 @@ import {
 import * as live from "./live.js";
 import { useLive, mapBarsOverlay, mapPositions, mapNotebook } from "./live.js";
 import { ConvictionBadge } from "./charts.jsx";
+import { MiraRender } from "./mira-render.jsx";
 
 const { useState, useMemo, useEffect } = React;
 
@@ -634,7 +635,9 @@ function AskCard({ sym, price, unrl, isHeld, decision, shares, hasLegs }) {
                 {m.pending && m.mode === "analyze" && (
                   <div className="vg-msg-plan">· fanning across technical · fundamental · news · position…</div>
                 )}
-                <span style={{ whiteSpace: "pre-wrap" }}>{body || (m.pending ? "…" : "")}</span>
+                {m.who === "ai" && !m.pending && body
+                  ? <MiraRender text={body} />
+                  : <span style={{ whiteSpace: "pre-wrap" }}>{body || (m.pending ? "…" : "")}</span>}
                 {m.facets && m.facets.length > 0 && (
                   <div className="vg-nb-facetline">
                     {m.facets.map((fc, j) => (

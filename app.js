@@ -144,6 +144,134 @@
     )));
   }
 
+  // src/mira-render.jsx
+  var { useMemo } = React;
+  function extractJson(text) {
+    if (!text) return null;
+    let raw = String(text).trim();
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) raw = fence[1].trim();
+    const start = raw.indexOf("{");
+    if (start < 0) return null;
+    let depth = 0, end = -1;
+    for (let i = start; i < raw.length; i++) {
+      if (raw[i] === "{") depth++;
+      else if (raw[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) return null;
+    try {
+      return JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  function validateMira(o) {
+    if (!o || typeof o !== "object") return false;
+    if (isSwot(o.swot)) return true;
+    if (typeof o.headline === "string" && o.headline.trim()) return true;
+    return Array.isArray(o.sections) && o.sections.some(isRenderableSection);
+  }
+  function parseMira(text) {
+    const o = extractJson(text);
+    if (!o || !validateMira(o)) return null;
+    return normalize(o);
+  }
+  function isSwot(s) {
+    if (!s || typeof s !== "object") return false;
+    const quads = ["strengths", "weaknesses", "opportunities", "threats"];
+    for (const q of quads) {
+      if (!Array.isArray(s[q])) return false;
+      if (s[q].some((it) => !it || typeof it.point !== "string")) return false;
+    }
+    return quads.some((q) => s[q].length > 0);
+  }
+  function isRenderableSection(s) {
+    if (!s || typeof s !== "object") return false;
+    switch (s.kind) {
+      case "swot":
+        return isSwot(s.swot);
+      case "list":
+      case "donext":
+        return Array.isArray(s.items) && s.items.length > 0;
+      case "keyvals":
+      case "scorecard":
+        return Array.isArray(s.rows) && s.rows.length > 0;
+      case "callout":
+      case "prose":
+        return typeof s.text === "string" && s.text.trim().length > 0;
+      default:
+        return false;
+    }
+  }
+  function normalize(o) {
+    if (Array.isArray(o.sections)) return o;
+    const sections = [];
+    if (isSwot(o.swot)) sections.push({ kind: "swot", swot: o.swot });
+    if (o.pattern) sections.push({ kind: "callout", title: "The pattern", text: String(o.pattern) });
+    if (o.scores_read) sections.push({ kind: "prose", text: String(o.scores_read) });
+    if (Array.isArray(o.do_next) && o.do_next.length) sections.push({ kind: "donext", items: o.do_next });
+    return { headline: o.headline, sections };
+  }
+  var SWOT_QUADS = [
+    { key: "strengths", kind: "s", title: "Strengths", tag: "keep" },
+    { key: "weaknesses", kind: "w", title: "Weaknesses", tag: "fix" },
+    { key: "opportunities", kind: "o", title: "Opportunities", tag: "capture" },
+    { key: "threats", kind: "t", title: "Threats", tag: "guard" }
+  ];
+  function normItem(it) {
+    return typeof it === "string" ? { point: it, cites: [] } : it || { point: "" };
+  }
+  function SwotQuad({ kind, title, tag, items }) {
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-swot-q", kind) }, /* @__PURE__ */ React.createElement("div", { className: "vg-swot-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-swot-badge" }, kind.toUpperCase()), /* @__PURE__ */ React.createElement("b", null, title), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-swot-tag" }, tag)), items.length ? /* @__PURE__ */ React.createElement("ul", { className: "vg-swot-items" }, items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-cite", kind) }, c)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 12 } }, "none noted this window"));
+  }
+  function SwotRender({ swot: swot2 }) {
+    const s = swot2 && swot2.swot || swot2 || {};
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-swot vg-swot-grid" }, SWOT_QUADS.map((q) => /* @__PURE__ */ React.createElement(SwotQuad, { key: q.key, kind: q.kind, title: q.title, tag: q.tag, items: s[q.key] || [] })));
+  }
+  var TONE = { good: "vg-up", bad: "vg-down", warn: "vg-warn" };
+  function Section({ s }) {
+    if (s.kind === "swot") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement(SwotRender, { swot: s.swot }));
+    }
+    if (s.kind === "prose") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("p", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap", margin: s.title ? "4px 0 0" : 0 } }, s.text));
+    }
+    if (s.kind === "callout") {
+      return /* @__PURE__ */ React.createElement("div", { className: cls("vg-mr-callout", s.tone && `t-${s.tone}`) }, s.title && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { margin: 0 } }, s.title), /* @__PURE__ */ React.createElement("p", { style: { margin: s.title ? "4px 0 0" : 0 } }, s.text));
+    }
+    if (s.kind === "list") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("ul", { className: "vg-mr-list" }, s.items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: "vg-cite" }, c)))))));
+    }
+    if (s.kind === "donext") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title || "Do this next"), /* @__PURE__ */ React.createElement("ol", { className: "vg-donext" }, s.items.map((d, i) => {
+        const item = typeof d === "string" ? { title: d } : d || {};
+        return /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("b", null, item.title), item.detail ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, item.detail)) : null);
+      })));
+    }
+    if (s.kind === "keyvals") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 110 } }, /* @__PURE__ */ React.createElement("b", null, r.k)), /* @__PURE__ */ React.createElement("td", { className: cls(r.tone && TONE[r.tone]) }, r.v))))));
+    }
+    if (s.kind === "scorecard") {
+      const tone = (n) => n >= 70 ? "good" : n >= 45 ? "warn" : "bad";
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${tone(r.score)}`) }, r.score)), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${tone(r.score)}`), style: { width: `${Math.max(0, Math.min(100, r.score))}%` } }))))));
+    }
+    return null;
+  }
+  function MiraRender({ data, text }) {
+    const obj = useMemo(() => data || parseMira(text), [data, text]);
+    if (!obj) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap" } }, text || "");
+    }
+    const sections = obj.sections || [];
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-mr" }, obj.headline && /* @__PURE__ */ React.createElement("h3", { className: "vg-mr-headline" }, obj.headline), sections.filter(isRenderableSection).map((s, i) => /* @__PURE__ */ React.createElement(Section, { key: i, s })));
+  }
+
   // src/live.js
   var live_exports = {};
   __export(live_exports, {
@@ -1197,7 +1325,7 @@
   }
 
   // src/charts.jsx
-  var { useState, useMemo, useRef, useEffect } = React;
+  var { useState, useMemo: useMemo2, useRef, useEffect } = React;
   var { FAQItem } = window.LookeyDS;
   var TF_LIVE = [
     { key: "daily", label: "Daily" },
@@ -1468,7 +1596,7 @@
   }
   function ChartsRail({ symbol }) {
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, []).data;
-    const decision = useMemo(() => {
+    const decision = useMemo2(() => {
       const u2 = underlyingOf2(symbol);
       return (analysis?.decisions || []).find((d) => underlyingOf2(d.symbol) === u2) || null;
     }, [analysis, symbol]);
@@ -1486,7 +1614,7 @@
   }
 
   // src/notebook.jsx
-  var { useState: useState2, useMemo: useMemo2, useEffect: useEffect2 } = React;
+  var { useState: useState2, useMemo: useMemo3, useEffect: useEffect2 } = React;
   var LEG_TONE = {
     DEFEND: "bad",
     CLOSE_LEG: "bad",
@@ -1543,7 +1671,7 @@
     const [saveNonce, setSaveNonce] = useState2(0);
     const nbReload = useLive(() => getNotebook(sym).then(mapNotebook), null, [sym, saveNonce]);
     const nbData = nbReload.data || notebook;
-    const held = useMemo2(
+    const held = useMemo3(
       () => positions2.filter((p) => underlyingOf(p.symbol) === sym),
       [positions2, sym]
     );
@@ -1576,7 +1704,7 @@
         hasLegs
       }
     ), /* @__PURE__ */ React.createElement("div", { className: "vg-nb-details" }, /* @__PURE__ */ React.createElement(
-      Section,
+      Section2,
       {
         title: "Position & P&L",
         summary: isHeld ? `${shares ? shares.toLocaleString("en-US", { maximumFractionDigits: 2 }) : "\u2014"} sh \xB7 ${usd(value)} \xB7 ${signUsd(unrl)}` : "not held"
@@ -1591,14 +1719,14 @@
         }
       )) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "Not held in any linked account.")
     ), /* @__PURE__ */ React.createElement(
-      Section,
+      Section2,
       {
         title: "AI recommendation",
         summary: decision ? decision.recommendation : "not journaled"
       },
       decision ? /* @__PURE__ */ React.createElement(React.Fragment, null, decision.rationale && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13, lineHeight: 1.5, margin: "0 0 0" } }, decision.rationale), hasLegs && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontWeight: 600, marginBottom: 6 } }, "Option legs"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, decision.legActions.map((a, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-nb-leg" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", LEG_TONE[a.action] || "plain") }, LEG_TEXT[a.action] || a.action), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, a.side, " $", Number(a.strike).toFixed(0), (a.optionType || "")[0].toUpperCase(), " \xB7 ", a.dte, "DTE \xB7 ", a.moneyness)), a.rationale && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 3 } }, a.rationale)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "Not in the latest decision journal. Run the nightly analysis to include ", sym, ".")
     ), /* @__PURE__ */ React.createElement(
-      Section,
+      Section2,
       {
         title: "Valuation",
         summary: f && f.pe != null ? `P/E ${f.pe.toFixed(1)}` : price != null ? "levels" : "\u2014"
@@ -1610,7 +1738,7 @@
       ex && ex.implied && ex.implied.status === "negative_fcf" && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, marginTop: 8 } }, "Implied growth undefined (negative FCF)."),
       rs && rs.idio_r_1m != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 12, lineHeight: 1.5, marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "1m move"), " ", /* @__PURE__ */ React.createElement("b", { className: rs.r_1m >= 0 ? "vg-pos" : "vg-neg" }, signPct(rs.r_1m * 100, 1)), rs.beta_spy != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \xB7 \u03B2 ", rs.beta_spy.toFixed(2)), " \xB7 ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "idiosyncratic"), " ", /* @__PURE__ */ React.createElement("b", { className: rs.idio_r_1m >= 0 ? "vg-pos" : "vg-neg" }, signPct(rs.idio_r_1m * 100, 1)), rs.sector_etf && rs.sector_r_1m != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " (sector ", rs.sector_etf, " ", signPct(rs.sector_r_1m * 100, 1), ")"))
     ), /* @__PURE__ */ React.createElement(NewsSection, { news }), /* @__PURE__ */ React.createElement(
-      Section,
+      Section2,
       {
         title: "My plan",
         summary: rr && rr.rr_ratio != null ? `R:R ${rr.rr_ratio.toFixed(2)}` : nbData && nbData.plan && nbData.plan.thesis ? "set" : "empty",
@@ -1629,7 +1757,7 @@
         }
       )
     ), /* @__PURE__ */ React.createElement(
-      Section,
+      Section2,
       {
         title: "Journal",
         summary: nbData && nbData.journal && nbData.journal.length ? `${nbData.journal.length} entr${nbData.journal.length === 1 ? "y" : "ies"}` : "empty",
@@ -1646,7 +1774,7 @@
       )
     )));
   }
-  function Section({ title, summary, children, plain, open = false }) {
+  function Section2({ title, summary, children, plain, open = false }) {
     return /* @__PURE__ */ React.createElement("details", { className: "vg-nb-section", open }, /* @__PURE__ */ React.createElement("summary", { className: "vg-nb-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-nb-sumtitle" }, title), summary != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-nb-sumval" }, summary)), /* @__PURE__ */ React.createElement("div", { className: plain ? "vg-nb-secbody plain" : "vg-nb-secbody" }, children));
   }
   function NewsSection({ news }) {
@@ -1654,7 +1782,7 @@
     const band = news && news.sentiment ? news.sentiment.band : null;
     const tone = band === "positive" ? "good" : band === "negative" ? "bad" : "plain";
     return /* @__PURE__ */ React.createElement(
-      Section,
+      Section2,
       {
         title: "News",
         summary: items.length ? `${items.length}${band ? ` \xB7 ${band}` : ""}` : "none"
@@ -1891,7 +2019,7 @@
     return /* @__PURE__ */ React.createElement("div", { className: "vg-nb-ask" }, msgs.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-nb-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "0 0 10px" } }, "Ask Mira about ", sym, isHeld ? ` \u2014 your ${shares ? `${Math.round(shares)}-share ` : ""}position` : "", price != null ? ` at ${usd(price, 2)}` : "", ". Every answer is a multi-facet read (technical \xB7 fundamental \xB7 news \xB7 position), grounded in the Vantage engine."), /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facets" }, FACET_CHIPS.filter((c) => c.key !== "options" || hasLegs).map((c) => /* @__PURE__ */ React.createElement("button", { key: c.key, className: "vg-facet-chip", onClick: () => ask(c.q.replace("{S}", sym)) }, c.label)))) : /* @__PURE__ */ React.createElement("div", { className: "vg-nb-chat", ref: bodyRef }, msgs.map((m, i) => {
       const fmt4 = m.who === "ai" && !m.pending && m.mode !== "analyze" ? formatReply(m.text) : null;
       const body = fmt4 && typeof fmt4 === "object" ? fmt4.text : fmt4 || m.text;
-      return /* @__PURE__ */ React.createElement("div", { key: i, className: cls("vg-msg", m.who) }, m.plan && m.plan.length > 0 && m.pending && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, m.plan.map((s, j) => /* @__PURE__ */ React.createElement("div", { key: j }, "\xB7 ", s))), m.pending && m.mode === "analyze" && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, "\xB7 fanning across technical \xB7 fundamental \xB7 news \xB7 position\u2026"), /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "pre-wrap" } }, body || (m.pending ? "\u2026" : "")), m.facets && m.facets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facetline" }, m.facets.map((fc, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-facet-tag", fc.error ? "bad" : "ok") }, fc.domain))), fmt4 && typeof fmt4 === "object" && fmt4.source && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "source: ", fmt4.source), m.offline && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "offline"), m.who === "ai" && m.corr && /* @__PURE__ */ React.createElement(ExplainToggle, { corr: m.corr }));
+      return /* @__PURE__ */ React.createElement("div", { key: i, className: cls("vg-msg", m.who) }, m.plan && m.plan.length > 0 && m.pending && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, m.plan.map((s, j) => /* @__PURE__ */ React.createElement("div", { key: j }, "\xB7 ", s))), m.pending && m.mode === "analyze" && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, "\xB7 fanning across technical \xB7 fundamental \xB7 news \xB7 position\u2026"), m.who === "ai" && !m.pending && body ? /* @__PURE__ */ React.createElement(MiraRender, { text: body }) : /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "pre-wrap" } }, body || (m.pending ? "\u2026" : "")), m.facets && m.facets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facetline" }, m.facets.map((fc, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-facet-tag", fc.error ? "bad" : "ok") }, fc.domain))), fmt4 && typeof fmt4 === "object" && fmt4.source && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "source: ", fmt4.source), m.offline && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "offline"), m.who === "ai" && m.corr && /* @__PURE__ */ React.createElement(ExplainToggle, { corr: m.corr }));
     })), /* @__PURE__ */ React.createElement("div", { className: "vg-nb-askbar" }, msgs.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facets vg-nb-facets-inline" }, FACET_CHIPS.filter((c) => c.key !== "options" || hasLegs).map((c) => /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -2122,7 +2250,7 @@
   }
 
   // src/playbook.jsx
-  var { useMemo: useMemo3, useState: useState4 } = React;
+  var { useMemo: useMemo4, useState: useState4 } = React;
   var fmtP = (v) => v == null ? "\u2014" : Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1);
   function levelTone(kind) {
     const k = (kind || "").toLowerCase();
@@ -2160,7 +2288,7 @@
     const reg = p && p.regime || {};
     const cat = p && p.catalysts || {};
     const spot = reg.spot;
-    const keyLevels = useMemo3(() => {
+    const keyLevels = useMemo4(() => {
       const out = { flip: null, call: null, put: null };
       for (const r of p && p.levelLadder || []) {
         const k = (r.kind || "").toLowerCase();
@@ -2992,134 +3120,6 @@
   }
   function Tile({ label, value, tone, termKey }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
-  }
-
-  // src/mira-render.jsx
-  var { useMemo: useMemo4 } = React;
-  function extractJson(text) {
-    if (!text) return null;
-    let raw = String(text).trim();
-    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fence) raw = fence[1].trim();
-    const start = raw.indexOf("{");
-    if (start < 0) return null;
-    let depth = 0, end = -1;
-    for (let i = start; i < raw.length; i++) {
-      if (raw[i] === "{") depth++;
-      else if (raw[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    if (end < 0) return null;
-    try {
-      return JSON.parse(raw.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
-  function validateMira(o) {
-    if (!o || typeof o !== "object") return false;
-    if (isSwot(o.swot)) return true;
-    if (typeof o.headline === "string" && o.headline.trim()) return true;
-    return Array.isArray(o.sections) && o.sections.some(isRenderableSection);
-  }
-  function parseMira(text) {
-    const o = extractJson(text);
-    if (!o || !validateMira(o)) return null;
-    return normalize(o);
-  }
-  function isSwot(s) {
-    if (!s || typeof s !== "object") return false;
-    const quads = ["strengths", "weaknesses", "opportunities", "threats"];
-    for (const q of quads) {
-      if (!Array.isArray(s[q])) return false;
-      if (s[q].some((it) => !it || typeof it.point !== "string")) return false;
-    }
-    return quads.some((q) => s[q].length > 0);
-  }
-  function isRenderableSection(s) {
-    if (!s || typeof s !== "object") return false;
-    switch (s.kind) {
-      case "swot":
-        return isSwot(s.swot);
-      case "list":
-      case "donext":
-        return Array.isArray(s.items) && s.items.length > 0;
-      case "keyvals":
-      case "scorecard":
-        return Array.isArray(s.rows) && s.rows.length > 0;
-      case "callout":
-      case "prose":
-        return typeof s.text === "string" && s.text.trim().length > 0;
-      default:
-        return false;
-    }
-  }
-  function normalize(o) {
-    if (Array.isArray(o.sections)) return o;
-    const sections = [];
-    if (isSwot(o.swot)) sections.push({ kind: "swot", swot: o.swot });
-    if (o.pattern) sections.push({ kind: "callout", title: "The pattern", text: String(o.pattern) });
-    if (o.scores_read) sections.push({ kind: "prose", text: String(o.scores_read) });
-    if (Array.isArray(o.do_next) && o.do_next.length) sections.push({ kind: "donext", items: o.do_next });
-    return { headline: o.headline, sections };
-  }
-  var SWOT_QUADS = [
-    { key: "strengths", kind: "s", title: "Strengths", tag: "keep" },
-    { key: "weaknesses", kind: "w", title: "Weaknesses", tag: "fix" },
-    { key: "opportunities", kind: "o", title: "Opportunities", tag: "capture" },
-    { key: "threats", kind: "t", title: "Threats", tag: "guard" }
-  ];
-  function normItem(it) {
-    return typeof it === "string" ? { point: it, cites: [] } : it || { point: "" };
-  }
-  function SwotQuad({ kind, title, tag, items }) {
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-swot-q", kind) }, /* @__PURE__ */ React.createElement("div", { className: "vg-swot-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-swot-badge" }, kind.toUpperCase()), /* @__PURE__ */ React.createElement("b", null, title), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-swot-tag" }, tag)), items.length ? /* @__PURE__ */ React.createElement("ul", { className: "vg-swot-items" }, items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-cite", kind) }, c)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 12 } }, "none noted this window"));
-  }
-  function SwotRender({ swot: swot2 }) {
-    const s = swot2 && swot2.swot || swot2 || {};
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-swot vg-swot-grid" }, SWOT_QUADS.map((q) => /* @__PURE__ */ React.createElement(SwotQuad, { key: q.key, kind: q.kind, title: q.title, tag: q.tag, items: s[q.key] || [] })));
-  }
-  var TONE = { good: "vg-up", bad: "vg-down", warn: "vg-warn" };
-  function Section2({ s }) {
-    if (s.kind === "swot") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement(SwotRender, { swot: s.swot }));
-    }
-    if (s.kind === "prose") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("p", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap", margin: s.title ? "4px 0 0" : 0 } }, s.text));
-    }
-    if (s.kind === "callout") {
-      return /* @__PURE__ */ React.createElement("div", { className: cls("vg-mr-callout", s.tone && `t-${s.tone}`) }, s.title && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { margin: 0 } }, s.title), /* @__PURE__ */ React.createElement("p", { style: { margin: s.title ? "4px 0 0" : 0 } }, s.text));
-    }
-    if (s.kind === "list") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("ul", { className: "vg-mr-list" }, s.items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: "vg-cite" }, c)))))));
-    }
-    if (s.kind === "donext") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title || "Do this next"), /* @__PURE__ */ React.createElement("ol", { className: "vg-donext" }, s.items.map((d, i) => {
-        const item = typeof d === "string" ? { title: d } : d || {};
-        return /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("b", null, item.title), item.detail ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, item.detail)) : null);
-      })));
-    }
-    if (s.kind === "keyvals") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 110 } }, /* @__PURE__ */ React.createElement("b", null, r.k)), /* @__PURE__ */ React.createElement("td", { className: cls(r.tone && TONE[r.tone]) }, r.v))))));
-    }
-    if (s.kind === "scorecard") {
-      const tone = (n) => n >= 70 ? "good" : n >= 45 ? "warn" : "bad";
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${tone(r.score)}`) }, r.score)), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${tone(r.score)}`), style: { width: `${Math.max(0, Math.min(100, r.score))}%` } }))))));
-    }
-    return null;
-  }
-  function MiraRender({ data, text }) {
-    const obj = useMemo4(() => data || parseMira(text), [data, text]);
-    if (!obj) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap" } }, text || "");
-    }
-    const sections = obj.sections || [];
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-mr" }, obj.headline && /* @__PURE__ */ React.createElement("h3", { className: "vg-mr-headline" }, obj.headline), sections.filter(isRenderableSection).map((s, i) => /* @__PURE__ */ React.createElement(Section2, { key: i, s })));
   }
 
   // src/journal.jsx
@@ -5078,7 +5078,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         });
       }
     };
-    const inner = /* @__PURE__ */ React.createElement(React.Fragment, null, !docked && /* @__PURE__ */ React.createElement("div", { className: "vg-panel-head" }, /* @__PURE__ */ React.createElement("h3", null, "Vantage AI"), /* @__PURE__ */ React.createElement("button", { className: "vg-x", "aria-label": "Close", onClick: onClose }, "\xD7")), /* @__PURE__ */ React.createElement("div", { className: "vg-panel-body", ref: bodyRef }, msgs.map((m, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: cls("vg-msg", m.who) }, m.plan && m.plan.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, opacity: 0.65, marginBottom: 6 } }, m.plan.map((s, j) => /* @__PURE__ */ React.createElement("div", { key: j }, "\xB7 ", s))), m.text || (m.pending ? "\u2026" : ""), m.offline && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6 } }, "offline \u2014 canned reply"), m.who === "ai" && m.corr && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", style: { fontSize: 11.5 }, onClick: () => toggleExplain(i) }, m.explainOpen ? "hide explanation" : "explain"), m.explainOpen && /* @__PURE__ */ React.createElement(ExplainBlock, { explain: m.explain }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-chatform" }, /* @__PURE__ */ React.createElement(
+    const inner = /* @__PURE__ */ React.createElement(React.Fragment, null, !docked && /* @__PURE__ */ React.createElement("div", { className: "vg-panel-head" }, /* @__PURE__ */ React.createElement("h3", null, "Vantage AI"), /* @__PURE__ */ React.createElement("button", { className: "vg-x", "aria-label": "Close", onClick: onClose }, "\xD7")), /* @__PURE__ */ React.createElement("div", { className: "vg-panel-body", ref: bodyRef }, msgs.map((m, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: cls("vg-msg", m.who) }, m.plan && m.plan.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 11.5, opacity: 0.65, marginBottom: 6 } }, m.plan.map((s, j) => /* @__PURE__ */ React.createElement("div", { key: j }, "\xB7 ", s))), m.who === "ai" && !m.pending && m.text ? /* @__PURE__ */ React.createElement(MiraRender, { text: m.text }) : m.text || (m.pending ? "\u2026" : ""), m.offline && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6 } }, "offline \u2014 canned reply"), m.who === "ai" && m.corr && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", style: { fontSize: 11.5 }, onClick: () => toggleExplain(i) }, m.explainOpen ? "hide explanation" : "explain"), m.explainOpen && /* @__PURE__ */ React.createElement(ExplainBlock, { explain: m.explain }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-chatform" }, /* @__PURE__ */ React.createElement(
       FormField,
       {
         placeholder: "Ask about your portfolio\u2026",
