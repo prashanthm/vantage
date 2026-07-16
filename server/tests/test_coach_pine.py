@@ -21,8 +21,8 @@ def test_coach_bakes_levels_and_states():
     # levels baked as a Pine array, high->low
     assert "array.from(7600.00, 7548.10, 7517.10, 7503.00, 7450.00)" in s
     assert "flipLevel = 7503.00" in s
-    # all five coach states present
-    for state in ("WAIT", "ENTER", "EXIT", "HOLD", "WARN"):
+    # all coach states present (incl. THETA = coiled-at-level theta-bleed)
+    for state in ("WAIT", "ENTER", "EXIT", "HOLD", "WARN", "THETA"):
         assert f'"{state}"' in s
     # the four documented leaks are coded
     for leak in ("wrongSideLong", "frontRun", "chaseLong", "knife"):
@@ -35,6 +35,21 @@ def test_coach_bakes_levels_and_states():
     assert "wrongSideLong" in warn_line and "chaseLong" in warn_line and "knife" in warn_line
     # session indicators
     assert "vwap" in s and "ta.rsi" in s and "relV" in s
+
+
+def test_coach_stall_theta_warning():
+    s = cp.build_coach_indicator(_SCAFFOLD)
+    # stall detector: tight range relative to ATR = a coil
+    assert "stallBars" in s and "stallMax" in s
+    assert "stallRatio" in s and "coiled" in s and "coilBars" in s
+    # midday awareness (coils cluster midday; theta bites 0DTE longs)
+    assert "midday" in s
+    # THETA is advisory — must NOT mask a real WARN/EXIT/ENTER
+    theta_line = next(ln for ln in s.splitlines() if ln.strip().startswith("theta ="))
+    assert "not warn" in theta_line and "not exitCue" in theta_line and "not enter" in theta_line
+    # and it ranks above HOLD/WAIT in the state resolution
+    state_line = next(ln for ln in s.splitlines() if ln.strip().startswith("state ="))
+    assert 'theta ? "THETA"' in state_line
 
 
 def test_coach_hold_tracks_red_position():

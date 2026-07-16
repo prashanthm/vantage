@@ -128,6 +128,8 @@ tagTol   = input.float(0.05, "Tag tolerance (% of price)", minval=0.01, maxval=0
 volLen   = input.int(20, "Rel-volume lookback (bars)", minval=5, group="Coach")
 rsiLen   = input.int(14, "RSI length", minval=2, group="Coach")
 extAtr   = input.float(2.0, "Extended = this many ATR from VWAP", minval=0.5, step=0.5, group="Coach", tooltip="Beyond this VWAP distance, a fresh entry is a CHASE (your 'don't buy an extension' leak).")
+stallBars= input.int(10, "Stall window (bars)", minval=3, group="Coach", tooltip="How many bars of tight range = a coil. On 1m that's ~10 min of price stuck at a level.")
+stallMax = input.float(3.0, "Stall = range under this many ATR", minval=0.5, step=0.5, group="Coach", tooltip="If the last N-bar range is under this many ATR, price is coiled. A 0DTE long bleeds theta while it waits for the break (validated: coiled entries -$178 avg vs +$177 non-stalled).")
 showLines= input.bool(true, "Draw the baked levels", group="Display")
 showVwap = input.bool(true, "Draw session VWAP + bands", group="Display")
 showPanel= input.bool(true, "Show the coach panel (top-right)", group="Display")
@@ -188,6 +190,25 @@ aboveFlip = na(flipLevel) or close >= flipLevel
 vwGap = na(vwap) or na(atr) or atr == 0 ? na : (close - vwap) / atr
 extendedUp   = not na(vwGap) and vwGap >=  extAtr
 extendedDn   = not na(vwGap) and vwGap <= -extAtr
+
+// ── STALL gauge: is price COILED (theta-bleed risk for a 0DTE long) ──────────
+// The range over the last `stallBars` relative to ATR. A tight coil at a level
+// means the break hasn't happened — a directional 0DTE just bleeds theta while
+// it waits (validated: coiled entries netted -$178 avg vs +$177 non-stalled).
+stallRange = ta.highest(high, stallBars) - ta.lowest(low, stallBars)
+stallRatio = na(atr) or atr == 0 ? na : stallRange / atr
+coiled = not na(stallRatio) and stallRatio <= stallMax
+// how long has it been coiled (consecutive coiled bars) — longer = more bleed
+var int coilBars = 0
+coilBars := coiled ? coilBars + 1 : 0
+// midday (ET) is when coils cluster — nudge the warning harder there
+nyHour = hour(time, "America/New_York")
+nyMin  = minute(time, "America/New_York")
+mins   = nyHour * 60 + nyMin
+midday = mins >= 11*60+30 and mins < 14*60
+// theta warning: coiled AT/near a level, worse in midday. Only meaningful for a
+// 0DTE LONG (you're paying theta to wait) — but shown for context on any bar.
+stalledAtLevel = coiled and (atLevel or nearLevel) and coilBars >= stallBars
 
 // ── the DISCIPLINE rules (your documented leaks) ─────────────────────────────
 // WRONG SIDE: long above a call wall / durable resistance, short below a put
@@ -256,8 +277,13 @@ hold = red and not exitCue
 // worked), so it's a nudge to wait for the tag, not a stop sign.
 warn = wrongSideLong or wrongSideShort or chaseLong or chaseShort or knife
 enter = cleanLong or cleanShort
+// THETA: price is COILED at/near a level and hasn't broken — a 0DTE long bleeds
+// premium while it waits. Advisory: it must not mask a real WARN/EXIT/ENTER (a
+// break IS resolving), but it ranks above HOLD/WAIT because a quiet coil is
+// exactly when theta erodes you unnoticed. Worse in midday, when coils cluster.
+theta = stalledAtLevel and not warn and not exitCue and not enter
 // front-run downgrades WAIT to an explicit "wait for the tag" (still amber)
-state = warn ? "WARN" : exitCue ? "EXIT" : enter ? "ENTER" : hold ? "HOLD" : "WAIT"
+state = warn ? "WARN" : exitCue ? "EXIT" : enter ? "ENTER" : theta ? "THETA" : hold ? "HOLD" : "WAIT"
 
 // the reason string for the panel/label
 reason = wrongSideLong  ? "wrong side: long above " + nearLb :
@@ -269,6 +295,7 @@ reason = wrongSideLong  ? "wrong side: long above " + nearLb :
          cleanLong      ? "clean reclaim of " + nearLb + " on volume" :
          cleanShort     ? "clean rejection of " + nearLb + " on volume" :
          exitCue        ? "reverted to VWAP — manage/take it" :
+         theta          ? "coiled at " + nearLb + " " + str.tostring(coilBars) + " bars (" + str.tostring(stallRatio, "#.#") + "x ATR)" + (midday ? " · midday — theta bleed on 0DTE longs" : " — theta bleed while it decides") :
          hold           ? "red " + str.tostring(pnlPts, "#.#") + "pt but " + nearLb + " holds — hold the plan, don't fold" :
          atLevel        ? "at " + nearLb + " — wait for confirmation" :
                           "no level in range — wait for a tag"
@@ -289,19 +316,20 @@ if barstate.isfirst and showLines and array.size(lvlPx) > 0
         label.new(bar_index + 500, p, array.get(lvlLb, i) + "  " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=col, color=color.new(color.black, 100), size=size.small)
 
 // background tint by state
-bgcolor(state == "WARN" ? color.new(#cf3b47, 88) : state == "ENTER" ? color.new(#16915b, 88) : state == "EXIT" ? color.new(#2f6df6, 90) : state == "HOLD" ? color.new(#9b6dff, 90) : na)
+bgcolor(state == "WARN" ? color.new(#cf3b47, 88) : state == "ENTER" ? color.new(#16915b, 88) : state == "EXIT" ? color.new(#2f6df6, 90) : state == "THETA" ? color.new(#e0a020, 88) : state == "HOLD" ? color.new(#9b6dff, 90) : na)
 
 // a marker at the moment a state fires (not every bar)
 stateChanged = state != state[1]
 plotshape(stateChanged and state == "ENTER", title="ENTER", location=location.belowbar, style=shape.triangleup,   color=color.new(#16915b,0), size=size.small, text="ENTER")
 plotshape(stateChanged and state == "WARN",  title="WARN",  location=location.abovebar, style=shape.xcross,       color=color.new(#cf3b47,0), size=size.tiny,  text="WARN")
 plotshape(stateChanged and state == "EXIT",  title="EXIT",  location=location.abovebar, style=shape.diamond,      color=color.new(#2f6df6,0), size=size.tiny,  text="EXIT")
+plotshape(stateChanged and state == "THETA", title="THETA", location=location.abovebar, style=shape.flag,         color=color.new(#e0a020,0), size=size.tiny,  text="θ decay")
 plotshape(stateChanged and state == "HOLD",  title="HOLD",  location=location.belowbar, style=shape.square,       color=color.new(#9b6dff,0), size=size.tiny,  text="HOLD")
 
 // ── the coach panel (top-right) ──────────────────────────────────────────────
-var table panel = table.new(position.top_right, 2, 8, border_width=1)
+var table panel = table.new(position.top_right, 2, 9, border_width=1)
 if showPanel and barstate.islast
-    stCol = state == "WARN" ? #cf3b47 : state == "ENTER" ? #16915b : state == "EXIT" ? #2f6df6 : state == "HOLD" ? #9b6dff : #b26a00
+    stCol = state == "WARN" ? #cf3b47 : state == "ENTER" ? #16915b : state == "EXIT" ? #2f6df6 : state == "THETA" ? #e0a020 : state == "HOLD" ? #9b6dff : #b26a00
     table.cell(panel, 0, 0, "COACH", text_color=color.white, bgcolor=color.new(#13171e,0), text_size=size.normal)
     table.cell(panel, 1, 0, state, text_color=color.white, bgcolor=color.new(stCol,0), text_size=size.normal)
     table.cell(panel, 0, 1, "why", text_color=color.gray, text_size=size.small)
@@ -318,10 +346,13 @@ if showPanel and barstate.islast
     table.cell(panel, 1, 6, aboveFlip ? "above flip" : "below flip", text_color=color.new(#13171e,0), text_size=size.small)
     table.cell(panel, 0, 7, "position", text_color=color.gray, text_size=size.small)
     table.cell(panel, 1, 7, not inTrade ? "flat" : (posDir == 1 ? "long " : "short ") + str.tostring(posEntry, "#.#") + " · " + str.tostring(pnlPts, "+#.#;-#.#") + "pt", text_color=na(pnlPts) ? color.gray : pnlPts >= 0 ? #16915b : #cf3b47, text_size=size.small)
+    table.cell(panel, 0, 8, "coil", text_color=color.gray, text_size=size.small)
+    table.cell(panel, 1, 8, na(stallRatio) ? "—" : coiled ? str.tostring(stallRatio, "#.#") + "x ATR · " + str.tostring(coilBars) + " bars" + (midday ? " · midday" : "") : "moving (" + str.tostring(stallRatio, "#.#") + "x)", text_color=coiled ? #e0a020 : color.new(#13171e,0), text_size=size.small)
 
 // ── alerts (so the coach can flash even when you're not watching) ─────────────
 alertcondition(stateChanged and state == "ENTER", "Coach: ENTER", "Clean tag+reclaim on volume")
 alertcondition(stateChanged and state == "WARN",  "Coach: WARN",  "Rule break — front-run / wrong-side / extended / knife")
 alertcondition(stateChanged and state == "EXIT",  "Coach: EXIT",  "Reverted to VWAP — manage the trade")
+alertcondition(stateChanged and state == "THETA", "Coach: THETA", "Coiled at a level — theta bleed on 0DTE longs")
 alertcondition(stateChanged and state == "HOLD",  "Coach: HOLD",  "Red but the level holds — hold the plan")
 '''
