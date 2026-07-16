@@ -87,8 +87,8 @@ def test_coach_technicals_read_synthesis():
         assert verdict in s, verdict
     # divergence-aware RSI + headroom-in-ATR drives the read internally
     assert "rsiDiverging" in s and "hdAtr" in s
-    # the one caveat line, and the footer removed
-    assert "not a prediction, not advice" in s
+    # the caveat line (now doubles as the GEX-date/staleness row on SPX)
+    assert "not a prediction" in s
     assert 'text_size=size.tiny, text_halign=text.align_center)' in s   # caveat row exists
 
 
@@ -154,6 +154,18 @@ def test_coach_alertcondition_plot_path_for_free_tv_plans():
     # injection is via replace() (TV braces survive) — no leftover format fields
     for ph in ("{px_arr}", "{lb_arr}", "{flip_line}", "{webhook_secret}"):
         assert ph not in s, ph
+
+
+def test_coach_shows_gex_date_and_staleness():
+    s = cp.build_coach_indicator(_SCAFFOLD, webhook_secret="SEC")
+    # the levels' generation date is baked and shown (SPX / GEX only)
+    assert 'gexDate = "2026-07-16"' in s
+    # a staleness check compares the chart's current date to the baked date
+    assert "gexStale" in s and "todayStr > gexDate" in s
+    assert "STALE — re-pull" in s
+    # only surfaced for GEX-enabled tickers (useGex); swing-mode shows the plain caveat
+    caveat = next(ln for ln in s.splitlines() if ln.strip().startswith("caveatTxt ="))
+    assert "useGex ?" in caveat and "GEX levels" in caveat
 
 
 def test_coach_flip_missing_is_typed_na():

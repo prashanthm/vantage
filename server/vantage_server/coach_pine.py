@@ -116,7 +116,7 @@ def build_coach_indicator(scaffold: dict, webhook_secret: str = "") -> str | Non
     for key, val in (
         ("{px_arr}", px_arr), ("{lb_arr}", lb_arr), ("{ro_arr}", ro_arr),
         ("{flip_line}", flip_line), ("{n_levels}", str(len(prices))),
-        ("{webhook_secret}", secret),
+        ("{webhook_secret}", secret), ("{gex_date}", session or "?"),
     ):
         body = body.replace(key, val)
     return header + body
@@ -141,6 +141,7 @@ var float[] gexPx  = array.from({px_arr})
 var string[] gexLb = array.from({lb_arr})
 var string[] gexRo = array.from({ro_arr})
 float gexFlip = {flip_line}
+gexDate = "{gex_date}"   // the session these GEX levels were generated for
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 reclaimN = input.int(2, "Reclaim = this many closes back through the level", minval=1, maxval=5, group="Plan", tooltip="The TRIGGER. A long arms at a support/put-wall/flip; it fires only after this many consecutive closes back ABOVE it (reclaim, not just a touch). Shorts mirror at resistance/call-wall.")
@@ -547,8 +548,14 @@ if showPanel and barstate.islast
     table.merge_cells(panel, 0, 7, 1, 7)
     table.cell(panel, 0, 8, readTxt, text_color=color.new(#dfe4ea, 0), bgcolor=dark, text_size=size.small, text_halign=text.align_left)
     table.merge_cells(panel, 0, 8, 1, 8)
-    // ROW 9 — the one caveat
-    table.cell(panel, 0, 9, "coach read — not a prediction, not advice", text_color=color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
+    // ROW 9 — caveat, and (SPX only) the GEX levels' generation date + staleness.
+    // The levels are a static paste; they DON'T auto-update when Vantage runs its
+    // nightly job — so show which session they were built for, and flag STALE
+    // once the chart has moved past it (re-pull the coach to refresh).
+    todayStr = str.tostring(year, "0000") + "-" + str.tostring(month, "00") + "-" + str.tostring(dayofmonth, "00")
+    gexStale = useGex and gexDate != "?" and todayStr > gexDate
+    caveatTxt = useGex ? ("GEX levels · " + gexDate + (gexStale ? "  ⚠ STALE — re-pull" : "  ✓")) : "coach read — not a prediction"
+    table.cell(panel, 0, 9, caveatTxt, text_color=gexStale ? color.new(#ffc247, 0) : color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
     table.merge_cells(panel, 0, 9, 1, 9)
 
 // ── alerts → webhook → Telegram ──────────────────────────────────────────────
