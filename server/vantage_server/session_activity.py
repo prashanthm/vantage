@@ -591,7 +591,7 @@ class _TickerCtx:
         if tk in self._cache:
             return self._cache[tk]
         bar_sym = "^GSPC" if tk == "SPX" else tk
-        bars = _intraday_bars(bar_sym, self._day)
+        bars = _intraday_bars(bar_sym, self._day, store=self._store)
         row = (self._store.load_spx_playbook_before(self._day, symbol=tk)
                or self._store.load_spx_playbook(self._day, symbol=tk))
         scaf = (row or {}).get("scaffold") or {}
@@ -779,9 +779,35 @@ def day_pnl_range(store, days: list[str], underlying: str | None = None) -> dict
     return out
 
 
-def _intraday_bars(symbol: str, day: str):
-    """Minute bars for ``day`` (best), falling back to the stored 15m series.
-    RTH only, ET-indexed — the reference for pinning a fill to a price."""
+def _df_to_ohlc(h) -> dict:
+    """A DataFrame → the compact JSON OHLC dict we persist / rebuild from."""
+    return {
+        "ts": [t.isoformat() for t in h.index],
+        "open": [float(v) for v in h["Open"]],
+        "high": [float(v) for v in h["High"]],
+        "low": [float(v) for v in h["Low"]],
+        "close": [float(v) for v in h["Close"]],
+        "volume": [float(v) for v in h.get("Volume", h["Close"] * 0)],
+    }
+
+
+def _ohlc_to_df(ohlc: dict):
+    """The stored OHLC dict → a DataFrame matching the live-fetch shape."""
+    import pandas as pd
+    idx = pd.to_datetime(ohlc["ts"])
+    return pd.DataFrame({
+        "Open": ohlc["open"], "High": ohlc["high"], "Low": ohlc["low"],
+        "Close": ohlc["close"], "Volume": ohlc.get("volume") or [0] * len(ohlc["ts"]),
+    }, index=idx)
+
+
+def _intraday_bars(symbol: str, day: str, store=None):
+    """Minute bars for ``day`` (best), then the STORED 1m capture, then 15m.
+    RTH only, ET-indexed — the reference for pinning a fill to a price.
+
+    When a live 1m fetch succeeds AND a store is given, the series is PERSISTED
+    (``intraday_bars``) so it survives yfinance's ~30-day retention — that stored
+    copy is what a later FVG test reads at 1m resolution."""
     from . import spx_playbook as _pb
     try:
         import yfinance as yf
@@ -795,9 +821,19 @@ def _intraday_bars(symbol: str, day: str):
             mins = h.index.hour * 60 + h.index.minute
             h = h[(mins >= 9 * 60 + 30) & (mins < 16 * 60)]
             if not h.empty:
+                if store is not None:
+                    store.save_intraday_bars(symbol, day, "1m", _df_to_ohlc(h))
                 return h
     except Exception as e:
-        log.warning("1m bars unavailable for %s (%s) — falling back to 15m", day, e)
+        log.warning("1m bars unavailable for %s (%s) — falling back", day, e)
+    # live 1m failed — try the persisted 1m capture before dropping to 15m
+    if store is not None:
+        stored = store.load_intraday_bars(symbol, day, "1m")
+        if stored and stored.get("ts"):
+            try:
+                return _ohlc_to_df(stored)
+            except Exception as e:
+                log.warning("stored 1m rebuild failed for %s (%s)", day, e)
     try:
         return _pb._fetch_15m(symbol)
     except Exception as e:

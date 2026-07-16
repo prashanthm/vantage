@@ -1069,6 +1069,49 @@ class Store:
                 (_db.dumps(narrative), day, symbol))
             return cur.rowcount > 0
 
+    # ── intraday bar capture (SQLite-only) ───────────────────────────────────
+
+    def save_intraday_bars(self, symbol: str, day: str, interval: str,
+                           ohlc: dict) -> bool:
+        """Persist one session's intraday OHLC (captured when the DNA path fetches
+        it live) so it survives yfinance's ~30-day retention. ``ohlc`` is
+        ``{ts:[...], open:[...], high, low, close, volume}``. Idempotent per
+        (symbol, day, interval) — a later capture overwrites. Best-effort:
+        returns False (never raises) when there's no SQLite backend."""
+        if not self.uses_sqlite or not ohlc or not ohlc.get("ts"):
+            return False
+        import datetime as _d
+        try:
+            with self._sqlite_txn() as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO intraday_bars "
+                    "(symbol, day, interval, as_of, bar_count, ohlc) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (symbol, day, interval, _d.datetime.now(_d.timezone.utc).isoformat(),
+                     len(ohlc["ts"]), _db.dumps(ohlc)))
+            return True
+        except Exception:  # capture must never break the DNA path
+            return False
+
+    def load_intraday_bars(self, symbol: str, day: str,
+                           interval: str = "1m") -> dict | None:
+        """The stored intraday OHLC for (symbol, day, interval), or None."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT ohlc FROM intraday_bars WHERE symbol=? AND day=? AND interval=?",
+                (symbol, day, interval)).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        try:
+            return _db.loads(row["ohlc"] if hasattr(row, "keys") else row[0])
+        except Exception:
+            return None
+
     # ── durable level memory (SQLite-only) ───────────────────────────────────
 
     def record_levels(self, session: str, symbol: str, levels: list[dict],

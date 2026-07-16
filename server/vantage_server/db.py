@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 17  # v17: journal_analysis (compounding periodic self-assessment)
+SCHEMA_VERSION = 18  # v18: intraday_bars (persist 1m session bars for FVG testing)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -95,6 +95,19 @@ CREATE TABLE IF NOT EXISTS quotes (
     price       REAL,
     day_pct     REAL,
     asset_class TEXT
+);
+
+-- Per-session INTRADAY (1m) bars, captured when the trade-DNA path fetches them
+-- live, so they survive after yfinance's ~30-day intraday retention rolls past.
+-- Lets the operator's real FVG entries be tested at 1m resolution later.
+CREATE TABLE IF NOT EXISTS intraday_bars (
+    symbol       TEXT NOT NULL,
+    day          TEXT NOT NULL,   -- ISO date (session)
+    interval     TEXT NOT NULL,   -- "1m" | "15m"
+    as_of        TEXT,            -- when captured
+    bar_count    INTEGER,
+    ohlc         TEXT,            -- JSON: {ts:[...], open:[...], high, low, close, volume}
+    PRIMARY KEY (symbol, day, interval)
 );
 
 CREATE TABLE IF NOT EXISTS bars (
