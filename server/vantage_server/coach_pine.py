@@ -256,7 +256,7 @@ pad      = close * stopPad / 100.0
 armEntry = armLevel
 armStop  = armLong ? armLevel - pad : armShort ? armLevel + pad : na
 armT1    = armLong ? resPx : armShort ? supPx : na
-armRR    = na(armEntry) or na(armStop) or na(armT1) or math.abs(armEntry - armStop) == 0 ? na : math.abs(armT1 - armEntry) / math.abs(armEntry - armStop)
+armRR    = (na(armEntry) or na(armStop) or na(armT1) or math.abs(armEntry - armStop) == 0) ? na : math.abs(armT1 - armEntry) / math.abs(armEntry - armStop)
 
 // the TRIGGER: `reclaimN` consecutive closes back through the armed level.
 closesAbove = armLong  and not na(armLevel) ? (ta.barssince(close <= armLevel) >= reclaimN) : false
@@ -300,22 +300,19 @@ if inTrade and (stopHit or tgtHit)
 // We advise a partial when we're IN a trade, in profit, gave back a chunk of
 // the peak (momentum fading) OR lost VWAP OR coiled — and T1 isn't reached yet.
 gaveBack   = inTrade and not na(peakPts) and peakPts > 0 and not na(pnlPts) and (peakPts - pnlPts) >= (peakPts * 0.5) and peakPts >= (na(atr) ? 0 : atr)
-lostVwap   = inTrade and not na(vwap) and (tDir == 1 ? close < vwap and close[1] >= vwap : close > vwap and close[1] <= vwap)
+lostVwap   = inTrade and not na(vwap) and (tDir == 1 ? (close < vwap and close[1] >= vwap) : (close > vwap and close[1] <= vwap))
 stalledIn  = inTrade and coiled and coilBars >= stallBars
 inProfit   = inTrade and not na(pnlPts) and pnlPts > 0
 scaleOut   = inProfit and not tgtHit and (gaveBack or lostVwap or stalledIn)
 // a sensible interim place to trim: VWAP if it's ahead of us, else the peak
-scaleAt = not na(vwap) and (tDir == 1 ? vwap > tEntry and vwap < tT1 : vwap < tEntry and vwap > tT1) ? vwap : tPeak
+vwapAhead = not na(vwap) and (tDir == 1 ? (vwap > tEntry and vwap < tT1) : (vwap < tEntry and vwap > tT1))
+scaleAt = vwapAhead ? vwap : tPeak
 
 // theta bleed while ARMED-but-not-triggered (0DTE long waiting on a coil)
 thetaWait = not inTrade and armLong and coiled and coilBars >= stallBars
 
 // ── resolve ONE coach STATE for the plan lifecycle ───────────────────────────
-state = firedNow ? "TRIGGERED" :
-        (inTrade and scaleOut) ? "SCALE" :
-        inTrade ? "HOLD" :
-        (armLong or armShort) ? (thetaWait ? "THETA" : "ARMED") :
-        "WAIT"
+state = firedNow ? "TRIGGERED" : (inTrade and scaleOut) ? "SCALE" : inTrade ? "HOLD" : (armLong or armShort) ? (thetaWait ? "THETA" : "ARMED") : "WAIT"
 
 // ── the ACTION verb — the ONE thing to read ──────────────────────────────────
 action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") :
