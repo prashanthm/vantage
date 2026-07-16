@@ -7,7 +7,7 @@ import {
   usd, money, moneyByCcy, signUsd, signMoney, signPct, cls, dirCls, daysAgo, fmtDate, lotValue, lotUnrl, acctOf, registerAccounts,
   isOptionSym, isSleeveSym, underlyingOf,
   loadSettings, SETTINGS_KEY, StatTile, syncedAgo,
-  useTheme, THEME_ICON,
+  useTheme, THEME_ICON, LoadBar,
 } from "./util.jsx";
 import { MiraRender } from "./mira-render.jsx";
 import { ChartsView, ChartsRail } from "./charts.jsx";
@@ -539,8 +539,11 @@ function DashboardView({
 }) {
   // Live engine only — empty fallbacks, no demo. blankOnOutage keeps the app
   // honest: an outage shows an empty book, never fabricated positions.
-  const pos = useLive(() => live.positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
-  const alloc = useLive(() => live.allocation(accountId).then(mapAllocation), EMPTY_ALLOC, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
+  const posLive = useLive(() => live.positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true });
+  const allocLive = useLive(() => live.allocation(accountId).then(mapAllocation), EMPTY_ALLOC, [accountId, settings, refreshNonce], { blankOnOutage: true });
+  const pos = posLive.data;
+  const alloc = allocLive.data;
+  const dashLoading = posLive.loading || allocLive.loading;   // any primary account fetch in flight
 
   // Q1 — market today: live index band + Mira's market read (both may be null → fallbacks).
   const band = useLive(() => live.quotes().then(live.mapMarketBand), null, [settings, refreshNonce]).data;
@@ -567,7 +570,8 @@ function DashboardView({
   const actions = buildActionQueue({ decisions, tlh, alloc, totalValue, accountId, settings, go, setSymbol });
 
   return (
-    <div>
+    <div className="vg-loadhost">
+      {dashLoading && <LoadBar />}
       <div className="vg-spread">
         <div>
           <h2 style={{ margin: 0, fontSize: 19 }}>Dashboard</h2>

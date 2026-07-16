@@ -8,7 +8,7 @@
 // full session): which levels held/broke, was the regime call right. The chart
 // image is reference only — never analyzed. Journal/analysis only — no orders
 // (ADR-010).
-import { cls, SymbolSwitcher } from "./util.jsx";
+import { cls, SymbolSwitcher, LoadBar } from "./util.jsx";
 import { parseMira, MiraRender, SwotRender } from "./mira-render.jsx";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
@@ -108,7 +108,8 @@ export function JournalView({ refreshNonce }) {
   }
 
   return (
-    <div className="vg-pane-body vg-jr">
+    <div className="vg-pane-body vg-jr vg-loadhost">
+      {jv.loading && <LoadBar />}
       {/* compact header: title + view tabs + underlying + jump-to-month */}
       <div className="vg-jr-topbar">
         <div className="vg-row" style={{ gap: 12, alignItems: "center" }}>
@@ -873,7 +874,8 @@ function JournalAnalysisPanel({ sym }) {
   const streaming = read && read.text != null && !saved && !read.error;
 
   return (
-    <div className="vg-ja">
+    <div className="vg-ja vg-loadhost">
+      {(busy || streaming) && <LoadBar />}
       {/* window + period picker */}
       <div className="vg-card" style={{ marginTop: 12 }}>
         <div className="vg-spread" style={{ alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
@@ -1292,7 +1294,8 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
   }, [day, tradeIndex, underlying]);
 
   return (
-    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" }}>
+    <div className="vg-loadhost" style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" }}>
+      {busy && <LoadBar />}
       <div className="vg-spread">
         <div className="vg-kicker" style={{ margin: 0 }}>The DNA — Mira's read</div>
         {busy ? (

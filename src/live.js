@@ -1238,10 +1238,13 @@ export function mapAnalyze(payload) {
 export function useLive(fetcher, fallback, deps = [], { blankOnOutage = false } = {}) {
   const [liveData, setLiveData] = React.useState(null);
   const [outage, setOutage] = React.useState(false);
+  // `loading` = a fetch is in flight (so the UI can show a subtle refresh bar).
+  const [loading, setLoading] = React.useState(true);
   const everLive = React.useRef(false);
   React.useEffect(() => {
     let alive = true;
     setLiveData(null);
+    setLoading(true);
     Promise.resolve()
       .then(fetcher)
       .then((d) => {
@@ -1249,11 +1252,12 @@ export function useLive(fetcher, fallback, deps = [], { blankOnOutage = false } 
         if (d != null) { everLive.current = true; setLiveData(d); setOutage(false); }
         else if (everLive.current) { setOutage(true); }
       })
-      .catch(() => { if (alive && everLive.current) setOutage(true); });
+      .catch(() => { if (alive && everLive.current) setOutage(true); })
+      .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, deps); // eslint-disable-line react-hooks/exhaustive-deps
-  if (liveData != null) return { data: liveData, isLive: true, outage: false };
+  if (liveData != null) return { data: liveData, isLive: true, outage: false, loading };
   const blanked = blankOnOutage && outage;
   const fb = blanked ? (Array.isArray(fallback) ? [] : null) : fallback;
-  return { data: fb, isLive: false, outage: blanked };
+  return { data: fb, isLive: false, outage: blanked, loading };
 }

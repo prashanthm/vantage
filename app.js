@@ -105,6 +105,9 @@
   function StatTile({ label, value, delta, deltaDir, note }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, label), /* @__PURE__ */ React.createElement("div", { className: "val" }, value), delta != null && /* @__PURE__ */ React.createElement("div", { className: cls("delta", deltaDir) }, delta), note && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, note));
   }
+  function LoadBar({ on = true }) {
+    return on ? /* @__PURE__ */ React.createElement("div", { className: "vg-loadbar", role: "progressbar", "aria-label": "Loading" }) : null;
+  }
   var THEME_KEY = "vantage.theme";
   var THEME_ORDER = ["system", "dark", "light"];
   var THEME_ICON = { system: "\u25D0", dark: "\u263E", light: "\u2600" };
@@ -1298,10 +1301,12 @@
   function useLive(fetcher, fallback, deps = [], { blankOnOutage = false } = {}) {
     const [liveData, setLiveData] = React.useState(null);
     const [outage, setOutage] = React.useState(false);
+    const [loading, setLoading] = React.useState(true);
     const everLive = React.useRef(false);
     React.useEffect(() => {
       let alive = true;
       setLiveData(null);
+      setLoading(true);
       Promise.resolve().then(fetcher).then((d) => {
         if (!alive) return;
         if (d != null) {
@@ -1313,15 +1318,17 @@
         }
       }).catch(() => {
         if (alive && everLive.current) setOutage(true);
+      }).finally(() => {
+        if (alive) setLoading(false);
       });
       return () => {
         alive = false;
       };
     }, deps);
-    if (liveData != null) return { data: liveData, isLive: true, outage: false };
+    if (liveData != null) return { data: liveData, isLive: true, outage: false, loading };
     const blanked = blankOnOutage && outage;
     const fb = blanked ? Array.isArray(fallback) ? [] : null : fallback;
-    return { data: fb, isLive: false, outage: blanked };
+    return { data: fb, isLive: false, outage: blanked, loading };
   }
 
   // src/charts.jsx
@@ -3213,7 +3220,7 @@
     if (d && d.available === false) {
       return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: "0 0 6px", fontSize: 19 } }, "Trading journal"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, d.note || "Journal needs the SQLite backend + a generated playbook."));
     }
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-jr-topbar" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 18 } }, "Trading journal"), /* @__PURE__ */ React.createElement("div", { className: "vg-seg" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-seg-btn", tab === "days" && "on"), onClick: () => setTab("days") }, "Days"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-seg-btn", tab === "analysis" && "on"), onClick: () => setTab("analysis") }, "Analysis"))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "center" } }, tab === "days" && /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-jr vg-loadhost" }, jv.loading && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-jr-topbar" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 12, alignItems: "center" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 18 } }, "Trading journal"), /* @__PURE__ */ React.createElement("div", { className: "vg-seg" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-seg-btn", tab === "days" && "on"), onClick: () => setTab("days") }, "Days"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-seg-btn", tab === "analysis" && "on"), onClick: () => setTab("analysis") }, "Analysis"))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "center" } }, tab === "days" && /* @__PURE__ */ React.createElement(
       MonthJump,
       {
         view,
@@ -3733,7 +3740,7 @@
     const b = bundle;
     const busy = read && read.loading;
     const streaming = read && read.text != null && !saved && !read.error;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-ja" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "flex-end", flexWrap: "wrap", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 12, alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field" }, /* @__PURE__ */ React.createElement("label", null, "From"), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-ja vg-loadhost" }, (busy || streaming) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "flex-end", flexWrap: "wrap", gap: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 12, alignItems: "flex-end", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field" }, /* @__PURE__ */ React.createElement("label", null, "From"), /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "date",
@@ -3958,7 +3965,7 @@
         if (abortRef.current) abortRef.current();
       };
     }, [day, tradeIndex, underlying]);
-    return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "The DNA \u2014 Mira's read"), busy ? /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-loadhost", style: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--vg-hairline)" } }, busy && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "The DNA \u2014 Mira's read"), busy ? /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",
@@ -4599,8 +4606,11 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     onRefreshAccount,
     onRefreshAll
   }) {
-    const pos = useLive(() => positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
-    const alloc = useLive(() => allocation(accountId).then(mapAllocation), EMPTY_ALLOC, [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
+    const posLive = useLive(() => positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true });
+    const allocLive = useLive(() => allocation(accountId).then(mapAllocation), EMPTY_ALLOC, [accountId, settings, refreshNonce], { blankOnOutage: true });
+    const pos = posLive.data;
+    const alloc = allocLive.data;
+    const dashLoading = posLive.loading || allocLive.loading;
     const band = useLive(() => quotes().then(mapMarketBand), null, [settings, refreshNonce]).data;
     const miraOn = settings.aiBackend === "mira";
     const report = useLive(() => miraOn ? getInsights().then(mapInsights) : null, null, [settings]).data;
@@ -4626,7 +4636,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const estBenefit = harvestableLoss * (settings.taxRate / 100);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
     const actions = buildActionQueue({ decisions, tlh: tlh2, alloc, totalValue, accountId, settings, go, setSymbol });
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Dashboard"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, acctLabel, " \xB7 your morning brief \xB7 marked to last close"))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Market today"), band && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, band.source === "fixture" ? "demo feed" : band.source, band.stale ? " \xB7 stale" : "", band.asOf ? ` \xB7 ${band.asOf}` : "")), band ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-marketband", style: { marginTop: 12 } }, band.indexes.map((ix) => /* @__PURE__ */ React.createElement("div", { className: "vg-idx", key: ix.sym }, /* @__PURE__ */ React.createElement("div", { className: "vg-idx-name" }, ix.label), /* @__PURE__ */ React.createElement("div", { className: "vg-idx-price" }, ix.price != null ? ix.price.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("div", { className: cls("vg-idx-pct", dirCls(ix.dayPct)) }, signPct(ix.dayPct))))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, band.regime, ".")) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, "Market data unavailable \u2014 start the backend to see live index levels."), report && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, borderTop: "1px solid var(--color-border, #e5e7eb)", paddingTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Mira advisor read"), /* @__PURE__ */ React.createElement("span", { className: "vg-row" }, /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u25CF live"), report.confidence && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "confidence ", report.confidence))), report.summary && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, lineHeight: 1.55, margin: "10px 0" } }, report.summary), report.observations.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-tablewrap" }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("tbody", null, report.observations.map((o, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 140 } }, /* @__PURE__ */ React.createElement("b", null, o.topic)), /* @__PURE__ */ React.createElement("td", null, o.detail, o.source && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, o.source))))))), report.suggestions.length > 0 && /* @__PURE__ */ React.createElement("ul", { className: "vg-suggestions", style: { marginTop: 10 } }, report.suggestions.map((s, i) => /* @__PURE__ */ React.createElement("li", { key: i }, s))), report.caveats && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, report.caveats))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "20px 2px 6px" } }, "Portfolio today"), /* @__PURE__ */ React.createElement("div", { className: "vg-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Total value", value: isMixed ? moneyByCcy(byCurrency) : usd(totalValue) }), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-loadhost" }, dashLoading && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Dashboard"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, acctLabel, " \xB7 your morning brief \xB7 marked to last close"))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Market today"), band && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, band.source === "fixture" ? "demo feed" : band.source, band.stale ? " \xB7 stale" : "", band.asOf ? ` \xB7 ${band.asOf}` : "")), band ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-marketband", style: { marginTop: 12 } }, band.indexes.map((ix) => /* @__PURE__ */ React.createElement("div", { className: "vg-idx", key: ix.sym }, /* @__PURE__ */ React.createElement("div", { className: "vg-idx-name" }, ix.label), /* @__PURE__ */ React.createElement("div", { className: "vg-idx-price" }, ix.price != null ? ix.price.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("div", { className: cls("vg-idx-pct", dirCls(ix.dayPct)) }, signPct(ix.dayPct))))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, band.regime, ".")) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, "Market data unavailable \u2014 start the backend to see live index levels."), report && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14, borderTop: "1px solid var(--color-border, #e5e7eb)", paddingTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Mira advisor read"), /* @__PURE__ */ React.createElement("span", { className: "vg-row" }, /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u25CF live"), report.confidence && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "confidence ", report.confidence))), report.summary && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 14, lineHeight: 1.55, margin: "10px 0" } }, report.summary), report.observations.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-tablewrap" }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("tbody", null, report.observations.map((o, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 140 } }, /* @__PURE__ */ React.createElement("b", null, o.topic)), /* @__PURE__ */ React.createElement("td", null, o.detail, o.source && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, o.source))))))), report.suggestions.length > 0 && /* @__PURE__ */ React.createElement("ul", { className: "vg-suggestions", style: { marginTop: 10 } }, report.suggestions.map((s, i) => /* @__PURE__ */ React.createElement("li", { key: i }, s))), report.caveats && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, report.caveats))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "20px 2px 6px" } }, "Portfolio today"), /* @__PURE__ */ React.createElement("div", { className: "vg-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Total value", value: isMixed ? moneyByCcy(byCurrency) : usd(totalValue) }), /* @__PURE__ */ React.createElement(
       StatTile,
       {
         label: "Day P/L",

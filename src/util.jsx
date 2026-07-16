@@ -117,6 +117,27 @@ export function StatTile({ label, value, delta, deltaDir, note }) {
   );
 }
 
+// The subtle refresh indicator: a thin indeterminate bar that sweeps across the
+// TOP EDGE of its container while data loads. Render it as the first child of a
+// positioned element carrying class "vg-loadhost" (or wrap with LoadHost). It
+// takes no layout space and disappears when `on` is false.
+//   <div className="vg-card vg-loadhost">{loading && <LoadBar/>} …</div>
+export function LoadBar({ on = true }) {
+  return on ? <div className="vg-loadbar" role="progressbar" aria-label="Loading" /> : null;
+}
+
+// Convenience wrapper: a positioned host that shows the LoadBar on top while
+// `loading`, with the content below. Use when you don't already have a card to
+// hang vg-loadhost on.
+export function LoadHost({ loading, className, children, style }) {
+  return (
+    <div className={cls("vg-loadhost", className)} style={style}>
+      {loading && <LoadBar />}
+      {children}
+    </div>
+  );
+}
+
 export function heatTint(pct) {
   // theme-aware: translucent semantic tints over the card tone; the neutral is a
   // subtle raise so flat names read as "no move" on either ground.

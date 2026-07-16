@@ -287,6 +287,28 @@ body {
 @keyframes vg-spin { to { transform: rotate(360deg); } }
 .vg-spin { display: inline-block; animation: vg-spin 0.8s linear infinite; }
 
+/* ── subtle loading bar — a thin indeterminate sweep along a container's top ──
+   Put class "vg-loadhost" on the positioned container and render <LoadBar/> as
+   its first child while loading. No layout shift; sits on the top edge. */
+.vg-loadhost { position: relative; }
+.vg-loadbar {
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  overflow: hidden; border-radius: 2px 2px 0 0; pointer-events: none; z-index: 3;
+}
+.vg-loadbar::before {
+  content: ""; position: absolute; top: 0; height: 100%; width: 40%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, transparent, var(--vg-accent), transparent);
+  animation: vg-loadsweep 1.15s ease-in-out infinite;
+}
+@keyframes vg-loadsweep {
+  0%   { left: -40%; }
+  100% { left: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vg-loadbar::before { animation-duration: 2.4s; }
+}
+
 /* ---------- stat tiles ---------- */
 .vg-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: var(--vg-sp-3); }
 .vg-stat { background: var(--vg-card); border-radius: var(--vg-r-md); padding: var(--vg-sp-3) var(--vg-sp-4); }
