@@ -264,7 +264,27 @@ coilBars := coiled ? coilBars + 1 : 0
 nyHour = hour(time, "America/New_York")
 nyMin  = minute(time, "America/New_York")
 mins   = nyHour * 60 + nyMin
-midday = mins >= 11*60+30 and mins < 14*60
+// MIDDAY window aligned to the backtest that validated the trap: 11:00–14:00 ET.
+midday = mins >= 11*60 and mins < 14*60
+
+// ── THE DRAW (HTF/level-based) + CONVICTION flag — backtest-validated ─────────
+// ict-coach goal: entering a LEVEL trade is low-conviction when it's MIDDAY, or
+// when the trade runs AGAINST the draw. The draw is the NEARER opposing PLAYBOOK
+// level (NOT a 1m FVG — that proxy inverted in testing). Nearest baked level
+// above and below price:
+nearAbove = 1e11
+nearBelow = -1e11
+if useGex and array.size(gexPx) > 0
+    for i = 0 to array.size(gexPx) - 1
+        p = array.get(gexPx, i)
+        if p > close and p < nearAbove
+            nearAbove := p
+        if p < close and p > nearBelow
+            nearBelow := p
+hasAbove = nearAbove < 1e11
+hasBelow = nearBelow > -1e11
+// the draw = whichever opposing level is NEARER (that's where price likely goes)
+drawUp = hasAbove and (not hasBelow or (nearAbove - close) <= (close - nearBelow))
 
 // ═══════════════════════════════════════════════════════════════════════════
 // THE PLAN-EXECUTION STATE MACHINE
@@ -340,6 +360,17 @@ pnlPts  = not inTrade or na(tEntry) ? na : (close - tEntry) * tDir
 if inTrade
     tPeak := tDir == 1 ? math.max(tPeak, high) : math.min(tPeak, low)
 peakPts = not inTrade or na(tPeak) or na(tEntry) ? na : (tPeak - tEntry) * tDir   // max favorable, pts
+
+// ── CONVICTION on the current setup/trade (backtest-validated flags) ─────────
+// The direction of the active plan (live trade, else the armed setup).
+convLong = inTrade ? (tDir == 1) : showLong
+atALevel = armLong or armShort or inTrade
+// AGAINST the draw: a long when the nearer opposing level is BELOW (draw is down),
+// or a short when it's above. This is the -$5350 pattern (long at a level with the
+// nearer magnet — max pain — below).
+againstDraw = atALevel and useGex and ((convLong and not drawUp and hasBelow) or (not convLong and drawUp and hasAbove))
+lowConviction = atALevel and (midday or againstDraw)
+convReason = againstDraw and midday ? "midday + against the draw" : againstDraw ? "against the draw (nearer level is " + (drawUp ? "above" : "below") + ")" : midday ? "midday level (11–2 ET) — the trap window" : ""
 
 // resolve: stop or target hit ends the trade
 stopHit = inTrade and not na(tStop) and (tDir == 1 ? low <= tStop : high >= tStop)
@@ -532,7 +563,7 @@ plotshape(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", title="Stop", loca
 // Banner (state + direction) → adaptive label|value grid → coaching line →
 // TECHNICALS (RSI/Vol/Headroom numbers + a synthesized READ) → caveat.
 // Bold, white-on-dark, one font, so it holds up over candles on the grey chart.
-var table panel = table.new(position.bottom_right, 2, 10, border_width=1, frame_width=1, frame_color=color.new(#333c48, 0))
+var table panel = table.new(position.bottom_right, 2, 11, border_width=1, frame_width=1, frame_color=color.new(#333c48, 0))
 if showPanel and barstate.islast
     stCol = state == "TRIGGERED" ? #16915b : state == "SCALE" ? #e0a020 : state == "HOLD" ? #2f6df6 : state == "ARMED" ? #7c5cff : state == "THETA" ? #e0a020 : #4a5563
     dark = color.new(#0d1017, 0)
@@ -570,15 +601,23 @@ if showPanel and barstate.islast
     table.merge_cells(panel, 0, 7, 1, 7)
     table.cell(panel, 0, 8, readTxt, text_color=color.new(#dfe4ea, 0), bgcolor=dark, text_size=size.small, text_halign=text.align_left)
     table.merge_cells(panel, 0, 8, 1, 8)
-    // ROW 9 — caveat, and (SPX only) the GEX levels' generation date + staleness.
+    // ROW 9 — CONVICTION (backtest-validated): flag low-conviction level entries.
+    // On the frozen week these flagged trades netted -$5,644 vs +$5,035 for the
+    // clean ones; this is the single most P&L-relevant coach signal.
+    convTxt = lowConviction ? "⚠ LOW CONVICTION — " + convReason : atALevel ? "conviction: clean setup" : ""
+    convCol = lowConviction ? #6e2530 : atALevel ? #145c3a : #13171e
+    convTC  = lowConviction ? redC : atALevel ? grnC : color.new(#5a6270, 0)
+    table.cell(panel, 0, 9, convTxt, text_color=convTC, bgcolor=color.new(convCol, 0), text_size=size.small, text_halign=text.align_center)
+    table.merge_cells(panel, 0, 9, 1, 9)
+    // ROW 10 — caveat, and (SPX only) the GEX levels' generation date + staleness.
     // The levels are a static paste; they DON'T auto-update when Vantage runs its
     // nightly job — so show which session they were built for, and flag STALE
     // once the chart has moved past it (re-pull the coach to refresh).
     todayNum = year * 10000 + month * 100 + dayofmonth
     gexStale = useGex and gexDateNum > 0 and todayNum > gexDateNum
     caveatTxt = useGex ? ("GEX levels · " + gexDate + (gexStale ? "  ⚠ STALE — re-pull" : "  ✓")) : "coach read — not a prediction"
-    table.cell(panel, 0, 9, caveatTxt, text_color=gexStale ? color.new(#ffc247, 0) : color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
-    table.merge_cells(panel, 0, 9, 1, 9)
+    table.cell(panel, 0, 10, caveatTxt, text_color=gexStale ? color.new(#ffc247, 0) : color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
+    table.merge_cells(panel, 0, 10, 1, 10)
 
 // ── alerts → webhook → Telegram ──────────────────────────────────────────────
 // Set ONE alert on this indicator: condition "Any alert() function call",
@@ -593,7 +632,7 @@ f_alert(evt, headline, detail) =>
 
 dirWord = tDir == 1 or showLong ? "LONG" : "SHORT"
 if firedNow
-    f_alert("TRIGGERED", (tDir == 1 ? "🔔 BUY CALLS" : "🔔 BUY PUTS") + " · " + armLbl + " " + str.tostring(tEntry, "#.#"), "target " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")) + " · read: " + str.lower(readVerd))
+    f_alert("TRIGGERED", (tDir == 1 ? "🔔 BUY CALLS" : "🔔 BUY PUTS") + " · " + armLbl + " " + str.tostring(tEntry, "#.#") + (lowConviction ? " · ⚠ LOW CONVICTION" : ""), "target " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")) + (lowConviction ? " · " + convReason : "") + " · read: " + str.lower(readVerd))
 if state == "SCALE" and state[1] != "SCALE"
     f_alert("SCALE", "✂️ SCALE OUT · " + dirWord + " from " + str.tostring(tEntry, "#.#"), "trim near " + str.tostring(scaleAt, "#.#") + " · " + str.lower(readVerd) + " with " + str.tostring(hdPts, "#") + "pt to target")
 if state == "ARMED" and state[1] != "ARMED"

@@ -69,7 +69,7 @@ def test_coach_trade_lifecycle_tracks_position():
     assert "stopHit" in s and "tgtHit" in s
     assert '"STOPPED"' in s and '"TARGET HIT"' in s
     # adaptive ticket panel, bottom-right, 2-column label|value grid
-    assert "table.new(position.bottom_right, 2, 10" in s
+    assert "table.new(position.bottom_right, 2, 11" in s
     assert "table.merge_cells" in s          # banner + lines span both cols
     # the state banner carries the direction chip + the action verb
     assert "dirTag" in s and "bannerTxt" in s and "action" in s
@@ -181,6 +181,20 @@ def test_coach_read_respects_price_direction_vs_target():
     assert "awayFromTgt" in rc and "nearStop" in s
     # the message names the direction honestly
     assert "drifting toward the stop" in s
+
+
+def test_coach_conviction_flag_midday_and_against_draw():
+    # ict-coach goal: flag low-conviction level entries (midday OR against the
+    # HTF/level draw) — the -$5644 leak in the backtest.
+    s = cp.build_coach_indicator(_SCAFFOLD, webhook_secret="SEC")
+    # the draw is the nearer opposing PLAYBOOK level (not a 1m FVG)
+    assert "nearAbove" in s and "nearBelow" in s and "drawUp" in s
+    assert "againstDraw" in s and "lowConviction" in s
+    # midday window aligned to the validated 11:00-14:00 ET
+    assert "midday = mins >= 11*60 and mins < 14*60" in s
+    # surfaced as its own panel row + folded into the TRIGGER alert
+    assert "convTxt" in s and "LOW CONVICTION" in s
+    assert "table.new(position.bottom_right, 2, 11" in s   # grew for the conviction row
 
 
 def test_coach_flip_missing_is_typed_na():
