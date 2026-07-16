@@ -145,7 +145,7 @@ showPanel= input.bool(true, "Show the coach panel (bottom-right)", group="Displa
 // Auto-detected from the symbol. On SPX/SPXW/SPY/ES the coach plans off the
 // baked GEX levels; elsewhere it plans off swing structure.
 _tk = str.upper(syminfo.ticker)
-isSpx = str.contains(_tk, "SPX") or _tk == "SPY" or str.contains(_tk, "ES1!") or str.startswith(_tk, "ES") or str.contains(syminfo.root, "ES")
+isSpx = str.contains(_tk, "SPX") or str.contains(_tk, "US500") or str.contains(_tk, "SPX500") or str.contains(_tk, "SP500") or _tk == "SPY" or str.contains(_tk, "ES1!") or str.startswith(_tk, "ES") or str.contains(str.upper(syminfo.root), "ES")
 
 // ── session VWAP + bands, RSI, relative volume, ATR ──────────────────────────
 newSession = ta.change(time("D")) != 0
@@ -241,28 +241,31 @@ midday = mins >= 11*60+30 and mins < 14*60
 //   ARMED  → a setup is loaded at the nearest level; watching for the trigger
 //   IN     → the reclaim fired; walk the trade toward T1, or SCALE / STOP
 // ═══════════════════════════════════════════════════════════════════════════
-// which setup is nearest to ARMING? long at support, short at resistance —
-// whichever price is closer to. (armDist gate keeps it from arming too early.)
+// BOTH sides can be armed at once: a LONG at the support below, a SHORT at the
+// resistance above. Whichever TRIGGERS first is the trade. (This is why shorts
+// were never firing before — the old code armed only the nearer of the two.)
 distSup = na(supPx) ? 1e9 : math.abs(close - supPx)
 distRes = na(resPx) ? 1e9 : math.abs(close - resPx)
 armTol  = close * armDist / 100.0
-// candidate armed setup: pick the closer eligible level
-armLong  = not na(supPx) and distSup <= armTol and distSup <= distRes
-armShort = not na(resPx) and distRes <= armTol and distRes <  distSup
-armLevel = armLong ? supPx : armShort ? resPx : na
-armLbl   = armLong ? supLb : armShort ? resLb : na
-// entry = the reclaimed level; stop = pad beyond it; target = the OPPOSITE level
-pad      = close * stopPad / 100.0
-armEntry = armLevel
-armStop  = armLong ? armLevel - pad : armShort ? armLevel + pad : na
-armT1    = armLong ? resPx : armShort ? supPx : na
-armRR    = (na(armEntry) or na(armStop) or na(armT1) or math.abs(armEntry - armStop) == 0) ? na : math.abs(armT1 - armEntry) / math.abs(armEntry - armStop)
+armLong  = not na(supPx) and distSup <= armTol      // near a support → watch for a reclaim (long)
+armShort = not na(resPx) and distRes <= armTol      // near a resistance → watch for a rejection (short)
 
-// the TRIGGER: `reclaimN` consecutive closes back through the armed level.
-closesAbove = armLong  and not na(armLevel) ? (ta.barssince(close <= armLevel) >= reclaimN) : false
-closesBelow = armShort and not na(armLevel) ? (ta.barssince(close >= armLevel) >= reclaimN) : false
-triggerLong  = armLong  and closesAbove and close > armLevel
-triggerShort = armShort and closesBelow and close < armLevel
+// the TRIGGER: `reclaimN` closes back through the level (long above sup, short below res)
+closesAboveSup = armLong  ? (ta.barssince(close <= supPx) >= reclaimN) : false
+closesBelowRes = armShort ? (ta.barssince(close >= resPx) >= reclaimN) : false
+triggerLong  = armLong  and closesAboveSup and close > supPx
+triggerShort = armShort and closesBelowRes and close < resPx
+
+// which setup does the PANEL describe? the one closer to triggering (long if it
+// just fired, else the nearer armed side). entry/stop/target follow from it.
+pad = close * stopPad / 100.0
+showLong = triggerLong or (armLong and (not armShort or distSup <= distRes))
+armLevel = showLong ? supPx : armShort ? resPx : na
+armLbl   = showLong ? supLb : armShort ? resLb : na
+armEntry = armLevel
+armStop  = showLong and not na(armLevel) ? armLevel - pad : armShort and not na(armLevel) ? armLevel + pad : na
+armT1    = showLong ? resPx : armShort ? supPx : na
+armRR    = (na(armEntry) or na(armStop) or na(armT1) or math.abs(armEntry - armStop) == 0) ? na : math.abs(armT1 - armEntry) / math.abs(armEntry - armStop)
 
 // ── the live trade (Pine can't see your fills; it tracks the coach's plan) ───
 var int   tDir   = 0        // +1 long, -1 short, 0 flat
@@ -315,10 +318,10 @@ thetaWait = not inTrade and armLong and coiled and coilBars >= stallBars
 state = firedNow ? "TRIGGERED" : (inTrade and scaleOut) ? "SCALE" : inTrade ? "HOLD" : (armLong or armShort) ? (thetaWait ? "THETA" : "ARMED") : "WAIT"
 
 // ── the ACTION verb — the ONE thing to read ──────────────────────────────────
-action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") : state == "SCALE" ? "SCALE OUT — TAKE PARTIAL" : state == "HOLD" ? (pnlPts >= 0 ? "HOLD TOWARD TARGET" : "HOLD — STOP INTACT") : state == "ARMED" ? (armLong ? "ARMED · LONG SETUP" : "ARMED · SHORT SETUP") : state == "THETA" ? "WAITING — THETA RISK" : "STAND ASIDE"
+action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") : state == "SCALE" ? "SCALE OUT — TAKE PARTIAL" : state == "HOLD" ? (pnlPts >= 0 ? "HOLD TOWARD TARGET" : "HOLD — STOP INTACT") : state == "ARMED" ? (showLong ? "ARMED · LONG SETUP" : "ARMED · SHORT SETUP") : state == "THETA" ? "WAITING — THETA RISK" : "STAND ASIDE"
 
 // ── plain-English reason / the plan spelled out ──────────────────────────────
-planLine = na(armLevel) ? "No setup in range." : (armLong ? "LONG " : "SHORT ") + armLbl + " " + str.tostring(armLevel, "#.#") + " · trigger " + str.tostring(reclaimN) + " closes " + (armLong ? "above" : "below") + " · T1 " + (na(armT1) ? "open" : str.tostring(armT1, "#.#")) + " · stop " + (na(armStop) ? "—" : str.tostring(armStop, "#.#")) + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#"))
+planLine = na(armLevel) ? "No setup in range." : (showLong ? "LONG " : "SHORT ") + armLbl + " " + str.tostring(armLevel, "#.#") + " · trigger " + str.tostring(reclaimN) + " closes " + (showLong ? "above" : "below") + " · T1 " + (na(armT1) ? "open" : str.tostring(armT1, "#.#")) + " · stop " + (na(armStop) ? "—" : str.tostring(armStop, "#.#")) + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#"))
 
 reason = state == "TRIGGERED" ? "reclaimed " + armLbl + " — take the " + (tDir == 1 ? "calls" : "puts") + ", target " + str.tostring(tT1, "#.#") + ", stop " + str.tostring(tStop, "#.#") : state == "SCALE" ? "momentum fading before T1 (" + str.tostring(tT1, "#.#") + ") — trim near " + str.tostring(scaleAt, "#.#") + ", let the rest run to target" : state == "HOLD" ? (pnlPts >= 0 ? "in the plan, +" + str.tostring(pnlPts, "#.#") + "pt — hold toward " + str.tostring(tT1, "#.#") : str.tostring(pnlPts, "#.#") + "pt red but stop " + str.tostring(tStop, "#.#") + " intact — don't fold") : state == "ARMED" ? planLine : state == "THETA" ? "armed at " + armLbl + " but coiled " + str.tostring(coilBars) + " bars — theta bleeds while it decides" + (midday ? " (midday)" : "") : "no setup within range — wait for price to reach a level"
 
@@ -332,19 +335,36 @@ posTxt = not inTrade ? (na(tOutcome) ? "Flat — no position" : "Flat · last: "
 
 tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, "+#.#;-#.#") + " ATR vs VWAP")) + " · RSI " + str.tostring(rsi, "#") + (rsi >= 70 ? "↑" : rsi <= 30 ? "↓" : "") + " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) + (coiled ? " · COILED " + str.tostring(coilBars) + "b" : "")
 
+// nearest levels around price — so you can read them even if the chart lines
+// are faint. "↑ resistance (Npt)   ↓ support (Npt)"
+lvlsTxt = (na(resPx) ? "↑ —" : "↑ " + resLb + " " + str.tostring(resPx, "#.#") + " (" + str.tostring(distRes, "#") + "pt)") + "   " + (na(supPx) ? "↓ —" : "↓ " + supLb + " " + str.tostring(supPx, "#.#") + " (" + str.tostring(distSup, "#") + "pt)")
+
 // ── plots ─────────────────────────────────────────────────────────────────────
 plot(showVwap ? vwap : na, "VWAP", color=color.new(#2f6df6, 0), linewidth=2)
 plot(showVwap ? vwUp : na, "VWAP +σ", color=color.new(#2f6df6, 70), style=plot.style_line)
 plot(showVwap ? vwDn : na, "VWAP -σ", color=color.new(#2f6df6, 70), style=plot.style_line)
 
-// draw the baked GEX levels — ONLY on SPX (auto-gated)
-if barstate.isfirst and showLines and useGex
+// draw the baked GEX levels — ONLY on SPX (auto-gated). Lines span the whole
+// session and their LABELS ride the right edge (redrawn each bar) so they're
+// always readable next to price, not stranded off-screen.
+var line[] gexLines = array.new_line()
+var label[] gexLabels = array.new_label()
+if showLines and useGex and barstate.islast
+    if array.size(gexLines) > 0
+        for i = 0 to array.size(gexLines) - 1
+            line.delete(array.get(gexLines, i))
+            label.delete(array.get(gexLabels, i))
+        array.clear(gexLines)
+        array.clear(gexLabels)
     for i = 0 to array.size(gexPx) - 1
         p  = array.get(gexPx, i)
         ro = array.get(gexRo, i)
-        col = ro == "callwall" or ro == "resistance" ? color.new(#cf3b47, 30) : ro == "putwall" or ro == "support" ? color.new(#16915b, 30) : color.new(#b26a00, 20)
-        line.new(bar_index, p, bar_index + 500, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=ro == "callwall" or ro == "putwall" or ro == "flip" ? 2 : 1)
-        label.new(bar_index + 500, p, array.get(gexLb, i) + "  " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=col, color=color.new(color.black, 100), size=size.small)
+        isRes = ro == "callwall" or ro == "resistance"
+        isSup = ro == "putwall" or ro == "support"
+        col = isRes ? color.new(#cf3b47, 25) : isSup ? color.new(#16915b, 25) : color.new(#e0a020, 15)
+        wide = ro == "callwall" or ro == "putwall" or ro == "flip"
+        array.push(gexLines, line.new(bar_index - 300, p, bar_index, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=wide ? 2 : 1))
+        array.push(gexLabels, label.new(bar_index, p, array.get(gexLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
 
 // LIVE trade lines: entry / stop / target — drawn while in the trade
 var line lnEntry = na
@@ -363,24 +383,28 @@ if not inTrade and not na(lnEntry)
     line.delete(lnT1)
     lnEntry := na
 
-// background tint + markers at the moment the state changes
+// on-chart markers — small, and ONLY at the moments that matter: the entry
+// trigger, and the exit (target or stop). No background shading, no SCALE spam
+// (SCALE lives in the panel; flagging every qualifying bar clutters the chart).
 stateChanged = state != state[1]
-bgcolor(state == "TRIGGERED" ? color.new(#16915b, 80) : state == "SCALE" ? color.new(#e0a020, 86) : state == "HOLD" ? color.new(#2f6df6, 92) : state == "ARMED" ? color.new(#9b6dff, 92) : state == "THETA" ? color.new(#e0a020, 90) : na)
-plotshape(stateChanged and state == "TRIGGERED", title="TRIGGERED", location=location.belowbar, style=shape.triangleup, color=color.new(#16915b,0), size=size.normal, text="TRIGGER")
-plotshape(stateChanged and state == "SCALE",     title="SCALE",     location=location.abovebar, style=shape.flag,       color=color.new(#e0a020,0), size=size.small, text="SCALE")
-plotshape(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", title="TARGET", location=location.abovebar, style=shape.diamond, color=color.new(#26A69A,0), size=size.small, text="T1")
-plotshape(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", title="STOP", location=location.abovebar, style=shape.xcross, color=color.new(#EF5350,0), size=size.small, text="STOP")
+firstScale = state == "SCALE" and state[1] != "SCALE"   // only the FIRST scale bar
+plotshape(firedNow and tDir == 1, title="Long trigger", location=location.belowbar, style=shape.triangleup, color=color.new(#16915b,0), size=size.tiny, text="LONG")
+plotshape(firedNow and tDir == -1, title="Short trigger", location=location.abovebar, style=shape.triangledown, color=color.new(#cf3b47,0), size=size.tiny, text="SHORT")
+plotshape(firstScale, title="Scale", location=location.abovebar, style=shape.flag, color=color.new(#e0a020,0), size=size.tiny)
+plotshape(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", title="Target", location=location.abovebar, style=shape.diamond, color=color.new(#26A69A,0), size=size.tiny)
+plotshape(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", title="Stop", location=location.abovebar, style=shape.xcross, color=color.new(#EF5350,0), size=size.tiny)
 
-// ── the coach panel (BOTTOM-RIGHT) — ACTION → the plan → position → tape ─────
-var table panel = table.new(position.bottom_right, 1, 6, border_width=1, frame_width=1, frame_color=color.new(color.gray, 50))
+// ── the coach panel (BOTTOM-RIGHT). ACTION → why → position → levels → tape ──
+var table panel = table.new(position.bottom_right, 1, 7, border_width=1, frame_width=1, frame_color=color.new(#3a4150, 0))
 if showPanel and barstate.islast
     actCol = state == "TRIGGERED" ? #16915b : state == "SCALE" ? #e0a020 : state == "HOLD" ? #2f6df6 : state == "ARMED" ? #7c5cff : state == "THETA" ? #e0a020 : #4a5160
-    table.cell(panel, 0, 0, action, text_color=color.white, bgcolor=color.new(actCol, 0), text_size=size.large, text_halign=text.align_center)
-    table.cell(panel, 0, 1, reason, text_color=color.new(#e8eaed, 0), bgcolor=color.new(#1b2029, 0), text_size=size.normal, text_halign=text.align_left)
-    table.cell(panel, 0, 2, posTxt, text_color=color.white, bgcolor=color.new(not inTrade ? #2a2f38 : pnlPts >= 0 ? #145c3a : #6e2530, 0), text_size=size.normal, text_halign=text.align_center)
-    table.cell(panel, 0, 3, narrative, text_color=color.new(#c7ccd4, 0), bgcolor=color.new(#1b2029, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 0, 4, tapeTxt, text_color=color.new(#8a93a3, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 0, 5, (useGex ? "SPX GEX" : syminfo.ticker) + " · Vantage Coach · not advice", text_color=color.new(#5a6270, 0), bgcolor=color.new(#13171e, 0), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(panel, 0, 0, action, text_color=color.white, bgcolor=color.new(actCol, 0), text_size=size.normal, text_halign=text.align_center)
+    table.cell(panel, 0, 1, reason, text_color=color.new(#e8eaed, 0), bgcolor=color.new(#1b2029, 0), text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 0, 2, posTxt, text_color=color.white, bgcolor=color.new(not inTrade ? #2a2f38 : pnlPts >= 0 ? #145c3a : #6e2530, 0), text_size=size.small, text_halign=text.align_center)
+    table.cell(panel, 0, 3, lvlsTxt, text_color=color.new(#dfe4ea, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 0, 4, narrative, text_color=color.new(#c7ccd4, 0), bgcolor=color.new(#1b2029, 0), text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 0, 5, tapeTxt, text_color=color.new(#8a93a3, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 0, 6, (useGex ? "SPX GEX levels" : syminfo.ticker + " · swings (no GEX)") + " · not advice", text_color=color.new(#5a6270, 0), bgcolor=color.new(#13171e, 0), text_size=size.tiny, text_halign=text.align_center)
 
 // ── alerts ───────────────────────────────────────────────────────────────────
 alertcondition(stateChanged and state == "TRIGGERED", "Coach: TRIGGER", "Setup triggered — take the entry")

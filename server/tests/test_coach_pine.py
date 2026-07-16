@@ -75,6 +75,23 @@ def test_coach_trade_lifecycle_tracks_position():
     assert "table.cell(panel, 0, 0, action" in s
 
 
+def test_coach_no_bgcolor_small_markers_both_sides():
+    s = cp.build_coach_indicator(_SCAFFOLD)
+    # background shading removed
+    assert "bgcolor(" not in s
+    # BOTH a long and a short can arm/trigger (shorts were never firing before)
+    assert "triggerLong" in s and "triggerShort" in s
+    assert "armLong " in s and "armShort " in s
+    # on-chart markers are tiny (no big triangles), with explicit LONG/SHORT triggers
+    for shape_line in [ln for ln in s.splitlines() if ln.strip().startswith("plotshape(")]:
+        assert "size.tiny" in shape_line, shape_line
+    assert 'text="LONG"' in s and 'text="SHORT"' in s
+    # a readable nearest-levels row in the panel
+    assert "lvlsTxt" in s
+    # GEX level labels ride the last bar (not stranded at bar_index+500)
+    assert "bar_index + 500" not in s
+
+
 def test_coach_flip_missing_is_typed_na():
     """A scaffold with no gamma-flip row must still compile: `gexFlip` has to
     be a TYPED float, else Pine rejects `gexFlip = na` (untyped na assignment)."""
