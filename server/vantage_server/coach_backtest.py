@@ -1,6 +1,13 @@
 """Replay the coach's rule engine against a day's ACTUAL trades — the
 before-the-fact coach, scored after the fact.
 
+STALE (2026-07-15): this mirrors the RETIRED discipline engine (WARN / ENTER /
+WAIT). The live coach_pine was rewritten into a plan-execution model
+(ARM → TRIGGER → HOLD / SCALE → STOP / TARGET), so this backtest no longer
+matches the indicator. It still runs and its wrong-side/chase findings remain
+valid history, but it must be rewritten to the new lifecycle before it can
+validate the current coach. Do not read its states as the live coach's.
+
 For each real entry it reconstructs the session VWAP / RSI / relative volume /
 ATR from the same minute bars the DNA uses, resolves the nearest baked playbook
 level + side, and reports the coach STATE (WARN / ENTER / WAIT) it would have
