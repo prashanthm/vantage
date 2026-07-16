@@ -121,7 +121,7 @@ indicator("SPX 0DTE Coach", overlay=true, max_lines_count=200, max_labels_count=
 var float[] lvlPx  = array.from({px_arr})
 var string[] lvlLb = array.from({lb_arr})
 var string[] lvlRo = array.from({ro_arr})
-flipLevel = {flip_line}
+float flipLevel = {flip_line}
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 tagTol   = input.float(0.05, "Tag tolerance (% of price)", minval=0.01, maxval=0.5, step=0.01, group="Coach", tooltip="How close counts as 'at' a level. 0.05% ~= 3.75pt at SPX 7500. Front-running = near but not within this AND not closed through.")

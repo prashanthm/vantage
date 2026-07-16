@@ -59,6 +59,20 @@ def test_coach_hold_tracks_red_position():
     assert "hold = red and not exitCue" in s
 
 
+def test_coach_flip_missing_is_typed_na():
+    """A scaffold with no gamma-flip row must still compile: `flipLevel` has to
+    be a TYPED float, else Pine rejects `flipLevel = na` (untyped na assignment)."""
+    scaffold = {"table": {"rows": [
+        {"price": 7600.0, "label": "call wall"},
+        {"price": 7548.1, "label": "resistance (9x)"},
+        {"price": 7450.0, "label": "put wall"},
+    ]}}
+    s = cp.build_coach_indicator(scaffold)
+    assert "float flipLevel = na" in s
+    # never emit a bare untyped `flipLevel = na`
+    assert "\nflipLevel = na" not in s
+
+
 def test_coach_none_without_levels():
     assert cp.build_coach_indicator({"table": {"rows": []}}) is None
     assert cp.build_coach_indicator({}) is None
