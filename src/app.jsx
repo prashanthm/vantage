@@ -14,6 +14,7 @@ import { ChartsView, ChartsRail } from "./charts.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
+import { SpxPlaybookView } from "./spx_forecast.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
 import { TodayView } from "./today.jsx";
@@ -80,6 +81,26 @@ function useHashRoute() {
     if (center) center.scrollTo({ top: 0 });
   };
   return [route, go];
+}
+
+// The 0DTE Playbook route: the daily plan (PlaybookView) and the chart-centric
+// forecast workspace (SpxPlaybookView) live under one nav item, toggled by a
+// sub-tab. Chart is the front door — it's the full-screen, ask-anything view.
+function PlaybookRoute({ refreshNonce }) {
+  const [tab, setTab] = useState("chart");   // chart | plan
+  return (
+    <div>
+      <div className="vg-subtabs">
+        <button className={cls("vg-subtab", tab === "chart" && "vg-subtab-on")}
+          onClick={() => setTab("chart")}>📈 Chart & forecast</button>
+        <button className={cls("vg-subtab", tab === "plan" && "vg-subtab-on")}
+          onClick={() => setTab("plan")}>📐 Daily plan</button>
+      </div>
+      {tab === "chart"
+        ? <SpxPlaybookView initialSymbol="SPX" />
+        : <PlaybookView refreshNonce={refreshNonce} />}
+    </div>
+  );
 }
 
 /* ---------------- app shell ---------------- */
@@ -360,7 +381,7 @@ function App() {
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
-          {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
+          {route === "playbook" && <PlaybookRoute refreshNonce={refreshNonce} />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}

@@ -11,10 +11,13 @@ import { parseMira, MiraRender } from "./mira-render.jsx";
 import { chartTheme } from "./charts.jsx";
 import {
   useLive, streamTurn, getSpxSnapshot, saveSpxForecast,
-  getSpxForecasts, scoreSpxForecast,
+  getSpxForecasts, scoreSpxForecast, prepareSpx,
 } from "./live.js";
 
 const { useState, useRef, useEffect } = React;
+
+// symbols that get coach levels + forecast (the engine needs a GEX chain).
+const PLAYBOOK_SYMBOLS = ["SPX", "QQQ", "IWM"];
 
 const hasLW = () => typeof window !== "undefined"
   && !!(window.LightweightCharts && window.LightweightCharts.createChart);
@@ -51,7 +54,7 @@ function ForecastChart({ snap, forecast }) {
     const LW = window.LightweightCharts;
     const th = chartTheme();
     const chart = LW.createChart(el, {
-      autoSize: true, height: 340,
+      autoSize: true,
       layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
       grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
       rightPriceScale: { borderColor: th.border },
@@ -182,18 +185,48 @@ function ForecastRow({ f, onScore, scoring }) {
   );
 }
 
-export function SpxForecastPanel({ symbol = "SPX" }) {
+// The full-screen 0DTE Playbook: a chart-centric forecast workspace. Enter any
+// symbol → its 5m candle chart. For the playbook symbols (SPX / QQQ / IWM) the
+// coach levels + ICT structures overlay and the "what will price do?" forecast
+// works. When a symbol has no stored bars yet, a "fetch data" button seeds them
+// on demand. Left: chart. Right rail: tape, forecast button, structured read,
+// prior forecasts with accuracy scores.
+export function SpxPlaybookView({ initialSymbol = "SPX" }) {
+  const [symbol, setSymbolState] = useState((initialSymbol || "SPX").toUpperCase());
+  const [entry, setEntry] = useState(symbol);
   const [nonce, setNonce] = useState(0);
-  const snapQ = useLive(() => getSpxSnapshot(), null, [nonce]);
-  const priors = useLive(() => getSpxForecasts(undefined, symbol, 30), null, [nonce]);
+  const [preparing, setPreparing] = useState(false);
+  const [prepNote, setPrepNote] = useState(null);
   const [read, setRead] = useState(null);
   const [scoring, setScoring] = useState(null);
   const abortRef = useRef(null);
   useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
 
+  const snapQ = useLive(() => getSpxSnapshot(undefined, undefined, symbol), null, [symbol, nonce]);
+  const priors = useLive(() => getSpxForecasts(undefined, symbol, 30), null, [symbol, nonce]);
+
   const s = snapQ.data && snapQ.data.available ? snapQ.data : null;
+  const isPlaybook = PLAYBOOK_SYMBOLS.includes(symbol);
   const busy = read && read.loading;
   const fcFields = read && read.data ? forecastFields(read.data) : null;
+
+  const applySymbol = (sym) => {
+    const s2 = String(sym || "").trim().toUpperCase();
+    if (!s2 || s2 === symbol) return;
+    setRead(null); setPrepNote(null);
+    setSymbolState(s2); setEntry(s2);
+  };
+
+  const prepare = () => {
+    setPreparing(true); setPrepNote(null);
+    prepareSpx(symbol, 5)
+      .then((r) => {
+        if (r && r.note) setPrepNote(r.note);
+        setNonce((n) => n + 1);   // re-fetch the snapshot
+      })
+      .catch((e) => setPrepNote(String(e && e.message || e)))
+      .finally(() => setPreparing(false));
+  };
 
   const forecast = () => {
     if (!s) return;
@@ -201,7 +234,7 @@ export function SpxForecastPanel({ symbol = "SPX" }) {
     let text = "";
     const ref = `SPX_SNAPSHOT_REF day=${s.day} as_of=${s.as_of} underlying=${symbol}`;
     const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).\n${ref}`;
-    abortRef.current = streamTurn(prompt, `spx-forecast-${s.day}-${s.as_of}`, (evt) => {
+    abortRef.current = streamTurn(prompt, `spx-forecast-${symbol}-${s.day}-${s.as_of}`, (evt) => {
       if (evt.kind === "error") { setRead({ error: evt.message || "Mira error" }); return; }
       if (evt.kind === "delta") { text += evt.text || ""; setRead({ loading: true, text }); return; }
       if (evt.kind === "done") {
@@ -224,48 +257,114 @@ export function SpxForecastPanel({ symbol = "SPX" }) {
   const draw = (s && s.ict && s.ict.draw) || {};
 
   return (
-    <div className="vg-card vg-fc vg-loadhost" style={{ marginTop: 14 }}>
-      {(snapQ.loading || busy) && <LoadBar />}
-      <div className="vg-spread">
-        <div className="vg-kicker" style={{ margin: 0 }}>What will price do? · SPX analyst</div>
-        <button className="vg-btn-sm" disabled={busy || !s} onClick={forecast}>
-          {busy ? <><span className="vg-spin" aria-hidden="true">⟳</span> Reading the tape…</> : "🔮 Forecast now"}
-        </button>
+    <div className="vg-loadhost">
+      {(snapQ.loading || busy || preparing) && <LoadBar />}
+
+      <div className="vg-spread" style={{ marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 19 }}>0DTE Playbook — {symbol}</h2>
+          <p className="vg-sub" style={{ margin: "4px 0 0" }}>
+            {isPlaybook
+              ? "5-min candles · coach levels · ICT structure · what will price do?"
+              : "5-min candles — coach levels & forecast need a GEX chain (SPX / QQQ / IWM)"}
+          </p>
+        </div>
+        <form
+          className="vg-fc-symbar"
+          onSubmit={(e) => { e.preventDefault(); applySymbol(entry); }}
+        >
+          {PLAYBOOK_SYMBOLS.map((sy) => (
+            <button
+              type="button" key={sy}
+              className={cls("vg-fc-chip", sy === symbol && "vg-fc-chip-on")}
+              onClick={() => applySymbol(sy)}
+            >{sy}</button>
+          ))}
+          <input
+            className="vg-fc-syminput" value={entry} spellCheck={false}
+            onChange={(e) => setEntry(e.target.value.toUpperCase())}
+            placeholder="symbol" aria-label="chart symbol"
+          />
+          <button className="vg-btn-sm" type="submit">Load</button>
+        </form>
       </div>
 
-      {!s && !snapQ.loading && (
-        <p className="vg-note" style={{ marginTop: 8 }}>
-          {snapQ.data && snapQ.data.note ? snapQ.data.note : "No snapshot yet — needs the day's 1m bars."}
-        </p>)}
+      <div className="vg-fc-grid">
+        <div className="vg-card vg-fc-chartcard" style={{ padding: 14 }}>
+          {s && (
+            <div className="vg-fc-tapehead">
+              <b>{s.price}</b>
+              <span className="vg-note">{s.day} · {String(s.as_of || "").slice(11, 16)} ET</span>
+              <span className="vg-fc-tape">
+                VWAP {t.vwap} ({t.vs_vwap_pt >= 0 ? "+" : ""}{t.vs_vwap_pt}) · RSI {t.rsi} · vol {t.rel_volume}×
+                {draw.dir ? <> · draw {draw.dir} → <b>{draw.level}</b></> : null}
+              </span>
+            </div>)}
 
-      {s && (
-        <div className="vg-fc-tapehead">
-          <b>{s.price}</b>
-          <span className="vg-note">{s.day} · {String(s.as_of || "").slice(11, 16)} ET</span>
-          <span className="vg-fc-tape">
-            VWAP {t.vwap} ({t.vs_vwap_pt >= 0 ? "+" : ""}{t.vs_vwap_pt}) · RSI {t.rsi} · vol {t.rel_volume}×
-            {draw.dir ? <> · draw {draw.dir} → <b>{draw.level}</b></> : null}
-          </span>
-        </div>)}
+          {s
+            ? <ForecastChart key={symbol} snap={s} forecast={fcFields} />
+            : (
+              <div className="vg-fc-empty">
+                {snapQ.loading
+                  ? <p className="vg-note">Loading candles…</p>
+                  : <>
+                      <p className="vg-note" style={{ marginBottom: 12 }}>
+                        {snapQ.data && snapQ.data.note
+                          ? snapQ.data.note
+                          : `No stored 1m bars for ${symbol} yet.`}
+                      </p>
+                      <button className="vg-btn" disabled={preparing} onClick={prepare}>
+                        {preparing
+                          ? <><span className="vg-spin" aria-hidden="true">⟳</span> Fetching {symbol} data…</>
+                          : `⤓ Fetch data & compute levels`}
+                      </button>
+                      {prepNote && <p className="vg-note" style={{ marginTop: 10 }}>{prepNote}</p>}
+                    </>}
+              </div>)}
+        </div>
 
-      {s && <ForecastChart snap={s} forecast={fcFields} />}
+        <div className="vg-fc-rail">
+          <div className="vg-card">
+            <div className="vg-spread">
+              <div className="vg-kicker" style={{ margin: 0 }}>What will price do?</div>
+              <button
+                className="vg-btn-sm" disabled={busy || !s || !isPlaybook} onClick={forecast}
+                title={!isPlaybook ? "forecast needs coach levels (SPX / QQQ / IWM)" : undefined}
+              >
+                {busy ? <><span className="vg-spin" aria-hidden="true">⟳</span> Reading…</> : "🔮 Forecast now"}
+              </button>
+            </div>
+            {!isPlaybook && (
+              <p className="vg-note" style={{ marginTop: 8 }}>
+                Chart only — the forecast reasons over coach levels, which need a GEX chain.
+              </p>)}
+            {read && (read.error
+              ? <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{read.error}</p>
+              : (read.data || read.text)
+                ? <div style={{ marginTop: 10 }}><MiraRender data={read.data} text={read.text} /></div>
+                : read.loading
+                  ? <p className="vg-note" style={{ marginTop: 8 }}>Reasoning over the liquidity, draw, and structure…</p>
+                  : (isPlaybook && s)
+                    ? <p className="vg-note" style={{ marginTop: 8 }}>Hit forecast for a scoreable directional read.</p>
+                    : null)}
+          </div>
 
-      {read && (read.error
-        ? <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{read.error}</p>
-        : (read.data || read.text)
-          ? <div style={{ marginTop: 10 }}><MiraRender data={read.data} text={read.text} /></div>
-          : read.loading ? <p className="vg-note" style={{ marginTop: 8 }}>Reasoning over the liquidity, draw, and structure…</p> : null)}
+          {priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && (
+            <div className="vg-card">
+              <div className="vg-kicker">Prior forecasts</div>
+              {priors.data.forecasts.map((f) => (
+                <ForecastRow key={f.id} f={f} onScore={score} scoring={scoring} />
+              ))}
+            </div>)}
 
-      {priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div className="vg-kicker">Prior forecasts</div>
-          {priors.data.forecasts.map((f) => (
-            <ForecastRow key={f.id} f={f} onScore={score} scoring={scoring} />
-          ))}
-        </div>)}
-      <p className="vg-note" style={{ marginTop: 10, fontSize: 11, color: "var(--vg-dim)" }}>
-        Levels are the nightly EOD estimate · 0DTE-blind · not advice.
-      </p>
+          <p className="vg-note" style={{ fontSize: 11, color: "var(--vg-dim)" }}>
+            Levels are the nightly EOD estimate · 0DTE-blind · not advice.
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
+
+// Back-compat alias (older mounts referenced SpxForecastPanel).
+export const SpxForecastPanel = SpxPlaybookView;

@@ -468,6 +468,45 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                                  "nightly 1m seed or open the day in the journal.")
         return envelope(snap, available=True, **out)
 
+    #: the underlyings that HAVE a playbook + coach levels (the engine needs a GEX
+    #: chain + the underlyings registry — it can't compute levels for arbitrary
+    #: tickers). The chart works for any symbol; levels/forecast only for these.
+    PLAYBOOK_SYMBOLS = ("SPX", "QQQ", "IWM")
+
+    @app.post("/api/spx/prepare")
+    def spx_prepare(body: dict = Body(default={})):
+        """On-demand data prep for the playbook screen: seed the day's 1m bars for
+        a symbol (so the CHART works for any ticker yfinance serves) and, for the
+        PLAYBOOK_SYMBOLS, (re)compute the playbook so the coach levels + forecast
+        overlay too. Body: {symbol, day?}. The chart works for any symbol; coach
+        levels only come back for SPX / QQQ / IWM."""
+        snap = state.snapshot()
+        sym = str(body.get("symbol") or "SPX").upper()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="needs the SQLite backend")
+        from . import seed_intraday as _seed
+        bar_sym = "^GSPC" if sym == "SPX" else sym
+        has_levels = sym in PLAYBOOK_SYMBOLS
+        # 1) for playbook symbols, ensure the playbook (coach levels) exists
+        recomputed = False
+        if has_levels and store.load_spx_playbook(symbol=sym) is None:
+            try:
+                from . import spx_playbook as _pb
+                _pb.main(["--symbol", sym])
+                recomputed = True
+            except Exception as e:  # noqa: BLE001
+                return envelope(snap, available=False, note=f"playbook compute failed: {e}")
+        # 2) seed the trailing 1m bars (idempotent; captures what yfinance serves)
+        try:
+            seeded = _seed.seed(store, symbol=bar_sym, days=int(body.get("days") or 5))
+        except Exception as e:  # noqa: BLE001
+            return envelope(snap, available=False, note=f"1m data fetch failed for {sym}: {e}")
+        note = None if has_levels else (
+            f"{sym}: chart is ready, but coach levels + forecast need a GEX chain "
+            f"(SPX / QQQ / IWM only).")
+        return envelope(snap, available=True, symbol=sym, has_levels=has_levels,
+                        playbook_recomputed=recomputed, seeded=seeded, note=note)
+
     @app.post("/api/spx/forecast")
     def spx_forecast_save(body: dict = Body(default={})):
         """Persist a 'what will price do?' forecast the SPA generated via Mira's

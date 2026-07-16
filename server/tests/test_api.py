@@ -504,6 +504,9 @@ ALLOWED_WRITE_ROUTES = {
     # Writes only our own SQLite; no broker/order path (ADR-010 holds).
     "/api/spx/forecast",
     "/api/spx/forecast/{fid}/score",
+    # On-demand playbook-level compute + 1m seed for the forecast screen. Writes
+    # only our own store (scaffold + bars); no broker/order path (ADR-010 holds).
+    "/api/spx/prepare",
 }
 
 

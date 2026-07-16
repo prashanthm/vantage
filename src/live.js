@@ -996,9 +996,9 @@ export const getJournalAnalyses = (underlying = "SPX") =>
 
 // ── SPX-analyst forecast loop ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).
-export const getSpxSnapshot = (day, asOf) =>
-  getJson(`${backendBase()}/api/spx/snapshot`
-    + (day ? `?day=${encodeURIComponent(day)}` : "?")
+export const getSpxSnapshot = (day, asOf, symbol = "SPX") =>
+  getJson(`${backendBase()}/api/spx/snapshot?symbol=${encodeURIComponent(symbol)}`
+    + (day ? `&day=${encodeURIComponent(day)}` : "")
     + (asOf ? `&as_of=${encodeURIComponent(asOf)}` : ""));
 // Persist a forecast the SPA generated via Mira's spx_analyst.
 export const saveSpxForecast = (body) =>
@@ -1010,6 +1010,9 @@ export const getSpxForecasts = (day, symbol = "SPX", limit = 50) =>
 // Grade a stored forecast against the elapsed price action.
 export const scoreSpxForecast = (fid) =>
   postJson(`${backendBase()}/api/spx/forecast/${fid}/score`, {});
+// On-demand: compute the playbook levels + seed 1m bars for a symbol.
+export const prepareSpx = (symbol, days = 5) =>
+  postJson(`${backendBase()}/api/spx/prepare`, { symbol, days });
 
 // The positions that matter while trading: reclaim proxies you actually hold,
 // each flagged with whether the exit monitor is protecting it.
