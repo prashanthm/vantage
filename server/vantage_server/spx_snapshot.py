@@ -13,6 +13,34 @@ from . import ict
 from . import reclaim_pine as _rp
 
 
+def _resample_5m(ts, op, hi, lo, cl, vol, upto):
+    """1m OHLC → 5m candles up to `upto`, as Lightweight-Charts rows
+    {time (unix sec), open, high, low, close}. Buckets by 5-min wall clock."""
+    import datetime as _d
+    out, bucket = [], None
+    for k in range(upto + 1):
+        t = _d.datetime.fromisoformat(ts[k])
+        floor_min = (t.minute // 5) * 5
+        key = t.replace(minute=floor_min, second=0, microsecond=0)
+        if bucket is None or bucket["key"] != key:
+            if bucket is not None:
+                out.append(bucket["row"])
+            bucket = {"key": key, "row": {
+                "time": int(key.timestamp()), "open": op[k], "high": hi[k],
+                "low": lo[k], "close": cl[k]}}
+        else:
+            r = bucket["row"]
+            r["high"] = max(r["high"], hi[k])
+            r["low"] = min(r["low"], lo[k])
+            r["close"] = cl[k]
+    if bucket is not None:
+        out.append(bucket["row"])
+    for r in out:
+        for kk in ("open", "high", "low", "close"):
+            r[kk] = round(r[kk], 2)
+    return out
+
+
 def _vwap_rsi(op, hi, lo, cl, vol, upto):
     """Session VWAP, RSI(14), rel-volume, ATR at bar ``upto`` — the coach's tape."""
     # VWAP (session, hlc3)
@@ -88,9 +116,12 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
     sess_lo = min(lo[:ei + 1])
     opening = cl[0]
 
+    bars_5m = _resample_5m(ts, op, hi, lo, cl, vol, ei)
+
     return {
         "symbol": symbol, "day": day, "as_of": ts[ei], "bar": ei + 1,
         "price": round(price, 2),
+        "bars_5m": bars_5m,   # Lightweight-Charts candles for the chart view
         "session": {"open": round(opening, 2), "high": round(sess_hi, 2),
                     "low": round(sess_lo, 2), "from_open_pt": round(price - opening, 1)},
         "technicals": {

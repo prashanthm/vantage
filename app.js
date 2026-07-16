@@ -2701,12 +2701,163 @@
 
   // src/spx_forecast.jsx
   var { useState: useState7, useRef: useRef2, useEffect: useEffect6 } = React;
-  function SnapshotHead({ s }) {
-    if (!s) return null;
-    const t = s.technicals || {};
-    const ic = s.ict || {};
-    const draw = ic.draw || {};
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-fc-head" }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-price" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET")), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level), " (", draw.dist, "pt)") : null));
+  var hasLW2 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+  function forecastFields(data) {
+    if (!data) return {};
+    const num2 = (v) => {
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    let bias = data.bias, target = num2(data.target), invalid = num2(data.invalidation);
+    for (const sec of data.sections || []) {
+      for (const r of sec.rows || []) {
+        const k = String(r.k || "").toLowerCase();
+        if (!bias && k.includes("bias")) bias = String(r.v || "").toLowerCase();
+        if (target == null && k.includes("target")) target = num2(r.v);
+        if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = num2(r.v);
+      }
+    }
+    return { bias: String(bias || "").toLowerCase(), target, invalid };
+  }
+  function ForecastChart({ snap, forecast }) {
+    const elRef = useRef2(null);
+    const chartRef = useRef2(null);
+    const candleRef = useRef2(null);
+    const linesRef = useRef2([]);
+    const zonesRef = useRef2([]);
+    useEffect6(() => {
+      const el = elRef.current;
+      if (!el || !hasLW2()) return void 0;
+      const LW = window.LightweightCharts;
+      const th = chartTheme();
+      const chart = LW.createChart(el, {
+        autoSize: true,
+        height: 340,
+        layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
+        grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
+        rightPriceScale: { borderColor: th.border },
+        timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false },
+        crosshair: { mode: LW.CrosshairMode.Normal }
+      });
+      const candle = chart.addCandlestickSeries({
+        upColor: th.up,
+        downColor: th.down,
+        wickUpColor: th.up,
+        wickDownColor: th.down,
+        borderUpColor: th.up,
+        borderDownColor: th.down
+      });
+      chartRef.current = chart;
+      candleRef.current = candle;
+      return () => {
+        chart.remove();
+        chartRef.current = candleRef.current = null;
+        linesRef.current = [];
+        zonesRef.current = [];
+      };
+    }, []);
+    useEffect6(() => {
+      const candle = candleRef.current;
+      const bars = snap && snap.bars_5m;
+      if (!candle || !bars || !bars.length) return;
+      candle.setData(bars);
+      if (chartRef.current) chartRef.current.timeScale().fitContent();
+    }, [snap]);
+    useEffect6(() => {
+      const candle = candleRef.current, chart = chartRef.current;
+      if (!candle || !chart || !snap) return;
+      const LW = window.LightweightCharts;
+      const th = chartTheme();
+      for (const pl of linesRef.current) {
+        try {
+          candle.removePriceLine(pl);
+        } catch (e) {
+        }
+      }
+      for (const z of zonesRef.current) {
+        try {
+          chart.removeSeries(z);
+        } catch (e) {
+        }
+      }
+      linesRef.current = [];
+      zonesRef.current = [];
+      const addLine = (o) => linesRef.current.push(candle.createPriceLine(o));
+      const bars = snap.bars_5m || [];
+      const t0 = bars.length ? bars[0].time : 0;
+      const t1 = bars.length ? bars[bars.length - 1].time : 0;
+      const addZone = (top, bottom, rgb, alpha) => {
+        const area = chart.addBaselineSeries({
+          baseValue: { type: "price", price: bottom },
+          topFillColor1: `rgba(${rgb},${alpha})`,
+          topFillColor2: `rgba(${rgb},${alpha})`,
+          topLineColor: `rgba(${rgb},0)`,
+          bottomLineColor: `rgba(${rgb},0)`,
+          bottomFillColor1: "rgba(0,0,0,0)",
+          bottomFillColor2: "rgba(0,0,0,0)",
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false
+        });
+        area.setData([{ time: t0, value: top }, { time: t1, value: top }]);
+        zonesRef.current.push(area);
+      };
+      (snap.levels || []).forEach((lv) => {
+        const lbl = String(lv.label || "");
+        const isRes = /resist|call wall/i.test(lbl);
+        const isSup = /support|put wall|max pain/i.test(lbl);
+        const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
+        addLine({
+          price: lv.price,
+          color: `rgba(${rgb.join(",")},0.55)`,
+          lineWidth: /wall|max pain|durable/i.test(lbl) ? 2 : 1,
+          lineStyle: LW.LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: lbl.replace(/\s*[★✦].*$/, "").slice(0, 22)
+        });
+      });
+      const ict = snap.ict || {};
+      (ict.active_order_blocks || []).slice(0, 6).forEach((o) => {
+        const rgb = o.side === "bull" ? th.upRgb : th.downRgb;
+        addZone(o.top, o.bottom, rgb.join(","), 0.1);
+      });
+      (ict.fresh_fvgs || []).slice(0, 6).forEach((f) => {
+        const rgb = f.side === "bull" ? th.upRgb : th.downRgb;
+        addZone(f.hi, f.lo, rgb.join(","), 0.07);
+      });
+      if (forecast) {
+        const { target, invalid } = forecast;
+        if (target != null) addLine({
+          price: target,
+          color: `rgba(${th.upRgb.join(",")},0.95)`,
+          lineWidth: 2,
+          lineStyle: LW.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `TARGET ${target}`
+        });
+        if (invalid != null) addLine({
+          price: invalid,
+          color: `rgba(${th.downRgb.join(",")},0.95)`,
+          lineWidth: 2,
+          lineStyle: LW.LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `INVALID ${invalid}`
+        });
+      } else if (ict.draw && ict.draw.level != null) {
+        addLine({
+          price: ict.draw.level,
+          color: "rgba(124,92,255,0.9)",
+          lineWidth: 2,
+          lineStyle: LW.LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: `DRAW ${ict.draw.dir === "up" ? "\u2191" : "\u2193"} ${ict.draw.level}`
+        });
+      }
+    }, [snap, forecast]);
+    if (!hasLW2()) {
+      return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
+    }
+    return /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-fc-chart" });
   }
   function ForecastRow({ f, onScore, scoring }) {
     const [open, setOpen] = useState7(false);
@@ -2727,7 +2878,7 @@
   }
   function SpxForecastPanel({ symbol = "SPX" }) {
     const [nonce, setNonce] = useState7(0);
-    const snap = useLive(() => getSpxSnapshot(), null, [nonce]);
+    const snapQ = useLive(() => getSpxSnapshot(), null, [nonce]);
     const priors = useLive(() => getSpxForecasts(void 0, symbol, 30), null, [nonce]);
     const [read, setRead] = useState7(null);
     const [scoring, setScoring] = useState7(null);
@@ -2735,8 +2886,9 @@
     useEffect6(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
-    const s = snap.data && snap.data.available ? snap.data : null;
+    const s = snapQ.data && snapQ.data.available ? snapQ.data : null;
     const busy = read && read.loading;
+    const fcFields = read && read.data ? forecastFields(read.data) : null;
     const forecast = () => {
       if (!s) return;
       setRead({ loading: true });
@@ -2774,7 +2926,9 @@ ${ref}`;
       setScoring(fid);
       scoreSpxForecast(fid).then(() => setNonce((n) => n + 1)).finally(() => setScoring(null));
     };
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc vg-loadhost", style: { marginTop: 14 } }, (snap.loading || busy) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do? \xB7 SPX analyst"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy || !s, onClick: forecast }, busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Reading the tape\u2026") : "\u{1F52E} Forecast now")), !s && !snap.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, snap.data && snap.data.note ? snap.data.note : "No snapshot yet \u2014 needs the day's 1m bars."), s && /* @__PURE__ */ React.createElement(SnapshotHead, { s }), read && (read.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error) : read.data || read.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })) : read.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Reasoning over the liquidity, draw, and structure\u2026") : null), priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior forecasts"), priors.data.forecasts.map((f) => /* @__PURE__ */ React.createElement(ForecastRow, { key: f.id, f, onScore: score, scoring }))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, fontSize: 11, color: "var(--vg-dim)" } }, "Levels are the nightly EOD estimate \xB7 0DTE-blind \xB7 not advice."));
+    const t = s && s.technicals || {};
+    const draw = s && s.ict && s.ict.draw || {};
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc vg-loadhost", style: { marginTop: 14 } }, (snapQ.loading || busy) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do? \xB7 SPX analyst"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy || !s, onClick: forecast }, busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Reading the tape\u2026") : "\u{1F52E} Forecast now")), !s && !snapQ.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : "No snapshot yet \u2014 needs the day's 1m bars."), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET"), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s && /* @__PURE__ */ React.createElement(ForecastChart, { snap: s, forecast: fcFields }), read && (read.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error) : read.data || read.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })) : read.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Reasoning over the liquidity, draw, and structure\u2026") : null), priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior forecasts"), priors.data.forecasts.map((f) => /* @__PURE__ */ React.createElement(ForecastRow, { key: f.id, f, onScore: score, scoring }))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, fontSize: 11, color: "var(--vg-dim)" } }, "Levels are the nightly EOD estimate \xB7 0DTE-blind \xB7 not advice."));
   }
 
   // src/today.jsx
