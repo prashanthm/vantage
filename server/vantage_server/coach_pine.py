@@ -315,45 +315,22 @@ thetaWait = not inTrade and armLong and coiled and coilBars >= stallBars
 state = firedNow ? "TRIGGERED" : (inTrade and scaleOut) ? "SCALE" : inTrade ? "HOLD" : (armLong or armShort) ? (thetaWait ? "THETA" : "ARMED") : "WAIT"
 
 // ── the ACTION verb — the ONE thing to read ──────────────────────────────────
-action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") :
-         state == "SCALE"     ? "SCALE OUT — TAKE PARTIAL" :
-         state == "HOLD"      ? (pnlPts >= 0 ? "HOLD TOWARD TARGET" : "HOLD — STOP INTACT") :
-         state == "ARMED"     ? (armLong ? "ARMED · LONG SETUP" : "ARMED · SHORT SETUP") :
-         state == "THETA"     ? "WAITING — THETA RISK" :
-                                "STAND ASIDE"
+action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") : state == "SCALE" ? "SCALE OUT — TAKE PARTIAL" : state == "HOLD" ? (pnlPts >= 0 ? "HOLD TOWARD TARGET" : "HOLD — STOP INTACT") : state == "ARMED" ? (armLong ? "ARMED · LONG SETUP" : "ARMED · SHORT SETUP") : state == "THETA" ? "WAITING — THETA RISK" : "STAND ASIDE"
 
 // ── plain-English reason / the plan spelled out ──────────────────────────────
-planLine = na(armLevel) ? "No setup in range." :
-     (armLong ? "LONG " : "SHORT ") + armLbl + " " + str.tostring(armLevel, "#.#") +
-     " · trigger " + str.tostring(reclaimN) + " closes " + (armLong ? "above" : "below") +
-     " · T1 " + (na(armT1) ? "open" : str.tostring(armT1, "#.#")) +
-     " · stop " + (na(armStop) ? "—" : str.tostring(armStop, "#.#")) +
-     (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#"))
+planLine = na(armLevel) ? "No setup in range." : (armLong ? "LONG " : "SHORT ") + armLbl + " " + str.tostring(armLevel, "#.#") + " · trigger " + str.tostring(reclaimN) + " closes " + (armLong ? "above" : "below") + " · T1 " + (na(armT1) ? "open" : str.tostring(armT1, "#.#")) + " · stop " + (na(armStop) ? "—" : str.tostring(armStop, "#.#")) + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#"))
 
-reason = state == "TRIGGERED" ? "reclaimed " + armLbl + " — take the " + (tDir == 1 ? "calls" : "puts") + ", target " + str.tostring(tT1, "#.#") + ", stop " + str.tostring(tStop, "#.#") :
-         state == "SCALE"     ? "momentum fading before T1 (" + str.tostring(tT1, "#.#") + ") — trim near " + str.tostring(scaleAt, "#.#") + ", let the rest run to target" :
-         state == "HOLD"      ? (pnlPts >= 0 ? "in the plan, +" + str.tostring(pnlPts, "#.#") + "pt — hold toward " + str.tostring(tT1, "#.#") : str.tostring(pnlPts, "#.#") + "pt red but stop " + str.tostring(tStop, "#.#") + " intact — don't fold") :
-         state == "ARMED"     ? planLine :
-         state == "THETA"     ? "armed at " + armLbl + " but coiled " + str.tostring(coilBars) + " bars — theta bleeds while it decides" + (midday ? " (midday)" : "") :
-                                "no setup within range — wait for price to reach a level"
+reason = state == "TRIGGERED" ? "reclaimed " + armLbl + " — take the " + (tDir == 1 ? "calls" : "puts") + ", target " + str.tostring(tT1, "#.#") + ", stop " + str.tostring(tStop, "#.#") : state == "SCALE" ? "momentum fading before T1 (" + str.tostring(tT1, "#.#") + ") — trim near " + str.tostring(scaleAt, "#.#") + ", let the rest run to target" : state == "HOLD" ? (pnlPts >= 0 ? "in the plan, +" + str.tostring(pnlPts, "#.#") + "pt — hold toward " + str.tostring(tT1, "#.#") : str.tostring(pnlPts, "#.#") + "pt red but stop " + str.tostring(tStop, "#.#") + " intact — don't fold") : state == "ARMED" ? planLine : state == "THETA" ? "armed at " + armLbl + " but coiled " + str.tostring(coilBars) + " bars — theta bleeds while it decides" + (midday ? " (midday)" : "") : "no setup within range — wait for price to reach a level"
 
 // ── the NARRATIVE — plain read of the tape, always shown ─────────────────────
-regimeTxt = na(vwap) ? "" :
-     (close >= vwap ? "Above VWAP" : "Below VWAP") +
-     (useGex ? (aboveFlip ? ", above flip — buyers favored. " : ", under flip — sellers favored. ") : ". ")
+regimeTxt = na(vwap) ? "" : (close >= vwap ? "Above VWAP" : "Below VWAP") + (useGex ? (aboveFlip ? ", above flip — buyers favored. " : ", under flip — sellers favored. ") : ". ")
 srcTxt = useGex ? "Planning off SPX GEX levels. " : "No GEX (not SPX) — planning off swings. "
 narrative = srcTxt + regimeTxt
 
 // ── your position, in plain words ────────────────────────────────────────────
-posTxt = not inTrade ? (na(tOutcome) ? "Flat — no position" : "Flat · last: " + tOutcome) :
-     (tDir == 1 ? "Long from " : "Short from ") + str.tostring(tEntry, "#.#") +
-     " · " + str.tostring(pnlPts, "+#.#;-#.#") + "pt " + (na(pnlPts) ? "" : pnlPts >= 0 ? "🟢" : "🔴") +
-     "  (T1 " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + ")"
+posTxt = not inTrade ? (na(tOutcome) ? "Flat — no position" : "Flat · last: " + tOutcome) : (tDir == 1 ? "Long from " : "Short from ") + str.tostring(tEntry, "#.#") + " · " + str.tostring(pnlPts, "+#.#;-#.#") + "pt " + (na(pnlPts) ? "" : (pnlPts >= 0 ? "🟢" : "🔴")) + "  (T1 " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + ")"
 
-tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, "+#.#;-#.#") + " ATR vs VWAP")) +
-     " · RSI " + str.tostring(rsi, "#") + (rsi >= 70 ? "↑" : rsi <= 30 ? "↓" : "") +
-     " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) +
-     (coiled ? " · COILED " + str.tostring(coilBars) + "b" : "")
+tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, "+#.#;-#.#") + " ATR vs VWAP")) + " · RSI " + str.tostring(rsi, "#") + (rsi >= 70 ? "↑" : rsi <= 30 ? "↓" : "") + " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) + (coiled ? " · COILED " + str.tostring(coilBars) + "b" : "")
 
 // ── plots ─────────────────────────────────────────────────────────────────────
 plot(showVwap ? vwap : na, "VWAP", color=color.new(#2f6df6, 0), linewidth=2)
