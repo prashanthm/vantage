@@ -1093,6 +1093,19 @@ class Store:
         except Exception:  # capture must never break the DNA path
             return False
 
+    def latest_intraday_day(self, symbol: str, interval: str = "1m") -> str | None:
+        """The most recent stored session date for (symbol, interval), or None."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            row = conn.execute(
+                "SELECT day FROM intraday_bars WHERE symbol=? AND interval=? "
+                "ORDER BY day DESC LIMIT 1", (symbol, interval)).fetchone()
+        finally:
+            conn.close()
+        return (row["day"] if hasattr(row, "keys") else row[0]) if row else None
+
     def load_intraday_bars(self, symbol: str, day: str,
                            interval: str = "1m") -> dict | None:
         """The stored intraday OHLC for (symbol, day, interval), or None."""

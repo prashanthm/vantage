@@ -411,6 +411,30 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         session=row["session"], symbol=sym, script=script,
                         webhook_configured=bool(secret))
 
+    @app.get("/api/spx/snapshot")
+    def spx_snapshot_view(day: str | None = Query(None),
+                          symbol: str = Query("SPX"),
+                          as_of: str | None = Query(None)):
+        """The chart-centric SNAPSHOT for the SPX-analyst forecast loop: price +
+        the coach's playbook levels + live technicals (VWAP/RSI/rel-vol/ATR) +
+        the ICT structures (unswept liquidity, active order blocks, fresh FVGs,
+        the level-based draw), from the persisted 1m bars. ``day`` defaults to the
+        latest stored session; ``as_of`` (ISO time) truncates mid-session."""
+        from . import spx_snapshot as _snap
+        snap = state.snapshot()
+        sym = (symbol or "SPX").upper()
+        d = day
+        if d is None:
+            bar_sym = "^GSPC" if sym == "SPX" else sym
+            d = store.latest_intraday_day(bar_sym, "1m") if getattr(
+                store, "uses_sqlite", False) else None
+        out = _snap.build_snapshot(store, d, symbol=sym, as_of=as_of) if d else None
+        if out is None:
+            return envelope(snap, available=False,
+                            note="No persisted 1m bars for the session — run the "
+                                 "nightly 1m seed or open the day in the journal.")
+        return envelope(snap, available=True, **out)
+
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
                               risk: float, date: str | None,
                               entry: float | None = None):
