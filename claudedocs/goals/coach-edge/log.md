@@ -79,6 +79,29 @@ coach_pine.py so the LIVE indicator matches the backtested rules.
 MECHANICS, NOT the GEX overlay. GEX cannot be reconstructed historically; the
 coach's SPX GEX edge remains unmeasured and must be judged live.
 
+## H4 (pre-registered) — position-based arming (any level tradeable) helps
+context: user asked "does the coach only use GEX?" — it already uses the full
+confluence ladder (GEX + S/R + fib + volume), but bare volume-PoC / fib levels
+classify as "level" and don't arm an entry (only support/resistance/wall/flip do).
+prediction: letting ANY level below price arm a long / above arm a short (minus
+the wrong-side wall) will RAISE trade count while keeping WR ≥ 0.65 (more valid
+levels → more setups).
+experiment: `coach_rules_backtest.py --position-roles --rr-min 1.5` vs keyword mode.
+result:
+  - keyword (current): n=26, WR 0.731, PF 6.92
+  - position-roles:    n=35, WR **0.371**, PF **1.15**
+verdict: DISPROVEN. Trade count rose (26→35) as predicted, but WR collapsed
+0.73→0.37 and PF 6.9→1.15. The support/resistance-TAGGED levels are materially
+better entries than arbitrary volume-PoC / fib levels; arming off everything
+dilutes the edge badly.
+kept: reverted the Pine change. Keyword-based arming stays. (The misleading
+"SPX GEX levels" labels WERE fixed → "SPX playbook levels (GEX + S/R + fib +
+volume)", since that's the honest description of what's baked.)
+
+**Most valuable disproven hypothesis so far:** more tradeable levels ≠ better.
+The playbook's role tagging is doing real filtering work; bypassing it for
+coverage halves the win rate.
+
 ## Interim decision (after H2)
 The predicate is CLEARED by the corrected config: WR 0.640 ≥ 0.45, PF 3.095 ≥
 1.2, no_target=0 (the wrong-side-target bug is structurally impossible once

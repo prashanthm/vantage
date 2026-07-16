@@ -118,7 +118,7 @@ def _pine_str(s: str) -> str:
 _COACH_BODY = '''//@version=5
 indicator("Vantage Coach", overlay=true, max_lines_count=200, max_labels_count=200)
 
-// ── baked SPX GEX/pivot levels (from the nightly playbook) ───────────────────
+// ── baked SPX playbook levels (GEX walls + S/R + fib + volume confluence) ────
 // These are SPX-specific. They're used ONLY when the chart IS SPX (auto-gated
 // below via syminfo). On any other symbol the coach arms trades off swing
 // structure instead, so the same indicator works on any ticker.
@@ -204,6 +204,11 @@ if useGex
         p = array.get(gexPx, i)
         ro = array.get(gexRo, i)
         lb = array.get(gexLb, i)
+        // Arm off the S/R-tagged levels only. Backtested (coach-edge H4): making
+        // EVERY level tradeable by position (incl. bare volume-PoC / fib) cut
+        // WR 0.73 → 0.37 / PF 6.9 → 1.15 — the support/resistance-tagged levels
+        // are materially better entries. Bare confluence levels still draw and
+        // still serve as TARGETS; they just don't arm an entry.
         longable  = ro == "support" or ro == "putwall" or ro == "flip"
         shortable = ro == "resistance" or ro == "callwall" or ro == "flip"
         if p <= close and longable and (close - p) < bestSup
@@ -347,7 +352,7 @@ reason = state == "TRIGGERED" ? "reclaimed " + armLbl + " — take the " + (tDir
 
 // ── the NARRATIVE — plain read of the tape, always shown ─────────────────────
 regimeTxt = na(vwap) ? "" : (close >= vwap ? "Above VWAP" : "Below VWAP") + (useGex ? (aboveFlip ? ", above flip — buyers favored. " : ", under flip — sellers favored. ") : ". ")
-srcTxt = useGex ? "Planning off SPX GEX levels. " : "No GEX (not SPX) — planning off swings. "
+srcTxt = useGex ? "Planning off SPX playbook levels (GEX + S/R + fib + volume). " : "No playbook (not SPX) — planning off swings. "
 narrative = srcTxt + regimeTxt
 
 // ── your position, in plain words ────────────────────────────────────────────
@@ -424,7 +429,7 @@ if showPanel and barstate.islast
     table.cell(panel, 0, 3, lvlsTxt, text_color=color.new(#dfe4ea, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
     table.cell(panel, 0, 4, narrative, text_color=color.new(#c7ccd4, 0), bgcolor=color.new(#1b2029, 0), text_size=size.small, text_halign=text.align_left)
     table.cell(panel, 0, 5, tapeTxt, text_color=color.new(#8a93a3, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 0, 6, (useGex ? "SPX GEX levels" : syminfo.ticker + " · swings (no GEX)") + " · not advice", text_color=color.new(#5a6270, 0), bgcolor=color.new(#13171e, 0), text_size=size.tiny, text_halign=text.align_center)
+    table.cell(panel, 0, 6, (useGex ? "SPX playbook levels" : syminfo.ticker + " · swings") + " · not advice", text_color=color.new(#5a6270, 0), bgcolor=color.new(#13171e, 0), text_size=size.tiny, text_halign=text.align_center)
 
 // ── alerts ───────────────────────────────────────────────────────────────────
 alertcondition(stateChanged and state == "TRIGGERED", "Coach: TRIGGER", "Setup triggered — take the entry")

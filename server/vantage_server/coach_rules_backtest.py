@@ -52,21 +52,28 @@ def _levels_for_day(bars, proxy_bars, day, cfg, history_rows, params):
     return out
 
 
-def _nearest(levels, close, longable_roles, shortable_roles):
-    """Nearest support-ish below/at close and resistance-ish above/at close."""
+LONGABLE = {"support", "putwall", "flip"}
+SHORTABLE = {"resistance", "callwall", "flip"}
+
+
+def _nearest(levels, close, position_roles=False):
+    """Nearest support below/at close and resistance above/at close.
+
+    position_roles=False → keyword mode: only levels tagged support/putwall/flip
+    are longable, resistance/callwall/flip shortable (the original coach rule).
+    position_roles=True → any level below price is longable, any above shortable,
+    minus the wrong-side wall carve-out (call wall below / put wall above)."""
     sup = res = None
     for p, ro in levels:
-        if p <= close and ro in longable_roles:
+        longable = (ro != "callwall") if position_roles else (ro in LONGABLE)
+        shortable = (ro != "putwall") if position_roles else (ro in SHORTABLE)
+        if p <= close and longable:
             if sup is None or (close - p) < (close - sup[0]):
                 sup = (p, ro)
-        if p >= close and ro in shortable_roles:
+        if p >= close and shortable:
             if res is None or (p - close) < (res[0] - close):
                 res = (p, ro)
     return sup, res
-
-
-LONGABLE = {"support", "putwall", "flip"}
-SHORTABLE = {"resistance", "callwall", "flip"}
 
 
 def backtest_coach(bars_by_symbol, params=None):
@@ -111,7 +118,7 @@ def backtest_coach(bars_by_symbol, params=None):
             while i < n:
                 c = closes[i]
                 if not in_trade:
-                    sup, res = _nearest(levels, c, LONGABLE, SHORTABLE)
+                    sup, res = _nearest(levels, c, p.get("position_roles", False))
                     # try LONG at support: reclaim_n closes back above it
                     armed = None
                     if sup is not None and abs(c - sup[0]) <= c * arm_dist:
@@ -209,10 +216,14 @@ def main(argv=None):
     ap.add_argument("--rr-min", type=float, default=None)
     ap.add_argument("--arm-dist", type=float, default=0.20)
     ap.add_argument("--reclaim-n", type=int, default=2)
+    ap.add_argument("--position-roles", action="store_true",
+                    help="any level below price is longable / above shortable "
+                         "(vs keyword-only support/resistance)")
     args = ap.parse_args(argv)
     bars = _bt.load_bars(args.cache)
     out = backtest_coach(bars, {"rr_min": args.rr_min, "arm_dist": args.arm_dist,
-                                "confirm_closes": args.reclaim_n})
+                                "confirm_closes": args.reclaim_n,
+                                "position_roles": args.position_roles})
     print(json.dumps(out, indent=2))
     return 0
 
