@@ -132,7 +132,7 @@ stallBars= input.int(10, "Stall window (bars)", minval=3, group="Coach", tooltip
 stallMax = input.float(3.0, "Stall = range under this many ATR", minval=0.5, step=0.5, group="Coach", tooltip="If the last N-bar range is under this many ATR, price is coiled. A 0DTE long bleeds theta while it waits for the break (validated: coiled entries -$178 avg vs +$177 non-stalled).")
 showLines= input.bool(true, "Draw the baked levels", group="Display")
 showVwap = input.bool(true, "Draw session VWAP + bands", group="Display")
-showPanel= input.bool(true, "Show the coach panel (top-left)", group="Display")
+showPanel= input.bool(true, "Show the coach panel (bottom-right)", group="Display")
 
 // ── session VWAP + bands, RSI, relative volume, ATR ──────────────────────────
 newSession = ta.change(time("D")) != 0
@@ -360,9 +360,9 @@ tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, 
      " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) +
      (coiled ? " · COILED " + str.tostring(coilBars) + "b" : "")
 
-// ── the coach panel (TOP-LEFT so it never overlaps the playbook's right-hand ──
-// level table). Read top-to-bottom: ACTION → why → your position → the story. ─
-var table panel = table.new(position.top_left, 1, 6, border_width=1, frame_width=1, frame_color=color.new(color.gray, 50))
+// ── the coach panel (BOTTOM-RIGHT — clear of chart indicators top-left and the
+// playbook's tables top-right/bottom-center). ACTION → why → position → story. ─
+var table panel = table.new(position.bottom_right, 1, 6, border_width=1, frame_width=1, frame_color=color.new(color.gray, 50))
 if showPanel and barstate.islast
     actCol = (enter or hold) ? #16915b : exitCue ? #2f6df6 : warn ? #cf3b47 : theta ? #e0a020 : #4a5160
     // ROW 0 — the ACTION, big and colored. The one thing to read.

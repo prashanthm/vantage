@@ -59,11 +59,13 @@ def test_coach_hold_tracks_red_position():
     assert "hold = red and not exitCue" in s
 
 
-def test_coach_panel_is_plain_english_top_left():
+def test_coach_panel_is_plain_english_bottom_right():
     s = cp.build_coach_indicator(_SCAFFOLD)
-    # panel moved to top-left so it never overlaps the playbook's right-hand table
-    assert "position.top_left" in s
+    # panel sits bottom-right — clear of chart indicators (top-left) and the
+    # playbook's own tables (top-right level table, bottom-center ticket)
+    assert "position.bottom_right" in s
     assert "position.top_right" not in s
+    assert "position.top_left" not in s
     # a plain-English ACTION verb (the one thing to read), not just a state code
     for verb in ('"BUY CALLS"', '"BUY PUTS"', '"TAKE PROFIT"', '"STAND ASIDE"', '"HOLD YOUR TRADE"'):
         assert verb in s, verb
