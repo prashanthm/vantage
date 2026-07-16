@@ -103,6 +103,32 @@ def _format_coach_alert(p: dict) -> str:
     return "\n".join(lines)
 
 
+class NanSafeJSONResponse(JSONResponse):
+    """A JSON response that renders NaN / Infinity as null instead of crashing.
+
+    Starlette's default JSONResponse uses ``allow_nan=False``; a lone NaN anywhere
+    in a payload raises ValueError → 500 (and, firing before CORS, shows up in the
+    browser as a bogus CORS error). This encoder keeps NaN/Inf out of the wire as
+    null, so a single bad float degrades one field, not the whole endpoint."""
+
+    def render(self, content) -> bytes:
+        import math
+
+        def _clean(o):
+            if isinstance(o, float):
+                return None if (math.isnan(o) or math.isinf(o)) else o
+            if isinstance(o, dict):
+                return {k: _clean(v) for k, v in o.items()}
+            if isinstance(o, (list, tuple)):
+                return [_clean(v) for v in o]
+            return o
+
+        return json.dumps(
+            _clean(content), ensure_ascii=False, allow_nan=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+
 def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     store = Store(data_dir)
     state = AppState(store=store, dataset=store.load_dataset())
@@ -112,6 +138,13 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         title="Vantage backend",
         version="0.1.0",
         description="Deterministic cross-account portfolio engine — read-only (ADR-010).",
+        # NaN-safe JSON everywhere: Starlette's JSONResponse serializes with
+        # allow_nan=False, so a single NaN slipping into ANY payload (e.g. a quote
+        # calc with missing data) 500s the endpoint — and because the error fires
+        # before the CORS middleware, the browser mislabels it as a CORS failure.
+        # NanSafeJSONResponse renders NaN/Inf as null so a bad value degrades one
+        # field instead of crashing the whole response.
+        default_response_class=NanSafeJSONResponse,
     )
     app.add_middleware(
         CORSMiddleware,
