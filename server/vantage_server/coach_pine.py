@@ -109,11 +109,17 @@ def build_coach_indicator(scaffold: dict, webhook_secret: str = "") -> str | Non
 
     # the secret is a plain token embedded in the alert JSON — escape any quote
     secret = str(webhook_secret or "").replace('"', "").replace("\\", "")
-    return header + _COACH_BODY.format(
-        px_arr=px_arr, lb_arr=lb_arr, ro_arr=ro_arr,
-        flip_line=flip_line, n_levels=len(prices),
-        webhook_secret=secret,
-    )
+    # Inject via .replace(), NOT .format(): the body's alertcondition messages
+    # contain TradingView placeholders ({{ticker}}, {{plot("Entry")}}) and JSON
+    # braces that .format() would mangle. .replace() leaves those untouched.
+    body = _COACH_BODY
+    for key, val in (
+        ("{px_arr}", px_arr), ("{lb_arr}", lb_arr), ("{ro_arr}", ro_arr),
+        ("{flip_line}", flip_line), ("{n_levels}", str(len(prices))),
+        ("{webhook_secret}", secret),
+    ):
+        body = body.replace(key, val)
+    return header + body
 
 
 def _pine_str(s: str) -> str:
@@ -424,6 +430,18 @@ plot(showVwap ? vwap : na, "VWAP", color=color.new(#2f6df6, 0), linewidth=2)
 plot(showVwap ? vwUp : na, "VWAP +σ", color=color.new(#2f6df6, 70), style=plot.style_line)
 plot(showVwap ? vwDn : na, "VWAP -σ", color=color.new(#2f6df6, 70), style=plot.style_line)
 
+// HIDDEN value plots — so an alertcondition message can pull the live plan via
+// {{plot("Entry")}} etc. (TradingView free plan can't use alert(); alertcondition
+// messages only reach values that are PLOTTED). display=none keeps them off the
+// chart; they still resolve in alert placeholders.
+plotEntry  = inTrade ? tEntry : armLevel
+plotTarget = inTrade ? tT1 : armT1
+plotStop   = inTrade ? tStop : armStop
+plot(plotEntry,  "Entry",  display=display.none)
+plot(plotTarget, "Target", display=display.none)
+plot(plotStop,   "Stop",   display=display.none)
+plot(armRR,      "RR",     display=display.none)
+
 // draw the baked GEX levels — ONLY on SPX (auto-gated). Lines span the whole
 // session and their LABELS ride the right edge (redrawn each bar) so they're
 // always readable next to price, not stranded off-screen.
@@ -541,7 +559,7 @@ if showPanel and barstate.islast
 // close on the event bar (freq alert.freq_once_per_bar_close).
 alertSecret = "{webhook_secret}"
 f_alert(evt, headline, detail) =>
-    msg = '{{"secret":"' + alertSecret + '","source":"coach","event":"' + evt + '","symbol":"' + syminfo.ticker + '","headline":"' + headline + '","detail":"' + detail + '","price":' + str.tostring(close, "#.##") + '}}'
+    msg = '{"secret":"' + alertSecret + '","source":"coach","event":"' + evt + '","symbol":"' + syminfo.ticker + '","headline":"' + headline + '","detail":"' + detail + '","price":' + str.tostring(close, "#.##") + '}'
     alert(msg, alert.freq_once_per_bar_close)
 
 dirWord = tDir == 1 or showLong ? "LONG" : "SHORT"
@@ -556,10 +574,16 @@ if tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT"
 if tOutcome == "STOPPED" and tOutcome[1] != "STOPPED"
     f_alert("STOPPED", "🛑 STOPPED · " + dirWord + " " + str.tostring(tStop, "#.#"), "stopped from " + str.tostring(tEntry, "#.#"))
 
-// (legacy alertconditions kept too, for users who prefer per-event alerts)
-alertcondition(stateChanged and state == "TRIGGERED", "Coach: TRIGGER", "Setup triggered — take the entry")
-alertcondition(stateChanged and state == "SCALE",     "Coach: SCALE OUT", "Target at risk — take a partial")
-alertcondition(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", "Coach: TARGET HIT", "T1 reached")
-alertcondition(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", "Coach: STOPPED", "Stop hit")
-alertcondition(stateChanged and state == "ARMED", "Coach: ARMED", "A setup just armed — watch for the trigger")
+// ── PER-EVENT alertconditions (for TradingView plans WITHOUT "Any alert()") ───
+// Each message is JSON carrying the baked secret + {{plot(...)}} placeholders
+// TradingView fills at fire time, so the webhook still gets the live plan even
+// though alertcondition text is otherwise a compile-time constant. Create one
+// alert per condition below; the default message already contains everything —
+// don't edit it. (On a plan that has "Any alert()", the richer alert() calls
+// above are preferred; these remain as a fallback.)
+alertcondition(stateChanged and state == "TRIGGERED", "Coach: TRIGGER", '{"secret":"{webhook_secret}","source":"coach","event":"TRIGGERED","symbol":"{{ticker}}","entry":{{plot("Entry")}},"target":{{plot("Target")}},"stop":{{plot("Stop")}},"rr":{{plot("RR")}},"price":{{close}}}')
+alertcondition(stateChanged and state == "SCALE", "Coach: SCALE OUT", '{"secret":"{webhook_secret}","source":"coach","event":"SCALE","symbol":"{{ticker}}","entry":{{plot("Entry")}},"target":{{plot("Target")}},"stop":{{plot("Stop")}},"price":{{close}}}')
+alertcondition(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", "Coach: TARGET HIT", '{"secret":"{webhook_secret}","source":"coach","event":"TARGET","symbol":"{{ticker}}","target":{{plot("Target")}},"price":{{close}}}')
+alertcondition(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", "Coach: STOPPED", '{"secret":"{webhook_secret}","source":"coach","event":"STOPPED","symbol":"{{ticker}}","stop":{{plot("Stop")}},"price":{{close}}}')
+alertcondition(stateChanged and state == "ARMED", "Coach: ARMED", '{"secret":"{webhook_secret}","source":"coach","event":"ARMED","symbol":"{{ticker}}","entry":{{plot("Entry")}},"target":{{plot("Target")}},"stop":{{plot("Stop")}},"rr":{{plot("RR")}},"price":{{close}}}')
 '''

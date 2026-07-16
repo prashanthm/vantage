@@ -53,6 +53,56 @@ class AppState:
         return get_provider(self.store.data_dir).snapshot()
 
 
+#: emoji + verb per coach event, for the Telegram message
+_COACH_EVENT = {
+    "TRIGGERED": "🔔 TRIGGER",
+    "SCALE": "✂️ SCALE OUT",
+    "ARMED": "⏳ ARMED",
+    "TARGET": "✅ TARGET HIT",
+    "STOPPED": "🛑 STOPPED",
+}
+
+
+def _num(v):
+    """A JSON alert value → short number string, or None."""
+    try:
+        f = float(v)
+        return f"{f:g}"
+    except (TypeError, ValueError):
+        return None
+
+
+def _format_coach_alert(p: dict) -> str:
+    """Render a coach webhook payload into a Telegram message. Handles both the
+    rich alert() shape (headline/detail) and the alertcondition+plot shape
+    (entry/target/stop/rr)."""
+    sym = str(p.get("symbol") or "").upper()
+    evt = str(p.get("event") or "").upper()
+    head = _COACH_EVENT.get(evt, evt or "Coach alert")
+    lines = [f"📊 {sym} COACH · {head}".rstrip(" ·")]
+    # rich shape wins if present
+    if p.get("headline"):
+        lines.append(str(p["headline"]))
+        if p.get("detail"):
+            lines.append(str(p["detail"]))
+        return "\n".join(lines)
+    # plot shape: assemble entry → target · stop · R:R from whatever's present
+    entry, tgt, stop, rr = (_num(p.get(k)) for k in ("entry", "target", "stop", "rr"))
+    if entry:
+        lines.append(f"entry {entry}" + (f" → target {tgt}" if tgt else ""))
+    elif tgt:
+        lines.append(f"target {tgt}")
+    tail = " · ".join(x for x in (
+        f"stop {stop}" if stop else None,
+        f"R:R {rr}" if rr else None) if x)
+    if tail:
+        lines.append(tail)
+    price = _num(p.get("price"))
+    if price and not entry and not tgt:
+        lines.append(f"at {price}")
+    return "\n".join(lines)
+
+
 def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     store = Store(data_dir)
     state = AppState(store=store, dataset=store.load_dataset())
@@ -550,9 +600,12 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         headers, so the coach bakes a shared SECRET into the alert JSON body;
         this endpoint validates it and forwards a formatted message to Telegram.
 
-        Body is the alert() string: JSON with {secret, source, event, symbol,
-        headline, detail, price}. A plain non-JSON body is also accepted (only
-        when no secret is configured) so a hand-set alert can still notify."""
+        Two body shapes, both JSON, both secret-gated:
+          * rich alert() (paid TV plans): {secret, event, symbol, headline,
+            detail, price}
+          * per-event alertcondition (free plans, values via {{plot(...)}}):
+            {secret, event, symbol, entry, target, stop, rr, price}
+        A plain non-JSON body is also accepted when no secret is configured."""
         from . import signal_bot
         raw = (await request.body()).decode("utf-8", "replace").strip()
         want = signal_bot.webhook_secret(store)
@@ -568,10 +621,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                 raise HTTPException(status_code=401, detail="bad or missing secret")
         # build the Telegram text
         if isinstance(payload, dict):
-            sym = payload.get("symbol") or ""
-            head = payload.get("headline") or payload.get("event") or "Coach alert"
-            detail = payload.get("detail") or ""
-            text = f"📊 {sym} COACH\n{head}" + (f"\n{detail}" if detail else "")
+            text = _format_coach_alert(payload)
         else:
             text = f"📊 Coach alert\n{raw[:600]}" if raw else "📊 Coach alert (empty)"
         sent = signal_bot.send_telegram(text, store)

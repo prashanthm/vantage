@@ -99,11 +99,27 @@ Then **re-pull the coach Pine** (🎯 Coach Pine) — the secret bakes into it.
 
 ## In TradingView
 
-Add ONE alert on the coach indicator:
+### Paid plan (Essential+) — one alert
+
+If your plan has **"Any alert() function call"**, add ONE alert on the coach:
 - **Condition:** "Any alert() function call"
 - **Options:** Once Per Bar Close
-- **Notifications → Webhook URL:** `https://<your-webhook-host>/webhook/tradingview`
-- Leave the message box default (the coach builds the JSON itself).
+- **Webhook URL:** `https://<your-webhook-host>/webhook/tradingview`
+- Leave the message default (the coach builds the JSON itself).
+
+### Free / basic plan — one alert per event
+
+The free plan doesn't offer "Any alert()", only the named conditions. Create a
+separate alert for **each** you want (TRIGGER is the essential one; add SCALE /
+TARGET HIT / STOPPED / ARMED as desired):
+- **Condition:** the coach indicator → pick e.g. **"Coach: TRIGGER"**
+- **Options:** Once Per Bar Close
+- **Webhook URL:** `https://<your-webhook-host>/webhook/tradingview`
+- **Message:** leave it as the **default** — the coach already fills it with the
+  secret JSON + `{{plot(...)}}` placeholders that carry the live entry/target/
+  stop/R:R. Don't overwrite it.
+
+Both paths hit the same endpoint and produce the same Telegram messages.
 
 Fire a test by letting an event trigger (or hand-post to confirm wiring):
 

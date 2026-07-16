@@ -141,6 +141,21 @@ def test_coach_alerts_fire_dynamic_webhook_json():
     assert 'alertSecret = "abc"' in inj
 
 
+def test_coach_alertcondition_plot_path_for_free_tv_plans():
+    s = cp.build_coach_indicator(_SCAFFOLD, webhook_secret="SEC")
+    # hidden value plots so alertcondition messages can pull them via {{plot}}
+    for title in ('"Entry"', '"Target"', '"Stop"', '"RR"'):
+        assert f"display=display.none" in s
+        assert title in s
+    # each alertcondition message is JSON with the baked secret + TV placeholders
+    assert '"secret":"SEC"' in s
+    assert "{{ticker}}" in s
+    assert '{{plot("Entry")}}' in s and '{{plot("Target")}}' in s
+    # injection is via replace() (TV braces survive) — no leftover format fields
+    for ph in ("{px_arr}", "{lb_arr}", "{flip_line}", "{webhook_secret}"):
+        assert ph not in s, ph
+
+
 def test_coach_flip_missing_is_typed_na():
     """A scaffold with no gamma-flip row must still compile: `gexFlip` has to
     be a TYPED float, else Pine rejects `gexFlip = na` (untyped na assignment)."""
