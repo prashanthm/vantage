@@ -50,6 +50,22 @@ CHAT_ENV = "TELEGRAM_CHAT_ID"
 TOKEN_META = "telegram_bot_token"
 CHAT_META = "telegram_chat_id"
 
+#: shared secret the TradingView → /webhook/tradingview alert must carry (env
+#: wins; store.meta fallback so it's settable from the SPA). It's baked into the
+#: coach Pine's alert() payloads and validated on the way in.
+WEBHOOK_SECRET_ENV = "COACH_WEBHOOK_SECRET"
+WEBHOOK_SECRET_META = "coach_webhook_secret"
+
+
+def webhook_secret(store: Store | None = None) -> str | None:
+    """The configured webhook secret (env, then store.meta), or None."""
+    s = os.environ.get(WEBHOOK_SECRET_ENV)
+    if s:
+        return s
+    if store is not None and getattr(store, "uses_sqlite", False):
+        return store.get_meta(WEBHOOK_SECRET_META) or None
+    return None
+
 
 def telegram_creds(store: Store | None = None) -> tuple[str | None, str | None, str]:
     """(token, chat_id, source). Env wins (deploy-managed); the store's meta

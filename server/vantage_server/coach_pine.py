@@ -62,9 +62,15 @@ def _classify(label: str) -> str:
     return "level"
 
 
-def build_coach_indicator(scaffold: dict) -> str | None:
+def build_coach_indicator(scaffold: dict, webhook_secret: str = "") -> str | None:
     """Render the coach Pine for a playbook ``scaffold``. None when the scaffold
-    carries no levels to bake (nothing to coach against)."""
+    carries no levels to bake (nothing to coach against).
+
+    ``webhook_secret`` is baked into the alert() payloads so the Vantage
+    /webhook/tradingview endpoint can validate that an inbound alert really came
+    from this indicator (TradingView can't send auth headers). Empty = alerts
+    still fire but carry no secret (the endpoint will reject them if it has one
+    configured)."""
     entries = _rp.gex_level_entries(scaffold)      # (price, label), high→low
     if not entries:
         return None
@@ -101,9 +107,12 @@ def build_coach_indicator(scaffold: dict) -> str | None:
         "// advice. Add to an intraday chart.\n"
     )
 
+    # the secret is a plain token embedded in the alert JSON — escape any quote
+    secret = str(webhook_secret or "").replace('"', "").replace("\\", "")
     return header + _COACH_BODY.format(
         px_arr=px_arr, lb_arr=lb_arr, ro_arr=ro_arr,
         flip_line=flip_line, n_levels=len(prices),
+        webhook_secret=secret,
     )
 
 
@@ -524,7 +533,30 @@ if showPanel and barstate.islast
     table.cell(panel, 0, 9, "coach read — not a prediction, not advice", text_color=color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
     table.merge_cells(panel, 0, 9, 1, 9)
 
-// ── alerts ───────────────────────────────────────────────────────────────────
+// ── alerts → webhook → Telegram ──────────────────────────────────────────────
+// Set ONE alert on this indicator: condition "Any alert() function call",
+// webhook URL = your Vantage /webhook/tradingview. The message is JSON carrying
+// a shared SECRET (baked below) the endpoint validates, plus the full event so
+// Telegram shows the live plan — not a static label. alert() fires once per bar
+// close on the event bar (freq alert.freq_once_per_bar_close).
+alertSecret = "{webhook_secret}"
+f_alert(evt, headline, detail) =>
+    msg = '{{"secret":"' + alertSecret + '","source":"coach","event":"' + evt + '","symbol":"' + syminfo.ticker + '","headline":"' + headline + '","detail":"' + detail + '","price":' + str.tostring(close, "#.##") + '}}'
+    alert(msg, alert.freq_once_per_bar_close)
+
+dirWord = tDir == 1 or showLong ? "LONG" : "SHORT"
+if firedNow
+    f_alert("TRIGGERED", (tDir == 1 ? "🔔 BUY CALLS" : "🔔 BUY PUTS") + " · " + armLbl + " " + str.tostring(tEntry, "#.#"), "target " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")) + " · read: " + str.lower(readVerd))
+if state == "SCALE" and state[1] != "SCALE"
+    f_alert("SCALE", "✂️ SCALE OUT · " + dirWord + " from " + str.tostring(tEntry, "#.#"), "trim near " + str.tostring(scaleAt, "#.#") + " · " + str.lower(readVerd) + " with " + str.tostring(hdPts, "#") + "pt to target")
+if state == "ARMED" and state[1] != "ARMED"
+    f_alert("ARMED", "⏳ ARMED · " + dirWord + " " + armLbl + " " + str.tostring(armLevel, "#.#"), "trigger " + str.tostring(reclaimN) + " closes " + (showLong ? "above" : "below") + " · target " + str.tostring(armT1, "#.#") + " · stop " + str.tostring(armStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")))
+if tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT"
+    f_alert("TARGET", "✅ TARGET HIT · " + dirWord + " " + str.tostring(tT1, "#.#"), "closed at target from " + str.tostring(tEntry, "#.#"))
+if tOutcome == "STOPPED" and tOutcome[1] != "STOPPED"
+    f_alert("STOPPED", "🛑 STOPPED · " + dirWord + " " + str.tostring(tStop, "#.#"), "stopped from " + str.tostring(tEntry, "#.#"))
+
+// (legacy alertconditions kept too, for users who prefer per-event alerts)
 alertcondition(stateChanged and state == "TRIGGERED", "Coach: TRIGGER", "Setup triggered — take the entry")
 alertcondition(stateChanged and state == "SCALE",     "Coach: SCALE OUT", "Target at risk — take a partial")
 alertcondition(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", "Coach: TARGET HIT", "T1 reached")

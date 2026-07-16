@@ -495,6 +495,11 @@ ALLOWED_WRITE_ROUTES = {
     "/api/journal/delete",
     "/api/journal/entry",
     "/api/journal/ensure_today",
+    # Coach webhook secret into OUR meta table; and the inbound TradingView
+    # webhook that forwards a coach alert to Telegram. Both write only our store /
+    # send one outbound Telegram message — no broker / order path (ADR-010 holds).
+    "/api/reclaim-bot/webhook-secret",
+    "/webhook/tradingview",
 }
 
 

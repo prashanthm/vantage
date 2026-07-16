@@ -21,10 +21,11 @@ Run: uvicorn vantage_server.api:app --port 8641   (or `make run-api`)
 """
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 
-from fastapi import Body, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
@@ -345,6 +346,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         extended, knife). Regenerate each session as the levels move. Context,
         not a signal (ADR-008); levels are the 0DTE-blind nightly estimate."""
         from . import coach_pine
+        from . import signal_bot
         snap = state.snapshot()
         sym = (symbol or "SPX").upper()
         row = store.load_spx_playbook(date, symbol=sym)
@@ -353,9 +355,11 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note=f"No {sym} playbook generated yet — needed for "
                                  f"the coach's baked levels.")
         scaffold = row["scaffold"] or {}
-        script = coach_pine.build_coach_indicator(scaffold)
+        secret = signal_bot.webhook_secret(store) or ""
+        script = coach_pine.build_coach_indicator(scaffold, webhook_secret=secret)
         return envelope(snap, available=bool(script), date=row["date"],
-                        session=row["session"], symbol=sym, script=script)
+                        session=row["session"], symbol=sym, script=script,
+                        webhook_configured=bool(secret))
 
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
                               risk: float, date: str | None,
@@ -523,6 +527,55 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, telegram_source=source,
                         telegram_token_tail=(token[-4:] if token else None),
                         telegram_chat_id=chat, test_sent=tested)
+
+    @app.post("/api/reclaim-bot/webhook-secret")
+    def reclaim_bot_webhook_secret(body: dict = Body(default={})):
+        """Set the shared secret that the coach's TradingView alerts must carry.
+        Baked into the coach Pine (regenerate it after changing) and validated by
+        /webhook/tradingview. Body: ``{secret}`` — empty string clears it."""
+        from . import signal_bot
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="webhook secret needs the SQLite backend")
+        if "secret" in body:
+            store.set_meta(signal_bot.WEBHOOK_SECRET_META, str(body["secret"] or ""))
+        cur = signal_bot.webhook_secret(store)
+        return envelope(snap, available=True, configured=bool(cur),
+                        secret_tail=(cur[-4:] if cur else None))
+
+    @app.post("/webhook/tradingview")
+    async def tradingview_webhook(request: Request):
+        """Inbound TradingView alert → Telegram. TradingView can't send auth
+        headers, so the coach bakes a shared SECRET into the alert JSON body;
+        this endpoint validates it and forwards a formatted message to Telegram.
+
+        Body is the alert() string: JSON with {secret, source, event, symbol,
+        headline, detail, price}. A plain non-JSON body is also accepted (only
+        when no secret is configured) so a hand-set alert can still notify."""
+        from . import signal_bot
+        raw = (await request.body()).decode("utf-8", "replace").strip()
+        want = signal_bot.webhook_secret(store)
+        payload = None
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            payload = None
+        # secret gate — if we have a secret configured, the body MUST match it
+        if want:
+            got = (payload or {}).get("secret") if isinstance(payload, dict) else None
+            if got != want:
+                raise HTTPException(status_code=401, detail="bad or missing secret")
+        # build the Telegram text
+        if isinstance(payload, dict):
+            sym = payload.get("symbol") or ""
+            head = payload.get("headline") or payload.get("event") or "Coach alert"
+            detail = payload.get("detail") or ""
+            text = f"📊 {sym} COACH\n{head}" + (f"\n{detail}" if detail else "")
+        else:
+            text = f"📊 Coach alert\n{raw[:600]}" if raw else "📊 Coach alert (empty)"
+        sent = signal_bot.send_telegram(text, store)
+        return JSONResponse({"ok": True, "forwarded": bool(sent)})
 
     @app.post("/api/nightly/record")
     def nightly_record(body: dict = Body(default={})):

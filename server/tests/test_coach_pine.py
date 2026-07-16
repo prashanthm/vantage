@@ -125,6 +125,22 @@ def test_coach_rr_gate_blocks_wrong_side_and_low_rr():
     assert "longTgtOk" in trig_l
 
 
+def test_coach_alerts_fire_dynamic_webhook_json():
+    s = cp.build_coach_indicator(_SCAFFOLD, webhook_secret="s3cr3t")
+    # dynamic alert() calls (not just static alertconditions)
+    assert "alert(msg, alert.freq_once_per_bar_close)" in s
+    assert "f_alert(" in s
+    # the baked secret + JSON envelope the webhook validates
+    assert 'alertSecret = "s3cr3t"' in s
+    assert '"secret":"' in s and '"event":"' in s and '"headline":"' in s
+    # fires on each lifecycle event
+    for evt in ('"TRIGGERED"', '"SCALE"', '"ARMED"', '"TARGET"', '"STOPPED"'):
+        assert "f_alert(" + evt in s, evt
+    # secret is sanitized (no quote injection)
+    inj = cp.build_coach_indicator(_SCAFFOLD, webhook_secret='a"b\\c')
+    assert 'alertSecret = "abc"' in inj
+
+
 def test_coach_flip_missing_is_typed_na():
     """A scaffold with no gamma-flip row must still compile: `gexFlip` has to
     be a TYPED float, else Pine rejects `gexFlip = na` (untyped na assignment)."""
