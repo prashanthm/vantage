@@ -342,27 +342,34 @@ thetaWait = not inTrade and armLong and coiled and coilBars >= stallBars
 // ── resolve ONE coach STATE for the plan lifecycle ───────────────────────────
 state = firedNow ? "TRIGGERED" : (inTrade and scaleOut) ? "SCALE" : inTrade ? "HOLD" : (armLong or armShort) ? (thetaWait ? "THETA" : "ARMED") : "WAIT"
 
-// ── the ACTION verb — the ONE thing to read ──────────────────────────────────
-action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") : state == "SCALE" ? "SCALE OUT — TAKE PARTIAL" : state == "HOLD" ? (pnlPts >= 0 ? "HOLD TOWARD TARGET" : "HOLD — STOP INTACT") : state == "ARMED" ? (showLong ? "ARMED · LONG SETUP" : "ARMED · SHORT SETUP") : state == "THETA" ? "WAITING — THETA RISK" : "STAND ASIDE"
+// ── the ACTION banner verb — the ONE thing to read ───────────────────────────
+action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") : state == "SCALE" ? "SCALE OUT — TAKE PARTIAL" : state == "HOLD" ? (pnlPts >= 0 ? "HOLD TOWARD TARGET" : "HOLD — STOP INTACT") : state == "ARMED" ? (showLong ? "ARMED · LONG " + armLbl : "ARMED · SHORT " + armLbl) : state == "THETA" ? "WAITING — THETA RISK" : "STAND ASIDE"
 
-// ── plain-English reason / the plan spelled out ──────────────────────────────
-planLine = na(armLevel) ? "No setup in range." : (showLong ? "LONG " : "SHORT ") + armLbl + " " + str.tostring(armLevel, "#.#") + " · trigger " + str.tostring(reclaimN) + " closes " + (showLong ? "above" : "below") + " · T1 " + (na(armT1) ? "open" : str.tostring(armT1, "#.#")) + " · stop " + (na(armStop) ? "—" : str.tostring(armStop, "#.#")) + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#"))
+// ═══ PANEL CONTENT — an adaptive trade TICKET (label | value grid) ══════════
+// distances to manage a live trade
+toT1   = inTrade and not na(tT1) ? math.abs(tT1 - close) : na
+toStop = inTrade and not na(tStop) ? math.abs(close - tStop) : na
 
-reason = state == "TRIGGERED" ? "reclaimed " + armLbl + " — take the " + (tDir == 1 ? "calls" : "puts") + ", target " + str.tostring(tT1, "#.#") + ", stop " + str.tostring(tStop, "#.#") : state == "SCALE" ? "momentum fading before T1 (" + str.tostring(tT1, "#.#") + ") — trim near " + str.tostring(scaleAt, "#.#") + ", let the rest run to target" : state == "HOLD" ? (pnlPts >= 0 ? "in the plan, +" + str.tostring(pnlPts, "#.#") + "pt — hold toward " + str.tostring(tT1, "#.#") : str.tostring(pnlPts, "#.#") + "pt red but stop " + str.tostring(tStop, "#.#") + " intact — don't fold") : state == "ARMED" ? planLine : state == "THETA" ? "armed at " + armLbl + " but coiled " + str.tostring(coilBars) + " bars — theta bleeds while it decides" + (midday ? " (midday)" : "") : "no setup within range — wait for price to reach a level"
+// the four grid rows are (label, value) pairs that CHANGE by state. Slots stay
+// in the same place; only what fills them adapts.
+//   ARMED/TRIGGERED → the plan: Entry · Trigger · Target · Stop (+R:R banner)
+//   HOLD            → the live trade: Entry · P&L · To target · To stop
+//   SCALE           → HOLD rows but the action says trim
+r1L = inTrade ? "Entry"   : "Entry"
+r1V = inTrade ? str.tostring(tEntry, "#.#") : (na(armLevel) ? "—" : str.tostring(armLevel, "#.#"))
+r2L = inTrade ? "P&L"     : "Trigger"
+r2V = inTrade ? (str.tostring(pnlPts, "+#.#;-#.#") + "pt " + (na(pnlPts) ? "" : (pnlPts >= 0 ? "🟢" : "🔴"))) : (na(armLevel) ? "—" : str.tostring(reclaimN) + "× " + (showLong ? "above" : "below"))
+r3L = inTrade ? "To target" : "Target"
+r3V = inTrade ? (na(toT1) ? "open" : str.tostring(toT1, "#.#") + "pt → " + str.tostring(tT1, "#.#")) : (na(armT1) ? "open" : str.tostring(armT1, "#.#"))
+r4L = inTrade ? "To stop"  : "Stop"
+r4V = inTrade ? (na(toStop) ? "—" : str.tostring(toStop, "#.#") + "pt → " + str.tostring(tStop, "#.#")) : (na(armStop) ? "—" : str.tostring(armStop, "#.#"))
+rrV = na(armRR) ? "" : "R:R " + str.tostring(armRR, "#.#")
 
-// ── the NARRATIVE — plain read of the tape, always shown ─────────────────────
-regimeTxt = na(vwap) ? "" : (close >= vwap ? "Above VWAP" : "Below VWAP") + (useGex ? (aboveFlip ? ", above flip — buyers favored. " : ", under flip — sellers favored. ") : ". ")
-srcTxt = useGex ? "Planning off SPX playbook levels (GEX + S/R + fib + volume). " : "No playbook (not SPX) — planning off swings. "
-narrative = srcTxt + regimeTxt
+// ONE plain-English coaching line — "what to do right now"
+coachLine = state == "TRIGGERED" ? "enter now — target " + str.tostring(tT1, "#.#") + ", stop " + str.tostring(tStop, "#.#") : state == "SCALE" ? "momentum fading — trim near " + str.tostring(scaleAt, "#.#") + ", let the rest run" : state == "HOLD" ? (pnlPts >= 0 ? "in the plan — hold toward " + str.tostring(tT1, "#.#") : "red but stop holds — don't fold") : state == "ARMED" ? "wait for " + str.tostring(reclaimN) + " closes " + (showLong ? "above " : "below ") + str.tostring(armLevel, "#.#") + " — then enter" : state == "THETA" ? "coiled " + str.tostring(coilBars) + " bars — theta bleeding, wait for the break" : "no setup in range — stand aside"
 
-// ── your position, in plain words ────────────────────────────────────────────
-posTxt = not inTrade ? (na(tOutcome) ? "Flat — no position" : "Flat · last: " + tOutcome) : (tDir == 1 ? "Long from " : "Short from ") + str.tostring(tEntry, "#.#") + " · " + str.tostring(pnlPts, "+#.#;-#.#") + "pt " + (na(pnlPts) ? "" : (pnlPts >= 0 ? "🟢" : "🔴")) + "  (T1 " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + ")"
-
-tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, "+#.#;-#.#") + " ATR vs VWAP")) + " · RSI " + str.tostring(rsi, "#") + (rsi >= 70 ? "↑" : rsi <= 30 ? "↓" : "") + " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) + (coiled ? " · COILED " + str.tostring(coilBars) + "b" : "")
-
-// nearest levels around price — so you can read them even if the chart lines
-// are faint. "↑ resistance (Npt)   ↓ support (Npt)"
-lvlsTxt = (na(resPx) ? "↑ —" : "↑ " + resLb + " " + str.tostring(resPx, "#.#") + " (" + str.tostring(distRes, "#") + "pt)") + "   " + (na(supPx) ? "↓ —" : "↓ " + supLb + " " + str.tostring(supPx, "#.#") + " (" + str.tostring(distSup, "#") + "pt)")
+// context line (VWAP / RSI / vol / coil) — the tape, muted
+tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, "+#.#;-#.#") + " ATR")) + " · RSI " + str.tostring(rsi, "#") + (rsi >= 70 ? "↑" : rsi <= 30 ? "↓" : "") + " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) + (coiled ? " · COIL " + str.tostring(coilBars) : "")
 
 // ── plots ─────────────────────────────────────────────────────────────────────
 plot(showVwap ? vwap : na, "VWAP", color=color.new(#2f6df6, 0), linewidth=2)
@@ -391,22 +398,35 @@ if showLines and useGex and barstate.islast
         array.push(gexLines, line.new(bar_index - 300, p, bar_index, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=wide ? 2 : 1))
         array.push(gexLabels, label.new(bar_index, p, array.get(gexLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
 
-// LIVE trade lines: entry / stop / target — drawn while in the trade
+// TRADE / PLAN lines on the chart: entry · stop · target.
+// While IN a trade they're solid; while ARMED they're drawn FAINT + dotted so
+// you can SEE the pending plan (which level is armed, where T1/stop sit) before
+// it triggers — answering "which line is the setup?" on the chart, not just the
+// panel. Redrawn on the last bar so they ride the right edge.
 var line lnEntry = na
 var line lnStop = na
 var line lnT1 = na
-if inTrade and (tEntry != tEntry[1] or na(lnEntry))
+var label lnTag = na
+armedShow = (state == "ARMED" or state == "THETA") and not na(armLevel)
+if barstate.islast
     line.delete(lnEntry)
     line.delete(lnStop)
     line.delete(lnT1)
-    lnEntry := line.new(bar_index, tEntry, bar_index + 1, tEntry, extend=extend.right, color=color.new(#e8eaed, 0), width=2)
-    lnStop  := line.new(bar_index, tStop, bar_index + 1, tStop, extend=extend.right, color=color.new(#EF5350, 10), style=line.style_dashed)
-    lnT1    := na(tT1) ? na : line.new(bar_index, tT1, bar_index + 1, tT1, extend=extend.right, color=color.new(#26A69A, 10), style=line.style_dashed)
-if not inTrade and not na(lnEntry)
-    line.delete(lnEntry)
-    line.delete(lnStop)
-    line.delete(lnT1)
+    label.delete(lnTag)
     lnEntry := na
+    lnStop := na
+    lnT1 := na
+    lnTag := na
+    if inTrade
+        lnEntry := line.new(bar_index - 30, tEntry, bar_index, tEntry, extend=extend.right, color=color.new(#e8eaed, 0), width=2)
+        lnStop  := line.new(bar_index - 30, tStop, bar_index, tStop, extend=extend.right, color=color.new(#EF5350, 0), style=line.style_dashed)
+        lnT1    := na(tT1) ? na : line.new(bar_index - 30, tT1, bar_index, tT1, extend=extend.right, color=color.new(#26A69A, 0), style=line.style_dashed)
+        lnTag   := label.new(bar_index, tEntry, (tDir == 1 ? "LONG " : "SHORT ") + str.tostring(tEntry, "#.#"), style=label.style_label_left, color=color.new(#e8eaed, 0), textcolor=color.black, size=size.small)
+    else if armedShow
+        lnEntry := line.new(bar_index - 30, armLevel, bar_index, armLevel, extend=extend.right, color=color.new(#7c5cff, 0), width=2)
+        lnStop  := na(armStop) ? na : line.new(bar_index - 30, armStop, bar_index, armStop, extend=extend.right, color=color.new(#EF5350, 40), style=line.style_dotted)
+        lnT1    := na(armT1) ? na : line.new(bar_index - 30, armT1, bar_index, armT1, extend=extend.right, color=color.new(#26A69A, 40), style=line.style_dotted)
+        lnTag   := label.new(bar_index, armLevel, "ARMED " + (showLong ? "LONG " : "SHORT ") + str.tostring(armLevel, "#.#"), style=label.style_label_left, color=color.new(#7c5cff, 0), textcolor=color.white, size=size.small)
 
 // on-chart markers — small, and ONLY at the moments that matter: the entry
 // trigger, and the exit (target or stop). No background shading, no SCALE spam
@@ -419,17 +439,35 @@ plotshape(firstScale, title="Scale", location=location.abovebar, style=shape.fla
 plotshape(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", title="Target", location=location.abovebar, style=shape.diamond, color=color.new(#26A69A,0), size=size.tiny)
 plotshape(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", title="Stop", location=location.abovebar, style=shape.xcross, color=color.new(#EF5350,0), size=size.tiny)
 
-// ── the coach panel (BOTTOM-RIGHT). ACTION → why → position → levels → tape ──
-var table panel = table.new(position.bottom_right, 1, 7, border_width=1, frame_width=1, frame_color=color.new(#3a4150, 0))
+// ── the coach panel (BOTTOM-RIGHT) — an adaptive trade TICKET ─────────────────
+// Banner (state, spans both cols) → 4-row label|value grid (adapts by state) →
+// one coaching line → context line. Reads like a ticket, not a paragraph.
+var table panel = table.new(position.bottom_right, 2, 7, border_width=1, frame_width=1, frame_color=color.new(#3a4150, 0))
 if showPanel and barstate.islast
-    actCol = state == "TRIGGERED" ? #16915b : state == "SCALE" ? #e0a020 : state == "HOLD" ? #2f6df6 : state == "ARMED" ? #7c5cff : state == "THETA" ? #e0a020 : #4a5160
-    table.cell(panel, 0, 0, action, text_color=color.white, bgcolor=color.new(actCol, 0), text_size=size.normal, text_halign=text.align_center)
-    table.cell(panel, 0, 1, reason, text_color=color.new(#e8eaed, 0), bgcolor=color.new(#1b2029, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 0, 2, posTxt, text_color=color.white, bgcolor=color.new(not inTrade ? #2a2f38 : pnlPts >= 0 ? #145c3a : #6e2530, 0), text_size=size.small, text_halign=text.align_center)
-    table.cell(panel, 0, 3, lvlsTxt, text_color=color.new(#dfe4ea, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 0, 4, narrative, text_color=color.new(#c7ccd4, 0), bgcolor=color.new(#1b2029, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 0, 5, tapeTxt, text_color=color.new(#8a93a3, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 0, 6, (useGex ? "SPX playbook levels" : syminfo.ticker + " · swings") + " · not advice", text_color=color.new(#5a6270, 0), bgcolor=color.new(#13171e, 0), text_size=size.tiny, text_halign=text.align_center)
+    stCol = state == "TRIGGERED" ? #16915b : state == "SCALE" ? #e0a020 : state == "HOLD" ? #2f6df6 : state == "ARMED" ? #7c5cff : state == "THETA" ? #e0a020 : #4a5160
+    dark = color.new(#13171e, 0)
+    row = color.new(#1b2029, 0)
+    lblc = color.new(#8a93a3, 0)
+    valc = color.new(#e8eaed, 0)
+    // ROW 0 — the state banner, spanning both columns
+    bannerTxt = action + (rrV == "" or inTrade ? "" : "   ·   " + rrV)
+    table.cell(panel, 0, 0, bannerTxt, text_color=color.white, bgcolor=color.new(stCol, 0), text_size=size.normal, text_halign=text.align_center)
+    table.merge_cells(panel, 0, 0, 1, 0)
+    // ROWS 1-4 — the adaptive label|value grid
+    table.cell(panel, 0, 1, r1L, text_color=lblc, bgcolor=dark, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, 1, r1V, text_color=valc, bgcolor=dark, text_size=size.small, text_halign=text.align_right)
+    table.cell(panel, 0, 2, r2L, text_color=lblc, bgcolor=row, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, 2, r2V, text_color=(inTrade and not na(pnlPts) and pnlPts < 0) ? color.new(#ff6b6b, 0) : (inTrade and not na(pnlPts)) ? color.new(#51cf66, 0) : valc, bgcolor=row, text_size=size.small, text_halign=text.align_right)
+    table.cell(panel, 0, 3, r3L, text_color=lblc, bgcolor=dark, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, 3, r3V, text_color=color.new(#51cf66, 0), bgcolor=dark, text_size=size.small, text_halign=text.align_right)
+    table.cell(panel, 0, 4, r4L, text_color=lblc, bgcolor=row, text_size=size.small, text_halign=text.align_left)
+    table.cell(panel, 1, 4, r4V, text_color=color.new(#ff8787, 0), bgcolor=row, text_size=size.small, text_halign=text.align_right)
+    // ROW 5 — the ONE coaching line (spans both cols)
+    table.cell(panel, 0, 5, coachLine, text_color=color.new(#dfe4ea, 0), bgcolor=dark, text_size=size.small, text_halign=text.align_left)
+    table.merge_cells(panel, 0, 5, 1, 5)
+    // ROW 6 — context / tape (spans both cols)
+    table.cell(panel, 0, 6, tapeTxt + "  ·  " + (useGex ? "SPX playbook" : syminfo.ticker), text_color=lblc, bgcolor=dark, text_size=size.tiny, text_halign=text.align_left)
+    table.merge_cells(panel, 0, 6, 1, 6)
 
 // ── alerts ───────────────────────────────────────────────────────────────────
 alertcondition(stateChanged and state == "TRIGGERED", "Coach: TRIGGER", "Setup triggered — take the entry")

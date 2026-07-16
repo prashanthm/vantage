@@ -68,11 +68,12 @@ def test_coach_trade_lifecycle_tracks_position():
     assert "tEntry" in s and "tStop" in s and "tT1" in s
     assert "stopHit" in s and "tgtHit" in s
     assert '"STOPPED"' in s and '"TARGET HIT"' in s
-    # position shown in plain words
-    assert '"Flat — no position"' in s
-    # panel bottom-right, action drives the header
-    assert "position.bottom_right" in s
-    assert "table.cell(panel, 0, 0, action" in s
+    # adaptive ticket panel, bottom-right, 2-column label|value grid
+    assert "table.new(position.bottom_right, 2, 7" in s
+    assert "table.merge_cells" in s          # banner + lines span both cols
+    # the state banner is the action verb; the grid rows adapt in/out of a trade
+    assert "bannerTxt" in s and "action" in s
+    assert "r1L" in s and "r1V" in s and "coachLine" in s
 
 
 def test_coach_no_bgcolor_small_markers_both_sides():
@@ -86,8 +87,9 @@ def test_coach_no_bgcolor_small_markers_both_sides():
     for shape_line in [ln for ln in s.splitlines() if ln.strip().startswith("plotshape(")]:
         assert "size.tiny" in shape_line, shape_line
     assert 'text="LONG"' in s and 'text="SHORT"' in s
-    # a readable nearest-levels row in the panel
-    assert "lvlsTxt" in s
+    # the armed setup is highlighted on the CHART (pending plan lines), not just
+    # named in the panel
+    assert "armedShow" in s
     # GEX level labels ride the last bar (not stranded at bar_index+500)
     assert "bar_index + 500" not in s
 
