@@ -169,6 +169,20 @@ def test_coach_shows_gex_date_and_staleness():
     assert "useGex ?" in caveat and "GEX levels" in caveat
 
 
+def test_coach_read_respects_price_direction_vs_target():
+    # the bug: coach said "TARGET IN REACH" while price walked toward the stop.
+    # fix: the read must key off DIRECTION vs target, not just momentum.
+    s = cp.build_coach_indicator(_SCAFFOLD, webhook_secret="SEC")
+    assert "towardTgt" in s and "awayFromTgt" in s and "nearStop" in s
+    # "reach" (TARGET IN REACH) must REQUIRE genuine progress toward target
+    rc = next(ln for ln in s.splitlines() if ln.strip().startswith("readCode ="))
+    assert 'towardTgt ? "reach"' in rc
+    # drifting toward the stop / near the stop forces the pessimistic side
+    assert "awayFromTgt" in rc and "nearStop" in s
+    # the message names the direction honestly
+    assert "drifting toward the stop" in s
+
+
 def test_coach_flip_missing_is_typed_na():
     """A scaffold with no gamma-flip row must still compile: `gexFlip` has to
     be a TYPED float, else Pine rejects `gexFlip = na` (untyped na assignment)."""

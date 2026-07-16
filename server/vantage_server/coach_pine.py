@@ -395,16 +395,30 @@ hdAtr = na(hdPts) or na(atr) or atr == 0 ? na : hdPts / atr
 roomTight = not na(hdAtr) and hdAtr <= 1.0        // almost there
 roomFar   = not na(hdAtr) and hdAtr >= 3.0        // a long way to go
 
+// DIRECTION vs target — the missing piece. "TARGET IN REACH" must NOT fire when
+// price is walking toward the STOP. Compare headroom now vs `dirLook` bars ago:
+// closing the gap to target = progress; widening it = drifting to the stop.
+dirLook = 6
+hdPrev  = na(hdPx) ? na : (tDir == 1 ? (hdPx - close[dirLook]) : (close[dirLook] - hdPx))
+hdNow   = na(hdPx) ? na : (tDir == 1 ? (hdPx - close) : (close - hdPx))
+towardTgt = not na(hdNow) and not na(hdPrev) and hdNow < hdPrev - (na(atr) ? 0 : atr * 0.25)
+awayFromTgt = not na(hdNow) and not na(hdPrev) and hdNow > hdPrev + (na(atr) ? 0 : atr * 0.25)
+// how close to the STOP are we, in ATR? near the stop kills any "in reach" read.
+stopPx  = inTrade ? tStop : armStop
+toStopAtr = na(stopPx) or na(atr) or atr == 0 ? na : math.abs(close - stopPx) / atr
+nearStop = not na(toStopAtr) and toStopAtr <= 1.0
+
 // the VERDICT — priority: clearly-fading beats clearly-fueled beats neutral.
-// STALLING / DOUBTFUL fire when momentum is gone; the difference is how much
-// room is left (far + dead = stalling; near + dead = doubtful it finishes).
-fueled = volSurge and (rsiConfirming or not rsiDiverging)
-dead   = (volFade or rsiDiverging)
-readCode = (state == "WAIT" or na(hdPx)) ? "none" : (fueled and not rsiDiverging) ? "fuel" : (dead and roomFar) ? "stall" : dead ? "doubt" : "reach"
+// STALLING / DOUBTFUL fire when momentum is gone OR price is leaving toward the
+// stop; the difference is how much room is left. "reach" now REQUIRES that price
+// is actually progressing toward target and isn't hugging the stop.
+fueled = volSurge and (rsiConfirming or not rsiDiverging) and not awayFromTgt
+dead   = (volFade or rsiDiverging or awayFromTgt or nearStop)
+readCode = (state == "WAIT" or na(hdPx)) ? "none" : (fueled and towardTgt and not rsiDiverging) ? "fuel" : ((dead or awayFromTgt) and (roomFar or awayFromTgt)) ? "stall" : dead ? "doubt" : towardTgt ? "reach" : "doubt"
 
 readVerd = readCode == "fuel" ? "MOMENTUM BEHIND IT" : readCode == "reach" ? "TARGET IN REACH" : readCode == "doubt" ? "TARGET DOUBTFUL" : readCode == "stall" ? "STALLING" : "NO EDGE YET"
 readTone = (readCode == "fuel" or readCode == "reach") ? "good" : (readCode == "doubt" or readCode == "stall") ? "bad" : "warn"
-readTxt  = readCode == "fuel" ? "volume surged and RSI's rising with price — fuel to reach " + str.tostring(hdPx, "#.#") : readCode == "reach" ? "tape still confirming, room left — on track for " + str.tostring(hdPx, "#.#") : readCode == "doubt" ? "push is tiring with " + str.tostring(hdPts, "#") + "pt still to go — lean to bank some" : readCode == "stall" ? "volume dead and RSI rolled over, target " + str.tostring(hdPts, "#") + "pt off — more likely to reverse" : "no clear edge — wait for volume to confirm"
+readTxt  = readCode == "fuel" ? "volume surged and RSI's rising with price — fuel to reach " + str.tostring(hdPx, "#.#") : readCode == "reach" ? "closing on target, tape still confirming — on track for " + str.tostring(hdPx, "#.#") : readCode == "doubt" ? "push is tiring with " + str.tostring(hdPts, "#") + "pt still to go — lean to bank some" : readCode == "stall" ? (awayFromTgt ? "price is drifting toward the stop, not the target (" + str.tostring(hdPts, "#") + "pt off) — more likely to reverse" : "volume dead and RSI rolled over, target " + str.tostring(hdPts, "#") + "pt off — more likely to reverse") : "no clear edge — wait for volume to confirm"
 
 // ═══ PANEL CONTENT — an adaptive trade TICKET (label | value grid) ══════════
 // distances to manage a live trade
