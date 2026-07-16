@@ -28,4 +28,4 @@
   FVG leg is testable here; the operator's full method (FVG + OB + sweep) may be
   stronger than the FVG leg alone shows.
 
-Status: **promising, needs more sessions** · H2 on real 07-16 1m data: level+FVG won 100% (+$1544 avg), level-WITHOUT-FVG lost 100% (-$2265 avg, incl the -$5350 trade). One session, buckets of 2-4 — a strong hint, not proof. 1m persistence shipped; accumulate more sessions then build if it holds.
+Status: **promising but nuanced** · pooled 4 sessions (48 trades): level+FVG +$867 avg vs level-only -$218 avg; "at a level" trades net -$1549 (the 23 without-FVG bled -$5016). BUT "neither" was the top winner (+$7218) so FVG is a CONDITIONAL rescue for level trades, not a universal filter — and the loss is dominated by one -$5350 trade. Refined thesis: "level WITHOUT fresh FVG = low-conviction trap." Build a WARNING (not an arm-gate) once more sessions confirm.

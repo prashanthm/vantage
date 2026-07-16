@@ -65,3 +65,30 @@ The 1m persistence (shipped) makes accumulation automatic. Recommendation: let a
 handful more sessions capture, re-run H2 across them; if the level-without-FVG
 loss pattern holds, THEN build the FVG leg into the DNA correlation + coach (arm
 requires level+FVG; flag level-only as lower-conviction).
+
+## H3 — pooled across all 4 captured 1m sessions this week (48 real trades)
+prediction: level+FVG beats level-only across the pooled week, not just 07-16.
+experiment: fvg_week.py — 3-candle 1m FVG on persisted bars for 07-13/14/15/16.
+result (pooled):
+  both       n= 4 WR 0.75 +$3467 avg +$867
+  level_only n=23 WR 0.48 -$5016 avg -$218
+  fvg_only   n= 5 WR 0.60 +$140
+  neither    n=16 WR 0.69 +$7218 avg +$451
+  level+FVG vs level-only: WR 0.75 vs 0.48 | avg +$867 vs -$218
+  ALL 'at a level' trades (n=27) net -$1549; the 4 with FVG made +$3467, so the
+  23 level-WITHOUT-FVG bled -$5016.
+verdict: DIRECTIONALLY CONFIRMED but nuanced. The "level-without-FVG is a trap"
+pattern is consistent in sign across the week. BUT:
+  1. "neither" is the biggest winner (+$7218) → FVG is NOT a universal entry
+     filter; it's a CONDITIONAL rescue specifically for LEVEL trades.
+  2. the -$5016 level-only loss is dominated by 07-16's -$6795 (mostly the one
+     -$5350 trade). Strip it and the pattern weakens materially.
+  3. "both" is still n=4 — one loss from WR 0.50.
+Per-session: only 07-16 showed the clean split; 07-13 & 07-15 had ZERO "both"
+trades and level-only was fine on 07-13 (+$944).
+
+## Refined thesis to test as sessions accumulate
+NOT "always need level+FVG". Rather: "a LEVEL entry WITHOUT a fresh FVG is
+low-conviction / a trap." The actionable build (when validated on more sessions)
+is a WARNING on level-only entries, not an FVG-required arm gate. Need more
+sessions where "both" actually populates before building.
