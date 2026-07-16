@@ -2994,8 +2994,136 @@
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
   }
 
+  // src/mira-render.jsx
+  var { useMemo: useMemo4 } = React;
+  function extractJson(text) {
+    if (!text) return null;
+    let raw = String(text).trim();
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) raw = fence[1].trim();
+    const start = raw.indexOf("{");
+    if (start < 0) return null;
+    let depth = 0, end = -1;
+    for (let i = start; i < raw.length; i++) {
+      if (raw[i] === "{") depth++;
+      else if (raw[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) return null;
+    try {
+      return JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  function validateMira(o) {
+    if (!o || typeof o !== "object") return false;
+    if (isSwot(o.swot)) return true;
+    if (typeof o.headline === "string" && o.headline.trim()) return true;
+    return Array.isArray(o.sections) && o.sections.some(isRenderableSection);
+  }
+  function parseMira(text) {
+    const o = extractJson(text);
+    if (!o || !validateMira(o)) return null;
+    return normalize(o);
+  }
+  function isSwot(s) {
+    if (!s || typeof s !== "object") return false;
+    const quads = ["strengths", "weaknesses", "opportunities", "threats"];
+    for (const q of quads) {
+      if (!Array.isArray(s[q])) return false;
+      if (s[q].some((it) => !it || typeof it.point !== "string")) return false;
+    }
+    return quads.some((q) => s[q].length > 0);
+  }
+  function isRenderableSection(s) {
+    if (!s || typeof s !== "object") return false;
+    switch (s.kind) {
+      case "swot":
+        return isSwot(s.swot);
+      case "list":
+      case "donext":
+        return Array.isArray(s.items) && s.items.length > 0;
+      case "keyvals":
+      case "scorecard":
+        return Array.isArray(s.rows) && s.rows.length > 0;
+      case "callout":
+      case "prose":
+        return typeof s.text === "string" && s.text.trim().length > 0;
+      default:
+        return false;
+    }
+  }
+  function normalize(o) {
+    if (Array.isArray(o.sections)) return o;
+    const sections = [];
+    if (isSwot(o.swot)) sections.push({ kind: "swot", swot: o.swot });
+    if (o.pattern) sections.push({ kind: "callout", title: "The pattern", text: String(o.pattern) });
+    if (o.scores_read) sections.push({ kind: "prose", text: String(o.scores_read) });
+    if (Array.isArray(o.do_next) && o.do_next.length) sections.push({ kind: "donext", items: o.do_next });
+    return { headline: o.headline, sections };
+  }
+  var SWOT_QUADS = [
+    { key: "strengths", kind: "s", title: "Strengths", tag: "keep" },
+    { key: "weaknesses", kind: "w", title: "Weaknesses", tag: "fix" },
+    { key: "opportunities", kind: "o", title: "Opportunities", tag: "capture" },
+    { key: "threats", kind: "t", title: "Threats", tag: "guard" }
+  ];
+  function normItem(it) {
+    return typeof it === "string" ? { point: it, cites: [] } : it || { point: "" };
+  }
+  function SwotQuad({ kind, title, tag, items }) {
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-swot-q", kind) }, /* @__PURE__ */ React.createElement("div", { className: "vg-swot-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-swot-badge" }, kind.toUpperCase()), /* @__PURE__ */ React.createElement("b", null, title), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-swot-tag" }, tag)), items.length ? /* @__PURE__ */ React.createElement("ul", { className: "vg-swot-items" }, items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-cite", kind) }, c)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 12 } }, "none noted this window"));
+  }
+  function SwotRender({ swot: swot2 }) {
+    const s = swot2 && swot2.swot || swot2 || {};
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-swot vg-swot-grid" }, SWOT_QUADS.map((q) => /* @__PURE__ */ React.createElement(SwotQuad, { key: q.key, kind: q.kind, title: q.title, tag: q.tag, items: s[q.key] || [] })));
+  }
+  var TONE = { good: "vg-up", bad: "vg-down", warn: "vg-warn" };
+  function Section2({ s }) {
+    if (s.kind === "swot") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement(SwotRender, { swot: s.swot }));
+    }
+    if (s.kind === "prose") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("p", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap", margin: s.title ? "4px 0 0" : 0 } }, s.text));
+    }
+    if (s.kind === "callout") {
+      return /* @__PURE__ */ React.createElement("div", { className: cls("vg-mr-callout", s.tone && `t-${s.tone}`) }, s.title && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { margin: 0 } }, s.title), /* @__PURE__ */ React.createElement("p", { style: { margin: s.title ? "4px 0 0" : 0 } }, s.text));
+    }
+    if (s.kind === "list") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("ul", { className: "vg-mr-list" }, s.items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: "vg-cite" }, c)))))));
+    }
+    if (s.kind === "donext") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title || "Do this next"), /* @__PURE__ */ React.createElement("ol", { className: "vg-donext" }, s.items.map((d, i) => {
+        const item = typeof d === "string" ? { title: d } : d || {};
+        return /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("b", null, item.title), item.detail ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, item.detail)) : null);
+      })));
+    }
+    if (s.kind === "keyvals") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 110 } }, /* @__PURE__ */ React.createElement("b", null, r.k)), /* @__PURE__ */ React.createElement("td", { className: cls(r.tone && TONE[r.tone]) }, r.v))))));
+    }
+    if (s.kind === "scorecard") {
+      const tone = (n) => n >= 70 ? "good" : n >= 45 ? "warn" : "bad";
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${tone(r.score)}`) }, r.score)), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${tone(r.score)}`), style: { width: `${Math.max(0, Math.min(100, r.score))}%` } }))))));
+    }
+    return null;
+  }
+  function MiraRender({ data, text }) {
+    const obj = useMemo4(() => data || parseMira(text), [data, text]);
+    if (!obj) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap" } }, text || "");
+    }
+    const sections = obj.sections || [];
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-mr" }, obj.headline && /* @__PURE__ */ React.createElement("h3", { className: "vg-mr-headline" }, obj.headline), sections.filter(isRenderableSection).map((s, i) => /* @__PURE__ */ React.createElement(Section2, { key: i, s })));
+  }
+
   // src/journal.jsx
-  var { useState: useState10, useRef: useRef2, useEffect: useEffect7, useMemo: useMemo4 } = React;
+  var { useState: useState10, useRef: useRef2, useEffect: useEffect7, useMemo: useMemo5 } = React;
   var pct3 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
   var MONTHS = [
@@ -3054,7 +3182,7 @@
     }, [sym]);
     const snaps = d && d.snapshots || [];
     const acc = d && d.accuracy || {};
-    const byDay = useMemo4(() => {
+    const byDay = useMemo5(() => {
       const m = {};
       for (const s of snaps) {
         const k = dayOf(s);
@@ -3110,7 +3238,7 @@
   function DayStrip({ byDay, selDay, onSelect, sym }) {
     const stripRef = useRef2(null);
     const [pnl, setPnl] = useState10({});
-    const days = useMemo4(() => {
+    const days = useMemo5(() => {
       const out = [];
       const d = /* @__PURE__ */ new Date();
       while (out.length < 14) {
@@ -3266,7 +3394,7 @@
       if (Object.keys(kept).length) clean.trades = JSON.stringify(kept);
       await onSaveEntry(s.id, clean);
     };
-    const dirty = useMemo4(() => {
+    const dirty = useMemo5(() => {
       const cur = {};
       for (const [k] of ENTRY_FIELDS) {
         const v = (entry[k] || "").trim();
@@ -3510,52 +3638,6 @@
     plan_adherence: "Plan adherence",
     emotional_control: "Emotional control"
   };
-  function parseSwot(text) {
-    if (!text) return null;
-    let raw = String(text).trim();
-    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fence) raw = fence[1].trim();
-    const start = raw.indexOf("{");
-    if (start < 0) return null;
-    let depth = 0, end = -1;
-    for (let i = start; i < raw.length; i++) {
-      if (raw[i] === "{") depth++;
-      else if (raw[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    if (end < 0) return null;
-    let obj;
-    try {
-      obj = JSON.parse(raw.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-    return validateSwot(obj) ? obj : null;
-  }
-  function validateSwot(o) {
-    if (!o || typeof o !== "object") return false;
-    const s = o.swot;
-    if (!s || typeof s !== "object") return false;
-    const quads = ["strengths", "weaknesses", "opportunities", "threats"];
-    for (const q of quads) {
-      if (!Array.isArray(s[q])) return false;
-      if (s[q].some((it) => !it || typeof it.point !== "string")) return false;
-    }
-    if (!quads.some((q) => s[q].length > 0)) return false;
-    return true;
-  }
-  function SwotQuad({ kind, title, tag, items }) {
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-swot-q", kind) }, /* @__PURE__ */ React.createElement("div", { className: "vg-swot-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-swot-badge" }, kind.toUpperCase()), /* @__PURE__ */ React.createElement("b", null, title), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-swot-tag" }, tag)), items.length ? /* @__PURE__ */ React.createElement("ul", { className: "vg-swot-items" }, items.map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-cite", kind) }, c)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 12 } }, "none noted this window"));
-  }
-  function SwotRender({ swot }) {
-    const s = swot.swot || {};
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-swot" }, swot.headline && /* @__PURE__ */ React.createElement("h3", { className: "vg-swot-headline" }, swot.headline), /* @__PURE__ */ React.createElement("div", { className: "vg-swot-grid" }, /* @__PURE__ */ React.createElement(SwotQuad, { kind: "s", title: "Strengths", tag: "keep", items: s.strengths || [] }), /* @__PURE__ */ React.createElement(SwotQuad, { kind: "w", title: "Weaknesses", tag: "fix", items: s.weaknesses || [] }), /* @__PURE__ */ React.createElement(SwotQuad, { kind: "o", title: "Opportunities", tag: "capture", items: s.opportunities || [] }), /* @__PURE__ */ React.createElement(SwotQuad, { kind: "t", title: "Threats", tag: "guard", items: s.threats || [] })), swot.pattern && /* @__PURE__ */ React.createElement("div", { className: "vg-swot-pattern" }, /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { margin: 0 } }, "The pattern"), /* @__PURE__ */ React.createElement("p", { style: { margin: "4px 0 0" } }, swot.pattern)), swot.scores_read && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, swot.scores_read), Array.isArray(swot.do_next) && swot.do_next.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 14 } }, "Do this next"), /* @__PURE__ */ React.createElement("ol", { className: "vg-donext" }, swot.do_next.map((d, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("b", null, d.title), d.detail ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, d.detail)) : null)))));
-  }
   function AnalysisDetail({ h }) {
     const recs = h.recommendations && h.recommendations.length ? h.recommendations : Object.entries(h.scores || {}).map(([dim, score]) => ({
       dimension: dim,
@@ -3610,8 +3692,8 @@
         }
         if (evt.kind === "done") {
           abortRef.current = null;
-          const swot = parseSwot(text);
-          setRead({ text, swot, mode: swot ? "structured" : "prose" });
+          const data = parseMira(text);
+          setRead({ text, data, mode: data ? "structured" : "prose" });
           if (text.trim()) {
             const b2 = res.bundle;
             saveJournalAnalysis({
@@ -3673,7 +3755,7 @@
       from: new Date(Date.now() - back * 864e5).toISOString().slice(0, 10),
       to: todayISO(),
       period: back === 0 ? "daily" : back === 6 ? "weekly" : "monthly"
-    }) }, lab)))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: busy || streaming, onClick: generate }, busy || streaming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing\u2026") : "\u{1F9E0} Generate analysis")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "Scores the window against a rubric, aggregates every recorded trade review into a SWOT, and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days \u2192 Analyze today).")), b && read && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard \xB7 ", b.window_from, " \u2192 ", b.window_to), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, b.trades, " trades", b.analyzed != null ? ` \xB7 ${b.analyzed} reviewed` : "", " \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: b.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(b.net_pnl)), " ", "\xB7 rubric v", b.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, b.recommendations.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 10 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status), r.delta == null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, b.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, " \xB7 ", p.cites.length, " trades"))))))), read && (read.text != null || read.error || read.loading) && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "SWOT & read ", saved && /* @__PURE__ */ React.createElement("span", { className: "vg-up", style: { fontSize: 11 } }, "\u2713 saved")), read.mode === "prose" && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 10 }, title: "the model's output wasn't structured JSON \u2014 showing the prose read" }, "prose fallback")), read.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Aggregating your reviews and scoring the window\u2026"), read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error), read.text != null && read.mode == null && !read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Mira is writing the desk review\u2026"), read.mode === "structured" && read.swot && /* @__PURE__ */ React.createElement(SwotRender, { swot: read.swot }), read.mode === "prose" && read.text && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, read.text)), hist && hist.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Analyses \xB7 click a row to open \xB7 knowledge compounds"), /* @__PURE__ */ React.createElement("div", { className: "vg-ja-list", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-ja-hrow vg-ja-head vg-note" }, /* @__PURE__ */ React.createElement("span", { className: "c-win" }, "window"), /* @__PURE__ */ React.createElement("span", { className: "c-tag" }, "tag"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "entry"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "exit"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "risk"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "plan"), /* @__PURE__ */ React.createElement("span", { className: "c-net" }, "net")), hist.map((h) => {
+    }) }, lab)))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: busy || streaming, onClick: generate }, busy || streaming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing\u2026") : "\u{1F9E0} Generate analysis")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "Scores the window against a rubric, aggregates every recorded trade review into a SWOT, and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days \u2192 Analyze today).")), b && read && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard \xB7 ", b.window_from, " \u2192 ", b.window_to), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, b.trades, " trades", b.analyzed != null ? ` \xB7 ${b.analyzed} reviewed` : "", " \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: b.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(b.net_pnl)), " ", "\xB7 rubric v", b.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, b.recommendations.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 10 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status), r.delta == null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, b.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, " \xB7 ", p.cites.length, " trades"))))))), read && (read.text != null || read.error || read.loading) && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "SWOT & read ", saved && /* @__PURE__ */ React.createElement("span", { className: "vg-up", style: { fontSize: 11 } }, "\u2713 saved")), read.mode === "prose" && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 10 }, title: "the model's output wasn't structured JSON \u2014 showing the prose read" }, "prose fallback")), read.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Aggregating your reviews and scoring the window\u2026"), read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error), read.text != null && read.mode == null && !read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Mira is writing the desk review\u2026"), (read.data || read.text) && /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })), hist && hist.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Analyses \xB7 click a row to open \xB7 knowledge compounds"), /* @__PURE__ */ React.createElement("div", { className: "vg-ja-list", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-ja-hrow vg-ja-head vg-note" }, /* @__PURE__ */ React.createElement("span", { className: "c-win" }, "window"), /* @__PURE__ */ React.createElement("span", { className: "c-tag" }, "tag"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "entry"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "exit"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "risk"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "plan"), /* @__PURE__ */ React.createElement("span", { className: "c-net" }, "net")), hist.map((h) => {
       const s = h.scores || {};
       const isOpen = openId === h.id;
       return /* @__PURE__ */ React.createElement("div", { key: h.id, className: "vg-ja-item" }, /* @__PURE__ */ React.createElement(
@@ -3886,7 +3968,7 @@
       },
       /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"),
       " Analyzing\u2026"
-    ) : typeof state === "object" && state && state.text != null ? /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u21BB Re-analyze") : /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u{1F9EC} Analyze this trade")), busy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, state === "loading" ? "Building the DNA (price action \xB7 volume \xB7 technicals \xB7 levels) and reading news + sentiment\u2026" : "Mira is writing the desk review\u2026"), typeof state === "object" && state && state.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, state.error), typeof state === "object" && state && state.text != null && /* @__PURE__ */ React.createElement("div", { ref: readRef }, state.text.trim() && /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, state.text), state.dna && /* @__PURE__ */ React.createElement(DnaReadout, { dna: state.dna }), state.modelUnavailable && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 6 } }, "The narrative read is pending Mira's turn-path model synthesis; the full structured DNA above is the complete record."), state.saved && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 4 } }, "\u2713 saved to this trade's record", state.analyzedAt ? ` \xB7 ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : "")));
+    ) : typeof state === "object" && state && state.text != null ? /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u21BB Re-analyze") : /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: run }, "\u{1F9EC} Analyze this trade")), busy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, state === "loading" ? "Building the DNA (price action \xB7 volume \xB7 technicals \xB7 levels) and reading news + sentiment\u2026" : "Mira is writing the desk review\u2026"), typeof state === "object" && state && state.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, state.error), typeof state === "object" && state && state.text != null && /* @__PURE__ */ React.createElement("div", { ref: readRef }, state.text.trim() && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(MiraRender, { text: state.text })), state.dna && /* @__PURE__ */ React.createElement(DnaReadout, { dna: state.dna }), state.modelUnavailable && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 6 } }, "The narrative read is pending Mira's turn-path model synthesis; the full structured DNA above is the complete record."), state.saved && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, marginTop: 4 } }, "\u2713 saved to this trade's record", state.analyzedAt ? ` \xB7 ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : "")));
   }
   function DnaReadout({ dna }) {
     const e = dna.entry, x = dna.exit;
@@ -3938,7 +4020,16 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       `4. CRITIQUE THE OPERATOR'S REASONING \u2014 does their stated why (and the levels they claim they traded) hold up against what the tape and technicals actually did? Were they right for the right reasons, right for the wrong reasons, or wrong? If their tagged level doesn't match the DNA's nearest level, say so.`,
       `5. NEWS/SENTIMENT \u2014 did the session's news context support or undercut this trade? Any risk they ignored?`,
       `6. One concrete LESSON \u2014 the single most useful thing to do differently.`,
-      `Be direct and demanding. No disclaimers.`
+      `Be direct and demanding. No disclaimers.`,
+      ``,
+      `Return ONLY a JSON object (no prose outside it, no code fences) in this shape:`,
+      `{"headline":"<one-line verdict on the trade>","sections":[`,
+      `  {"kind":"keyvals","title":"Entry & exit","rows":[{"k":"Entry","v":"<quality read, cite the numbers>","tone":"good|bad|warn"},{"k":"Exit","v":"<quality read>","tone":"good|bad|warn"}]},`,
+      `  {"kind":"list","title":"Plan & reasoning","items":[{"point":"<did they respect forecast levels / the tape>"},{"point":"<critique of their stated why vs the data>"}]},`,
+      `  {"kind":"callout","title":"News read","text":"<did session news support or undercut this>","tone":"good|bad|warn"},`,
+      `  {"kind":"donext","items":[{"title":"<the one lesson>","detail":"<how to apply it>"}]}`,
+      `]}`,
+      `Every claim must use the numbers above. If you can't produce valid JSON, write the review as plain prose instead.`
     ].filter((l) => l !== ``).join("\n");
   }
   function CorrTable({ title, corr, openSpace }) {
@@ -3953,7 +4044,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/trades.jsx
-  var { useMemo: useMemo5 } = React;
+  var { useMemo: useMemo6 } = React;
   var pct4 = (v) => v == null ? "\u2014" : `${Math.round(v * 100)}%`;
   var pct12 = (v) => v == null ? "\u2014" : `${(v * 100).toFixed(1)}%`;
   var num = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
@@ -4037,7 +4128,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     }))));
   }
   function RoundtripsTable({ roundtrips, setSymbol, go }) {
-    const rows = useMemo5(() => {
+    const rows = useMemo6(() => {
       const rs = [...roundtrips || []];
       rs.sort((a, b) => String(b.close_date || "").localeCompare(String(a.close_date || "")));
       return rs.slice(0, 50);
@@ -4087,7 +4178,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState11, useMemo: useMemo6, useEffect: useEffect8, useRef: useRef3 } = React;
+  var { useState: useState11, useMemo: useMemo7, useEffect: useEffect8, useRef: useRef3 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -4668,13 +4759,13 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [query, setQuery] = useState11("");
     const pos = useLive(() => positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
-    const byUnderlying = useMemo6(() => {
+    const byUnderlying = useMemo7(() => {
       const m = {};
       for (const d of analysis?.decisions || []) m[underlyingOf(d.symbol)] = d;
       return m;
     }, [analysis]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
-    const groups = useMemo6(() => {
+    const groups = useMemo7(() => {
       const by = {};
       for (const p of pos) {
         if (p.symbol === "CASH") continue;

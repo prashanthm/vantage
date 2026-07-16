@@ -875,6 +875,20 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-donext { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 7px; }
 .vg-donext li { font-size: 13.5px; }
 
+/* ── generic Mira renderer (mira-render.jsx) — shared across all sections ──── */
+.vg-mr { display: flex; flex-direction: column; gap: 14px; }
+.vg-mr-headline { margin: 0; font-size: 16px; letter-spacing: -0.01em; line-height: 1.35; }
+.vg-mr-section { display: flex; flex-direction: column; }
+.vg-mr-prose { font-size: 13.5px; line-height: 1.5; color: var(--vg-ink); }
+.vg-mr-list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.vg-mr-list li { font-size: 13.5px; line-height: 1.45; position: relative; padding-left: 16px; }
+.vg-mr-list li::before { content: "·"; position: absolute; left: 4px; color: var(--vg-dim); font-weight: 700; }
+.vg-mr-callout { padding: 11px 14px; border-radius: 10px; background: rgba(0,0,0,.03);
+  border: 1px solid var(--vg-hairline); font-size: 13.5px; line-height: 1.45; }
+.vg-mr-callout.t-good { background: var(--vg-up-soft); border-color: rgba(31,157,107,.28); }
+.vg-mr-callout.t-bad  { background: var(--vg-down-soft); border-color: rgba(217,59,78,.28); }
+.vg-mr-callout.t-warn { background: var(--vg-warn-soft); border-color: rgba(185,122,22,.28); }
+
 /* ── ticker filter + per-trade ticker badge ───────────────────────────────── */
 .vg-ticker-filter { font-size: 12px; padding: 3px 8px; border: 1px solid var(--vg-hairline);
   border-radius: 7px; background: var(--vg-panel, #fff); color: inherit; }
