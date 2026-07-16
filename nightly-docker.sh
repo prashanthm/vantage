@@ -106,6 +106,12 @@ for PAIR in "SPX:^SPX" "QQQ:QQQ" "IWM:IWM"; do
   run "0DTE playbook ($KEY)" vantage_server.spx_playbook --symbol "$KEY" || true
 done
 
+# 5b) Seed a rolling 30-day window of 1-minute SPX bars into intraday_bars, so the
+#     SPX-analyst forecast loop always has a full month of 1m history to seed the
+#     chart + technicals from (yfinance only serves ~30d of 1m; capture it while
+#     it's live). Idempotent — only fetches days not already stored. SPX only.
+run "1m SPX seed (30d)" vantage_server.seed_intraday --days 30 || true
+
 # 6) Futures analysis — re-import the AMP CSV export in /data/ampfutures (if any)
 #    so stored fills stay current. Idempotent (Order-ID dedupe); a no-op when the
 #    export is unchanged. AMP is not API-connected, so this refreshes from whatever
