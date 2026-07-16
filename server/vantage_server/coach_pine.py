@@ -345,6 +345,43 @@ state = firedNow ? "TRIGGERED" : (inTrade and scaleOut) ? "SCALE" : inTrade ? "H
 // ── the ACTION banner verb — the ONE thing to read ───────────────────────────
 action = state == "TRIGGERED" ? (tDir == 1 ? "🔔 BUY CALLS NOW" : "🔔 BUY PUTS NOW") : state == "SCALE" ? "SCALE OUT — TAKE PARTIAL" : state == "HOLD" ? (pnlPts >= 0 ? "HOLD TOWARD TARGET" : "HOLD — STOP INTACT") : state == "ARMED" ? (showLong ? "ARMED · LONG " + armLbl : "ARMED · SHORT " + armLbl) : state == "THETA" ? "WAITING — THETA RISK" : "STAND ASIDE"
 
+// ═══ TECHNICALS READ — synthesize RSI + Volume + Headroom into ONE verdict ═══
+// Answers "is the target likely, or does it reverse?" instead of showing three
+// raw gauges. Heuristic (not backtested like the entry engine) → shown with a
+// one-line caveat. The DIRECTION for the read is the live trade, else the armed
+// setup, else long-bias for a WAIT.
+rdDir = inTrade ? tDir : showLong ? 1 : armShort ? -1 : 1
+
+// RSI divergence: over the last `divLen` bars did price make a new extreme in
+// the trade direction WITHOUT RSI confirming? (price up, RSI not = tiring.)
+divLen = 5
+pricePush = rdDir == 1 ? (close >= ta.highest(close, divLen)) : (close <= ta.lowest(close, divLen))
+rsiPush   = rdDir == 1 ? (rsi   >= ta.highest(rsi, divLen))   : (rsi   <= ta.lowest(rsi, divLen))
+rsiDiverging = pricePush and not rsiPush            // price extended, momentum didn't follow
+rsiConfirming = pricePush and rsiPush
+
+// Volume read: surging / steady / fading vs the session-average baseline.
+volSurge = not na(relV) and relV >= 1.3
+volFade  = not na(relV) and relV < 0.8
+
+// Headroom to target in ATR (internal — shown to the user in POINTS, not ATR).
+hdPx  = inTrade ? tT1 : armT1
+hdPts = na(hdPx) ? na : math.abs(hdPx - close)
+hdAtr = na(hdPts) or na(atr) or atr == 0 ? na : hdPts / atr
+roomTight = not na(hdAtr) and hdAtr <= 1.0        // almost there
+roomFar   = not na(hdAtr) and hdAtr >= 3.0        // a long way to go
+
+// the VERDICT — priority: clearly-fading beats clearly-fueled beats neutral.
+// STALLING / DOUBTFUL fire when momentum is gone; the difference is how much
+// room is left (far + dead = stalling; near + dead = doubtful it finishes).
+fueled = volSurge and (rsiConfirming or not rsiDiverging)
+dead   = (volFade or rsiDiverging)
+readCode = (state == "WAIT" or na(hdPx)) ? "none" : (fueled and not rsiDiverging) ? "fuel" : (dead and roomFar) ? "stall" : dead ? "doubt" : "reach"
+
+readVerd = readCode == "fuel" ? "MOMENTUM BEHIND IT" : readCode == "reach" ? "TARGET IN REACH" : readCode == "doubt" ? "TARGET DOUBTFUL" : readCode == "stall" ? "STALLING" : "NO EDGE YET"
+readTone = (readCode == "fuel" or readCode == "reach") ? "good" : (readCode == "doubt" or readCode == "stall") ? "bad" : "warn"
+readTxt  = readCode == "fuel" ? "volume surged and RSI's rising with price — fuel to reach " + str.tostring(hdPx, "#.#") : readCode == "reach" ? "tape still confirming, room left — on track for " + str.tostring(hdPx, "#.#") : readCode == "doubt" ? "push is tiring with " + str.tostring(hdPts, "#") + "pt still to go — lean to bank some" : readCode == "stall" ? "volume dead and RSI rolled over, target " + str.tostring(hdPts, "#") + "pt off — more likely to reverse" : "no clear edge — wait for volume to confirm"
+
 // ═══ PANEL CONTENT — an adaptive trade TICKET (label | value grid) ══════════
 // distances to manage a live trade
 toT1   = inTrade and not na(tT1) ? math.abs(tT1 - close) : na
@@ -368,8 +405,10 @@ rrV = na(armRR) ? "" : "R:R " + str.tostring(armRR, "#.#")
 // ONE plain-English coaching line — "what to do right now"
 coachLine = state == "TRIGGERED" ? "enter now — target " + str.tostring(tT1, "#.#") + ", stop " + str.tostring(tStop, "#.#") : state == "SCALE" ? "momentum fading — trim near " + str.tostring(scaleAt, "#.#") + ", let the rest run" : state == "HOLD" ? (pnlPts >= 0 ? "in the plan — hold toward " + str.tostring(tT1, "#.#") : "red but stop holds — don't fold") : state == "ARMED" ? "wait for " + str.tostring(reclaimN) + " closes " + (showLong ? "above " : "below ") + str.tostring(armLevel, "#.#") + " — then enter" : state == "THETA" ? "coiled " + str.tostring(coilBars) + " bars — theta bleeding, wait for the break" : "no setup in range — stand aside"
 
-// context line (VWAP / RSI / vol / coil) — the tape, muted
-tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, "+#.#;-#.#") + " ATR")) + " · RSI " + str.tostring(rsi, "#") + (rsi >= 70 ? "↑" : rsi <= 30 ? "↓" : "") + " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) + (coiled ? " · COIL " + str.tostring(coilBars) : "")
+// TECHNICALS numbers (shown raw above the READ). VWAP dropped — it's on chart.
+rsiNum = str.tostring(rsi, "#") + (rsiDiverging ? " ↓div" : "")
+volNum = na(relV) ? "—" : str.tostring(relV, "#.#") + "×"
+hdNum  = na(hdPts) ? "—" : str.tostring(hdPts, "#") + "pt"
 
 // ── plots ─────────────────────────────────────────────────────────────────────
 plot(showVwap ? vwap : na, "VWAP", color=color.new(#2f6df6, 0), linewidth=2)
@@ -440,34 +479,50 @@ plotshape(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", title="Targe
 plotshape(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", title="Stop", location=location.abovebar, style=shape.xcross, color=color.new(#EF5350,0), size=size.tiny)
 
 // ── the coach panel (BOTTOM-RIGHT) — an adaptive trade TICKET ─────────────────
-// Banner (state, spans both cols) → 4-row label|value grid (adapts by state) →
-// one coaching line → context line. Reads like a ticket, not a paragraph.
-var table panel = table.new(position.bottom_right, 2, 7, border_width=1, frame_width=1, frame_color=color.new(#3a4150, 0))
+// Banner (state + direction) → adaptive label|value grid → coaching line →
+// TECHNICALS (RSI/Vol/Headroom numbers + a synthesized READ) → caveat.
+// Bold, white-on-dark, one font, so it holds up over candles on the grey chart.
+var table panel = table.new(position.bottom_right, 2, 10, border_width=1, frame_width=1, frame_color=color.new(#333c48, 0))
 if showPanel and barstate.islast
-    stCol = state == "TRIGGERED" ? #16915b : state == "SCALE" ? #e0a020 : state == "HOLD" ? #2f6df6 : state == "ARMED" ? #7c5cff : state == "THETA" ? #e0a020 : #4a5160
-    dark = color.new(#13171e, 0)
-    row = color.new(#1b2029, 0)
-    lblc = color.new(#8a93a3, 0)
-    valc = color.new(#e8eaed, 0)
-    // ROW 0 — the state banner, spanning both columns
-    bannerTxt = action + (rrV == "" or inTrade ? "" : "   ·   " + rrV)
+    stCol = state == "TRIGGERED" ? #16915b : state == "SCALE" ? #e0a020 : state == "HOLD" ? #2f6df6 : state == "ARMED" ? #7c5cff : state == "THETA" ? #e0a020 : #4a5563
+    dark = color.new(#0d1017, 0)
+    row = color.new(#161b23, 0)
+    rowA = color.new(#1b212b, 0)
+    lblc = color.new(#aeb7c4, 0)
+    valc = color.new(#ffffff, 0)
+    grnC = color.new(#39d98a, 0)
+    redC = color.new(#ff6b74, 0)
+    // ROW 0 — state banner + direction, spanning both columns
+    dirTag = inTrade ? (tDir == 1 ? "LONG · " : "SHORT · ") : (state == "ARMED" or state == "THETA") ? (showLong ? "LONG · " : "SHORT · ") : ""
+    bannerTxt = dirTag + action + (rrV == "" or inTrade ? "" : "   ·   " + rrV)
     table.cell(panel, 0, 0, bannerTxt, text_color=color.white, bgcolor=color.new(stCol, 0), text_size=size.normal, text_halign=text.align_center)
     table.merge_cells(panel, 0, 0, 1, 0)
-    // ROWS 1-4 — the adaptive label|value grid
-    table.cell(panel, 0, 1, r1L, text_color=lblc, bgcolor=dark, text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 1, 1, r1V, text_color=valc, bgcolor=dark, text_size=size.small, text_halign=text.align_right)
-    table.cell(panel, 0, 2, r2L, text_color=lblc, bgcolor=row, text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 1, 2, r2V, text_color=(inTrade and not na(pnlPts) and pnlPts < 0) ? color.new(#ff6b6b, 0) : (inTrade and not na(pnlPts)) ? color.new(#51cf66, 0) : valc, bgcolor=row, text_size=size.small, text_halign=text.align_right)
-    table.cell(panel, 0, 3, r3L, text_color=lblc, bgcolor=dark, text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 1, 3, r3V, text_color=color.new(#51cf66, 0), bgcolor=dark, text_size=size.small, text_halign=text.align_right)
-    table.cell(panel, 0, 4, r4L, text_color=lblc, bgcolor=row, text_size=size.small, text_halign=text.align_left)
-    table.cell(panel, 1, 4, r4V, text_color=color.new(#ff8787, 0), bgcolor=row, text_size=size.small, text_halign=text.align_right)
-    // ROW 5 — the ONE coaching line (spans both cols)
-    table.cell(panel, 0, 5, coachLine, text_color=color.new(#dfe4ea, 0), bgcolor=dark, text_size=size.small, text_halign=text.align_left)
+    // ROWS 1-4 — the adaptive label|value grid (bolder: normal, not small)
+    table.cell(panel, 0, 1, r1L, text_color=lblc, bgcolor=dark, text_size=size.normal, text_halign=text.align_left)
+    table.cell(panel, 1, 1, r1V, text_color=valc, bgcolor=dark, text_size=size.normal, text_halign=text.align_right)
+    table.cell(panel, 0, 2, r2L, text_color=lblc, bgcolor=row, text_size=size.normal, text_halign=text.align_left)
+    table.cell(panel, 1, 2, r2V, text_color=(inTrade and not na(pnlPts) and pnlPts < 0) ? redC : (inTrade and not na(pnlPts)) ? grnC : valc, bgcolor=row, text_size=size.normal, text_halign=text.align_right)
+    table.cell(panel, 0, 3, r3L, text_color=lblc, bgcolor=dark, text_size=size.normal, text_halign=text.align_left)
+    table.cell(panel, 1, 3, r3V, text_color=grnC, bgcolor=dark, text_size=size.normal, text_halign=text.align_right)
+    table.cell(panel, 0, 4, r4L, text_color=lblc, bgcolor=row, text_size=size.normal, text_halign=text.align_left)
+    table.cell(panel, 1, 4, r4V, text_color=redC, bgcolor=row, text_size=size.normal, text_halign=text.align_right)
+    // ROW 5 — the coaching line (spans both cols)
+    table.cell(panel, 0, 5, coachLine, text_color=color.white, bgcolor=color.new(#20262f, 0), text_size=size.normal, text_halign=text.align_left)
     table.merge_cells(panel, 0, 5, 1, 5)
-    // ROW 6 — context / tape (spans both cols)
-    table.cell(panel, 0, 6, tapeTxt + "  ·  " + (useGex ? "SPX playbook" : syminfo.ticker), text_color=lblc, bgcolor=dark, text_size=size.tiny, text_halign=text.align_left)
+    // ROW 6 — TECHNICALS numbers: RSI · Vol · Headroom (spans both cols)
+    techNums = "RSI " + rsiNum + "   ·   VOL " + volNum + "   ·   " + hdNum + " to T1"
+    table.cell(panel, 0, 6, techNums, text_color=lblc, bgcolor=dark, text_size=size.small, text_halign=text.align_center)
     table.merge_cells(panel, 0, 6, 1, 6)
+    // ROW 7 — the READ verdict (its own colored cell) + ROW 8 the read sentence
+    readCol = readTone == "good" ? #145c3a : readTone == "bad" ? #6e2530 : #5a4410
+    readTxtC = readTone == "good" ? grnC : readTone == "bad" ? redC : color.new(#ffc247, 0)
+    table.cell(panel, 0, 7, readVerd, text_color=readTxtC, bgcolor=color.new(readCol, 0), text_size=size.normal, text_halign=text.align_center)
+    table.merge_cells(panel, 0, 7, 1, 7)
+    table.cell(panel, 0, 8, readTxt, text_color=color.new(#dfe4ea, 0), bgcolor=dark, text_size=size.small, text_halign=text.align_left)
+    table.merge_cells(panel, 0, 8, 1, 8)
+    // ROW 9 — the one caveat
+    table.cell(panel, 0, 9, "coach read — not a prediction, not advice", text_color=color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
+    table.merge_cells(panel, 0, 9, 1, 9)
 
 // ── alerts ───────────────────────────────────────────────────────────────────
 alertcondition(stateChanged and state == "TRIGGERED", "Coach: TRIGGER", "Setup triggered — take the entry")

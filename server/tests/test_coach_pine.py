@@ -69,11 +69,27 @@ def test_coach_trade_lifecycle_tracks_position():
     assert "stopHit" in s and "tgtHit" in s
     assert '"STOPPED"' in s and '"TARGET HIT"' in s
     # adaptive ticket panel, bottom-right, 2-column label|value grid
-    assert "table.new(position.bottom_right, 2, 7" in s
+    assert "table.new(position.bottom_right, 2, 10" in s
     assert "table.merge_cells" in s          # banner + lines span both cols
-    # the state banner is the action verb; the grid rows adapt in/out of a trade
-    assert "bannerTxt" in s and "action" in s
+    # the state banner carries the direction chip + the action verb
+    assert "dirTag" in s and "bannerTxt" in s and "action" in s
     assert "r1L" in s and "r1V" in s and "coachLine" in s
+
+
+def test_coach_technicals_read_synthesis():
+    s = cp.build_coach_indicator(_SCAFFOLD)
+    # VWAP is NOT a panel line (it's on the chart)
+    assert "techNums" in s
+    assert "RSI " in s and "VOL " in s and "to T1" in s
+    # the synthesized READ verdict + its sentence
+    assert "readVerd" in s and "readTxt" in s and "readCode" in s
+    for verdict in ('"MOMENTUM BEHIND IT"', '"TARGET IN REACH"', '"TARGET DOUBTFUL"', '"STALLING"'):
+        assert verdict in s, verdict
+    # divergence-aware RSI + headroom-in-ATR drives the read internally
+    assert "rsiDiverging" in s and "hdAtr" in s
+    # the one caveat line, and the footer removed
+    assert "not a prediction, not advice" in s
+    assert 'text_size=size.tiny, text_halign=text.align_center)' in s   # caveat row exists
 
 
 def test_coach_no_bgcolor_small_markers_both_sides():
