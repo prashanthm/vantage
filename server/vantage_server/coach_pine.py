@@ -132,7 +132,7 @@ stallBars= input.int(10, "Stall window (bars)", minval=3, group="Coach", tooltip
 stallMax = input.float(3.0, "Stall = range under this many ATR", minval=0.5, step=0.5, group="Coach", tooltip="If the last N-bar range is under this many ATR, price is coiled. A 0DTE long bleeds theta while it waits for the break (validated: coiled entries -$178 avg vs +$177 non-stalled).")
 showLines= input.bool(true, "Draw the baked levels", group="Display")
 showVwap = input.bool(true, "Draw session VWAP + bands", group="Display")
-showPanel= input.bool(true, "Show the coach panel (top-right)", group="Display")
+showPanel= input.bool(true, "Show the coach panel (top-left)", group="Display")
 
 // ── session VWAP + bands, RSI, relative volume, ATR ──────────────────────────
 newSession = ta.change(time("D")) != 0
@@ -285,20 +285,43 @@ theta = stalledAtLevel and not warn and not exitCue and not enter
 // front-run downgrades WAIT to an explicit "wait for the tag" (still amber)
 state = warn ? "WARN" : exitCue ? "EXIT" : enter ? "ENTER" : theta ? "THETA" : hold ? "HOLD" : "WAIT"
 
-// the reason string for the panel/label
-reason = wrongSideLong  ? "wrong side: long above " + nearLb :
-         wrongSideShort ? "wrong side: short below " + nearLb :
-         chaseLong      ? "extended: chasing " + str.tostring(vwGap, "#.#") + " ATR over VWAP" :
-         chaseShort     ? "extended: chasing " + str.tostring(math.abs(vwGap), "#.#") + " ATR under VWAP" :
-         knife          ? "knife into " + nearLb + " (below VWAP, thin vol)" :
-         frontRun       ? "front-run: near " + nearLb + ", wait for the tag" :
-         cleanLong      ? "clean reclaim of " + nearLb + " on volume" :
-         cleanShort     ? "clean rejection of " + nearLb + " on volume" :
-         exitCue        ? "reverted to VWAP — manage/take it" :
-         theta          ? "coiled at " + nearLb + " " + str.tostring(coilBars) + " bars (" + str.tostring(stallRatio, "#.#") + "x ATR)" + (midday ? " · midday — theta bleed on 0DTE longs" : " — theta bleed while it decides") :
-         hold           ? "red " + str.tostring(pnlPts, "#.#") + "pt but " + nearLb + " holds — hold the plan, don't fold" :
-         atLevel        ? "at " + nearLb + " — wait for confirmation" :
-                          "no level in range — wait for a tag"
+// ── the ACTION verb — the ONE thing to read. Plain English, no jargon. ────────
+// This answers "what do I do RIGHT NOW". Everything else in the panel explains it.
+action = cleanLong      ? "BUY CALLS" :
+         cleanShort     ? "BUY PUTS" :
+         exitCue        ? "TAKE PROFIT" :
+         (wrongSideLong or wrongSideShort) ? "WRONG SIDE — DON'T" :
+         (chaseLong or chaseShort)         ? "DON'T CHASE" :
+         knife          ? "DON'T CATCH IT" :
+         theta          ? "STALLING — THETA RISK" :
+         hold           ? "HOLD YOUR TRADE" :
+         frontRun       ? "WAIT FOR THE TAG" :
+                          "STAND ASIDE"
+
+// the reason string — one plain sentence explaining the action
+reason = wrongSideLong  ? "long above " + nearLb + " — the wall repels, don't buy through it" :
+         wrongSideShort ? "short below " + nearLb + " — support repels, don't sell through it" :
+         chaseLong      ? "price is " + str.tostring(vwGap, "#.#") + " ATR over VWAP — too extended to buy" :
+         chaseShort     ? "price is " + str.tostring(math.abs(vwGap), "#.#") + " ATR under VWAP — too extended to sell" :
+         knife          ? "falling into " + nearLb + " on thin volume — no bounce yet" :
+         frontRun       ? "near " + nearLb + " but not tagged — wait for the close through it" :
+         cleanLong      ? "reclaimed " + nearLb + " on volume — longs are confirmed here" :
+         cleanShort     ? "rejected " + nearLb + " on volume — shorts are confirmed here" :
+         exitCue        ? "snapped back to VWAP — the move is done, bank it" :
+         theta          ? "coiled at " + nearLb + " for " + str.tostring(coilBars) + " bars — a 0DTE long bleeds theta while it decides" + (midday ? " (midday, watch it)" : "") :
+         hold           ? str.tostring(pnlPts, "#.#") + "pt red but " + nearLb + " still holds — don't fold a plan trade" :
+         atLevel        ? "at " + nearLb + " — wait for a confirmed close through it" :
+                          "no level in range — nothing to do yet"
+
+// ── the NARRATIVE — a plain-English read of the tape, shown ALWAYS (even in ───
+// WAIT), so the panel tells a story instead of just flashing a stuck word. ────
+regimeTxt = na(vwap) ? "" :
+     (close >= vwap ? "Price is above VWAP" : "Price is below VWAP") +
+     (aboveFlip ? " and above the flip — buyers favored. " : " and under the flip — sellers favored. ")
+locTxt = na(nearPx) ? "No level nearby." :
+     "Nearest is " + nearLb + " at " + str.tostring(nearPx, "#.#") +
+     ", " + str.tostring(nearDist, "#.#") + "pt " + (close >= nearPx ? "below" : "above") + "."
+narrative = regimeTxt + locTxt
 
 // ── plots ─────────────────────────────────────────────────────────────────────
 // session VWAP + bands
@@ -326,33 +349,39 @@ plotshape(stateChanged and state == "EXIT",  title="EXIT",  location=location.ab
 plotshape(stateChanged and state == "THETA", title="THETA", location=location.abovebar, style=shape.flag,         color=color.new(#e0a020,0), size=size.tiny,  text="θ decay")
 plotshape(stateChanged and state == "HOLD",  title="HOLD",  location=location.belowbar, style=shape.square,       color=color.new(#9b6dff,0), size=size.tiny,  text="HOLD")
 
-// ── the coach panel (top-right) ──────────────────────────────────────────────
-var table panel = table.new(position.top_right, 2, 9, border_width=1)
+// ── your position, in plain words (always shown) ─────────────────────────────
+posTxt = not inTrade ? "Flat — no position" :
+     (posDir == 1 ? "Long from " : "Short from ") + str.tostring(posEntry, "#.#") +
+     " · " + str.tostring(pnlPts, "+#.#;-#.#") + "pt " + (na(pnlPts) ? "" : pnlPts >= 0 ? "🟢" : "🔴")
+
+// compact one-line tape read (the gauges, for the curious — not required reading)
+tapeTxt = (na(vwap) ? "VWAP —" : (na(vwGap) ? "at VWAP" : str.tostring(vwGap, "+#.#;-#.#") + " ATR vs VWAP")) +
+     " · RSI " + str.tostring(rsi, "#") + (rsi >= 70 ? "↑" : rsi <= 30 ? "↓" : "") +
+     " · vol " + (na(relV) ? "—" : str.tostring(relV, "#.#") + "x" + (volOK ? "✓" : "")) +
+     (coiled ? " · COILED " + str.tostring(coilBars) + "b" : "")
+
+// ── the coach panel (TOP-LEFT so it never overlaps the playbook's right-hand ──
+// level table). Read top-to-bottom: ACTION → why → your position → the story. ─
+var table panel = table.new(position.top_left, 1, 6, border_width=1, frame_width=1, frame_color=color.new(color.gray, 50))
 if showPanel and barstate.islast
-    stCol = state == "WARN" ? #cf3b47 : state == "ENTER" ? #16915b : state == "EXIT" ? #2f6df6 : state == "THETA" ? #e0a020 : state == "HOLD" ? #9b6dff : #b26a00
-    table.cell(panel, 0, 0, "COACH", text_color=color.white, bgcolor=color.new(#13171e,0), text_size=size.normal)
-    table.cell(panel, 1, 0, state, text_color=color.white, bgcolor=color.new(stCol,0), text_size=size.normal)
-    table.cell(panel, 0, 1, "why", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 1, reason, text_color=color.new(#13171e,0), text_size=size.small)
-    table.cell(panel, 0, 2, "nearest", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 2, na(nearPx) ? "—" : nearLb + " " + str.tostring(nearPx, "#.#") + " (" + str.tostring(nearDist, "#.#") + " away)", text_color=color.new(#13171e,0), text_size=size.small)
-    table.cell(panel, 0, 3, "VWAP", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 3, na(vwap) ? "—" : str.tostring(vwap, "#.#") + " (" + (na(vwGap) ? "—" : str.tostring(vwGap, "+#.#;-#.#") + " ATR)"), text_color=color.new(#13171e,0), text_size=size.small)
-    table.cell(panel, 0, 4, "RSI", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 4, str.tostring(rsi, "#") + (rsi >= 70 ? " overbought" : rsi <= 30 ? " oversold" : ""), text_color=color.new(#13171e,0), text_size=size.small)
-    table.cell(panel, 0, 5, "rel-vol", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 5, na(relV) ? "—" : str.tostring(relV, "#.##") + "x" + (volOK ? " ✓" : " (thin)"), text_color=color.new(#13171e,0), text_size=size.small)
-    table.cell(panel, 0, 6, "regime", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 6, aboveFlip ? "above flip" : "below flip", text_color=color.new(#13171e,0), text_size=size.small)
-    table.cell(panel, 0, 7, "position", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 7, not inTrade ? "flat" : (posDir == 1 ? "long " : "short ") + str.tostring(posEntry, "#.#") + " · " + str.tostring(pnlPts, "+#.#;-#.#") + "pt", text_color=na(pnlPts) ? color.gray : pnlPts >= 0 ? #16915b : #cf3b47, text_size=size.small)
-    table.cell(panel, 0, 8, "coil", text_color=color.gray, text_size=size.small)
-    table.cell(panel, 1, 8, na(stallRatio) ? "—" : coiled ? str.tostring(stallRatio, "#.#") + "x ATR · " + str.tostring(coilBars) + " bars" + (midday ? " · midday" : "") : "moving (" + str.tostring(stallRatio, "#.#") + "x)", text_color=coiled ? #e0a020 : color.new(#13171e,0), text_size=size.small)
+    actCol = (enter or hold) ? #16915b : exitCue ? #2f6df6 : warn ? #cf3b47 : theta ? #e0a020 : #4a5160
+    // ROW 0 — the ACTION, big and colored. The one thing to read.
+    table.cell(panel, 0, 0, action, text_color=color.white, bgcolor=color.new(actCol, 0), text_size=size.large, text_halign=text.align_center)
+    // ROW 1 — one-sentence why
+    table.cell(panel, 0, 1, reason, text_color=color.new(#e8eaed, 0), bgcolor=color.new(#1b2029, 0), text_size=size.normal, text_halign=text.align_left)
+    // ROW 2 — YOUR POSITION, in words, color by P&L
+    table.cell(panel, 0, 2, posTxt, text_color=color.white, bgcolor=color.new(not inTrade ? #2a2f38 : pnlPts >= 0 ? #145c3a : #6e2530, 0), text_size=size.normal, text_halign=text.align_center)
+    // ROW 3 — the narrative: what price is actually doing (always shown)
+    table.cell(panel, 0, 3, narrative, text_color=color.new(#c7ccd4, 0), bgcolor=color.new(#1b2029, 0), text_size=size.small, text_halign=text.align_left)
+    // ROW 4 — the tape read (gauges), muted
+    table.cell(panel, 0, 4, tapeTxt, text_color=color.new(#8a93a3, 0), bgcolor=color.new(#13171e, 0), text_size=size.small, text_halign=text.align_left)
+    // ROW 5 — footer / legend
+    table.cell(panel, 0, 5, "0DTE Coach · not advice · EOD levels", text_color=color.new(#5a6270, 0), bgcolor=color.new(#13171e, 0), text_size=size.tiny, text_halign=text.align_center)
 
 // ── alerts (so the coach can flash even when you're not watching) ─────────────
-alertcondition(stateChanged and state == "ENTER", "Coach: ENTER", "Clean tag+reclaim on volume")
-alertcondition(stateChanged and state == "WARN",  "Coach: WARN",  "Rule break — front-run / wrong-side / extended / knife")
-alertcondition(stateChanged and state == "EXIT",  "Coach: EXIT",  "Reverted to VWAP — manage the trade")
+alertcondition(stateChanged and state == "ENTER", "Coach: BUY", "Clean tag+reclaim on volume — take the entry")
+alertcondition(stateChanged and state == "WARN",  "Coach: DON'T", "Rule break — wrong-side / chasing / knife")
+alertcondition(stateChanged and state == "EXIT",  "Coach: TAKE PROFIT", "Reverted to VWAP — bank the trade")
 alertcondition(stateChanged and state == "THETA", "Coach: THETA", "Coiled at a level — theta bleed on 0DTE longs")
 alertcondition(stateChanged and state == "HOLD",  "Coach: HOLD",  "Red but the level holds — hold the plan")
 '''

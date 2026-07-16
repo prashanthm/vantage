@@ -59,6 +59,21 @@ def test_coach_hold_tracks_red_position():
     assert "hold = red and not exitCue" in s
 
 
+def test_coach_panel_is_plain_english_top_left():
+    s = cp.build_coach_indicator(_SCAFFOLD)
+    # panel moved to top-left so it never overlaps the playbook's right-hand table
+    assert "position.top_left" in s
+    assert "position.top_right" not in s
+    # a plain-English ACTION verb (the one thing to read), not just a state code
+    for verb in ('"BUY CALLS"', '"BUY PUTS"', '"TAKE PROFIT"', '"STAND ASIDE"', '"HOLD YOUR TRADE"'):
+        assert verb in s, verb
+    # position shown in words, and a narrative that renders even when idle
+    assert '"Flat — no position"' in s
+    assert "narrative =" in s and "regimeTxt" in s and "locTxt" in s
+    # the action drives the panel header
+    assert "table.cell(panel, 0, 0, action" in s
+
+
 def test_coach_flip_missing_is_typed_na():
     """A scaffold with no gamma-flip row must still compile: `flipLevel` has to
     be a TYPED float, else Pine rejects `flipLevel = na` (untyped na assignment)."""
