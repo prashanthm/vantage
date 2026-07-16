@@ -40,3 +40,28 @@ live in prod — but the EDGE remains unvalidated. Recommendation: capture 1m ba
 going forward (store the DNA windows persistently) so the next few sessions of
 real FVG entries can be tested at the right resolution before building FVG into
 the coach.
+
+## H2 — {level + fresh 1m FVG} confluence separates P&L (REAL 1m data, 07-16)
+prediction: with 1m bars (the right resolution), the level+FVG "both" bucket
+beats level-only on WR and avg P&L.
+experiment: fvg_1m.py — 3-candle 1m FVG on the PERSISTED 07-16 bars (390 bars),
+12 real SPX trades, bucketed.
+result:
+  both       n=2 WR 1.00 net +$3087 avg +$1544
+  level_only n=3 WR 0.00 net -$6795 avg -$2265   ← incl the -$5350 12:06 call
+  fvg_only   n=3 WR 1.00 +$1230
+  neither    n=4 WR 1.00 +$2530
+verdict: CONFIRMED directionally, strongly. Every level+FVG entry won; every
+level-WITHOUT-FVG entry LOST (all 3), including the session's -$5350 disaster.
+The specific trap is a LEVEL WITHOUT the imbalance behind it — exactly what the
+operator claimed and what Mira/coach are blind to.
+CAVEAT: one session, buckets of 2-4. A hint, not proof — could split by luck.
+"neither" also won 100%, so it's not "FVG=win" cleanly; it's "level-without-FVG
+=trap". The detector is a plain 3-candle gap, not the operator's full LuxAlgo
+logic. Need several more captured 1m sessions to call this an edge.
+
+## Status: promising, needs more sessions
+The 1m persistence (shipped) makes accumulation automatic. Recommendation: let a
+handful more sessions capture, re-run H2 across them; if the level-without-FVG
+loss pattern holds, THEN build the FVG leg into the DNA correlation + coach (arm
+requires level+FVG; flag level-only as lower-conviction).

@@ -28,4 +28,4 @@
   FVG leg is testable here; the operator's full method (FVG + OB + sweep) may be
   stronger than the FVG leg alone shows.
 
-Status: **blocked (inconclusive) — needs 1m data** · started 2026-07-16 · confirmed the system is FVG-blind by construction; FVG mechanism computes fine but the EDGE is untested (07-15/16 1m bars unfetchable; frozen cache is 15m, too coarse for 1m FVGs)
+Status: **promising, needs more sessions** · H2 on real 07-16 1m data: level+FVG won 100% (+$1544 avg), level-WITHOUT-FVG lost 100% (-$2265 avg, incl the -$5350 trade). One session, buckets of 2-4 — a strong hint, not proof. 1m persistence shipped; accumulate more sessions then build if it holds.
