@@ -160,8 +160,9 @@ def test_coach_shows_gex_date_and_staleness():
     s = cp.build_coach_indicator(_SCAFFOLD, webhook_secret="SEC")
     # the levels' generation date is baked and shown (SPX / GEX only)
     assert 'gexDate = "2026-07-16"' in s
-    # a staleness check compares the chart's current date to the baked date
-    assert "gexStale" in s and "todayStr > gexDate" in s
+    # a NUMERIC staleness check (Pine's > needs numbers, not strings)
+    assert "gexDateNum = 20260716" in s
+    assert "gexStale" in s and "todayNum > gexDateNum" in s
     assert "STALE — re-pull" in s
     # only surfaced for GEX-enabled tickers (useGex); swing-mode shows the plain caveat
     caveat = next(ln for ln in s.splitlines() if ln.strip().startswith("caveatTxt ="))

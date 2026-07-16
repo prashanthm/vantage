@@ -109,6 +109,12 @@ def build_coach_indicator(scaffold: dict, webhook_secret: str = "") -> str | Non
 
     # the secret is a plain token embedded in the alert JSON — escape any quote
     secret = str(webhook_secret or "").replace('"', "").replace("\\", "")
+    # a NUMERIC form of the session date (YYYYMMDD) for the Pine staleness check —
+    # Pine's `>` needs numbers, not strings. 0 when the date is unknown/malformed.
+    gex_date_num = "0"
+    _d = "".join(ch for ch in (session or "") if ch.isdigit())
+    if len(_d) == 8:
+        gex_date_num = _d
     # Inject via .replace(), NOT .format(): the body's alertcondition messages
     # contain TradingView placeholders ({{ticker}}, {{plot("Entry")}}) and JSON
     # braces that .format() would mangle. .replace() leaves those untouched.
@@ -117,6 +123,7 @@ def build_coach_indicator(scaffold: dict, webhook_secret: str = "") -> str | Non
         ("{px_arr}", px_arr), ("{lb_arr}", lb_arr), ("{ro_arr}", ro_arr),
         ("{flip_line}", flip_line), ("{n_levels}", str(len(prices))),
         ("{webhook_secret}", secret), ("{gex_date}", session or "?"),
+        ("{gex_date_num}", gex_date_num),
     ):
         body = body.replace(key, val)
     return header + body
@@ -141,7 +148,8 @@ var float[] gexPx  = array.from({px_arr})
 var string[] gexLb = array.from({lb_arr})
 var string[] gexRo = array.from({ro_arr})
 float gexFlip = {flip_line}
-gexDate = "{gex_date}"   // the session these GEX levels were generated for
+gexDate = "{gex_date}"        // the session these GEX levels were generated for (display)
+gexDateNum = {gex_date_num}   // same date as YYYYMMDD int (0 = unknown) — for the numeric staleness compare
 
 // ── inputs ───────────────────────────────────────────────────────────────────
 reclaimN = input.int(2, "Reclaim = this many closes back through the level", minval=1, maxval=5, group="Plan", tooltip="The TRIGGER. A long arms at a support/put-wall/flip; it fires only after this many consecutive closes back ABOVE it (reclaim, not just a touch). Shorts mirror at resistance/call-wall.")
@@ -552,8 +560,8 @@ if showPanel and barstate.islast
     // The levels are a static paste; they DON'T auto-update when Vantage runs its
     // nightly job — so show which session they were built for, and flag STALE
     // once the chart has moved past it (re-pull the coach to refresh).
-    todayStr = str.tostring(year, "0000") + "-" + str.tostring(month, "00") + "-" + str.tostring(dayofmonth, "00")
-    gexStale = useGex and gexDate != "?" and todayStr > gexDate
+    todayNum = year * 10000 + month * 100 + dayofmonth
+    gexStale = useGex and gexDateNum > 0 and todayNum > gexDateNum
     caveatTxt = useGex ? ("GEX levels · " + gexDate + (gexStale ? "  ⚠ STALE — re-pull" : "  ✓")) : "coach read — not a prediction"
     table.cell(panel, 0, 9, caveatTxt, text_color=gexStale ? color.new(#ffc247, 0) : color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
     table.merge_cells(panel, 0, 9, 1, 9)
