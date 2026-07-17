@@ -143,17 +143,35 @@ function ForecastChart({ snap, forecast }) {
       });
     });
 
+    const px = snap.price || (bars.length ? bars[bars.length - 1].close : 0);
+    const nearest = (arr, mid, n) => (arr || [])
+      .slice().sort((a, b) => Math.abs(mid(a) - px) - Math.abs(mid(b) - px)).slice(0, n);
+
     // ICT order blocks (support/resistance zones) + fresh FVGs — directional
-    // tint (green = demand/bullish, red = supply/bearish) + a text tag.
+    // tint (green = demand/bullish, red = supply/bearish) + a text tag. Over the
+    // multi-day history these can be many; keep the ones NEAREST current price.
     const ict = snap.ict || {};
-    (ict.active_order_blocks || []).slice(0, 4).forEach((o) => {
+    nearest(ict.active_order_blocks, (o) => (o.top + o.bottom) / 2, 5).forEach((o) => {
       const rgb = (o.side === "bull" ? th.upRgb : th.downRgb).join(",");
       addZone(o.top, o.bottom, rgb, 0.14, `${o.side === "bull" ? "demand" : "supply"} OB`);
     });
-    (ict.fresh_fvgs || []).slice(0, 4).forEach((f) => {
+    nearest(ict.fresh_fvgs, (f) => (f.hi + f.lo) / 2, 5).forEach((f) => {
       const rgb = (f.side === "bull" ? th.upRgb : th.downRgb).join(",");
       addZone(f.hi, f.lo, rgb, 0.10, `${f.side === "bull" ? "bull" : "bear"} FVG`);
     });
+
+    // unswept liquidity pools — resting BSL (above) / SSL (below), the prior
+    // highs/lows price is drawn to sweep. Thin amber dotted lines, nearest few.
+    const liq = ict.unswept_liquidity || {};
+    const liqRgb = "184,122,22";  // amber, distinct from coach/OB/FVG
+    nearest(liq.bsl, (p) => p, 4).forEach((p) => addLine({
+      price: p, color: `rgba(${liqRgb},0.6)`, lineWidth: 1,
+      lineStyle: LW.LineStyle.Dotted, axisLabelVisible: false, title: "BSL",
+    }));
+    nearest(liq.ssl, (p) => p, 4).forEach((p) => addLine({
+      price: p, color: `rgba(${liqRgb},0.6)`, lineWidth: 1,
+      lineStyle: LW.LineStyle.Dotted, axisLabelVisible: false, title: "SSL",
+    }));
 
     // the level-based DRAW (the magnet) — always shown; violet, distinct.
     if (ict.draw && ict.draw.level != null) addLine({
@@ -336,7 +354,7 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
           {s && (
             <div className="vg-fc-tapehead">
               <b>{s.price}</b>
-              <span className="vg-note">{s.day} · {String(s.as_of || "").slice(11, 16)} ET</span>
+              <span className="vg-note">{s.day} · {String(s.as_of || "").slice(11, 16)} ET{s.history_days > 1 ? ` · ${s.history_days}-day history` : ""}</span>
               <span className="vg-fc-tape">
                 VWAP {t.vwap} ({t.vs_vwap_pt >= 0 ? "+" : ""}{t.vs_vwap_pt}) · RSI {t.rsi} · vol {t.rel_volume}×
                 {draw.dir ? <> · draw {draw.dir} → <b>{draw.level}</b></> : null}
@@ -349,6 +367,7 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
               <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-down)" }} />coach resistance</span>
               <span><i className="vg-lg-sw" style={{ background: "rgba(31,157,107,0.18)" }} />demand OB / bull FVG</span>
               <span><i className="vg-lg-sw" style={{ background: "rgba(217,59,78,0.18)" }} />supply OB / bear FVG</span>
+              <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "rgb(184,122,22)" }} />liquidity pool (BSL/SSL)</span>
               <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "#7c5cff" }} />draw (magnet)</span>
               {fcFields && <span><i className="vg-lg-sw" style={{ background: "var(--vg-up)" }} />🎯 forecast target / invalidation</span>}
             </div>)}

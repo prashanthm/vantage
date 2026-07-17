@@ -1125,6 +1125,49 @@ class Store:
         except Exception:
             return None
 
+    def load_intraday_bars_range(self, symbol: str, upto_day: str,
+                                 interval: str = "1m", days: int = 10) -> dict | None:
+        """Concatenate the last ``days`` stored sessions up to (and including)
+        ``upto_day`` into ONE continuous OHLC series — so the chart can show
+        multi-session history and the ICT engine can find prior-day liquidity
+        pools / order blocks / FVGs. Sessions are stitched in chronological
+        order; ``day_bounds`` marks where each session begins (its first index)
+        so callers can find the current session's start. None with no data."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT day, ohlc FROM intraday_bars "
+                "WHERE symbol=? AND interval=? AND day<=? "
+                "ORDER BY day DESC LIMIT ?",
+                (symbol, interval, upto_day, int(days))).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return None
+        # rows came newest-first; stitch oldest-first
+        out = {"ts": [], "open": [], "high": [], "low": [], "close": [], "volume": []}
+        day_bounds = {}
+        for r in reversed(rows):
+            d = r["day"] if hasattr(r, "keys") else r[0]
+            try:
+                blob = _db.loads(r["ohlc"] if hasattr(r, "keys") else r[1])
+            except Exception:
+                continue
+            ts = blob.get("ts") or []
+            if not ts:
+                continue
+            day_bounds[d] = len(out["ts"])
+            out["ts"].extend(ts)
+            for k in ("open", "high", "low", "close"):
+                out[k].extend(blob.get(k) or [])
+            out["volume"].extend(blob.get("volume") or [0] * len(ts))
+        if not out["ts"]:
+            return None
+        out["day_bounds"] = day_bounds
+        return out
+
     # ── SPX-analyst forecasts (SQLite-only) ──────────────────────────────────
 
     def save_spx_forecast(self, *, symbol: str, day: str, as_of: str,

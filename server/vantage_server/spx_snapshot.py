@@ -72,24 +72,39 @@ def _vwap_rsi(op, hi, lo, cl, vol, upto):
     return vwap, rsi, relv, a
 
 
-def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = None) -> dict | None:
+def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = None,
+                   history_days: int = 10) -> dict | None:
     """The snapshot dict for (day, symbol) up to ``as_of`` (ISO time; default the
-    last stored bar). None when there are no stored 1m bars for the day."""
+    last stored bar). Loads the last ``history_days`` stored sessions as ONE
+    continuous series so the chart shows multi-day history and the ICT engine
+    finds prior-day liquidity pools / order blocks / FVGs. Session-scoped
+    technicals (VWAP/RSI/session hi-lo) are computed from the current day only.
+    None when there are no stored 1m bars for the day."""
     bar_sym = "^GSPC" if symbol == "SPX" else symbol
-    ohlc = store.load_intraday_bars(bar_sym, day, "1m")
+    # multi-day continuous series (chart span + ICT scan)
+    ohlc = store.load_intraday_bars_range(bar_sym, day, "1m", days=history_days)
+    if not ohlc or not ohlc.get("ts"):
+        ohlc = store.load_intraday_bars(bar_sym, day, "1m")  # single-day fallback
     if not ohlc or not ohlc.get("ts"):
         return None
     ts = ohlc["ts"]
     op, hi, lo, cl = ohlc["open"], ohlc["high"], ohlc["low"], ohlc["close"]
     vol = ohlc.get("volume") or [0] * len(ts)
+    day_bounds = ohlc.get("day_bounds") or {}
 
-    # resolve the as-of bar index
+    # resolve the as-of bar index (in the concatenated array)
     ei = len(ts) - 1
     if as_of:
         ei = 0
         for k, t in enumerate(ts):
             if t <= as_of:
                 ei = k
+
+    # start index of the CURRENT session (for session-scoped technicals). If we
+    # only have the fallback single day, that's index 0.
+    si = day_bounds.get(day, 0)
+    if si > ei:
+        si = 0
 
     price = cl[ei]
 
@@ -102,25 +117,31 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
               for p, lbl in lvl_entries]
     lvl_prices = [x["price"] for x in levels]
 
-    vwap, rsi, relv, a = _vwap_rsi(op, hi, lo, cl, vol, ei)
+    # VWAP/RSI/rel-vol/ATR are the current SESSION's tape (from si..ei)
+    s_op, s_hi, s_lo, s_cl, s_vol = op[si:], hi[si:], lo[si:], cl[si:], vol[si:]
+    s_ei = ei - si
+    vwap, rsi, relv, a = _vwap_rsi(s_op, s_hi, s_lo, s_cl, s_vol, s_ei)
 
-    # ICT structures up to the as-of bar
+    # ICT structures scan the FULL history up to the as-of bar, so prior-day
+    # liquidity pools / order blocks / FVGs surface (the whole point).
     hi_e, lo_e, cl_e, op_e = hi[:ei + 1], lo[:ei + 1], cl[:ei + 1], op[:ei + 1]
     liq = ict.unswept_liquidity(hi_e, lo_e)
     obs = ict.active_obs(hi_e, lo_e, cl_e, op_e)
     fvgs = ict.fresh_fvgs(hi_e, lo_e)
     draw = ict.draw_from_levels(price, lvl_prices)
 
-    # session shape
-    sess_hi = max(hi[:ei + 1])
-    sess_lo = min(lo[:ei + 1])
-    opening = cl[0]
+    # session shape — current day only
+    sess_hi = max(s_hi[:s_ei + 1])
+    sess_lo = min(s_lo[:s_ei + 1])
+    opening = s_cl[0]
 
+    # the chart shows the whole loaded history up to as_of
     bars_5m = _resample_5m(ts, op, hi, lo, cl, vol, ei)
 
     return {
         "symbol": symbol, "day": day, "as_of": ts[ei], "bar": ei + 1,
         "price": round(price, 2),
+        "history_days": len(day_bounds) or 1,
         "bars_5m": bars_5m,   # Lightweight-Charts candles for the chart view
         "session": {"open": round(opening, 2), "high": round(sess_hi, 2),
                     "low": round(sess_lo, 2), "from_open_pt": round(price - opening, 1)},

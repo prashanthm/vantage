@@ -2661,15 +2661,35 @@
           title: lbl.replace(/\s*[★✦].*$/, "").slice(0, 20)
         });
       });
+      const px2 = snap.price || (bars.length ? bars[bars.length - 1].close : 0);
+      const nearest2 = (arr, mid, n) => (arr || []).slice().sort((a, b) => Math.abs(mid(a) - px2) - Math.abs(mid(b) - px2)).slice(0, n);
       const ict = snap.ict || {};
-      (ict.active_order_blocks || []).slice(0, 4).forEach((o) => {
+      nearest2(ict.active_order_blocks, (o) => (o.top + o.bottom) / 2, 5).forEach((o) => {
         const rgb = (o.side === "bull" ? th.upRgb : th.downRgb).join(",");
         addZone(o.top, o.bottom, rgb, 0.14, `${o.side === "bull" ? "demand" : "supply"} OB`);
       });
-      (ict.fresh_fvgs || []).slice(0, 4).forEach((f) => {
+      nearest2(ict.fresh_fvgs, (f) => (f.hi + f.lo) / 2, 5).forEach((f) => {
         const rgb = (f.side === "bull" ? th.upRgb : th.downRgb).join(",");
         addZone(f.hi, f.lo, rgb, 0.1, `${f.side === "bull" ? "bull" : "bear"} FVG`);
       });
+      const liq = ict.unswept_liquidity || {};
+      const liqRgb = "184,122,22";
+      nearest2(liq.bsl, (p) => p, 4).forEach((p) => addLine({
+        price: p,
+        color: `rgba(${liqRgb},0.6)`,
+        lineWidth: 1,
+        lineStyle: LW.LineStyle.Dotted,
+        axisLabelVisible: false,
+        title: "BSL"
+      }));
+      nearest2(liq.ssl, (p) => p, 4).forEach((p) => addLine({
+        price: p,
+        color: `rgba(${liqRgb},0.6)`,
+        lineWidth: 1,
+        lineStyle: LW.LineStyle.Dotted,
+        axisLabelVisible: false,
+        title: "SSL"
+      }));
       if (ict.draw && ict.draw.level != null) addLine({
         price: ict.draw.level,
         color: "rgba(124,92,255,0.9)",
@@ -2848,7 +2868,7 @@ ${ref}`;
         }
       ),
       /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "Load")
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET"), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET", s.history_days > 1 ? ` \xB7 ${s.history_days}-day history` : ""), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",
