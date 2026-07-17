@@ -169,6 +169,50 @@ prediction: a breaker (failed OB whose swing was swept, then structure flips) �
   rarer than OBs on hourly. I predict INCONCLUSIVE (n<30) — likely too few to
   score. If enough fire, a real edge (sweep+flip is the strongest ICT array) but
   under-sampled.
-experiment: (pending)
-result: (pending)
-verdict: (pending)
+experiment: concept_breaker_flip — OB violated (close beyond), then on first
+  return the zone holds FLIPPED (≥1 ATR opposite move). vs 0.549 null.
+result: breaker flip 0.692 (n=26) vs 0.549 → +14.4pp but p=0.14, n<30.
+verdict: **INCONCLUSIVE** (under-sampled — only 26 hourly breakers). Directionally
+  consistent with the OB/FVG family; re-test as sample grows.
+
+## Concept 6 — PREMIUM/DISCOUNT (buy-discount / sell-premium)
+prediction: over a trailing dealing range (swing low→high), buying when price is
+  in the DISCOUNT half (<50%) and selling in PREMIUM (>50%), held N bars, beats a
+  random-side control. This is mean-reversion in disguise; on SPX (trending up
+  most of the window) I predict it's WEAK or DISPROVEN — buying discount works in
+  ranges, fails in trends, and 2023-26 SPX trended. Predict FAIL S1 or no P&L edge.
+experiment: concept_premium_discount — over a 60-bar range, buy in discount /
+  sell in premium, hold 12 bars → avg ATR return vs random-side control.
+result: buy-disc/sell-prem **−0.069 ATR/trade** vs random +0.049 (n=834). LOSES.
+verdict: **DISPROVEN** — mean-reversion against a trending market (2023-26 SPX rose).
+  Buying discount / selling premium is a losing side on a trending instrument. As
+  predicted. (Would need a range-regime filter to salvage — not standalone.)
+
+## Concept 7 — OTE zone (0.62–0.79 retrace)
+prediction: entering a retracement into the 0.62–0.79 fib zone of an impulse (in
+  the impulse direction) beats entering at a RANDOM retrace depth of the same
+  impulse. ICT claims 0.705 is special; I predict the OTE zone shows a SMALL edge
+  over random retrace depth (maybe +3–8pp reversal/continuation) but likely FAILS
+  the +10pp S1 bar — the "0.705 is magic" claim is probably not distinguishable
+  from "deep retraces in a trend continue."
+experiment: concept_ote — retrace into 0.62–0.79 of a displacement impulse →
+  continue in impulse dir ≥1 ATR, vs retrace to a RANDOM depth (0.2–0.77) of the
+  same impulse.
+result: OTE continue **0.794 (n=528)** vs random-depth **0.650 (n=583)** → edge
+  **+14.3pp**, p<0.0001. PASS S1. (Prediction WRONG — I expected FAIL.)
+verdict: **S1 CONFIRMED** — the 0.62–0.79 zone genuinely outperforms a random
+  retrace depth for continuation. Not "0.705 is magic" but the deep-retrace band
+  is real. → S2 candidate.
+prediction: equal highs/lows (2+ pivots within a tolerance) get SWEPT more than a
+  random single pivot of the same recency. ICT: "equal H/L almost always get run."
+  I predict CONFIRMED — engineered/obvious liquidity is the one draw claim most
+  likely to hold (it's the clustering that makes it a target). Predict swept-rate
+  edge ≥+10pp over a matched single-pivot null.
+experiment: concept_equal_hl_draw — equal H/L (2+ pivots within 0.15 ATR, ≤40
+  bars apart) swept within 60 bars, vs a single (non-equal) pivot of same recency.
+result: equal-H/L swept **0.871 (n=473)** vs single-pivot **0.783 (n=861)** → edge
+  **+8.8pp**, p<0.0001. Statistically real but BELOW the +10pp bar.
+verdict: **FAIL S1 (borderline)** — equal H/L DO get swept more than single pivots
+  (+8.8pp, highly significant), but under the pre-registered +10pp threshold.
+  Prediction (confirmed) too strong. Verdict: real-but-weak; note as a minor
+  context signal, not a standalone edge.
