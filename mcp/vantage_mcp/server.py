@@ -814,6 +814,31 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         return envelope("journal_analysis", snap, available=True, bundle=bundle,
                         prompt=_ja.build_prompt(bundle))
 
+    @mcp.tool(
+        name="vantage.replay_forecasts",
+        annotations=_READ_ONLY,
+        description="The graded-run bundle for a REPLAY FORECAST — the sequence of "
+                    "'what will price do?' forecasts fired at each interval step "
+                    "through a chosen day, WITH their CODE-COMPUTED accuracy "
+                    "scores. Returns the deterministic calibration (hit-rate "
+                    "overall + bucketed by time-of-day / called bias / hourly "
+                    "tier; small buckets are flagged insufficient, never a "
+                    "fabricated rate), a per-step digest (bias/target/verdict/"
+                    "hit), and the PRIOR calibration (so grading compounds). The "
+                    "scores are authoritative and code-computed — a forecast-"
+                    "grader READS and narrates them; this tool does NO judging "
+                    "and invents no numbers. Args: run_id (required).",
+    )
+    def replay_forecasts(run_id: str) -> dict:
+        from vantage_server import replay_forecast as _rf
+        snap = snapshot()
+        bundle = _rf.gather_grade_bundle(store, run_id)
+        if bundle is None:
+            return envelope("replay_forecasts", snap, available=False,
+                            note=f"run {run_id} has no forecasts")
+        return envelope("replay_forecasts", snap, available=True, bundle=bundle,
+                        prompt=_rf.build_grade_prompt(bundle))
+
     return mcp
 
 

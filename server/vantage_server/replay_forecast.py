@@ -252,3 +252,38 @@ def gather_grade_bundle(store, run_id: str) -> dict | None:
         "steps": steps,            # per-forecast digest for the prompt
         "prior": prior,            # prior calibration (compounding), may be None
     }
+
+
+def build_grade_prompt(bundle: dict) -> str:
+    """The grader preamble: the deterministic scores + the per-step digest, with
+    the hard clause that the model READS the numbers and never computes them —
+    the structural guard against reward-hacking. The Mira forecast_grader appends
+    its A2UI contract to this."""
+    import json
+    b = bundle
+    prior = b.get("prior")
+    if prior:
+        prior_line = (
+            f"\nPRIOR CALIBRATION (run {prior.get('run_id')}, {prior.get('day')}): "
+            f"scores {json.dumps(prior.get('scores'))}. BUILD ON IT — say what "
+            f"changed and whether the analyst's calibration is improving.\n")
+    else:
+        prior_line = "\nNo prior calibration — this is the baseline.\n"
+    return (
+        "You are grading a REPLAY FORECAST run: the SPX-analyst was asked 'what "
+        f"will price do?' at each interval step through {b['underlying']} on "
+        f"{b['day']} ({b['n_forecasts']} forecasts, {b['n_scored']} resolved). "
+        "Your job is to grade how the analyst's read EVOLVED as the tape "
+        "developed — was it early, late, whipsawed, or well-adapted?\n"
+        f"{prior_line}"
+        "\nSCORES — ALREADY COMPUTED IN CODE. Read and narrate them; NEVER "
+        "compute, alter, or invent a score or hit-rate. Cite ONLY these grounded "
+        f"numbers: {json.dumps(b['scores'])}.\n"
+        "(Buckets marked insufficient have too small a sample — say 'insufficient "
+        "sample', do NOT fabricate a rate.)\n"
+        f"\nPER-STEP DIGEST (as_of, bias, target, tier, verdict, moved_pt, hit): "
+        f"{json.dumps(b['steps'])}\n"
+        "\nBe specific and direct about the SEQUENCE — where the analyst flipped, "
+        "where it held correctly, which time-of-day it read best/worst. "
+        "Educational only, not financial advice."
+    )

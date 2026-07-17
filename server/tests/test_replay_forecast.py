@@ -193,6 +193,24 @@ def test_grade_bundle_none_for_unknown_run(tmp_path):
     assert rf.gather_grade_bundle(store, "nope") is None
 
 
+def test_grade_prompt_forbids_computing_scores(tmp_path):
+    # the anti-reward-hacking clause must be in the prompt the grader receives
+    store = _sqlite_store(tmp_path)
+    _seed_day(store, "2026-07-16")
+    _seed_day(store, "2026-07-17")
+    d1 = store.load_intraday_bars("^GSPC", "2026-07-16", "1m")
+    store.save_spx_forecast(
+        symbol="SPX", day="2026-07-16", as_of=d1["ts"][50],
+        price_at=d1["close"][50], snapshot={"ict_htf": {"present": False}},
+        forecast={"plot": {"bias": "up", "target": d1["close"][50] + 20,
+                           "invalidation": d1["close"][50] - 40}},
+        forecast_text="", run_id="rf-prompt")
+    bundle = rf.gather_grade_bundle(store, "rf-prompt")
+    prompt = rf.build_grade_prompt(bundle)
+    assert "ALREADY COMPUTED" in prompt
+    assert "NEVER" in prompt and "invent" in prompt
+
+
 # ── prime_day: idempotent, honest about the 30-day reach ─────────────────────
 
 def test_prime_day_idempotent_when_present(tmp_path):
