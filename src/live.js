@@ -1013,6 +1013,10 @@ export const scoreSpxForecast = (fid) =>
 // On-demand: compute the playbook levels + seed 1m bars for a symbol.
 export const prepareSpx = (symbol, days = 5) =>
   postJson(`${backendBase()}/api/spx/prepare`, { symbol, days });
+// Light intraday refresh — re-fetch today's 1m bars (force) so the snapshot is
+// ~current. Used by the 5-min auto-poll and refresh-then-forecast.
+export const refreshSpx = (symbol) =>
+  postJson(`${backendBase()}/api/spx/refresh`, { symbol });
 
 // The positions that matter while trading: reclaim proxies you actually hold,
 // each flagged with whether the exit monitor is protecting it.

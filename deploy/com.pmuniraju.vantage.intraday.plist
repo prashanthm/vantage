@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pmuniraju.vantage.intraday</string>
+  <key>ProgramArguments</key>
+  <array><string>/Users/pmuniraju/personal/vantage/intraday-refresh.sh</string></array>
+  <key>WorkingDirectory</key><string>/Users/pmuniraju/personal/vantage</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TZ</key><string>America/New_York</string>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>StartInterval</key><integer>300</integer>
+  <key>StandardOutPath</key><string>/Users/pmuniraju/personal/vantage/logs/intraday-refresh.log</string>
+  <key>StandardErrorPath</key><string>/Users/pmuniraju/personal/vantage/logs/intraday-refresh.log</string>
+</dict>
+</plist>

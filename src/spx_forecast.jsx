@@ -11,7 +11,7 @@ import { parseMira, MiraRender } from "./mira-render.jsx";
 import { chartTheme } from "./charts.jsx";
 import {
   useLive, streamTurn, getSpxSnapshot, saveSpxForecast,
-  getSpxForecasts, scoreSpxForecast, prepareSpx,
+  getSpxForecasts, scoreSpxForecast, prepareSpx, refreshSpx,
 } from "./live.js";
 
 const { useState, useRef, useEffect } = React;
@@ -253,8 +253,23 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
   const [prepNote, setPrepNote] = useState(null);
   const [read, setRead] = useState(null);
   const [scoring, setScoring] = useState(null);
+  const [autoRefresh, setAutoRefresh] = useState(true);
   const abortRef = useRef(null);
   useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
+
+  // AUTO-UPDATE: every 5 min, re-fetch fresh 1m bars for a playbook symbol then
+  // re-pull the snapshot so the chart / levels / tape stay ~current. Pauses when
+  // the tab is hidden (no point polling in the background) and when off. The
+  // backend RTH cron also refreshes bars, so this stays cheap even solo.
+  useEffect(() => {
+    if (!autoRefresh || !PLAYBOOK_SYMBOLS.includes(symbol)) return undefined;
+    const tick = () => {
+      if (document.hidden) return;
+      refreshSpx(symbol).then(() => setNonce((n) => n + 1)).catch(() => {});
+    };
+    const id = setInterval(tick, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [autoRefresh, symbol]);
 
   const snapQ = useLive(() => getSpxSnapshot(undefined, undefined, symbol), null, [symbol, nonce]);
   const priors = useLive(() => getSpxForecasts(undefined, symbol, 30), null, [symbol, nonce]);
@@ -282,13 +297,13 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
       .finally(() => setPreparing(false));
   };
 
-  const forecast = () => {
-    if (!s) return;
-    setRead({ loading: true });
+  // stream the forecast for a given day/as_of (the analyst re-fetches the snapshot
+  // server-side from the ref, so a fresh as_of => fresh reasoning).
+  const runForecast = (day, asOf) => {
     let text = "";
-    const ref = `SPX_SNAPSHOT_REF day=${s.day} as_of=${s.as_of} underlying=${symbol}`;
+    const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
     const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).\n${ref}`;
-    abortRef.current = streamTurn(prompt, `spx-forecast-${symbol}-${s.day}-${s.as_of}`, (evt) => {
+    abortRef.current = streamTurn(prompt, `spx-forecast-${symbol}-${day}-${asOf}`, (evt) => {
       if (evt.kind === "error") { setRead({ error: evt.message || "Mira error" }); return; }
       // Mira delivers the answer as text frames — `token` (a whole A2UI JSON in
       // one frame) or streaming `delta`/`message`. Accumulate any of them.
@@ -301,11 +316,27 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
         const data = parseMira(text);
         if (!data && !text) { setRead({ error: "Mira returned an empty forecast." }); return; }
         setRead({ text, data });
-        saveSpxForecast({ day: s.day, as_of: s.as_of, symbol, snapshot: s,
+        saveSpxForecast({ day, as_of: asOf, symbol, snapshot: s,
           forecast: data || null, forecast_text: text })
           .then(() => setNonce((n) => n + 1)).catch(() => {});
       }
     });
+  };
+
+  // Forecast = REFRESH-THEN-FORECAST: pull today's freshest 1m bars first, then
+  // reason over them — so the read is always current at the moment you ask,
+  // independent of the 5-min auto cycle. Falls back to the loaded snapshot if the
+  // refresh fails or the symbol has no bars.
+  const forecast = () => {
+    if (!s) return;
+    setRead({ loading: true });
+    refreshSpx(symbol)
+      .then((r) => {
+        const day = (r && r.available && r.day) || s.day;
+        const asOf = (r && r.available && r.as_of) || s.as_of;
+        runForecast(day, asOf);
+      })
+      .catch(() => runForecast(s.day, s.as_of));   // degrade to the loaded snapshot
   };
 
   const score = (fid) => {
@@ -359,6 +390,13 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
                 VWAP {t.vwap} ({t.vs_vwap_pt >= 0 ? "+" : ""}{t.vs_vwap_pt}) · RSI {t.rsi} · vol {t.rel_volume}×
                 {draw.dir ? <> · draw {draw.dir} → <b>{draw.level}</b></> : null}
               </span>
+              {isPlaybook && (
+                <button
+                  className={cls("vg-fc-auto", autoRefresh && "vg-fc-auto-on")}
+                  onClick={() => setAutoRefresh((v) => !v)}
+                  title="Auto-refresh the 1m bars + chart every 5 minutes during market hours">
+                  {autoRefresh ? "● auto 5m" : "○ auto off"}
+                </button>)}
             </div>)}
 
           {s && s.ict_htf && s.ict_htf.present && (

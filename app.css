@@ -914,6 +914,11 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   letter-spacing: 0.03em; color: var(--vg-accent, #b8860b); }
 .vg-fc-htf b { font-variant-numeric: tabular-nums; }
 .vg-fc-htf-drop { font-weight: 600; color: var(--vg-ink); }
+.vg-fc-auto { margin-left: auto; font-family: var(--vg-mono, ui-monospace); font-size: 11px;
+  padding: 2px 9px; border-radius: 999px; border: 1px solid var(--vg-hairline);
+  background: none; color: var(--vg-faint); cursor: pointer; }
+.vg-fc-auto-on { color: var(--vg-up); border-color: color-mix(in srgb, var(--vg-up) 40%, transparent);
+  background: color-mix(in srgb, var(--vg-up) 10%, transparent); }
 .vg-fc-legend { display: flex; flex-wrap: wrap; gap: 12px; margin: 0 2px 8px;
   font-size: 11px; color: var(--vg-dim); }
 .vg-fc-legend span { display: inline-flex; align-items: center; gap: 5px; }

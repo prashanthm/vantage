@@ -358,6 +358,7 @@
     recomputePlaybook: () => recomputePlaybook,
     refreshAccount: () => refreshAccount,
     refreshAll: () => refreshAll,
+    refreshSpx: () => refreshSpx,
     saveBotConfig: () => saveBotConfig,
     saveJournalAnalysis: () => saveJournalAnalysis,
     saveJournalEntry: () => saveJournalEntry,
@@ -1119,6 +1120,7 @@
   var getSpxForecasts = (day, symbol = "SPX", limit = 50) => getJson(`${backendBase()}/api/spx/forecast?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + `&limit=${limit}`);
   var scoreSpxForecast = (fid) => postJson(`${backendBase()}/api/spx/forecast/${fid}/score`, {});
   var prepareSpx = (symbol, days = 5) => postJson(`${backendBase()}/api/spx/prepare`, { symbol, days });
+  var refreshSpx = (symbol) => postJson(`${backendBase()}/api/spx/refresh`, { symbol });
   var getTradeablePositions = () => getJson(`${backendBase()}/api/positions/tradeable`);
   async function recomputePlaybook(asOf, symbol = "SPX") {
     const base = backendBase();
@@ -2767,10 +2769,21 @@
     const [prepNote, setPrepNote] = useState5(null);
     const [read, setRead] = useState5(null);
     const [scoring, setScoring] = useState5(null);
+    const [autoRefresh, setAutoRefresh] = useState5(true);
     const abortRef = useRef2(null);
     useEffect4(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
+    useEffect4(() => {
+      if (!autoRefresh || !PLAYBOOK_SYMBOLS.includes(symbol)) return void 0;
+      const tick = () => {
+        if (document.hidden) return;
+        refreshSpx(symbol).then(() => setNonce((n) => n + 1)).catch(() => {
+        });
+      };
+      const id = setInterval(tick, 5 * 60 * 1e3);
+      return () => clearInterval(id);
+    }, [autoRefresh, symbol]);
     const snapQ = useLive(() => getSpxSnapshot(void 0, void 0, symbol), null, [symbol, nonce]);
     const priors = useLive(() => getSpxForecasts(void 0, symbol, 30), null, [symbol, nonce]);
     const s = snapQ.data && snapQ.data.available ? snapQ.data : null;
@@ -2793,14 +2806,12 @@
         setNonce((n) => n + 1);
       }).catch((e) => setPrepNote(String(e && e.message || e))).finally(() => setPreparing(false));
     };
-    const forecast = () => {
-      if (!s) return;
-      setRead({ loading: true });
+    const runForecast = (day, asOf) => {
       let text = "";
-      const ref = `SPX_SNAPSHOT_REF day=${s.day} as_of=${s.as_of} underlying=${symbol}`;
+      const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
       const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
 ${ref}`;
-      abortRef.current = streamTurn(prompt, `spx-forecast-${symbol}-${s.day}-${s.as_of}`, (evt) => {
+      abortRef.current = streamTurn(prompt, `spx-forecast-${symbol}-${day}-${asOf}`, (evt) => {
         if (evt.kind === "error") {
           setRead({ error: evt.message || "Mira error" });
           return;
@@ -2820,8 +2831,8 @@ ${ref}`;
           }
           setRead({ text, data });
           saveSpxForecast({
-            day: s.day,
-            as_of: s.as_of,
+            day,
+            as_of: asOf,
             symbol,
             snapshot: s,
             forecast: data || null,
@@ -2830,6 +2841,15 @@ ${ref}`;
           });
         }
       });
+    };
+    const forecast = () => {
+      if (!s) return;
+      setRead({ loading: true });
+      refreshSpx(symbol).then((r) => {
+        const day = r && r.available && r.day || s.day;
+        const asOf = r && r.available && r.as_of || s.as_of;
+        runForecast(day, asOf);
+      }).catch(() => runForecast(s.day, s.as_of));
     };
     const score = (fid) => {
       setScoring(fid);
@@ -2868,7 +2888,15 @@ ${ref}`;
         }
       ),
       /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "Load")
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET", s.history_days > 1 ? ` \xB7 ${s.history_days}-day history` : ""), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s && s.ict_htf && s.ict_htf.present && /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap") }, /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-tag" }, s.ict_htf.tier === "A+" ? "\u26A1" : "\u2022", " ", s.ict_htf.tier, " HOURLY SETUP"), /* @__PURE__ */ React.createElement("b", { className: dirCls(s.ict_htf.dir === "long" ? 1 : -1) }, s.ict_htf.dir.toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.ict_htf.reason), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-drop" }, "\u2192 drop to 5m/1m for entry"), Array.isArray(s.ict_htf.entry_zone) && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "zone ", s.ict_htf.entry_zone[0], "\u2013", s.ict_htf.entry_zone[1], " \xB7 invalid ", s.ict_htf.invalid)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET", s.history_days > 1 ? ` \xB7 ${s.history_days}-day history` : ""), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null), isPlaybook && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: cls("vg-fc-auto", autoRefresh && "vg-fc-auto-on"),
+        onClick: () => setAutoRefresh((v) => !v),
+        title: "Auto-refresh the 1m bars + chart every 5 minutes during market hours"
+      },
+      autoRefresh ? "\u25CF auto 5m" : "\u25CB auto off"
+    )), s && s.ict_htf && s.ict_htf.present && /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap") }, /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-tag" }, s.ict_htf.tier === "A+" ? "\u26A1" : "\u2022", " ", s.ict_htf.tier, " HOURLY SETUP"), /* @__PURE__ */ React.createElement("b", { className: dirCls(s.ict_htf.dir === "long" ? 1 : -1) }, s.ict_htf.dir.toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.ict_htf.reason), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-drop" }, "\u2192 drop to 5m/1m for entry"), Array.isArray(s.ict_htf.entry_zone) && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "zone ", s.ict_htf.entry_zone[0], "\u2013", s.ict_htf.entry_zone[1], " \xB7 invalid ", s.ict_htf.invalid)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",

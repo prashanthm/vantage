@@ -507,6 +507,9 @@ ALLOWED_WRITE_ROUTES = {
     # On-demand playbook-level compute + 1m seed for the forecast screen. Writes
     # only our own store (scaffold + bars); no broker/order path (ADR-010 holds).
     "/api/spx/prepare",
+    # Light intraday 1m refresh (today, force). Writes only our own store
+    # (intraday bars); no broker/order path (ADR-010 holds).
+    "/api/spx/refresh",
 }
 
 

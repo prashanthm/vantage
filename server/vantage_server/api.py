@@ -508,6 +508,28 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, symbol=sym, has_levels=has_levels,
                         playbook_recomputed=recomputed, seeded=seeded, note=note)
 
+    @app.post("/api/spx/refresh")
+    def spx_refresh(body: dict = Body(default={})):
+        """LIGHT intraday refresh: re-fetch TODAY's 1m bars for a symbol (force) so
+        the snapshot serves ~current data. Body: {symbol}. Called by the 5-min RTH
+        cron and by the refresh-then-forecast path. Cheaper than /prepare — one day,
+        no playbook recompute. Returns the latest stored as_of."""
+        snap = state.snapshot()
+        sym = str(body.get("symbol") or "SPX").upper()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="needs the SQLite backend")
+        from . import seed_intraday as _seed
+        bar_sym = "^GSPC" if sym == "SPX" else sym
+        try:
+            seeded = _seed.seed(store, symbol=bar_sym, days=1, force=True)
+        except Exception as e:  # noqa: BLE001
+            return envelope(snap, available=False, note=f"1m refresh failed for {sym}: {e}")
+        latest_day = store.latest_intraday_day(bar_sym, "1m")
+        ohlc = store.load_intraday_bars(bar_sym, latest_day, "1m") if latest_day else None
+        as_of = (ohlc.get("ts") or [None])[-1] if ohlc else None
+        return envelope(snap, available=True, symbol=sym, seeded=seeded,
+                        day=latest_day, as_of=as_of)
+
     @app.post("/api/spx/forecast")
     def spx_forecast_save(body: dict = Body(default={})):
         """Persist a 'what will price do?' forecast the SPA generated via Mira's
