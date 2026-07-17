@@ -24,72 +24,41 @@ const hasLW = () => typeof window !== "undefined"
 
 // pull bias/target/invalidation out of the structured forecast (top-level or an
 // A2UI keyvals row) so we can overlay them on the chart.
+// The chart overlay fields come from the analyst's STRUCTURED `plot` object
+// (bias/target/invalidation/path) — Vantage just plots it, no prose parsing.
+// The analyst owns the judgment; the SPA owns the drawing. Old forecasts (made
+// before `plot` existed) have no plot object — for those we extract target /
+// invalidation from the keyvals ONLY (a single clean number), and show no path.
 function forecastFields(data) {
   if (!data) return {};
-  // The analyst emits prose values ("Sweep 7504.0 SSL, then reclaim to 7529.4"),
-  // not bare numbers — so pull the FIRST price-shaped number out of the string.
-  const firstPrice = (v) => {
-    if (v == null) return null;
-    const m = String(v).match(/\d{2,6}(?:\.\d+)?/);
-    const n = m ? parseFloat(m[0]) : NaN;
-    return Number.isFinite(n) ? n : null;
-  };
-  let bias = data.bias, target = firstPrice(data.target), invalid = firstPrice(data.invalidation);
+  const num = (v) => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+  const p = data.plot;
+  if (p && typeof p === "object") {
+    const b = String(p.bias || "").toLowerCase();
+    const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
+    const path = (Array.isArray(p.path) ? p.path : [])
+      .map((st, i) => ({
+        seq: num(st.seq) || i + 1,
+        price: num(st.price),
+        dir: /down|short|bear/.test(String(st.dir || "").toLowerCase()) ? "down"
+          : /up|long|bull/.test(String(st.dir || "").toLowerCase()) ? "up" : biasDir,
+        note: String(st.note || "").slice(0, 40),
+      }))
+      .filter((st) => st.price != null)
+      .slice(0, 5);
+    return { bias: biasDir, target: num(p.target), invalid: num(p.invalidation), path };
+  }
+  // legacy forecast (no plot object): a clean number from the Targets keyvals only.
+  const firstNum = (v) => { const m = String(v).match(/\d{3,6}(?:\.\d+)?/); return m ? parseFloat(m[0]) : null; };
+  let target = null, invalid = null;
   for (const sec of data.sections || []) {
     for (const r of sec.rows || []) {
       const k = String(r.k || "").toLowerCase();
-      // take the primary downside/main target — skip the "if wrong" upside row
-      if (!bias && k.includes("bias")) bias = String(r.v || "").toLowerCase();
-      if (target == null && k.includes("target") && !/upside|wrong|if /.test(k)) target = firstPrice(r.v);
-      if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = firstPrice(r.v);
+      if (target == null && k.includes("target") && !/upside|wrong|if /.test(k)) target = firstNum(r.v);
+      if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = firstNum(r.v);
     }
   }
-  // bias words → up/down for the overlay
-  const b = String(bias || "").toLowerCase();
-  const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
-  return { bias: biasDir, target, invalid, path: forecastPath(data, biasDir) };
-}
-
-// The ordered EXPECTED-PATH steps to plot on the chart: [{seq, price, dir, note}].
-// Prefers the structured format the analyst now emits ("N) <price> <up|down> —
-// <note>" per list item); falls back to pulling prices IN ORDER out of the
-// Expected-path / Targets prose for older / malformed forecasts.
-function forecastPath(data, biasDir) {
-  if (!data) return [];
-  const num = (s) => { const m = String(s).match(/\d{3,6}(?:\.\d+)?/); return m ? parseFloat(m[0]) : null; };
-  // find the 'expected path' list section
-  let pathSec = null;
-  for (const sec of data.sections || []) {
-    const title = String(sec.title || "").toLowerCase();
-    if (title.includes("expected path") || title.includes("path")) { pathSec = sec; break; }
-  }
-  const items = pathSec ? (pathSec.items || pathSec.rows || []) : [];
-  const out = [];
-  for (const it of items) {
-    const txt = String(it.point || it.text || it.v || it.k || it || "");
-    // structured: "1) 7506 down — sweep SSL"
-    const m = txt.match(/^\s*(\d+)\s*[\).\-:]\s*(\d{3,6}(?:\.\d+)?)\s*(up|down|long|short)?\b\s*[—\-:]*\s*(.*)$/i);
-    if (m) {
-      const dir = m[3] ? (/down|short/i.test(m[3]) ? "down" : "up") : biasDir;
-      out.push({ seq: parseInt(m[1], 10), price: parseFloat(m[2]), dir, note: (m[4] || "").trim().slice(0, 40) });
-    } else {
-      const p = num(txt);
-      if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: txt.replace(/\d{3,6}(?:\.\d+)?/, "").replace(/^[\s—\-:,]+/, "").slice(0, 40) });
-    }
-  }
-  // fallback: no path section → pull prices in order from Targets rows
-  if (out.length === 0) {
-    for (const sec of data.sections || []) {
-      for (const r of sec.rows || []) {
-        const k = String(r.k || "").toLowerCase();
-        if (k.includes("target") && !/upside|wrong|if /.test(k)) {
-          const p = num(r.v);
-          if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: String(r.k).slice(0, 40) });
-        }
-      }
-    }
-  }
-  return out.slice(0, 5);
+  return { bias: "", target, invalid, path: [] };
 }
 
 // The chart: candles + coach levels + ICT zones + (optional) forecast overlay.

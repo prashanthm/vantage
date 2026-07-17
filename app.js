@@ -2528,64 +2528,35 @@
   var hasLW2 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   function forecastFields(data) {
     if (!data) return {};
-    const firstPrice = (v) => {
-      if (v == null) return null;
-      const m = String(v).match(/\d{2,6}(?:\.\d+)?/);
-      const n = m ? parseFloat(m[0]) : NaN;
+    const num2 = (v) => {
+      const n = parseFloat(v);
       return Number.isFinite(n) ? n : null;
     };
-    let bias = data.bias, target = firstPrice(data.target), invalid = firstPrice(data.invalidation);
+    const p = data.plot;
+    if (p && typeof p === "object") {
+      const b = String(p.bias || "").toLowerCase();
+      const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
+      const path = (Array.isArray(p.path) ? p.path : []).map((st, i) => ({
+        seq: num2(st.seq) || i + 1,
+        price: num2(st.price),
+        dir: /down|short|bear/.test(String(st.dir || "").toLowerCase()) ? "down" : /up|long|bull/.test(String(st.dir || "").toLowerCase()) ? "up" : biasDir,
+        note: String(st.note || "").slice(0, 40)
+      })).filter((st) => st.price != null).slice(0, 5);
+      return { bias: biasDir, target: num2(p.target), invalid: num2(p.invalidation), path };
+    }
+    const firstNum = (v) => {
+      const m = String(v).match(/\d{3,6}(?:\.\d+)?/);
+      return m ? parseFloat(m[0]) : null;
+    };
+    let target = null, invalid = null;
     for (const sec of data.sections || []) {
       for (const r of sec.rows || []) {
         const k = String(r.k || "").toLowerCase();
-        if (!bias && k.includes("bias")) bias = String(r.v || "").toLowerCase();
-        if (target == null && k.includes("target") && !/upside|wrong|if /.test(k)) target = firstPrice(r.v);
-        if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = firstPrice(r.v);
+        if (target == null && k.includes("target") && !/upside|wrong|if /.test(k)) target = firstNum(r.v);
+        if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = firstNum(r.v);
       }
     }
-    const b = String(bias || "").toLowerCase();
-    const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
-    return { bias: biasDir, target, invalid, path: forecastPath(data, biasDir) };
-  }
-  function forecastPath(data, biasDir) {
-    if (!data) return [];
-    const num2 = (s) => {
-      const m = String(s).match(/\d{3,6}(?:\.\d+)?/);
-      return m ? parseFloat(m[0]) : null;
-    };
-    let pathSec = null;
-    for (const sec of data.sections || []) {
-      const title = String(sec.title || "").toLowerCase();
-      if (title.includes("expected path") || title.includes("path")) {
-        pathSec = sec;
-        break;
-      }
-    }
-    const items = pathSec ? pathSec.items || pathSec.rows || [] : [];
-    const out = [];
-    for (const it of items) {
-      const txt = String(it.point || it.text || it.v || it.k || it || "");
-      const m = txt.match(/^\s*(\d+)\s*[\).\-:]\s*(\d{3,6}(?:\.\d+)?)\s*(up|down|long|short)?\b\s*[—\-:]*\s*(.*)$/i);
-      if (m) {
-        const dir = m[3] ? /down|short/i.test(m[3]) ? "down" : "up" : biasDir;
-        out.push({ seq: parseInt(m[1], 10), price: parseFloat(m[2]), dir, note: (m[4] || "").trim().slice(0, 40) });
-      } else {
-        const p = num2(txt);
-        if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: txt.replace(/\d{3,6}(?:\.\d+)?/, "").replace(/^[\s—\-:,]+/, "").slice(0, 40) });
-      }
-    }
-    if (out.length === 0) {
-      for (const sec of data.sections || []) {
-        for (const r of sec.rows || []) {
-          const k = String(r.k || "").toLowerCase();
-          if (k.includes("target") && !/upside|wrong|if /.test(k)) {
-            const p = num2(r.v);
-            if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: String(r.k).slice(0, 40) });
-          }
-        }
-      }
-    }
-    return out.slice(0, 5);
+    return { bias: "", target, invalid, path: [] };
   }
   function ForecastChart({ snap, forecast }) {
     const elRef = useRef2(null);
