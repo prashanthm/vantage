@@ -2545,7 +2545,47 @@
     }
     const b = String(bias || "").toLowerCase();
     const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
-    return { bias: biasDir, target, invalid };
+    return { bias: biasDir, target, invalid, path: forecastPath(data, biasDir) };
+  }
+  function forecastPath(data, biasDir) {
+    if (!data) return [];
+    const num2 = (s) => {
+      const m = String(s).match(/\d{3,6}(?:\.\d+)?/);
+      return m ? parseFloat(m[0]) : null;
+    };
+    let pathSec = null;
+    for (const sec of data.sections || []) {
+      const title = String(sec.title || "").toLowerCase();
+      if (title.includes("expected path") || title.includes("path")) {
+        pathSec = sec;
+        break;
+      }
+    }
+    const items = pathSec ? pathSec.items || pathSec.rows || [] : [];
+    const out = [];
+    for (const it of items) {
+      const txt = String(it.point || it.text || it.v || it.k || it || "");
+      const m = txt.match(/^\s*(\d+)\s*[\).\-:]\s*(\d{3,6}(?:\.\d+)?)\s*(up|down|long|short)?\b\s*[—\-:]*\s*(.*)$/i);
+      if (m) {
+        const dir = m[3] ? /down|short/i.test(m[3]) ? "down" : "up" : biasDir;
+        out.push({ seq: parseInt(m[1], 10), price: parseFloat(m[2]), dir, note: (m[4] || "").trim().slice(0, 40) });
+      } else {
+        const p = num2(txt);
+        if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: txt.replace(/\d{3,6}(?:\.\d+)?/, "").replace(/^[\s—\-:,]+/, "").slice(0, 40) });
+      }
+    }
+    if (out.length === 0) {
+      for (const sec of data.sections || []) {
+        for (const r of sec.rows || []) {
+          const k = String(r.k || "").toLowerCase();
+          if (k.includes("target") && !/upside|wrong|if /.test(k)) {
+            const p = num2(r.v);
+            if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: String(r.k).slice(0, 40) });
+          }
+        }
+      }
+    }
+    return out.slice(0, 5);
   }
   function ForecastChart({ snap, forecast }) {
     const elRef = useRef2(null);
@@ -2701,7 +2741,19 @@
         title: `DRAW ${ict.draw.dir === "up" ? "\u2191" : "\u2193"}`
       });
       if (forecast) {
-        const { target, invalid } = forecast;
+        const { target, invalid, path } = forecast;
+        (path || []).forEach((st) => {
+          if (st.price == null) return;
+          const rgb = st.dir === "down" ? th.downRgb : th.upRgb;
+          addLine({
+            price: st.price,
+            color: `rgba(${rgb.join(",")},0.85)`,
+            lineWidth: 1,
+            lineStyle: LW.LineStyle.Dashed,
+            axisLabelVisible: true,
+            title: `${st.seq}${st.note ? " " + st.note : ""}`.slice(0, 22)
+          });
+        });
         if (target != null) addLine({
           price: target,
           color: `rgb(${th.upRgb.join(",")})`,
@@ -2744,11 +2796,22 @@
     }
     return /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-fc-chart" });
   }
-  function ForecastRow({ f, onScore, scoring }) {
+  function ForecastRow({ f, onScore, scoring, selected, onSelect }) {
     const [open, setOpen] = useState5(false);
     const sc = f.score;
     const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-fc-row" }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowhead", onClick: () => setOpen((v) => !v) }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, f.day, " \xB7 ", String(f.as_of || "").slice(11, 16)), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-price-sm" }, "@ ", f.price_at), sc ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontSize: 11 } }, sc.verdict, sc.moved_pt != null ? ` \xB7 ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : "") : /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-row", selected && "vg-fc-row-sel") }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowhead" }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: cls("vg-fc-showbtn", selected && "vg-fc-showbtn-on"),
+        title: selected ? "hide from chart" : "show this forecast on the chart",
+        onClick: (e) => {
+          e.stopPropagation();
+          onSelect(selected ? null : f);
+        }
+      },
+      "\u{1F4C8}"
+    ), /* @__PURE__ */ React.createElement("span", { className: "vg-note", onClick: () => setOpen((v) => !v), style: { cursor: "pointer" } }, f.day, " \xB7 ", String(f.as_of || "").slice(11, 16)), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-price-sm" }, "@ ", f.price_at), sc ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontSize: 11 } }, sc.verdict, sc.moved_pt != null ? ` \xB7 ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : "") : /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",
@@ -2759,7 +2822,7 @@
         }
       },
       scoring === f.id ? "\u2026" : "score it"
-    ), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-caret" }, open ? "\u25BE" : "\u25B8")), open && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
+    ), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-caret", onClick: () => setOpen((v) => !v), style: { cursor: "pointer" } }, open ? "\u25BE" : "\u25B8")), open && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
   }
   function SpxPlaybookView({ initialSymbol = "SPX" }) {
     const [symbol, setSymbolState] = useState5((initialSymbol || "SPX").toUpperCase());
@@ -2769,6 +2832,7 @@
     const [prepNote, setPrepNote] = useState5(null);
     const [read, setRead] = useState5(null);
     const [scoring, setScoring] = useState5(null);
+    const [selected, setSelected] = useState5(null);
     const [autoRefresh, setAutoRefresh] = useState5(true);
     const abortRef = useRef2(null);
     useEffect4(() => () => {
@@ -2789,7 +2853,8 @@
     const s = snapQ.data && snapQ.data.available ? snapQ.data : null;
     const isPlaybook = PLAYBOOK_SYMBOLS.includes(symbol);
     const busy = read && read.loading;
-    const fcFields = read && read.data ? forecastFields(read.data) : null;
+    const liveFields = read && read.data ? forecastFields(read.data) : null;
+    const fcFields = selected ? forecastFields(selected.forecast) : liveFields;
     const applySymbol = (sym) => {
       const s2 = String(sym || "").trim().toUpperCase();
       if (!s2 || s2 === symbol) return;
@@ -2896,7 +2961,7 @@ ${ref}`;
         title: "Auto-refresh the 1m bars + chart every 5 minutes during market hours"
       },
       autoRefresh ? "\u25CF auto 5m" : "\u25CB auto off"
-    )), s && s.ict_htf && s.ict_htf.present && /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap") }, /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-tag" }, s.ict_htf.tier === "A+" ? "\u26A1" : "\u2022", " ", s.ict_htf.tier, " HOURLY SETUP"), /* @__PURE__ */ React.createElement("b", { className: dirCls(s.ict_htf.dir === "long" ? 1 : -1) }, s.ict_htf.dir.toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.ict_htf.reason), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-drop" }, "\u2192 drop to 5m/1m for entry"), Array.isArray(s.ict_htf.entry_zone) && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "zone ", s.ict_htf.entry_zone[0], "\u2013", s.ict_htf.entry_zone[1], " \xB7 invalid ", s.ict_htf.invalid)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
+    )), s && selected && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-pinned" }, /* @__PURE__ */ React.createElement("span", null, "\u{1F4C8} showing forecast @ ", selected.day, " \xB7 ", String(selected.as_of || "").slice(11, 16)), fcFields && fcFields.path && fcFields.path.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "path: ", fcFields.path.map((p) => p.price).join(" \u2192 ")), /* @__PURE__ */ React.createElement("button", { className: "vg-fc-pinned-x", onClick: () => setSelected(null) }, "\u2715 clear")), s && s.ict_htf && s.ict_htf.present && /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap") }, /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-tag" }, s.ict_htf.tier === "A+" ? "\u26A1" : "\u2022", " ", s.ict_htf.tier, " HOURLY SETUP"), /* @__PURE__ */ React.createElement("b", { className: dirCls(s.ict_htf.dir === "long" ? 1 : -1) }, s.ict_htf.dir.toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.ict_htf.reason), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-drop" }, "\u2192 drop to 5m/1m for entry"), Array.isArray(s.ict_htf.entry_zone) && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "zone ", s.ict_htf.entry_zone[0], "\u2013", s.ict_htf.entry_zone[1], " \xB7 invalid ", s.ict_htf.invalid)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",
@@ -2905,7 +2970,17 @@ ${ref}`;
         title: !isPlaybook ? "forecast needs coach levels (SPX / QQQ / IWM)" : void 0
       },
       busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Reading\u2026") : "\u{1F52E} Forecast now"
-    )), !isPlaybook && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart only \u2014 the forecast reasons over coach levels, which need a GEX chain."), read && (read.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error) : read.data || read.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })) : read.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Reasoning over the liquidity, draw, and structure\u2026") : isPlaybook && s ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Hit forecast for a scoreable directional read.") : null)), priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior forecasts"), priors.data.forecasts.map((f) => /* @__PURE__ */ React.createElement(ForecastRow, { key: f.id, f, onScore: score, scoring }))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, color: "var(--vg-dim)" } }, "Levels are the nightly EOD estimate \xB7 0DTE-blind \xB7 not advice."))));
+    )), !isPlaybook && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart only \u2014 the forecast reasons over coach levels, which need a GEX chain."), read && (read.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error) : read.data || read.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })) : read.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Reasoning over the liquidity, draw, and structure\u2026") : isPlaybook && s ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Hit forecast for a scoreable directional read.") : null)), priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior forecasts"), priors.data.forecasts.map((f) => /* @__PURE__ */ React.createElement(
+      ForecastRow,
+      {
+        key: f.id,
+        f,
+        onScore: score,
+        scoring,
+        selected: selected && selected.id === f.id,
+        onSelect: setSelected
+      }
+    ))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, color: "var(--vg-dim)" } }, "Levels are the nightly EOD estimate \xB7 0DTE-blind \xB7 not advice."))));
   }
 
   // src/exits.jsx

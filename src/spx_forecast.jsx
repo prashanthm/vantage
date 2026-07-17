@@ -47,7 +47,49 @@ function forecastFields(data) {
   // bias words → up/down for the overlay
   const b = String(bias || "").toLowerCase();
   const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
-  return { bias: biasDir, target, invalid };
+  return { bias: biasDir, target, invalid, path: forecastPath(data, biasDir) };
+}
+
+// The ordered EXPECTED-PATH steps to plot on the chart: [{seq, price, dir, note}].
+// Prefers the structured format the analyst now emits ("N) <price> <up|down> —
+// <note>" per list item); falls back to pulling prices IN ORDER out of the
+// Expected-path / Targets prose for older / malformed forecasts.
+function forecastPath(data, biasDir) {
+  if (!data) return [];
+  const num = (s) => { const m = String(s).match(/\d{3,6}(?:\.\d+)?/); return m ? parseFloat(m[0]) : null; };
+  // find the 'expected path' list section
+  let pathSec = null;
+  for (const sec of data.sections || []) {
+    const title = String(sec.title || "").toLowerCase();
+    if (title.includes("expected path") || title.includes("path")) { pathSec = sec; break; }
+  }
+  const items = pathSec ? (pathSec.items || pathSec.rows || []) : [];
+  const out = [];
+  for (const it of items) {
+    const txt = String(it.point || it.text || it.v || it.k || it || "");
+    // structured: "1) 7506 down — sweep SSL"
+    const m = txt.match(/^\s*(\d+)\s*[\).\-:]\s*(\d{3,6}(?:\.\d+)?)\s*(up|down|long|short)?\b\s*[—\-:]*\s*(.*)$/i);
+    if (m) {
+      const dir = m[3] ? (/down|short/i.test(m[3]) ? "down" : "up") : biasDir;
+      out.push({ seq: parseInt(m[1], 10), price: parseFloat(m[2]), dir, note: (m[4] || "").trim().slice(0, 40) });
+    } else {
+      const p = num(txt);
+      if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: txt.replace(/\d{3,6}(?:\.\d+)?/, "").replace(/^[\s—\-:,]+/, "").slice(0, 40) });
+    }
+  }
+  // fallback: no path section → pull prices in order from Targets rows
+  if (out.length === 0) {
+    for (const sec of data.sections || []) {
+      for (const r of sec.rows || []) {
+        const k = String(r.k || "").toLowerCase();
+        if (k.includes("target") && !/upside|wrong|if /.test(k)) {
+          const p = num(r.v);
+          if (p != null) out.push({ seq: out.length + 1, price: p, dir: biasDir, note: String(r.k).slice(0, 40) });
+        }
+      }
+    }
+  }
+  return out.slice(0, 5);
 }
 
 // The chart: candles + coach levels + ICT zones + (optional) forecast overlay.
@@ -180,10 +222,22 @@ function ForecastChart({ snap, forecast }) {
       title: `DRAW ${ict.draw.dir === "up" ? "↑" : "↓"}`,
     });
 
-    // the FORECAST overlay — the loudest thing on the chart: thick solid green
-    // TARGET / red INVALIDATION lines, plus a marker on the bar it was called.
+    // the FORECAST overlay — the loudest thing on the chart: the numbered expected
+    // path (1→2→3, tinted by each step's direction), plus thick TARGET /
+    // INVALIDATION lines and a marker on the bar it was called.
     if (forecast) {
-      const { target, invalid } = forecast;
+      const { target, invalid, path } = forecast;
+      // numbered path steps — a horizontal line + numbered tag per step, red for a
+      // down move, green for up. Reads as "price should go here 1, then 2, then 3".
+      (path || []).forEach((st) => {
+        if (st.price == null) return;
+        const rgb = st.dir === "down" ? th.downRgb : th.upRgb;
+        addLine({
+          price: st.price, color: `rgba(${rgb.join(",")},0.85)`, lineWidth: 1,
+          lineStyle: LW.LineStyle.Dashed, axisLabelVisible: true,
+          title: `${st.seq}${st.note ? " " + st.note : ""}`.slice(0, 22),
+        });
+      });
       if (target != null) addLine({
         price: target, color: `rgb(${th.upRgb.join(",")})`, lineWidth: 3,
         lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `🎯 TARGET`,
@@ -214,17 +268,26 @@ function ForecastChart({ snap, forecast }) {
   return <div ref={elRef} className="vg-fc-chart" />;
 }
 
-// One stored forecast row (collapsible) with its score badge.
-function ForecastRow({ f, onScore, scoring }) {
+// One stored forecast row (collapsible) with its score badge + a chart-overlay
+// toggle. Clicking "📈" overlays this forecast's target/invalidation + numbered
+// path on the chart; the header still expands the full read.
+function ForecastRow({ f, onScore, scoring, selected, onSelect }) {
   const [open, setOpen] = useState(false);
   const sc = f.score;
   const tone = !sc ? "plain"
     : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good"
     : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
   return (
-    <div className="vg-fc-row">
-      <div className="vg-fc-rowhead" onClick={() => setOpen((v) => !v)}>
-        <span className="vg-note">{f.day} · {String(f.as_of || "").slice(11, 16)}</span>
+    <div className={cls("vg-fc-row", selected && "vg-fc-row-sel")}>
+      <div className="vg-fc-rowhead">
+        <button className={cls("vg-fc-showbtn", selected && "vg-fc-showbtn-on")}
+          title={selected ? "hide from chart" : "show this forecast on the chart"}
+          onClick={(e) => { e.stopPropagation(); onSelect(selected ? null : f); }}>
+          📈
+        </button>
+        <span className="vg-note" onClick={() => setOpen((v) => !v)} style={{ cursor: "pointer" }}>
+          {f.day} · {String(f.as_of || "").slice(11, 16)}
+        </span>
         <span className="vg-fc-price-sm">@ {f.price_at}</span>
         {sc
           ? <span className={cls("vg-badge", tone)} style={{ fontSize: 11 }}>{sc.verdict}{sc.moved_pt != null ? ` · ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : ""}</span>
@@ -232,7 +295,7 @@ function ForecastRow({ f, onScore, scoring }) {
               onClick={(e) => { e.stopPropagation(); onScore(f.id); }}>
               {scoring === f.id ? "…" : "score it"}
             </button>}
-        <span className="vg-fc-caret">{open ? "▾" : "▸"}</span>
+        <span className="vg-fc-caret" onClick={() => setOpen((v) => !v)} style={{ cursor: "pointer" }}>{open ? "▾" : "▸"}</span>
       </div>
       {open && <div className="vg-fc-rowbody"><MiraRender data={f.forecast} text={f.forecast_text} /></div>}
     </div>
@@ -253,6 +316,7 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
   const [prepNote, setPrepNote] = useState(null);
   const [read, setRead] = useState(null);
   const [scoring, setScoring] = useState(null);
+  const [selected, setSelected] = useState(null);   // a prior forecast pinned to the chart
   const [autoRefresh, setAutoRefresh] = useState(true);
   const abortRef = useRef(null);
   useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
@@ -277,7 +341,9 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
   const s = snapQ.data && snapQ.data.available ? snapQ.data : null;
   const isPlaybook = PLAYBOOK_SYMBOLS.includes(symbol);
   const busy = read && read.loading;
-  const fcFields = read && read.data ? forecastFields(read.data) : null;
+  const liveFields = read && read.data ? forecastFields(read.data) : null;
+  // a PINNED prior forecast overrides the live one on the chart; else show the live.
+  const fcFields = selected ? forecastFields(selected.forecast) : liveFields;
 
   const applySymbol = (sym) => {
     const s2 = String(sym || "").trim().toUpperCase();
@@ -399,6 +465,14 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
                 </button>)}
             </div>)}
 
+          {s && selected && (
+            <div className="vg-fc-pinned">
+              <span>📈 showing forecast @ {selected.day} · {String(selected.as_of || "").slice(11, 16)}</span>
+              {fcFields && fcFields.path && fcFields.path.length > 0 && (
+                <span className="vg-note">path: {fcFields.path.map((p) => p.price).join(" → ")}</span>)}
+              <button className="vg-fc-pinned-x" onClick={() => setSelected(null)}>✕ clear</button>
+            </div>)}
+
           {s && s.ict_htf && s.ict_htf.present && (
             <div className={cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap")}>
               <span className="vg-fc-htf-tag">{s.ict_htf.tier === "A+" ? "⚡" : "•"} {s.ict_htf.tier} HOURLY SETUP</span>
@@ -473,7 +547,9 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
             <div className="vg-card">
               <div className="vg-kicker">Prior forecasts</div>
               {priors.data.forecasts.map((f) => (
-                <ForecastRow key={f.id} f={f} onScore={score} scoring={scoring} />
+                <ForecastRow key={f.id} f={f} onScore={score} scoring={scoring}
+                  selected={selected && selected.id === f.id}
+                  onSelect={setSelected} />
               ))}
             </div>)}
 
