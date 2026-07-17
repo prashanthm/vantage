@@ -961,14 +961,13 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   font-family: var(--vg-font-ui); font-size: var(--vg-text-sm); text-transform: uppercase;
   letter-spacing: 0.04em; }
 
-.vg-fc-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 14px;
-  align-items: start; }
+/* chart spans the full center width now; the forecast rail lives in the right pane */
 .vg-fc-chartcard { display: flex; flex-direction: column; min-height: 78vh; }
-.vg-fc-rail { display: flex; flex-direction: column; gap: 14px; }
+.vg-fc-rail { display: flex; flex-direction: column; gap: 14px; padding: 4px 2px 24px;
+  overflow-y: auto; }
 .vg-fc-empty { flex: 1; display: flex; flex-direction: column; align-items: flex-start;
   justify-content: center; min-height: 60vh; }
 @media (max-width: 980px) {
-  .vg-fc-grid { grid-template-columns: 1fr; }
   .vg-fc-chartcard { min-height: 56vh; }
 }
 .vg-fc-row { border-top: 1px solid var(--vg-hairline); }

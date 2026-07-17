@@ -152,6 +152,14 @@ function ForecastChart({ snap, forecast }) {
     const t0 = bars.length ? bars[0].time : 0;
     const t1 = bars.length ? bars[bars.length - 1].time : 0;
 
+    // DECLUTTER: when a forecast is on the chart, fade the standing context
+    // (coach levels / OB-FVG zones / liquidity) so the numbered path + target
+    // stand out. `dim` scales opacity; `ctxN` trims how many context items draw.
+    const hasFc = !!(forecast && (forecast.target != null || (forecast.path && forecast.path.length)));
+    const dim = hasFc ? 0.35 : 1.0;
+    const ctxN = hasFc ? 3 : 5;
+    const liqN = hasFc ? 2 : 4;
+
     // a shaded horizontal zone (OB / FVG) via a filled band between top/bottom,
     // with a text tag on its upper edge so you can tell WHAT the band is.
     const addZone = (top, bottom, rgb, alpha, tag) => {
@@ -170,7 +178,7 @@ function ForecastChart({ snap, forecast }) {
       });
     };
 
-    // coach levels — labeled price lines, tinted by role
+    // coach levels — labeled price lines, tinted by role (dimmed under a forecast)
     (snap.levels || []).forEach((lv) => {
       const lbl = String(lv.label || "");
       const isRes = /resist|call wall/i.test(lbl);
@@ -178,10 +186,10 @@ function ForecastChart({ snap, forecast }) {
       const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
       addLine({
         price: lv.price,
-        color: `rgba(${rgb.join(",")},0.55)`,
+        color: `rgba(${rgb.join(",")},${0.55 * dim})`,
         lineWidth: /wall|max pain|durable/i.test(lbl) ? 2 : 1,
-        lineStyle: LW.LineStyle.Dashed, axisLabelVisible: true,
-        title: lbl.replace(/\s*[★✦].*$/, "").slice(0, 20),
+        lineStyle: LW.LineStyle.Dashed, axisLabelVisible: !hasFc,
+        title: hasFc ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 20),
       });
     });
 
@@ -193,25 +201,25 @@ function ForecastChart({ snap, forecast }) {
     // tint (green = demand/bullish, red = supply/bearish) + a text tag. Over the
     // multi-day history these can be many; keep the ones NEAREST current price.
     const ict = snap.ict || {};
-    nearest(ict.active_order_blocks, (o) => (o.top + o.bottom) / 2, 5).forEach((o) => {
+    nearest(ict.active_order_blocks, (o) => (o.top + o.bottom) / 2, ctxN).forEach((o) => {
       const rgb = (o.side === "bull" ? th.upRgb : th.downRgb).join(",");
-      addZone(o.top, o.bottom, rgb, 0.14, `${o.side === "bull" ? "demand" : "supply"} OB`);
+      addZone(o.top, o.bottom, rgb, 0.14 * dim, hasFc ? "" : `${o.side === "bull" ? "demand" : "supply"} OB`);
     });
-    nearest(ict.fresh_fvgs, (f) => (f.hi + f.lo) / 2, 5).forEach((f) => {
+    nearest(ict.fresh_fvgs, (f) => (f.hi + f.lo) / 2, ctxN).forEach((f) => {
       const rgb = (f.side === "bull" ? th.upRgb : th.downRgb).join(",");
-      addZone(f.hi, f.lo, rgb, 0.10, `${f.side === "bull" ? "bull" : "bear"} FVG`);
+      addZone(f.hi, f.lo, rgb, 0.10 * dim, hasFc ? "" : `${f.side === "bull" ? "bull" : "bear"} FVG`);
     });
 
     // unswept liquidity pools — resting BSL (above) / SSL (below), the prior
     // highs/lows price is drawn to sweep. Thin amber dotted lines, nearest few.
     const liq = ict.unswept_liquidity || {};
     const liqRgb = "184,122,22";  // amber, distinct from coach/OB/FVG
-    nearest(liq.bsl, (p) => p, 4).forEach((p) => addLine({
-      price: p, color: `rgba(${liqRgb},0.6)`, lineWidth: 1,
+    nearest(liq.bsl, (p) => p, liqN).forEach((p) => addLine({
+      price: p, color: `rgba(${liqRgb},${0.6 * dim})`, lineWidth: 1,
       lineStyle: LW.LineStyle.Dotted, axisLabelVisible: false, title: "BSL",
     }));
-    nearest(liq.ssl, (p) => p, 4).forEach((p) => addLine({
-      price: p, color: `rgba(${liqRgb},0.6)`, lineWidth: 1,
+    nearest(liq.ssl, (p) => p, liqN).forEach((p) => addLine({
+      price: p, color: `rgba(${liqRgb},${0.6 * dim})`, lineWidth: 1,
       lineStyle: LW.LineStyle.Dotted, axisLabelVisible: false, title: "SSL",
     }));
 
@@ -302,13 +310,14 @@ function ForecastRow({ f, onScore, scoring, selected, onSelect }) {
   );
 }
 
-// The full-screen 0DTE Playbook: a chart-centric forecast workspace. Enter any
-// symbol → its 5m candle chart. For the playbook symbols (SPX / QQQ / IWM) the
-// coach levels + ICT structures overlay and the "what will price do?" forecast
-// works. When a symbol has no stored bars yet, a "fetch data" button seeds them
-// on demand. Left: chart. Right rail: tape, forecast button, structured read,
-// prior forecasts with accuracy scores.
-export function SpxPlaybookView({ initialSymbol = "SPX" }) {
+// The 0DTE Playbook is split into a CHART (center canvas) and a RAIL (the forecast
+// button + read + prior forecasts), which lives in the app's right side panel so it
+// gets full height and the chart gets the full width. Both share one state store via
+// this context: the provider owns the state; the chart and the rail consume it.
+const PlaybookCtx = React.createContext(null);
+const usePlaybook = () => React.useContext(PlaybookCtx);
+
+function usePlaybookStore(initialSymbol) {
   const [symbol, setSymbolState] = useState((initialSymbol || "SPX").toUpperCase());
   const [entry, setEntry] = useState(symbol);
   const [nonce, setNonce] = useState(0);
@@ -413,6 +422,28 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
   const t = (s && s.technicals) || {};
   const draw = (s && s.ict && s.ict.draw) || {};
 
+  return {
+    symbol, entry, setEntry, applySymbol, PLAYBOOK_SYMBOLS,
+    s, snapQ, isPlaybook, busy, preparing, prepNote, prepare,
+    read, forecast, score, scoring, selected, setSelected, fcFields,
+    autoRefresh, setAutoRefresh, priors, t, draw,
+  };
+}
+
+// Provider — owns the store; wrap the playbook route so both the chart and the
+// rail (in the app's right pane) read the same state.
+export function PlaybookProvider({ initialSymbol = "SPX", children }) {
+  const store = usePlaybookStore(initialSymbol);
+  return <PlaybookCtx.Provider value={store}>{children}</PlaybookCtx.Provider>;
+}
+
+// The CHART canvas (center) — symbol bar, tape, HTF banner, legend, candles.
+export function SpxPlaybookView() {
+  const p = usePlaybook();
+  if (!p) return null;
+  const { symbol, entry, setEntry, applySymbol, s, snapQ, isPlaybook, preparing,
+    prepNote, prepare, selected, setSelected, fcFields, autoRefresh, setAutoRefresh,
+    t, draw, busy } = p;
   return (
     <div className="vg-loadhost">
       {(snapQ.loading || busy || preparing) && <LoadBar />}
@@ -426,138 +457,137 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
               : "5-min candles — coach levels & forecast need a GEX chain (SPX / QQQ / IWM)"}
           </p>
         </div>
-        <form
-          className="vg-fc-symbar"
-          onSubmit={(e) => { e.preventDefault(); applySymbol(entry); }}
-        >
+        <form className="vg-fc-symbar"
+          onSubmit={(e) => { e.preventDefault(); applySymbol(entry); }}>
           {PLAYBOOK_SYMBOLS.map((sy) => (
-            <button
-              type="button" key={sy}
+            <button type="button" key={sy}
               className={cls("vg-fc-chip", sy === symbol && "vg-fc-chip-on")}
-              onClick={() => applySymbol(sy)}
-            >{sy}</button>
+              onClick={() => applySymbol(sy)}>{sy}</button>
           ))}
-          <input
-            className="vg-fc-syminput" value={entry} spellCheck={false}
+          <input className="vg-fc-syminput" value={entry} spellCheck={false}
             onChange={(e) => setEntry(e.target.value.toUpperCase())}
-            placeholder="symbol" aria-label="chart symbol"
-          />
+            placeholder="symbol" aria-label="chart symbol" />
           <button className="vg-btn-sm" type="submit">Load</button>
         </form>
       </div>
 
-      <div className="vg-fc-grid">
-        <div className="vg-card vg-fc-chartcard" style={{ padding: 14 }}>
-          {s && (
-            <div className="vg-fc-tapehead">
-              <b>{s.price}</b>
-              <span className="vg-note">{s.day} · {String(s.as_of || "").slice(11, 16)} ET{s.history_days > 1 ? ` · ${s.history_days}-day history` : ""}</span>
-              <span className="vg-fc-tape">
-                VWAP {t.vwap} ({t.vs_vwap_pt >= 0 ? "+" : ""}{t.vs_vwap_pt}) · RSI {t.rsi} · vol {t.rel_volume}×
-                {draw.dir ? <> · draw {draw.dir} → <b>{draw.level}</b></> : null}
-              </span>
-              {isPlaybook && (
-                <button
-                  className={cls("vg-fc-auto", autoRefresh && "vg-fc-auto-on")}
-                  onClick={() => setAutoRefresh((v) => !v)}
-                  title="Auto-refresh the 1m bars + chart every 5 minutes during market hours">
-                  {autoRefresh ? "● auto 5m" : "○ auto off"}
-                </button>)}
+      <div className="vg-card vg-fc-chartcard" style={{ padding: 14 }}>
+        {s && (
+          <div className="vg-fc-tapehead">
+            <b>{s.price}</b>
+            <span className="vg-note">{s.day} · {String(s.as_of || "").slice(11, 16)} ET{s.history_days > 1 ? ` · ${s.history_days}-day history` : ""}</span>
+            <span className="vg-fc-tape">
+              VWAP {t.vwap} ({t.vs_vwap_pt >= 0 ? "+" : ""}{t.vs_vwap_pt}) · RSI {t.rsi} · vol {t.rel_volume}×
+              {draw.dir ? <> · draw {draw.dir} → <b>{draw.level}</b></> : null}
+            </span>
+            {isPlaybook && (
+              <button className={cls("vg-fc-auto", autoRefresh && "vg-fc-auto-on")}
+                onClick={() => setAutoRefresh((v) => !v)}
+                title="Auto-refresh the 1m bars + chart every 5 minutes during market hours">
+                {autoRefresh ? "● auto 5m" : "○ auto off"}
+              </button>)}
+          </div>)}
+
+        {s && selected && (
+          <div className="vg-fc-pinned">
+            <span>📈 showing forecast @ {selected.day} · {String(selected.as_of || "").slice(11, 16)}</span>
+            {fcFields && fcFields.path && fcFields.path.length > 0 && (
+              <span className="vg-note">path: {fcFields.path.map((x) => x.price).join(" → ")}</span>)}
+            <button className="vg-fc-pinned-x" onClick={() => setSelected(null)}>✕ clear</button>
+          </div>)}
+
+        {s && s.ict_htf && s.ict_htf.present && (
+          <div className={cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap")}>
+            <span className="vg-fc-htf-tag">{s.ict_htf.tier === "A+" ? "⚡" : "•"} {s.ict_htf.tier} HOURLY SETUP</span>
+            <b className={dirCls(s.ict_htf.dir === "long" ? 1 : -1)}>{s.ict_htf.dir.toUpperCase()}</b>
+            <span className="vg-note">{s.ict_htf.reason}</span>
+            <span className="vg-fc-htf-drop">→ drop to 5m/1m for entry</span>
+            {Array.isArray(s.ict_htf.entry_zone) && (
+              <span className="vg-note">zone {s.ict_htf.entry_zone[0]}–{s.ict_htf.entry_zone[1]} · invalid {s.ict_htf.invalid}</span>
+            )}
+          </div>)}
+
+        {s && (
+          <div className="vg-fc-legend">
+            <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-up)" }} />coach support</span>
+            <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-down)" }} />coach resistance</span>
+            <span><i className="vg-lg-sw" style={{ background: "rgba(31,157,107,0.18)" }} />demand OB / bull FVG</span>
+            <span><i className="vg-lg-sw" style={{ background: "rgba(217,59,78,0.18)" }} />supply OB / bear FVG</span>
+            <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "rgb(184,122,22)" }} />liquidity pool (BSL/SSL)</span>
+            <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "#7c5cff" }} />draw (magnet)</span>
+            {fcFields && <span><i className="vg-lg-sw" style={{ background: "var(--vg-up)" }} />🎯 forecast + numbered path</span>}
+          </div>)}
+
+        {s
+          ? <ForecastChart key={symbol} snap={s} forecast={fcFields} />
+          : (
+            <div className="vg-fc-empty">
+              {snapQ.loading
+                ? <p className="vg-note">Loading candles…</p>
+                : <>
+                    <p className="vg-note" style={{ marginBottom: 12 }}>
+                      {snapQ.data && snapQ.data.note
+                        ? snapQ.data.note
+                        : `No stored 1m bars for ${symbol} yet.`}
+                    </p>
+                    <button className="vg-btn" disabled={preparing} onClick={prepare}>
+                      {preparing
+                        ? <><span className="vg-spin" aria-hidden="true">⟳</span> Fetching {symbol} data…</>
+                        : `⤓ Fetch data & compute levels`}
+                    </button>
+                    {prepNote && <p className="vg-note" style={{ marginTop: 10 }}>{prepNote}</p>}
+                  </>}
             </div>)}
-
-          {s && selected && (
-            <div className="vg-fc-pinned">
-              <span>📈 showing forecast @ {selected.day} · {String(selected.as_of || "").slice(11, 16)}</span>
-              {fcFields && fcFields.path && fcFields.path.length > 0 && (
-                <span className="vg-note">path: {fcFields.path.map((p) => p.price).join(" → ")}</span>)}
-              <button className="vg-fc-pinned-x" onClick={() => setSelected(null)}>✕ clear</button>
-            </div>)}
-
-          {s && s.ict_htf && s.ict_htf.present && (
-            <div className={cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap")}>
-              <span className="vg-fc-htf-tag">{s.ict_htf.tier === "A+" ? "⚡" : "•"} {s.ict_htf.tier} HOURLY SETUP</span>
-              <b className={dirCls(s.ict_htf.dir === "long" ? 1 : -1)}>{s.ict_htf.dir.toUpperCase()}</b>
-              <span className="vg-note">{s.ict_htf.reason}</span>
-              <span className="vg-fc-htf-drop">→ drop to 5m/1m for entry</span>
-              {Array.isArray(s.ict_htf.entry_zone) && (
-                <span className="vg-note">zone {s.ict_htf.entry_zone[0]}–{s.ict_htf.entry_zone[1]} · invalid {s.ict_htf.invalid}</span>
-              )}
-            </div>)}
-
-          {s && (
-            <div className="vg-fc-legend">
-              <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-up)" }} />coach support</span>
-              <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-down)" }} />coach resistance</span>
-              <span><i className="vg-lg-sw" style={{ background: "rgba(31,157,107,0.18)" }} />demand OB / bull FVG</span>
-              <span><i className="vg-lg-sw" style={{ background: "rgba(217,59,78,0.18)" }} />supply OB / bear FVG</span>
-              <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "rgb(184,122,22)" }} />liquidity pool (BSL/SSL)</span>
-              <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "#7c5cff" }} />draw (magnet)</span>
-              {fcFields && <span><i className="vg-lg-sw" style={{ background: "var(--vg-up)" }} />🎯 forecast target / invalidation</span>}
-            </div>)}
-
-          {s
-            ? <ForecastChart key={symbol} snap={s} forecast={fcFields} />
-            : (
-              <div className="vg-fc-empty">
-                {snapQ.loading
-                  ? <p className="vg-note">Loading candles…</p>
-                  : <>
-                      <p className="vg-note" style={{ marginBottom: 12 }}>
-                        {snapQ.data && snapQ.data.note
-                          ? snapQ.data.note
-                          : `No stored 1m bars for ${symbol} yet.`}
-                      </p>
-                      <button className="vg-btn" disabled={preparing} onClick={prepare}>
-                        {preparing
-                          ? <><span className="vg-spin" aria-hidden="true">⟳</span> Fetching {symbol} data…</>
-                          : `⤓ Fetch data & compute levels`}
-                      </button>
-                      {prepNote && <p className="vg-note" style={{ marginTop: 10 }}>{prepNote}</p>}
-                    </>}
-              </div>)}
-        </div>
-
-        <div className="vg-fc-rail">
-          <div className="vg-card">
-            <div className="vg-spread">
-              <div className="vg-kicker" style={{ margin: 0 }}>What will price do?</div>
-              <button
-                className="vg-btn-sm" disabled={busy || !s || !isPlaybook} onClick={forecast}
-                title={!isPlaybook ? "forecast needs coach levels (SPX / QQQ / IWM)" : undefined}
-              >
-                {busy ? <><span className="vg-spin" aria-hidden="true">⟳</span> Reading…</> : "🔮 Forecast now"}
-              </button>
-            </div>
-            {!isPlaybook && (
-              <p className="vg-note" style={{ marginTop: 8 }}>
-                Chart only — the forecast reasons over coach levels, which need a GEX chain.
-              </p>)}
-            {read && (read.error
-              ? <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{read.error}</p>
-              : (read.data || read.text)
-                ? <div style={{ marginTop: 10 }}><MiraRender data={read.data} text={read.text} /></div>
-                : read.loading
-                  ? <p className="vg-note" style={{ marginTop: 8 }}>Reasoning over the liquidity, draw, and structure…</p>
-                  : (isPlaybook && s)
-                    ? <p className="vg-note" style={{ marginTop: 8 }}>Hit forecast for a scoreable directional read.</p>
-                    : null)}
-          </div>
-
-          {priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && (
-            <div className="vg-card">
-              <div className="vg-kicker">Prior forecasts</div>
-              {priors.data.forecasts.map((f) => (
-                <ForecastRow key={f.id} f={f} onScore={score} scoring={scoring}
-                  selected={selected && selected.id === f.id}
-                  onSelect={setSelected} />
-              ))}
-            </div>)}
-
-          <p className="vg-note" style={{ fontSize: 11, color: "var(--vg-dim)" }}>
-            Levels are the nightly EOD estimate · 0DTE-blind · not advice.
-          </p>
-        </div>
       </div>
+    </div>
+  );
+}
+
+// The RAIL — the "what will price do?" panel + read + prior forecasts. Rendered in
+// the app's right side panel (full height) so the chart gets the full width.
+export function SpxPlaybookRail() {
+  const p = usePlaybook();
+  if (!p) return null;
+  const { s, isPlaybook, busy, read, forecast, score, scoring, selected,
+    setSelected, priors } = p;
+  return (
+    <div className="vg-pane-body vg-fc-rail">
+      <div className="vg-card">
+        <div className="vg-spread">
+          <div className="vg-kicker" style={{ margin: 0 }}>What will price do?</div>
+          <button className="vg-btn-sm" disabled={busy || !s || !isPlaybook} onClick={forecast}
+            title={!isPlaybook ? "forecast needs coach levels (SPX / QQQ / IWM)" : undefined}>
+            {busy ? <><span className="vg-spin" aria-hidden="true">⟳</span> Reading…</> : "🔮 Forecast now"}
+          </button>
+        </div>
+        {!isPlaybook && (
+          <p className="vg-note" style={{ marginTop: 8 }}>
+            Chart only — the forecast reasons over coach levels, which need a GEX chain.
+          </p>)}
+        {read && (read.error
+          ? <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{read.error}</p>
+          : (read.data || read.text)
+            ? <div style={{ marginTop: 10 }}><MiraRender data={read.data} text={read.text} /></div>
+            : read.loading
+              ? <p className="vg-note" style={{ marginTop: 8 }}>Reasoning over the liquidity, draw, and structure…</p>
+              : (isPlaybook && s)
+                ? <p className="vg-note" style={{ marginTop: 8 }}>Hit forecast for a scoreable directional read.</p>
+                : null)}
+      </div>
+
+      {priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && (
+        <div className="vg-card">
+          <div className="vg-kicker">Prior forecasts</div>
+          {priors.data.forecasts.map((f) => (
+            <ForecastRow key={f.id} f={f} onScore={score} scoring={scoring}
+              selected={selected && selected.id === f.id}
+              onSelect={setSelected} />
+          ))}
+        </div>)}
+
+      <p className="vg-note" style={{ fontSize: 11, color: "var(--vg-dim)" }}>
+        Levels are the nightly EOD estimate · 0DTE-blind · not advice.
+      </p>
     </div>
   );
 }

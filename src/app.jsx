@@ -14,7 +14,7 @@ import { ChartsView, ChartsRail } from "./charts.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
-import { SpxPlaybookView } from "./spx_forecast.jsx";
+import { SpxPlaybookView, SpxPlaybookRail, PlaybookProvider } from "./spx_forecast.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
 import { TodayView } from "./today.jsx";
@@ -83,11 +83,17 @@ function useHashRoute() {
   return [route, go];
 }
 
-// The 0DTE Playbook route: the daily plan (PlaybookView) and the chart-centric
-// forecast workspace (SpxPlaybookView) live under one nav item, toggled by a
-// sub-tab. Chart is the front door — it's the full-screen, ask-anything view.
-function PlaybookRoute({ refreshNonce }) {
-  const [tab, setTab] = useState("chart");   // chart | plan
+// Mount the playbook state provider only on the playbook route (so its snapshot
+// fetch doesn't run elsewhere), wrapping the whole studio so BOTH the center chart
+// and the right-pane rail can read the shared store.
+function MaybePlaybookProvider({ active, children }) {
+  return active ? <PlaybookProvider initialSymbol="SPX">{children}</PlaybookProvider> : children;
+}
+
+// The 0DTE Playbook route (center): the daily plan (PlaybookView) and the
+// chart-centric forecast view (SpxPlaybookView) toggled by a sub-tab. The forecast
+// RAIL renders in the app's right pane (see PlaybookRail), not here.
+function PlaybookRoute({ refreshNonce, tab, setTab }) {
   return (
     <div>
       <div className="vg-subtabs">
@@ -97,7 +103,7 @@ function PlaybookRoute({ refreshNonce }) {
           onClick={() => setTab("plan")}>📐 Daily plan</button>
       </div>
       {tab === "chart"
-        ? <SpxPlaybookView initialSymbol="SPX" />
+        ? <SpxPlaybookView />
         : <PlaybookView refreshNonce={refreshNonce} />}
     </div>
   );
@@ -109,6 +115,7 @@ function App() {
   const [accountId, setAccountId] = useState(settings.defaultAccount);
   const [symbol, setSymbol] = useState("SPY");
   const [route, go] = useHashRoute();
+  const [playbookTab, setPlaybookTab] = useState("chart");   // chart | plan (0DTE Playbook)
   const [notifs, setNotifs] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -235,6 +242,8 @@ function App() {
   // not only in the scope selector.
   const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
   const hasChartRail = route === "charts";
+  // the 0DTE Playbook's chart sub-tab renders its forecast RAIL in the right pane
+  const isPlaybookChart = route === "playbook" && playbookTab === "chart";
 
   return (
     <div className="vg-app">
@@ -261,6 +270,7 @@ function App() {
         </div>
       </div>
 
+      <MaybePlaybookProvider active={route === "playbook"}>
       <div className="vg-studio">
         {/* -------- left pane: nav + account scope -------- */}
         <aside className={cls("vg-pane", "vg-pane-left", !leftOpen && "clps")}>
@@ -381,7 +391,7 @@ function App() {
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
-          {route === "playbook" && <PlaybookRoute refreshNonce={refreshNonce} />}
+          {route === "playbook" && <PlaybookRoute refreshNonce={refreshNonce} tab={playbookTab} setTab={setPlaybookTab} />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}
@@ -407,7 +417,7 @@ function App() {
             </button>
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
-                {hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"}
+                {isPlaybookChart ? "🔮 Forecast" : hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"}
               </span>
             )}
             {rightOpen && !hasChartRail && symbol && (
@@ -417,13 +427,16 @@ function App() {
             )}
           </div>
           {!rightOpen && <span className="vg-sparkle" aria-hidden="true">✦</span>}
-          {rightOpen && (hasChartRail
-            ? <div className="vg-pane-body vg-rail"><ChartsRail symbol={symbol} /></div>
-            : symbol
-              ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
-              : <ChatPanel docked settings={settings} />)}
+          {rightOpen && (isPlaybookChart
+            ? <SpxPlaybookRail />
+            : hasChartRail
+              ? <div className="vg-pane-body vg-rail"><ChartsRail symbol={symbol} /></div>
+              : symbol
+                ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
+                : <ChatPanel docked settings={settings} />)}
         </aside>
       </div>
+      </MaybePlaybookProvider>
 
       <div className="vg-fabs">
         <button className="vg-fab" aria-label="Notifications" onClick={() => setNotifOpen(true)}>
