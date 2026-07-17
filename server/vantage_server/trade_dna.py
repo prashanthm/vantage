@@ -162,6 +162,73 @@ def _quality(window: list[dict], side_effect: str) -> dict | None:
     }
 
 
+def _trade_dir(trade: dict) -> int:
+    """The trade's directional sign: +1 bullish (long calls), -1 bearish (long
+    puts), 0 unknown. From the strategy string ('long_call' / 'long_put' / …)."""
+    s = str(trade.get("strategy") or "").lower()
+    if "call" in s and "put" not in s:
+        return 1
+    if "put" in s and "call" not in s:
+        return -1
+    return 0
+
+
+def _ict_at_entry(store, day: str, underlying: str, entry_et, trade: dict) -> dict | None:
+    """The ICT structure AS OF the trade's entry — reuses build_snapshot(as_of=…)
+    so the liquidity / order-blocks / FVGs / draw / hourly ict_htf are exactly the
+    validated computation, time-anchored to when the trade was taken (not now).
+    Plus the deterministic flags the ict-coach / ict-concepts-edge goals validated:
+    against_draw (entry side vs the level-draw), midday_entry (11-14 ET trap),
+    htf_setup_aligned (trade dir vs the hourly ict_htf setup)."""
+    if entry_et is None or not getattr(store, "uses_sqlite", False):
+        return None
+    try:
+        from . import spx_snapshot as _snap
+        as_of = entry_et.isoformat()
+        snap = _snap.build_snapshot(store, day, symbol=underlying, as_of=as_of)
+    except Exception as e:  # never let the ICT read break the DNA
+        log.warning("DNA ict-at-entry failed for %s %s: %s", underlying, day, e)
+        return None
+    if not snap:
+        return None
+    ict = snap.get("ict") or {}
+    htf = snap.get("ict_htf") or {}
+    draw = ict.get("draw") or {}
+    tdir = _trade_dir(trade)
+
+    # against_draw: the draw is the nearer opposing level (validated magnet). A
+    # trade taken AGAINST it (long while the draw pulls down, or vice-versa) is
+    # the money leak (ict-coach H8: -$357 avg vs +$270 with-draw).
+    against_draw = None
+    if draw.get("dir") and tdir != 0:
+        draw_sign = 1 if draw["dir"] == "up" else -1
+        against_draw = (tdir != draw_sign)
+
+    # midday_entry: 11:00-14:00 ET level-trap window (ict-coach H9: WR 0.17).
+    midday_entry = 11 <= entry_et.hour < 14
+
+    # htf_setup_aligned: was there a validated hourly setup, and on the SAME side?
+    htf_setup_aligned = None
+    if htf.get("present") and tdir != 0:
+        setup_sign = 1 if htf.get("dir") == "long" else -1
+        htf_setup_aligned = (tdir == setup_sign)
+
+    return {
+        "as_of": snap.get("as_of"),
+        "price": snap.get("price"),
+        "unswept_liquidity": ict.get("unswept_liquidity"),
+        "active_order_blocks": ict.get("active_order_blocks"),
+        "fresh_fvgs": ict.get("fresh_fvgs"),
+        "draw": draw,                       # the validated level-based magnet
+        "htf_setup": htf,                   # the hourly ict_htf {present,tier,dir,…}
+        "flags": {                          # the validated deterministic reads
+            "against_draw": against_draw,
+            "midday_entry": midday_entry,
+            "htf_setup_aligned": htf_setup_aligned,
+        },
+    }
+
+
 def build(store, day: str, trade: dict, forecast_levels: list[dict],
           gex_anchors: list[dict], underlying: str = "SPX") -> dict:
     """The full DNA of one trade. ``trade`` is a session_activity trade dict
@@ -218,6 +285,10 @@ def build(store, day: str, trade: dict, forecast_levels: list[dict],
         # the plan the trade was taken against
         "forecast_levels": forecast_levels,
         "gex_anchors": gex_anchors,
+        # the ICT structure AS OF entry (validated liquidity/OB/FVG/draw/hourly
+        # setup) + the deterministic flags the goals validated — so Mira judges
+        # the trade against the same structure the coach uses live.
+        "ict": _ict_at_entry(store, day, underlying, entry_et, trade),
         # the day's news + sentiment lean for the underlying — market context
         # the tape alone doesn't carry (the analyst weighs it, cites it as an
         # ESTIMATED lean, never ground truth).
