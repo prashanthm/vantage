@@ -1125,6 +1125,39 @@ class Store:
         except Exception:
             return None
 
+    def load_intraday_bars_since(self, symbol: str, from_day: str,
+                                 interval: str = "1m") -> dict | None:
+        """Concatenate every stored session FROM ``from_day`` onward (inclusive),
+        chronological. For scoring a forecast against elapsed price — a forecast
+        made near a session close has no same-day bars after it, but the NEXT
+        session's action still tests the call. None with no data."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT day, ohlc FROM intraday_bars "
+                "WHERE symbol=? AND interval=? AND day>=? ORDER BY day ASC",
+                (symbol, interval, from_day)).fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return None
+        out = {"ts": [], "open": [], "high": [], "low": [], "close": [], "volume": []}
+        for r in rows:
+            try:
+                blob = _db.loads(r["ohlc"] if hasattr(r, "keys") else r[1])
+            except Exception:
+                continue
+            ts = blob.get("ts") or []
+            if not ts:
+                continue
+            out["ts"].extend(ts)
+            for k in ("open", "high", "low", "close"):
+                out[k].extend(blob.get(k) or [])
+            out["volume"].extend(blob.get("volume") or [0] * len(ts))
+        return out if out["ts"] else None
+
     def load_intraday_bars_range(self, symbol: str, upto_day: str,
                                  interval: str = "1m", days: int = 10) -> dict | None:
         """Concatenate the last ``days`` stored sessions up to (and including)

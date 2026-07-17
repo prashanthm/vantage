@@ -80,3 +80,37 @@ def test_snapshot_as_of_truncates(tmp_path):
 def test_snapshot_none_without_bars(tmp_path):
     store = _sqlite_store(tmp_path)
     assert ss.build_snapshot(store, "2020-01-01") is None
+
+
+def test_score_forecast_uses_next_session(tmp_path):
+    # THE BUG FIX: a forecast made at day-1's CLOSE has no same-day bars after it,
+    # but the next session's action must still score it (was "too early" forever).
+    store = _sqlite_store(tmp_path)
+    _seed_day(store, "2026-07-16")   # day 1
+    _seed_day(store, "2026-07-17")   # day 2 (the elapsed price)
+    d1 = store.load_intraday_bars("^GSPC", "2026-07-16", "1m")
+    last_ts = d1["ts"][-1]           # the close bar of day 1
+    price_at = d1["close"][-1]
+    # a forecast made AT the day-1 close, target BELOW (day 2 pulls back to ~7500)
+    row = {"day": "2026-07-16", "symbol": "SPX", "as_of": last_ts,
+           "price_at": price_at,
+           "forecast": {"sections": [{"kind": "keyvals", "rows": [
+               {"k": "Bias", "v": "Down"},
+               {"k": "Target", "v": "fall to 7505"},
+               {"k": "Invalidation", "v": "above 7600"}]}]}}
+    score = ss.score_forecast(store, row)
+    assert score is not None                     # NOT "too early" anymore
+    assert score["bars_elapsed"] > 0
+    assert score["verdict"] in ("hit target", "invalidated",
+                                "direction correct", "direction wrong", "inconclusive")
+
+
+def test_load_intraday_bars_since(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _seed_day(store, "2026-07-16")
+    _seed_day(store, "2026-07-17")
+    both = store.load_intraday_bars_since("^GSPC", "2026-07-16", "1m")
+    only17 = store.load_intraday_bars_since("^GSPC", "2026-07-17", "1m")
+    assert len(both["ts"]) == 120                # both sessions concatenated
+    assert len(only17["ts"]) == 60               # from-day onward only
+    assert store.load_intraday_bars_since("^GSPC", "2030-01-01", "1m") is None

@@ -230,11 +230,14 @@ def score_forecast(store, forecast_row: dict) -> dict | None:
     sym = forecast_row.get("symbol") or "SPX"
     as_of = forecast_row.get("as_of")
     bar_sym = "^GSPC" if sym == "SPX" else sym
-    ohlc = store.load_intraday_bars(bar_sym, day, "1m")
+    # load the forecast day AND every session after it — a forecast made near the
+    # close has no same-day bars after it, but the NEXT session still tests it.
+    ohlc = (store.load_intraday_bars_since(bar_sym, day, "1m")
+            or store.load_intraday_bars(bar_sym, day, "1m"))
     if not ohlc or not ohlc.get("ts") or not as_of:
         return None
     ts, hi, lo, cl = ohlc["ts"], ohlc["high"], ohlc["low"], ohlc["close"]
-    # bars strictly AFTER as_of
+    # bars strictly AFTER as_of (now spanning subsequent sessions too)
     fut = [k for k, t in enumerate(ts) if t > as_of]
     if not fut:
         return None
