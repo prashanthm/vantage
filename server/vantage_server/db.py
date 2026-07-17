@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 19  # v19: spx_forecast (persisted SPX-analyst forecasts + scoring)
+SCHEMA_VERSION = 20  # v20: replay runs (spx_forecast.run_id) + spx_calibration memory
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -110,8 +110,13 @@ CREATE TABLE IF NOT EXISTS spx_forecast (
     forecast     TEXT,            -- JSON: the analyst's structured forecast (bias/path/targets/invalidation)
     forecast_text TEXT,           -- the raw analyst reply (prose fallback)
     scored_at    TEXT,            -- when accuracy was computed (null = unscored)
-    score        TEXT             -- JSON: {hit_target, hit_invalidation, direction_ok, verdict, moved_pt}
+    score        TEXT,            -- JSON: {hit_target, hit_invalidation, direction_ok, verdict, moved_pt}
+    run_id       TEXT             -- groups the forecasts of one Replay Forecast run (null = ad-hoc single forecast)
 );
+-- NB: the ix_spx_forecast_run index on run_id is created in
+-- _add_missing_spx_forecast_columns, AFTER the PRAGMA-guarded ALTER — an old
+-- (v19) DB won't have the column when executescript runs, so indexing it here
+-- would fail on migration.
 
 -- Per-session INTRADAY (1m) bars, captured when the trade-DNA path fetches them
 -- live, so they survive after yfinance's ~30-day intraday retention rolls past.
@@ -495,6 +500,28 @@ CREATE TABLE IF NOT EXISTS journal_analysis (
     UNIQUE (period, window_from, window_to, underlying)
 );
 CREATE INDEX IF NOT EXISTS ix_journal_analysis_win ON journal_analysis(window_to, period, underlying);
+
+-- Replay-Forecast CALIBRATION (v20): the grader-owned, read-only memory. One row
+-- per graded replay run — the DETERMINISTIC hit-rate (overall + bucketed by
+-- time-of-day / bias / tier), computed in Python (`scores`), plus the grader's
+-- prose read (`patterns`, `narrative`). This is the accountability record; it is
+-- NEVER fed back to the forecasting analyst (that would be reward-hacking). The
+-- next grade reads the prior one (prior_id) so calibration compounds. One row per
+-- (day, underlying, run_id); re-grading a run overwrites.
+CREATE TABLE IF NOT EXISTS spx_calibration (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    day            TEXT NOT NULL,       -- session the run replayed (YYYY-MM-DD)
+    underlying     TEXT NOT NULL,
+    run_id         TEXT NOT NULL,       -- the replay run this calibrates
+    generated_at   TEXT NOT NULL,
+    prior_id       INTEGER,             -- the calibration this one built on (compounding)
+    n_forecasts    INTEGER,             -- scored forecasts in the run
+    scores         TEXT,                -- JSON: code-computed hit-rates {overall, by_time, by_bias, by_tier}
+    patterns       TEXT,                -- JSON [{pattern, cites[]}] — grader prose, no numbers invented
+    narrative      TEXT,                -- the grader's prose synthesis
+    UNIQUE (day, underlying, run_id)
+);
+CREATE INDEX IF NOT EXISTS ix_spx_calibration_gen ON spx_calibration(generated_at, underlying);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard
@@ -510,6 +537,12 @@ _JOURNAL_ADDED_COLUMNS = {
     "forecast_kind": "TEXT",
     "entry": "TEXT",
     "entry_updated_at": "TEXT",
+}
+
+#: v19->v20: additively add the replay run-grouping column to a DB that already
+#: has the v19 spx_forecast table (executescript skips existing tables).
+_SPX_FORECAST_ADDED_COLUMNS = {
+    "run_id": "TEXT",
 }
 
 
@@ -538,6 +571,7 @@ class Database:
         try:
             conn.executescript(_SCHEMA)
             self._add_missing_journal_columns(conn)
+            self._add_missing_spx_forecast_columns(conn)
             self._add_missing_paper_columns(conn)
             self._add_missing_managed_columns(conn)
             self._add_missing_account_columns(conn)
@@ -576,6 +610,19 @@ class Database:
             if col not in have:
                 conn.execute(
                     f"ALTER TABLE journal_snapshots ADD COLUMN {col} {decl}")
+
+    @staticmethod
+    def _add_missing_spx_forecast_columns(conn: sqlite3.Connection) -> None:
+        """v19->v20: additively add the replay ``run_id`` grouping column.
+        Idempotent; existing single-forecast rows keep run_id NULL (ad-hoc)."""
+        have = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(spx_forecast)").fetchall()}
+        for col, decl in _SPX_FORECAST_ADDED_COLUMNS.items():
+            if col not in have:
+                conn.execute(f"ALTER TABLE spx_forecast ADD COLUMN {col} {decl}")
+        # index run_id only now that the column is guaranteed to exist
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_spx_forecast_run "
+                     "ON spx_forecast(run_id, as_of)")
 
     @staticmethod
     def _add_missing_account_columns(conn: sqlite3.Connection) -> None:

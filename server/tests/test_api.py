@@ -510,6 +510,13 @@ ALLOWED_WRITE_ROUTES = {
     # Light intraday 1m refresh (today, force). Writes only our own store
     # (intraday bars); no broker/order path (ADR-010 holds).
     "/api/spx/refresh",
+    # Replay Forecast (ticker-neutral): plan primes 1m bars + enumerates steps;
+    # score grades every forecast in the run with CODE (score_forecast); calibration
+    # persists the code-computed hit-rates. Writes only our own SQLite (forecasts,
+    # intraday bars, calibration); no broker/order path (ADR-010 holds).
+    "/api/replay/plan",
+    "/api/replay/{run_id}/score",
+    "/api/replay/{run_id}/calibration",
 }
 
 

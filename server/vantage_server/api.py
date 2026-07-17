@@ -547,7 +547,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             price_at=sc.get("price"),
             snapshot=sc,
             forecast=body.get("forecast"),
-            forecast_text=str(body.get("forecast_text") or ""))
+            forecast_text=str(body.get("forecast_text") or ""),
+            run_id=body.get("run_id"))   # groups a Replay Forecast run; None = single
         return envelope(snap, available=True, id=fid)
 
     @app.get("/api/spx/forecast")
@@ -576,6 +577,116 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note="too early to score — no price action after the forecast yet")
         store.save_spx_forecast_score(fid, score)
         return envelope(snap, available=True, id=fid, score=score)
+
+    # ── Replay Forecast (ticker-neutral) ─────────────────────────────────────
+    # Step a chosen day at a selectable interval, plot the sequence of forecasts,
+    # and grade the run. The backend does the DETERMINISTIC parts only (prime,
+    # step enumeration, run grouping, scoring, calibration). The SPA drives the
+    # Mira loop (it's the only Mira caller) — the backend stays Mira-free.
+
+    @app.post("/api/replay/plan")
+    def replay_plan(body: dict = Body(default={})):
+        """Plan a replay run for a (day, symbol). PRIMES the day's 1m bars if
+        missing (yfinance, ~30-day reach — reports available=False when older),
+        then enumerates the as_of step grid and mints a run_id. Body:
+        {day, symbol?, premarket?, step_min?}. Mira-free; writes only 1m bars."""
+        import datetime as _dt
+        import uuid as _uuid
+        from . import replay_forecast as _rf
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="replay needs the SQLite backend")
+        sym = str(body.get("symbol") or "SPX").upper()
+        day = str(body.get("day") or "").strip()
+        if not day:
+            return envelope(snap, available=False, note="day is required (YYYY-MM-DD)")
+        premarket = bool(body.get("premarket"))
+        step_min = int(body.get("step_min") or 15)
+        primed = _rf.prime_day(store, sym, day)
+        if not primed.get("available"):
+            return envelope(snap, available=False, symbol=sym, day=day,
+                            note=primed.get("note") or "no 1m data for that day")
+        steps = _rf.replay_steps(store, day, sym, premarket=premarket, step_min=step_min)
+        if not steps:
+            return envelope(snap, available=False, symbol=sym, day=day,
+                            note="no stored 1m bars produced any step for that session")
+        run_id = f"rf-{sym}-{day}-{_dt.datetime.now(_dt.timezone.utc):%Y%m%dT%H%M%S}-{_uuid.uuid4().hex[:6]}"
+        has_levels = sym in PLAYBOOK_SYMBOLS
+        note = None if has_levels else (
+            f"{sym}: chart + forecast run, but coach levels need a GEX chain "
+            f"(SPX / QQQ / IWM only).")
+        return envelope(snap, available=True, run_id=run_id, day=day, symbol=sym,
+                        premarket=premarket, step_min=step_min,
+                        primed=primed.get("primed", False), has_levels=has_levels,
+                        steps=steps, note=note)
+
+    @app.get("/api/replay/{run_id}")
+    def replay_get(run_id: str):
+        """The run's saved forecasts (chronological) with their persisted scores,
+        plus the calibration record if the run has been graded."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="replay needs the SQLite backend")
+        rows = store.list_spx_forecasts_by_run(run_id)
+        cal = store.load_spx_calibration_by_run(run_id)
+        return envelope(snap, available=True, run_id=run_id,
+                        forecasts=rows, calibration=cal)
+
+    @app.post("/api/replay/{run_id}/score")
+    def replay_score(run_id: str):
+        """Grade EVERY forecast of the run against the elapsed price action —
+        the score is CODE (score_forecast), never an LLM number. Persists each
+        row's score and returns the per-row scores + the run's calibration."""
+        from . import spx_snapshot as _snap
+        from . import replay_forecast as _rf
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="replay needs the SQLite backend")
+        rows = store.list_spx_forecasts_by_run(run_id)
+        if not rows:
+            return envelope(snap, available=False, note=f"run {run_id} has no forecasts")
+        scored = 0
+        for r in rows:
+            sc = _snap.score_forecast(store, r)
+            if sc is not None:
+                store.save_spx_forecast_score(r["id"], sc)
+                r["score"] = sc
+                scored += 1
+        cal_scores = _rf.calibration_scores(rows)
+        return envelope(snap, available=True, run_id=run_id, scored=scored,
+                        forecasts=rows, scores=cal_scores)
+
+    @app.post("/api/replay/{run_id}/calibration")
+    def replay_calibration(body: dict = Body(default={}), run_id: str = ""):
+        """Compute + persist the run's DETERMINISTIC calibration record (the
+        grader-owned memory). The score numbers are code-computed here; the LLM
+        grader later reads and narrates them (patterns/narrative), never the
+        numbers. Body may carry {patterns, narrative} from a completed grade."""
+        import datetime as _dt
+        from . import replay_forecast as _rf
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="replay needs the SQLite backend")
+        rid = run_id or str(body.get("run_id") or "")
+        rows = store.list_spx_forecasts_by_run(rid)
+        if not rows:
+            return envelope(snap, available=False, note=f"run {rid} has no forecasts")
+        underlying = (rows[0].get("symbol") or "SPX").upper()
+        day = rows[0].get("day")
+        scores = _rf.calibration_scores(rows)
+        prior = store.load_latest_spx_calibration(underlying=underlying)
+        rec = {
+            "day": day, "underlying": underlying, "run_id": rid,
+            "generated_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+            "prior_id": (prior or {}).get("id"),
+            "n_forecasts": scores["overall"].get("n", 0),
+            "scores": scores,
+            "patterns": body.get("patterns"),   # grader prose (optional)
+            "narrative": body.get("narrative"),  # grader prose (optional)
+        }
+        cid = store.save_spx_calibration(rec)
+        return envelope(snap, available=True, run_id=rid, id=cid,
+                        calibration={**rec, "id": cid})
 
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
                               risk: float, date: str | None,

@@ -1205,21 +1205,26 @@ class Store:
 
     def save_spx_forecast(self, *, symbol: str, day: str, as_of: str,
                           price_at: float | None, snapshot: dict,
-                          forecast: dict | None, forecast_text: str) -> int | None:
-        """Persist a 'what will price do?' forecast. Returns the row id or None."""
+                          forecast: dict | None, forecast_text: str,
+                          run_id: str | None = None) -> int | None:
+        """Persist a 'what will price do?' forecast. ``run_id`` groups the
+        forecasts of one Replay Forecast run (None = ad-hoc single forecast).
+        Returns the row id or None."""
         if not self.uses_sqlite:
             return None
         import datetime as _d
         with self._sqlite_txn() as conn:
             cur = conn.execute(
                 "INSERT INTO spx_forecast (symbol, day, as_of, created_at, "
-                "price_at, snapshot, forecast, forecast_text) VALUES (?,?,?,?,?,?,?,?)",
+                "price_at, snapshot, forecast, forecast_text, run_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (symbol, day, as_of, _d.datetime.now(_d.timezone.utc).isoformat(),
                  price_at, _db.dumps(snapshot), _db.dumps(forecast) if forecast else None,
-                 forecast_text))
+                 forecast_text, run_id))
             return cur.lastrowid
 
     def _forecast_row(self, row) -> dict:
+        keys = row.keys() if hasattr(row, "keys") else []
         return {
             "id": row["id"], "symbol": row["symbol"], "day": row["day"],
             "as_of": row["as_of"], "created_at": row["created_at"],
@@ -1229,7 +1234,21 @@ class Store:
             "forecast_text": row["forecast_text"],
             "scored_at": row["scored_at"],
             "score": _db.loads(row["score"]) if row["score"] else None,
+            "run_id": row["run_id"] if "run_id" in keys else None,
         }
+
+    def list_spx_forecasts_by_run(self, run_id: str) -> list[dict]:
+        """Every forecast of one replay run, chronological (as_of ASC)."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM spx_forecast WHERE run_id=? ORDER BY as_of ASC, id ASC",
+                (run_id,)).fetchall()
+        finally:
+            conn.close()
+        return [self._forecast_row(r) for r in rows]
 
     def list_spx_forecasts(self, symbol: str = "SPX", day: str | None = None,
                            limit: int = 50) -> list[dict]:
@@ -1835,6 +1854,69 @@ class Store:
         finally:
             conn.close()
         return [self._decode_ja(r) for r in rows]
+
+    # ── replay-forecast calibration (grader-owned, read-only memory) ─────────
+
+    def save_spx_calibration(self, rec: dict) -> int:
+        """Upsert one replay-run calibration (unique per day+underlying+run_id).
+        `scores`/`patterns` are dumped as JSON. Returns the row id. The score
+        numbers here are ALWAYS code-computed — the grader only narrates."""
+        if not self.uses_sqlite:
+            raise RuntimeError("save_spx_calibration requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO spx_calibration"
+                "(day, underlying, run_id, generated_at, prior_id, n_forecasts,"
+                " scores, patterns, narrative) VALUES(?,?,?,?,?,?,?,?,?)",
+                (rec["day"], rec.get("underlying", "SPX"), rec["run_id"],
+                 rec["generated_at"], rec.get("prior_id"), rec.get("n_forecasts"),
+                 _db.dumps(rec.get("scores")), _db.dumps(rec.get("patterns")),
+                 rec.get("narrative")))
+            row = conn.execute(
+                "SELECT id FROM spx_calibration WHERE day=? AND underlying=? AND run_id=?",
+                (rec["day"], rec.get("underlying", "SPX"), rec["run_id"])).fetchone()
+        return int(row["id"]) if row else 0
+
+    def _decode_cal(self, r) -> dict:
+        d = dict(r)
+        for k in ("scores", "patterns"):
+            d[k] = _db.loads(d.get(k), None)
+        return d
+
+    def load_latest_spx_calibration(self, before: str | None = None,
+                                    underlying: str = "SPX") -> dict | None:
+        """The most recent calibration — the 'prior' a new grade compounds on.
+        When ``before`` is given, only calibrations generated strictly before it
+        count (so a re-grade of the same run doesn't read itself). None if none."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            if before:
+                r = conn.execute(
+                    "SELECT * FROM spx_calibration WHERE underlying=? AND generated_at<? "
+                    "ORDER BY generated_at DESC, id DESC LIMIT 1",
+                    (underlying.upper(), before)).fetchone()
+            else:
+                r = conn.execute(
+                    "SELECT * FROM spx_calibration WHERE underlying=? "
+                    "ORDER BY generated_at DESC, id DESC LIMIT 1",
+                    (underlying.upper(),)).fetchone()
+        finally:
+            conn.close()
+        return self._decode_cal(r) if r else None
+
+    def load_spx_calibration_by_run(self, run_id: str) -> dict | None:
+        """The calibration for a specific replay run, if it has been graded."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            r = conn.execute(
+                "SELECT * FROM spx_calibration WHERE run_id=? LIMIT 1", (run_id,)).fetchone()
+        finally:
+            conn.close()
+        return self._decode_cal(r) if r else None
 
     # ── chart-snapshot journal (SQLite metadata; image bytes on disk) ────────
 

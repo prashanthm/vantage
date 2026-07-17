@@ -26,6 +26,60 @@ def test_schema_is_idempotent_and_versioned(tmp_path):
     assert database.schema_version() == _db.SCHEMA_VERSION
 
 
+def test_v20_replay_columns_and_calibration_table(tmp_path):
+    """v20: spx_forecast gains run_id + the spx_calibration memory table exists."""
+    database = _db.Database(tmp_path / "vantage.db")
+    database.init_schema()
+    conn = database.connect()
+    try:
+        fcols = {r["name"] for r in conn.execute("PRAGMA table_info(spx_forecast)")}
+        assert "run_id" in fcols
+        ccols = {r["name"] for r in conn.execute("PRAGMA table_info(spx_calibration)")}
+        assert {"day", "underlying", "run_id", "scores", "narrative"} <= ccols
+    finally:
+        conn.close()
+
+
+def test_v20_run_id_migrates_onto_old_forecast_table(tmp_path):
+    """A DB that already has the v19 spx_forecast table (no run_id) gains the
+    column additively — rows preserved, run_id NULL — not a rebuild."""
+    path = tmp_path / "vantage.db"
+    import sqlite3
+    conn = sqlite3.connect(str(path))
+    conn.executescript(
+        "CREATE TABLE spx_forecast (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "symbol TEXT NOT NULL, day TEXT NOT NULL, as_of TEXT NOT NULL, "
+        "created_at TEXT, price_at REAL, snapshot TEXT, forecast TEXT, "
+        "forecast_text TEXT, scored_at TEXT, score TEXT);"
+        "INSERT INTO spx_forecast(symbol, day, as_of) VALUES('SPX','2026-07-16','x');")
+    conn.commit(); conn.close()
+    _db.Database(path).init_schema()   # migrate in place
+    conn = sqlite3.connect(str(path))
+    try:
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(spx_forecast)")}
+        assert "run_id" in cols
+        row = conn.execute("SELECT symbol, run_id FROM spx_forecast").fetchone()
+        assert row[0] == "SPX" and row[1] is None    # preserved; new col NULL
+    finally:
+        conn.close()
+
+
+def test_spx_calibration_round_trips(tmp_path):
+    store = _sqlite_store(tmp_path)
+    cid = store.save_spx_calibration({
+        "day": "2026-07-16", "underlying": "SPX", "run_id": "rf-1",
+        "generated_at": "2026-07-16T20:00:00Z", "prior_id": None, "n_forecasts": 5,
+        "scores": {"overall": {"n": 5, "hit_rate": 0.6}},
+        "patterns": [{"pattern": "midday drift", "cites": [1, 2]}],
+        "narrative": "decent open reads, weak midday"})
+    assert cid > 0
+    got = store.load_spx_calibration_by_run("rf-1")
+    assert got["scores"]["overall"]["hit_rate"] == 0.6
+    assert got["patterns"][0]["pattern"] == "midday drift"
+    latest = store.load_latest_spx_calibration(underlying="SPX")
+    assert latest["run_id"] == "rf-1"
+
+
 def test_wal_mode_is_enabled(tmp_path):
     database = _db.Database(tmp_path / "vantage.db")
     database.init_schema()

@@ -243,11 +243,19 @@ def score_forecast(store, forecast_row: dict) -> dict | None:
         return None
     price_at = _num(forecast_row.get("price_at"))
     fc = forecast_row.get("forecast") or {}
-    # pull bias/target/invalidation from the structured forecast (best-effort —
-    # the analyst emits them via the A2UI keyvals; also accept top-level keys)
-    bias = str(fc.get("bias") or _dig(fc, "bias") or "").lower()
-    target = _first_price(fc.get("target") or _dig(fc, "target", skip=("upside", "wrong", "if ")))
-    invalid = _first_price(fc.get("invalidation") or _dig(fc, "invalidation"))
+    # Prefer the STRUCTURED plot object (bias/target/invalidation as bare numbers)
+    # — the analyst emits it at the top level and it's what Vantage plots, so it's
+    # the authoritative, prose-free source. Fall back to top-level keys / keyvals /
+    # prose only when a plot isn't present (older forecasts).
+    plot = fc.get("plot") if isinstance(fc, dict) else None
+    plot = plot if isinstance(plot, dict) else {}
+    bias = str(plot.get("bias") or fc.get("bias") or _dig(fc, "bias") or "").lower()
+    target = _first_price(
+        plot.get("target") if plot.get("target") is not None
+        else (fc.get("target") or _dig(fc, "target", skip=("upside", "wrong", "if "))))
+    invalid = _first_price(
+        plot.get("invalidation") if plot.get("invalidation") is not None
+        else (fc.get("invalidation") or _dig(fc, "invalidation")))
 
     fut_hi = max(hi[k] for k in fut)
     fut_lo = min(lo[k] for k in fut)
