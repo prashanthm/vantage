@@ -554,7 +554,9 @@ if showLines and useGex and barstate.islast
         col = isRes ? color.new(#cf3b47, 25) : isSup ? color.new(#16915b, 25) : color.new(#e0a020, 15)
         wide = ro == "callwall" or ro == "putwall" or ro == "flip"
         array.push(gexLines, line.new(bar_index - 300, p, bar_index, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=wide ? 2 : 1))
-        array.push(gexLabels, label.new(bar_index, p, array.get(gexLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
+        // anchor the level tag to the RIGHT EDGE (a few bars into the future
+        // space) so it sits off the candles, not floating over price action.
+        array.push(gexLabels, label.new(bar_index + 8, p, array.get(gexLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
 
 // TRADE / PLAN lines on the chart: entry · stop · target.
 // While IN a trade they're solid; while ARMED they're drawn FAINT + dotted so
@@ -674,9 +676,12 @@ dirWord = tDir == 1 or showLong ? "LONG" : "SHORT"
 // you to look to a lower timeframe for the entry. Not an entry itself.
 if htfFire
     f_alert("HEADS_UP", "⚡ " + htfTier + " HOURLY SETUP · " + str.upper(htfDir) + " · near " + str.tostring(htfCe, "#.#"), "backtest-validated hourly " + (htfTier == "A+" ? "confluence (sweep→displacement FVG)" : "displacement-FVG") + " — drop to 5m/1m for entry")
-    // a chart marker so the setup is visible on the 1H chart, not just Telegram
-    htfCol = htfDir == "long" ? color.new(#39d98a, 20) : color.new(#ff6b74, 20)
-    label.new(bar_index, htfDir == "long" ? low : high, "⚡ " + htfTier + " " + str.upper(htfDir) + " → LTF", style=(htfDir == "long" ? label.style_label_up : label.style_label_down), color=htfCol, textcolor=color.white, size=size.small)
+    // a COMPACT marker (icon + tier) above/below the bar — the full detail is in
+    // the Telegram alert; the chart just needs a glanceable, non-congesting dot.
+    // long → arrow-up BELOW the bar; short → arrow-down ABOVE it.
+    htfCol = htfDir == "long" ? color.new(#39d98a, 0) : color.new(#ff6b74, 0)
+    htfMk = (htfDir == "long" ? "▲" : "▼") + htfTier
+    label.new(bar_index, htfDir == "long" ? low : high, htfMk, yloc=(htfDir == "long" ? yloc.belowbar : yloc.abovebar), style=(htfDir == "long" ? label.style_label_up : label.style_label_down), color=htfCol, textcolor=color.white, size=size.tiny)
 
 if firedNow
     f_alert("TRIGGERED", (tDir == 1 ? "🔔 BUY CALLS" : "🔔 BUY PUTS") + " · " + armLbl + " " + str.tostring(tEntry, "#.#") + (lowConviction ? " · ⚠ LOW CONVICTION" : ""), "target " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")) + (lowConviction ? " · " + convReason : "") + " · read: " + str.lower(readVerd))
