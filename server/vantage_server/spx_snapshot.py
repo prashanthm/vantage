@@ -9,54 +9,8 @@ DNA-path capture) so it works even after yfinance drops the session.
 """
 from __future__ import annotations
 
-import datetime as _dt
-import logging
-
 from . import ict
 from . import reclaim_pine as _rp
-
-_log = logging.getLogger("vantage.spx_snapshot")
-
-
-def _daily_hilo(store, bar_sym: str, upto_day: str, need: int = 65):
-    """Chronological daily (high, low) arrays for ``bar_sym`` up to ``upto_day``,
-    for the IPDA data-range lookbacks. Reads the cached daily bars first; if
-    there aren't enough, fetches ~``need`` trading days from yfinance and caches
-    them back into the bars store. Returns (highs, lows) or ([], [])."""
-    def _from_store():
-        b = store.load_bars(bar_sym)
-        daily = (b or {}).get("daily") or []
-        rows = [r for r in daily if str(r.get("date"))[:10] <= upto_day]
-        rows = rows[-(need + 5):]
-        hi = [float(r["high"]) for r in rows if r.get("high") is not None]
-        lo = [float(r["low"]) for r in rows if r.get("low") is not None]
-        return hi, lo, rows
-
-    hi, lo, rows = _from_store()
-    if len(hi) >= min(need, 60):
-        return hi, lo
-    # not enough cached history — fetch daily bars and cache them
-    try:
-        import yfinance as yf
-        start = (_dt.date.fromisoformat(upto_day) - _dt.timedelta(days=need * 2)).isoformat()
-        nxt = (_dt.date.fromisoformat(upto_day) + _dt.timedelta(1)).isoformat()
-        h = yf.Ticker(bar_sym).history(start=start, end=nxt, interval="1d")
-        if h.empty:
-            return hi, lo
-        daily = [{"date": t.date().isoformat(), "open": float(o), "high": float(hh),
-                  "low": float(ll), "close": float(c)}
-                 for t, o, hh, ll, c in zip(h.index, h["Open"], h["High"], h["Low"], h["Close"])]
-        try:
-            store.put_bars(bar_sym, {"daily": daily},
-                           as_of=_dt.datetime.now(_dt.timezone.utc).isoformat(),
-                           lookback_days=need)
-        except Exception:  # caching is best-effort
-            pass
-        rows = [r for r in daily if r["date"] <= upto_day]
-        return ([r["high"] for r in rows], [r["low"] for r in rows])
-    except Exception as e:  # network/library issue — degrade to whatever we cached
-        _log.warning("daily-bar fetch failed for %s: %s", bar_sym, e)
-        return hi, lo
 
 
 def _resample_5m(ts, op, hi, lo, cl, vol, upto):
@@ -176,11 +130,6 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
     fvgs = ict.fresh_fvgs(hi_e, lo_e)
     draw = ict.draw_from_levels(price, lvl_prices)
 
-    # IPDA data ranges (20/40/60 trading-day high/low/equilibrium) from daily
-    # bars — the ICT reference extremes price is said to be drawn toward.
-    d_hi, d_lo = _daily_hilo(store, bar_sym, day)
-    ipda = ict.ipda_ranges(d_hi, d_lo) if d_hi and d_lo else []
-
     # session shape — current day only
     sess_hi = max(s_hi[:s_ei + 1])
     sess_lo = min(s_lo[:s_ei + 1])
@@ -212,7 +161,6 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
             "fresh_fvgs": [{"side": f["side"], "lo": round(f["lo"], 1),
                             "hi": round(f["hi"], 1)} for f in fvgs][:8],
             "draw": draw,                      # the validated level-based magnet
-            "ipda": ipda,                      # [{days,high,low,eq}] 20/40/60d ranges
         },
     }
 

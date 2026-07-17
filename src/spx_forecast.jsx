@@ -51,7 +51,7 @@ function forecastFields(data) {
 }
 
 // The chart: candles + coach levels + ICT zones + (optional) forecast overlay.
-function ForecastChart({ snap, forecast, showIpda }) {
+function ForecastChart({ snap, forecast }) {
   const elRef = useRef(null);
   const chartRef = useRef(null);
   const candleRef = useRef(null);
@@ -173,21 +173,6 @@ function ForecastChart({ snap, forecast, showIpda }) {
       lineStyle: LW.LineStyle.Dotted, axisLabelVisible: false, title: "SSL",
     }));
 
-    // IPDA data ranges (20/40/60-day high/low/equilibrium) — the ICT reference
-    // extremes price is drawn toward. Solid cyan lines, labeled by lookback.
-    // Off by default (they span a wide range); toggled from the legend.
-    if (showIpda) {
-      const ipRgb = "20,150,190";  // cyan, distinct from every other layer
-      (ict.ipda || []).forEach((r) => {
-        addLine({ price: r.high, color: `rgba(${ipRgb},0.85)`, lineWidth: 1,
-          lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `IPDA${r.days} hi` });
-        addLine({ price: r.low, color: `rgba(${ipRgb},0.85)`, lineWidth: 1,
-          lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `IPDA${r.days} lo` });
-        addLine({ price: r.eq, color: `rgba(${ipRgb},0.5)`, lineWidth: 1,
-          lineStyle: LW.LineStyle.Dashed, axisLabelVisible: false, title: `IPDA${r.days} eq` });
-      });
-    }
-
     // the level-based DRAW (the magnet) — always shown; violet, distinct.
     if (ict.draw && ict.draw.level != null) addLine({
       price: ict.draw.level, color: "rgba(124,92,255,0.9)", lineWidth: 2,
@@ -221,7 +206,7 @@ function ForecastChart({ snap, forecast, showIpda }) {
       try { candle.setMarkers([]); } catch (e) { /* */ }
       markedRef.current = false;
     }
-  }, [snap, forecast, showIpda]);
+  }, [snap, forecast]);
 
   if (!hasLW()) {
     return <p className="vg-note" style={{ marginTop: 8 }}>Chart unavailable (Lightweight Charts didn't load).</p>;
@@ -267,7 +252,6 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
   const [preparing, setPreparing] = useState(false);
   const [prepNote, setPrepNote] = useState(null);
   const [read, setRead] = useState(null);
-  const [showIpda, setShowIpda] = useState(false);
   const [scoring, setScoring] = useState(null);
   const abortRef = useRef(null);
   useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
@@ -386,16 +370,10 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
               <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "rgb(184,122,22)" }} />liquidity pool (BSL/SSL)</span>
               <span><i className="vg-lg-sw vg-lg-dot" style={{ borderColor: "#7c5cff" }} />draw (magnet)</span>
               {fcFields && <span><i className="vg-lg-sw" style={{ background: "var(--vg-up)" }} />🎯 forecast target / invalidation</span>}
-              <button type="button" className={cls("vg-fc-lgtoggle", showIpda && "vg-fc-lgtoggle-on")}
-                onClick={() => setShowIpda((v) => !v)}
-                title="ICT IPDA data ranges: 20/40/60 trading-day high, low, and equilibrium">
-                <i className="vg-lg-sw" style={{ background: "rgb(20,150,190)" }} />
-                IPDA ranges (20/40/60d) {showIpda ? "✓" : ""}
-              </button>
             </div>)}
 
           {s
-            ? <ForecastChart key={symbol} snap={s} forecast={fcFields} showIpda={showIpda} />
+            ? <ForecastChart key={symbol} snap={s} forecast={fcFields} />
             : (
               <div className="vg-fc-empty">
                 {snapQ.loading

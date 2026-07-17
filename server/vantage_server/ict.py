@@ -136,6 +136,10 @@ IPDA_LOOKBACKS = (20, 40, 60)
 
 
 def ipda_ranges(daily_hi, daily_lo, lookbacks=IPDA_LOOKBACKS):
+    # NOTE: backtested and found to carry NO edge on SPX — no reversal edge, and
+    # the apparent draw/magnet edge was a distance artifact (goal: ipda-edge,
+    # claudedocs/goals/ipda-edge/). NOT used by the snapshot/coach/chart; kept
+    # only for the backtest harness (server/scratch/ipda_backtest.py).
     """ICT IPDA data ranges: for each lookback of N trading days, the highest
     high, lowest low, and equilibrium (midpoint) over the last N daily bars.
     These are the reference extremes the "algorithm" is said to draw price
