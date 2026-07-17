@@ -100,6 +100,7 @@ function ForecastChart({ snap, forecast }) {
   const linesRef = useRef([]);
   const zonesRef = useRef([]);
   const markedRef = useRef(false);
+  const pathSeriesRef = useRef(null);
 
   // create once
   useEffect(() => {
@@ -112,12 +113,21 @@ function ForecastChart({ snap, forecast }) {
       layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
       grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
       // wider right scale + top/bottom margins so the labeled level tags have
-      // room and don't clip against the edge.
+      // room and don't clip against the edge. rightOffset leaves future space for
+      // the projected forecast path.
       rightPriceScale: { borderColor: th.border, minimumWidth: 116,
-        scaleMargins: { top: 0.08, bottom: 0.08 } },
+        scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
       timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false,
-        rightOffset: 3 },
+        rightOffset: 12 },
       crosshair: { mode: LW.CrosshairMode.Normal },
+      // wheel zooms BOTH axes; both axes drag-stretchable (vertical price zoom).
+      handleScale: {
+        mouseWheel: true, pinch: true,
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true },
+      },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true,
+        horzTouchDrag: true, vertTouchDrag: true },
     });
     const candle = chart.addCandlestickSeries({
       upColor: th.up, downColor: th.down, wickUpColor: th.up, wickDownColor: th.down,
@@ -125,16 +135,21 @@ function ForecastChart({ snap, forecast }) {
     });
     chartRef.current = chart; candleRef.current = candle;
     return () => { chart.remove(); chartRef.current = candleRef.current = null;
-      linesRef.current = []; zonesRef.current = []; };
+      linesRef.current = []; zonesRef.current = []; pathSeriesRef.current = null; };
   }, []);
 
   // candles
+  const fittedRef = useRef(false);
   useEffect(() => {
     const candle = candleRef.current;
     const bars = snap && snap.bars_5m;
     if (!candle || !bars || !bars.length) return;
     candle.setData(bars);
-    if (chartRef.current) chartRef.current.timeScale().fitContent();
+    // fit once on first load; don't yank the user's manual zoom on 5-min updates
+    if (chartRef.current && !fittedRef.current) {
+      chartRef.current.timeScale().fitContent();
+      fittedRef.current = true;
+    }
   }, [snap]);
 
   // levels + ICT zones + forecast overlay (redraw on snap/forecast change)
@@ -230,22 +245,18 @@ function ForecastChart({ snap, forecast }) {
       title: `DRAW ${ict.draw.dir === "up" ? "↑" : "↓"}`,
     });
 
-    // the FORECAST overlay — the loudest thing on the chart: the numbered expected
-    // path (1→2→3, tinted by each step's direction), plus thick TARGET /
-    // INVALIDATION lines and a marker on the bar it was called.
+    // clear any prior projected-path series
+    if (pathSeriesRef.current) {
+      try { chart.removeSeries(pathSeriesRef.current); } catch (e) { /* */ }
+      pathSeriesRef.current = null;
+    }
+
+    // the FORECAST overlay. TARGET / INVALIDATION stay as horizontal reference
+    // lines (they're levels); the numbered PATH projects FORWARD from the last
+    // bar into the future space — so it reads as "from here, price goes 1→2→3…"
+    // and its labels sit in the empty right area, not colliding with the levels.
     if (forecast) {
       const { target, invalid, path } = forecast;
-      // numbered path steps — a horizontal line + numbered tag per step, red for a
-      // down move, green for up. Reads as "price should go here 1, then 2, then 3".
-      (path || []).forEach((st) => {
-        if (st.price == null) return;
-        const rgb = st.dir === "down" ? th.downRgb : th.upRgb;
-        addLine({
-          price: st.price, color: `rgba(${rgb.join(",")},0.85)`, lineWidth: 1,
-          lineStyle: LW.LineStyle.Dashed, axisLabelVisible: true,
-          title: `${st.seq}${st.note ? " " + st.note : ""}`.slice(0, 22),
-        });
-      });
       if (target != null) addLine({
         price: target, color: `rgb(${th.upRgb.join(",")})`, lineWidth: 3,
         lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `🎯 TARGET`,
@@ -254,12 +265,44 @@ function ForecastChart({ snap, forecast }) {
         price: invalid, color: `rgb(${th.downRgb.join(",")})`, lineWidth: 3,
         lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `✕ INVALID`,
       });
+
+      // project the path forward: a line from the current price at t1, stepping
+      // one bar into the future per step, at each step's price. Numbered markers
+      // at each vertex. barSec = spacing of the last two bars (≈5m).
+      const steps = (path || []).filter((st) => st.price != null);
+      if (t1 && steps.length) {
+        const barSec = bars.length > 1 ? (bars[bars.length - 1].time - bars[bars.length - 2].time) || 300 : 300;
+        const px0 = snap.price || (bars.length ? bars[bars.length - 1].close : steps[0].price);
+        const data = [{ time: t1, value: px0 }];
+        const markers = [];
+        steps.forEach((st, i) => {
+          const tt = t1 + barSec * (i + 1);
+          data.push({ time: tt, value: st.price });
+          markers.push({
+            time: tt, position: st.dir === "down" ? "belowBar" : "aboveBar",
+            shape: st.dir === "down" ? "arrowDown" : "arrowUp",
+            color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
+            text: `${st.seq}`,
+          });
+        });
+        try {
+          const ps = chart.addLineSeries({
+            color: "rgba(124,92,255,0.95)", lineWidth: 2,
+            lineStyle: LW.LineStyle.Dashed, lastValueVisible: false,
+            priceLineVisible: false, crosshairMarkerVisible: false,
+          });
+          ps.setData(data);
+          ps.setMarkers(markers);
+          pathSeriesRef.current = ps;
+        } catch (e) { /* older LW builds — skip the projection */ }
+      }
+
       // a marker at the forecast's origin bar so "called from here" is visible
       if (t1) {
         try {
           candle.setMarkers([{
             time: t1, position: "aboveBar", shape: "circle",
-            color: "rgb(124,92,255)", text: "forecast",
+            color: "rgb(124,92,255)", text: "now",
           }]);
           markedRef.current = true;
         } catch (e) { /* older LW builds */ }
