@@ -278,11 +278,14 @@ function ForecastChart({ snap, forecast }) {
         steps.forEach((st, i) => {
           const tt = t1 + barSec * (i + 1);
           data.push({ time: tt, value: st.price });
+          // marker carries the number, the PRICE, and the narrative action so you
+          // can read WHAT price should do at each step, right on the chart.
+          const label = `${st.seq} · ${st.price}${st.note ? " " + st.note : ""}`.slice(0, 34);
           markers.push({
             time: tt, position: st.dir === "down" ? "belowBar" : "aboveBar",
             shape: st.dir === "down" ? "arrowDown" : "arrowUp",
             color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
-            text: `${st.seq}`,
+            text: label,
           });
         });
         try {
@@ -297,12 +300,13 @@ function ForecastChart({ snap, forecast }) {
         } catch (e) { /* older LW builds — skip the projection */ }
       }
 
-      // a marker at the forecast's origin bar so "called from here" is visible
+      // a marker at the forecast's origin bar — "now" for a live forecast, or
+      // "called @ HH:MM" for a pinned prior (its origin isn't the live present).
       if (t1) {
         try {
           candle.setMarkers([{
             time: t1, position: "aboveBar", shape: "circle",
-            color: "rgb(124,92,255)", text: "now",
+            color: "rgb(124,92,255)", text: (forecast.origin && forecast.origin.label) || "now",
           }]);
           markedRef.current = true;
         } catch (e) { /* older LW builds */ }
@@ -397,7 +401,12 @@ function usePlaybookStore(initialSymbol) {
   const busy = read && read.loading;
   const liveFields = read && read.data ? forecastFields(read.data) : null;
   // a PINNED prior forecast overrides the live one on the chart; else show the live.
-  const fcFields = selected ? forecastFields(selected.forecast) : liveFields;
+  // origin = the marker at the path's start: "now" for a fresh forecast, or
+  // "called @ HH:MM" for a pinned prior (its origin isn't the live present).
+  const fcFields = selected
+    ? { ...forecastFields(selected.forecast),
+        origin: { label: `called @ ${String(selected.as_of || "").slice(11, 16)}`, price: selected.price_at } }
+    : (liveFields ? { ...liveFields, origin: { label: "now" } } : null);
 
   const applySymbol = (sym) => {
     const s2 = String(sym || "").trim().toUpperCase();

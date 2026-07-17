@@ -2799,12 +2799,13 @@
           steps.forEach((st, i) => {
             const tt = t1 + barSec * (i + 1);
             data.push({ time: tt, value: st.price });
+            const label = `${st.seq} \xB7 ${st.price}${st.note ? " " + st.note : ""}`.slice(0, 34);
             markers.push({
               time: tt,
               position: st.dir === "down" ? "belowBar" : "aboveBar",
               shape: st.dir === "down" ? "arrowDown" : "arrowUp",
               color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
-              text: `${st.seq}`
+              text: label
             });
           });
           try {
@@ -2829,7 +2830,7 @@
               position: "aboveBar",
               shape: "circle",
               color: "rgb(124,92,255)",
-              text: "now"
+              text: forecast.origin && forecast.origin.label || "now"
             }]);
             markedRef.current = true;
           } catch (e) {
@@ -2921,7 +2922,10 @@
     const isPlaybook = PLAYBOOK_SYMBOLS.includes(symbol);
     const busy = read && read.loading;
     const liveFields = read && read.data ? forecastFields(read.data) : null;
-    const fcFields = selected ? forecastFields(selected.forecast) : liveFields;
+    const fcFields = selected ? {
+      ...forecastFields(selected.forecast),
+      origin: { label: `called @ ${String(selected.as_of || "").slice(11, 16)}`, price: selected.price_at }
+    } : liveFields ? { ...liveFields, origin: { label: "now" } } : null;
     const applySymbol = (sym) => {
       const s2 = String(sym || "").trim().toUpperCase();
       if (!s2 || s2 === symbol) return;
