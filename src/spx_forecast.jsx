@@ -285,17 +285,17 @@ function ForecastRow({ f, onScore, scoring, selected, onSelect }) {
   const tone = !sc ? "plain"
     : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good"
     : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
+  // Clicking the ROW selects it → overlays its levels + numbered path on the chart
+  // (the natural expectation). The ▸ caret is a separate control that expands the
+  // full written read. "score it" and the caret stop propagation so they don't toggle
+  // the overlay.
   return (
     <div className={cls("vg-fc-row", selected && "vg-fc-row-sel")}>
-      <div className="vg-fc-rowhead">
-        <button className={cls("vg-fc-showbtn", selected && "vg-fc-showbtn-on")}
-          title={selected ? "hide from chart" : "show this forecast on the chart"}
-          onClick={(e) => { e.stopPropagation(); onSelect(selected ? null : f); }}>
-          📈
-        </button>
-        <span className="vg-note" onClick={() => setOpen((v) => !v)} style={{ cursor: "pointer" }}>
-          {f.day} · {String(f.as_of || "").slice(11, 16)}
-        </span>
+      <div className="vg-fc-rowhead" style={{ cursor: "pointer" }}
+        title={selected ? "hide from chart" : "show this forecast on the chart"}
+        onClick={() => onSelect(selected ? null : f)}>
+        <span className="vg-fc-showbtn" aria-hidden="true">📈</span>
+        <span className="vg-note">{f.day} · {String(f.as_of || "").slice(11, 16)}</span>
         <span className="vg-fc-price-sm">@ {f.price_at}</span>
         {sc
           ? <span className={cls("vg-badge", tone)} style={{ fontSize: 11 }}>{sc.verdict}{sc.moved_pt != null ? ` · ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : ""}</span>
@@ -303,8 +303,10 @@ function ForecastRow({ f, onScore, scoring, selected, onSelect }) {
               onClick={(e) => { e.stopPropagation(); onScore(f.id); }}>
               {scoring === f.id ? "…" : "score it"}
             </button>}
-        <span className="vg-fc-caret" onClick={() => setOpen((v) => !v)} style={{ cursor: "pointer" }}>{open ? "▾" : "▸"}</span>
+        <span className="vg-fc-caret" title="show the written read"
+          onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}>{open ? "▾" : "▸"}</span>
       </div>
+      {selected && <div className="vg-fc-rowhint">📈 shown on chart — click again to hide</div>}
       {open && <div className="vg-fc-rowbody"><MiraRender data={f.forecast} text={f.forecast_text} /></div>}
     </div>
   );

@@ -914,13 +914,17 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   letter-spacing: 0.03em; color: var(--vg-accent, #b8860b); }
 .vg-fc-htf b { font-variant-numeric: tabular-nums; }
 .vg-fc-htf-drop { font-weight: 600; color: var(--vg-ink); }
-/* prior-forecast chart-overlay selection */
-.vg-fc-showbtn { border: none; background: none; cursor: pointer; font-size: 13px;
-  opacity: 0.35; padding: 0 4px; filter: grayscale(1); }
-.vg-fc-showbtn:hover { opacity: 0.7; }
-.vg-fc-showbtn-on { opacity: 1; filter: none; }
-.vg-fc-row-sel { background: color-mix(in srgb, var(--vg-accent, #b8860b) 8%, transparent);
-  border-radius: 6px; }
+/* prior-forecast chart-overlay selection — clicking the ROW overlays it */
+.vg-fc-row { border-radius: 6px; }
+.vg-fc-row:hover { background: color-mix(in srgb, var(--vg-ink) 4%, transparent); }
+.vg-fc-showbtn { font-size: 13px; padding: 0 4px 0 2px; opacity: 0.55; }
+.vg-fc-row-sel { background: color-mix(in srgb, var(--vg-accent, #b8860b) 14%, transparent);
+  box-shadow: inset 3px 0 0 var(--vg-accent, #b8860b); }
+.vg-fc-row-sel .vg-fc-showbtn { opacity: 1; }
+.vg-fc-rowhint { font-size: 10.5px; color: var(--vg-accent, #b8860b); padding: 0 2px 4px 22px;
+  font-family: var(--vg-mono, ui-monospace); }
+.vg-fc-caret { padding: 0 4px; }
+.vg-fc-caret:hover { color: var(--vg-ink); }
 .vg-fc-pinned { display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
   margin: 0 0 10px; padding: 7px 12px; border-radius: 8px; font-size: 12.5px;
   border: 1px solid color-mix(in srgb, var(--vg-accent, #b8860b) 40%, transparent);

@@ -2804,29 +2804,42 @@
     const [open, setOpen] = useState5(false);
     const sc = f.score;
     const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-row", selected && "vg-fc-row-sel") }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowhead" }, /* @__PURE__ */ React.createElement(
-      "button",
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-row", selected && "vg-fc-row-sel") }, /* @__PURE__ */ React.createElement(
+      "div",
       {
-        className: cls("vg-fc-showbtn", selected && "vg-fc-showbtn-on"),
+        className: "vg-fc-rowhead",
+        style: { cursor: "pointer" },
         title: selected ? "hide from chart" : "show this forecast on the chart",
-        onClick: (e) => {
-          e.stopPropagation();
-          onSelect(selected ? null : f);
-        }
+        onClick: () => onSelect(selected ? null : f)
       },
-      "\u{1F4C8}"
-    ), /* @__PURE__ */ React.createElement("span", { className: "vg-note", onClick: () => setOpen((v) => !v), style: { cursor: "pointer" } }, f.day, " \xB7 ", String(f.as_of || "").slice(11, 16)), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-price-sm" }, "@ ", f.price_at), sc ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontSize: 11 } }, sc.verdict, sc.moved_pt != null ? ` \xB7 ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : "") : /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: "vg-btn-sm",
-        disabled: scoring === f.id,
-        onClick: (e) => {
-          e.stopPropagation();
-          onScore(f.id);
-        }
-      },
-      scoring === f.id ? "\u2026" : "score it"
-    ), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-caret", onClick: () => setOpen((v) => !v), style: { cursor: "pointer" } }, open ? "\u25BE" : "\u25B8")), open && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
+      /* @__PURE__ */ React.createElement("span", { className: "vg-fc-showbtn", "aria-hidden": "true" }, "\u{1F4C8}"),
+      /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, f.day, " \xB7 ", String(f.as_of || "").slice(11, 16)),
+      /* @__PURE__ */ React.createElement("span", { className: "vg-fc-price-sm" }, "@ ", f.price_at),
+      sc ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontSize: 11 } }, sc.verdict, sc.moved_pt != null ? ` \xB7 ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : "") : /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: "vg-btn-sm",
+          disabled: scoring === f.id,
+          onClick: (e) => {
+            e.stopPropagation();
+            onScore(f.id);
+          }
+        },
+        scoring === f.id ? "\u2026" : "score it"
+      ),
+      /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          className: "vg-fc-caret",
+          title: "show the written read",
+          onClick: (e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }
+        },
+        open ? "\u25BE" : "\u25B8"
+      )
+    ), selected && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowhint" }, "\u{1F4C8} shown on chart \u2014 click again to hide"), open && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
   }
   var PlaybookCtx = React.createContext(null);
   var usePlaybook = () => React.useContext(PlaybookCtx);
