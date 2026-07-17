@@ -120,6 +120,55 @@ prediction: FVGs form right after displacement, near swing extremes where
   gap itself. Matched null = reaction at a random level the SAME distance from the
   displacement bar (no gap). I predict the edge shrinks but SURVIVES ≥+7pp: the CE
   of a real imbalance adds information (this is the confluence ict-coach saw).
+experiment: fvg_reaction_matched_null — control level the SAME distance from the
+  FVG formation bar's close (random side), no gap; same first-touch→reaction test.
+result: matched null reacts **0.545** (n=1254) vs FVG-reaction **0.718** → edge
+  **+17.3pp**, p<0.0001. SURVIVES (barely shrinks from the raw +17.0pp). The
+  imbalance CE reacts far more than an arbitrary level the same distance out.
+verdict: **S1 CONFIRMED** — FVG-as-reaction-level is robust to the matched null.
+  → proceed to S2. (This is the level+FVG confluence ict-coach saw, now isolated.)
+kept: harness (untracked).
+
+## Concept 2c — FVG-reaction S2 (tradeable P&L)
+prediction: enter at the FVG CE on first return, stop beyond the far edge of the
+  gap + 0.25 ATR, target rr×R. vs random-entry control. Given 0.718 reaction, I
+  predict positive net R at rr 1.0–1.5 that beats the control — but FVG stops are
+  TIGHT (gap height is small), so slippage/whipsaw risk; predict a solid edge,
+  possibly better avg-R than the sweep (tighter stop = more R per reaction).
+experiment: pnl_fvg (enter at CE on first return, stop beyond the far gap edge +
+  0.25 ATR, target rr×R) vs random-entry control. 1356 signals.
+result: rr=1.0: WR 0.580, +216R, avg +0.159R vs ctrl −0.031R. rr=1.5: WR 0.524,
+  +422R, avg +0.311R vs ctrl +0.070R. **rr=2.0: WR 0.473, +571R, avg +0.421R vs
+  ctrl −0.002R → edge +0.42R/trade.** Beats control at every rr; edge GROWS with rr.
+verdict: **CONFIRMED (both stages) — strongest concept so far.** ~8× the per-trade
+  edge of sweep→reversal (+0.42R vs +0.05R), on 3× the signals. This is the
+  level+FVG confluence ict-coach saw, isolated as a standalone hourly edge. The
+  tight FVG stop = high R per reaction. Top candidate for the coach.
+kept: harness (untracked).
+
+## Concept 4 — ORDER-BLOCK reaction (S1)
+prediction: on first return to an unmitigated OB (sweep+displacement+FVG), does
+  price react ≥1 ATR? ict-coach found OB-proximity INCONCLUSIVE at 1m (too
+  rare/small). On hourly OBs are rarer still (E0: 59 total, 5 active) — I predict
+  INCONCLUSIVE (n<30 reactions) or a wide CI. If enough fire, likely a real
+  reaction edge (OB ⊃ FVG, and FVG-reaction confirmed) but small-n.
+experiment: concept_ob_reaction — first return into an OB (sweep+displacement+FVG),
+  react ≥1 ATR in the OB's direction from CE. vs 0.549 null.
+result: OB reaction **0.810 (n=42)** vs 0.549 → +26.1pp, p=0.0007. PASS S1
+  (n≥30). Better than the 1m INCONCLUSIVE (ict-coach) — on hourly OBs fire enough
+  to reach significance and react strongly (OB ⊃ FVG, and FVG-reaction confirmed).
+verdict: **S1 CONFIRMED (small-n caveat, n=42).** Not run through S2 separately
+  (42 signals too thin for a clean P&L) — but OB is a *stricter subset* of the
+  confirmed FVG-reaction, so its edge is inherited. Coach value: a high-conviction
+  FVG (the ones that are also OBs). Re-test S2 as the sample grows.
+kept: harness (untracked).
+
+## Concept 5 — BREAKER block flip (S1)
+prediction: a breaker (failed OB whose swing was swept, then structure flips) —
+  on retest, does it hold in the new direction (react ≥1 ATR)? Breakers are even
+  rarer than OBs on hourly. I predict INCONCLUSIVE (n<30) — likely too few to
+  score. If enough fire, a real edge (sweep+flip is the strongest ICT array) but
+  under-sampled.
 experiment: (pending)
 result: (pending)
 verdict: (pending)
