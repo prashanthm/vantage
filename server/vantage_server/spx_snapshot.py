@@ -10,7 +10,30 @@ DNA-path capture) so it works even after yfinance drops the session.
 from __future__ import annotations
 
 from . import ict
+from . import ict_htf as _htf
 from . import reclaim_pine as _rp
+
+
+def _resample_hourly(ts, op, hi, lo, cl, upto):
+    """1m OHLC → HOURLY OHLC arrays over [0..upto], for the ict_htf detectors
+    (which were validated on hourly bars). Buckets by top-of-hour wall clock.
+    Returns (h_op, h_hi, h_lo, h_cl, last_hour_str) — the arrays plus the ET
+    'HH:MM' of the last (current) hourly bucket for the hour-of-day modifier."""
+    import datetime as _d
+    h_op, h_hi, h_lo, h_cl = [], [], [], []
+    key = None
+    for k in range(upto + 1):
+        t = _d.datetime.fromisoformat(ts[k])
+        bkey = t.replace(minute=0, second=0, microsecond=0)
+        if key is None or bkey != key:
+            key = bkey
+            h_op.append(op[k]); h_hi.append(hi[k]); h_lo.append(lo[k]); h_cl.append(cl[k])
+        else:
+            h_hi[-1] = max(h_hi[-1], hi[k])
+            h_lo[-1] = min(h_lo[-1], lo[k])
+            h_cl[-1] = cl[k]
+    last_hour = _d.datetime.fromisoformat(ts[upto]).strftime("%H:%M")
+    return h_op, h_hi, h_lo, h_cl, last_hour
 
 
 def _resample_5m(ts, op, hi, lo, cl, vol, upto):
@@ -130,6 +153,16 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
     fvgs = ict.fresh_fvgs(hi_e, lo_e)
     draw = ict.draw_from_levels(price, lvl_prices)
 
+    # HOURLY ICT layer — the backtest-validated swing signals (ict-concepts-edge).
+    # Resample the same history to hourly and detect the tiered heads-up setup
+    # (confluence stack / disp-gated FVG-reaction). This is the "hourly setup
+    # present → drop to a lower timeframe for entry" signal, NOT an auto-entry.
+    try:
+        h_op, h_hi, h_lo, h_cl, last_hour = _resample_hourly(ts, op, hi, lo, cl, ei)
+        ict_htf = _htf.htf_setup(h_hi, h_lo, h_cl, h_op, last_hour, active_obs=obs)
+    except Exception:  # never let the heads-up break the snapshot
+        ict_htf = {"present": False}
+
     # session shape — current day only
     sess_hi = max(s_hi[:s_ei + 1])
     sess_lo = min(s_lo[:s_ei + 1])
@@ -162,6 +195,7 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
                             "hi": round(f["hi"], 1)} for f in fvgs][:8],
             "draw": draw,                      # the validated level-based magnet
         },
+        "ict_htf": ict_htf,   # backtest-validated hourly heads-up (drop to LTF)
     }
 
 

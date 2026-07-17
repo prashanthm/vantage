@@ -6,7 +6,7 @@
 // forecast — the analyst's TARGET (green) / INVALIDATION (red) / DRAW overlaid.
 // Below the chart: the structured forecast (MiraRender) + prior forecasts with
 // their accuracy score. The score is graded against elapsed price action.
-import { cls, LoadBar } from "./util.jsx";
+import { cls, dirCls, LoadBar } from "./util.jsx";
 import { parseMira, MiraRender } from "./mira-render.jsx";
 import { chartTheme } from "./charts.jsx";
 import {
@@ -359,6 +359,17 @@ export function SpxPlaybookView({ initialSymbol = "SPX" }) {
                 VWAP {t.vwap} ({t.vs_vwap_pt >= 0 ? "+" : ""}{t.vs_vwap_pt}) · RSI {t.rsi} · vol {t.rel_volume}×
                 {draw.dir ? <> · draw {draw.dir} → <b>{draw.level}</b></> : null}
               </span>
+            </div>)}
+
+          {s && s.ict_htf && s.ict_htf.present && (
+            <div className={cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap")}>
+              <span className="vg-fc-htf-tag">{s.ict_htf.tier === "A+" ? "⚡" : "•"} {s.ict_htf.tier} HOURLY SETUP</span>
+              <b className={dirCls(s.ict_htf.dir === "long" ? 1 : -1)}>{s.ict_htf.dir.toUpperCase()}</b>
+              <span className="vg-note">{s.ict_htf.reason}</span>
+              <span className="vg-fc-htf-drop">→ drop to 5m/1m for entry</span>
+              {Array.isArray(s.ict_htf.entry_zone) && (
+                <span className="vg-note">zone {s.ict_htf.entry_zone[0]}–{s.ict_htf.entry_zone[1]} · invalid {s.ict_htf.invalid}</span>
+              )}
             </div>)}
 
           {s && (
