@@ -2526,20 +2526,24 @@
   var hasLW2 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   function forecastFields(data) {
     if (!data) return {};
-    const num2 = (v) => {
-      const n = parseFloat(v);
+    const firstPrice = (v) => {
+      if (v == null) return null;
+      const m = String(v).match(/\d{2,6}(?:\.\d+)?/);
+      const n = m ? parseFloat(m[0]) : NaN;
       return Number.isFinite(n) ? n : null;
     };
-    let bias = data.bias, target = num2(data.target), invalid = num2(data.invalidation);
+    let bias = data.bias, target = firstPrice(data.target), invalid = firstPrice(data.invalidation);
     for (const sec of data.sections || []) {
       for (const r of sec.rows || []) {
         const k = String(r.k || "").toLowerCase();
         if (!bias && k.includes("bias")) bias = String(r.v || "").toLowerCase();
-        if (target == null && k.includes("target")) target = num2(r.v);
-        if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = num2(r.v);
+        if (target == null && k.includes("target") && !/upside|wrong|if /.test(k)) target = firstPrice(r.v);
+        if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = firstPrice(r.v);
       }
     }
-    return { bias: String(bias || "").toLowerCase(), target, invalid };
+    const b = String(bias || "").toLowerCase();
+    const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
+    return { bias: biasDir, target, invalid };
   }
   function ForecastChart({ snap, forecast }) {
     const elRef = useRef2(null);
@@ -2547,6 +2551,7 @@
     const candleRef = useRef2(null);
     const linesRef = useRef2([]);
     const zonesRef = useRef2([]);
+    const markedRef = useRef2(false);
     useEffect4(() => {
       const el = elRef.current;
       if (!el || !hasLW2()) return void 0;
@@ -2556,8 +2561,19 @@
         autoSize: true,
         layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
         grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
-        rightPriceScale: { borderColor: th.border },
-        timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false },
+        // wider right scale + top/bottom margins so the labeled level tags have
+        // room and don't clip against the edge.
+        rightPriceScale: {
+          borderColor: th.border,
+          minimumWidth: 116,
+          scaleMargins: { top: 0.08, bottom: 0.08 }
+        },
+        timeScale: {
+          borderColor: th.border,
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: 3
+        },
         crosshair: { mode: LW.CrosshairMode.Normal }
       });
       const candle = chart.addCandlestickSeries({
@@ -2607,13 +2623,13 @@
       const bars = snap.bars_5m || [];
       const t0 = bars.length ? bars[0].time : 0;
       const t1 = bars.length ? bars[bars.length - 1].time : 0;
-      const addZone = (top, bottom, rgb, alpha) => {
+      const addZone = (top, bottom, rgb, alpha, tag) => {
         const area = chart.addBaselineSeries({
           baseValue: { type: "price", price: bottom },
           topFillColor1: `rgba(${rgb},${alpha})`,
           topFillColor2: `rgba(${rgb},${alpha})`,
-          topLineColor: `rgba(${rgb},0)`,
-          bottomLineColor: `rgba(${rgb},0)`,
+          topLineColor: `rgba(${rgb},0.5)`,
+          bottomLineColor: `rgba(${rgb},0.5)`,
           bottomFillColor1: "rgba(0,0,0,0)",
           bottomFillColor2: "rgba(0,0,0,0)",
           lineWidth: 1,
@@ -2622,6 +2638,14 @@
         });
         area.setData([{ time: t0, value: top }, { time: t1, value: top }]);
         zonesRef.current.push(area);
+        if (tag) addLine({
+          price: top,
+          color: `rgba(${rgb},0.9)`,
+          lineWidth: 1,
+          lineStyle: LW.LineStyle.Dotted,
+          axisLabelVisible: false,
+          title: tag
+        });
       };
       (snap.levels || []).forEach((lv) => {
         const lbl = String(lv.label || "");
@@ -2634,45 +2658,63 @@
           lineWidth: /wall|max pain|durable/i.test(lbl) ? 2 : 1,
           lineStyle: LW.LineStyle.Dashed,
           axisLabelVisible: true,
-          title: lbl.replace(/\s*[★✦].*$/, "").slice(0, 22)
+          title: lbl.replace(/\s*[★✦].*$/, "").slice(0, 20)
         });
       });
       const ict = snap.ict || {};
-      (ict.active_order_blocks || []).slice(0, 6).forEach((o) => {
-        const rgb = o.side === "bull" ? th.upRgb : th.downRgb;
-        addZone(o.top, o.bottom, rgb.join(","), 0.1);
+      (ict.active_order_blocks || []).slice(0, 4).forEach((o) => {
+        const rgb = (o.side === "bull" ? th.upRgb : th.downRgb).join(",");
+        addZone(o.top, o.bottom, rgb, 0.14, `${o.side === "bull" ? "demand" : "supply"} OB`);
       });
-      (ict.fresh_fvgs || []).slice(0, 6).forEach((f) => {
-        const rgb = f.side === "bull" ? th.upRgb : th.downRgb;
-        addZone(f.hi, f.lo, rgb.join(","), 0.07);
+      (ict.fresh_fvgs || []).slice(0, 4).forEach((f) => {
+        const rgb = (f.side === "bull" ? th.upRgb : th.downRgb).join(",");
+        addZone(f.hi, f.lo, rgb, 0.1, `${f.side === "bull" ? "bull" : "bear"} FVG`);
+      });
+      if (ict.draw && ict.draw.level != null) addLine({
+        price: ict.draw.level,
+        color: "rgba(124,92,255,0.9)",
+        lineWidth: 2,
+        lineStyle: LW.LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: `DRAW ${ict.draw.dir === "up" ? "\u2191" : "\u2193"}`
       });
       if (forecast) {
         const { target, invalid } = forecast;
         if (target != null) addLine({
           price: target,
-          color: `rgba(${th.upRgb.join(",")},0.95)`,
-          lineWidth: 2,
+          color: `rgb(${th.upRgb.join(",")})`,
+          lineWidth: 3,
           lineStyle: LW.LineStyle.Solid,
           axisLabelVisible: true,
-          title: `TARGET ${target}`
+          title: `\u{1F3AF} TARGET`
         });
         if (invalid != null) addLine({
           price: invalid,
-          color: `rgba(${th.downRgb.join(",")},0.95)`,
-          lineWidth: 2,
+          color: `rgb(${th.downRgb.join(",")})`,
+          lineWidth: 3,
           lineStyle: LW.LineStyle.Solid,
           axisLabelVisible: true,
-          title: `INVALID ${invalid}`
+          title: `\u2715 INVALID`
         });
-      } else if (ict.draw && ict.draw.level != null) {
-        addLine({
-          price: ict.draw.level,
-          color: "rgba(124,92,255,0.9)",
-          lineWidth: 2,
-          lineStyle: LW.LineStyle.Dotted,
-          axisLabelVisible: true,
-          title: `DRAW ${ict.draw.dir === "up" ? "\u2191" : "\u2193"} ${ict.draw.level}`
-        });
+        if (t1) {
+          try {
+            candle.setMarkers([{
+              time: t1,
+              position: "aboveBar",
+              shape: "circle",
+              color: "rgb(124,92,255)",
+              text: "forecast"
+            }]);
+            markedRef.current = true;
+          } catch (e) {
+          }
+        }
+      } else if (markedRef.current) {
+        try {
+          candle.setMarkers([]);
+        } catch (e) {
+        }
+        markedRef.current = false;
       }
     }, [snap, forecast]);
     if (!hasLW2()) {
@@ -2743,14 +2785,19 @@ ${ref}`;
           setRead({ error: evt.message || "Mira error" });
           return;
         }
-        if (evt.kind === "delta") {
-          text += evt.text || "";
+        if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+          text += evt.text;
           setRead({ loading: true, text });
           return;
         }
         if (evt.kind === "done") {
           abortRef.current = null;
+          if (evt.text && !text) text = evt.text;
           const data = parseMira(text);
+          if (!data && !text) {
+            setRead({ error: "Mira returned an empty forecast." });
+            return;
+          }
           setRead({ text, data });
           saveSpxForecast({
             day: s.day,
@@ -2801,7 +2848,7 @@ ${ref}`;
         }
       ),
       /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "Load")
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET"), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET"), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",

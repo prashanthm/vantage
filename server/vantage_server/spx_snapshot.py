@@ -151,6 +151,19 @@ def _num(v):
         return None
 
 
+def _first_price(v):
+    """First price-shaped number in a value — the analyst emits prose targets
+    ("Sweep 7504.0 SSL, then reclaim to 7529.4"), not bare numbers."""
+    if v is None:
+        return None
+    n = _num(v)
+    if n is not None:
+        return n
+    import re
+    m = re.search(r"\d{2,6}(?:\.\d+)?", str(v))
+    return float(m.group(0)) if m else None
+
+
 def score_forecast(store, forecast_row: dict) -> dict | None:
     """Grade a persisted forecast against the elapsed price AFTER its as_of.
 
@@ -175,8 +188,8 @@ def score_forecast(store, forecast_row: dict) -> dict | None:
     # pull bias/target/invalidation from the structured forecast (best-effort —
     # the analyst emits them via the A2UI keyvals; also accept top-level keys)
     bias = str(fc.get("bias") or _dig(fc, "bias") or "").lower()
-    target = _num(fc.get("target") or _dig(fc, "target"))
-    invalid = _num(fc.get("invalidation") or _dig(fc, "invalidation"))
+    target = _first_price(fc.get("target") or _dig(fc, "target", skip=("upside", "wrong", "if ")))
+    invalid = _first_price(fc.get("invalidation") or _dig(fc, "invalidation"))
 
     fut_hi = max(hi[k] for k in fut)
     fut_lo = min(lo[k] for k in fut)
@@ -230,13 +243,15 @@ def score_forecast(store, forecast_row: dict) -> dict | None:
     }
 
 
-def _dig(fc, key):
-    """Find `key` in the A2UI forecast JSON (top-level, or a keyvals row)."""
+def _dig(fc, key, skip=()):
+    """Find `key` in the A2UI forecast JSON (top-level, or a keyvals row). Rows
+    whose key contains any `skip` token are ignored (e.g. the "if wrong" upside
+    target)."""
     if not isinstance(fc, dict):
         return None
     for sec in fc.get("sections") or []:
         for r in (sec.get("rows") or []):
             k = str(r.get("k") or "").lower()
-            if key in k:
+            if key in k and not any(s in k for s in skip):
                 return r.get("v")
     return None
