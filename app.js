@@ -2545,7 +2545,7 @@
     const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
     return { bias: biasDir, target, invalid };
   }
-  function ForecastChart({ snap, forecast }) {
+  function ForecastChart({ snap, forecast, showIpda }) {
     const elRef = useRef2(null);
     const chartRef = useRef2(null);
     const candleRef = useRef2(null);
@@ -2690,6 +2690,35 @@
         axisLabelVisible: false,
         title: "SSL"
       }));
+      if (showIpda) {
+        const ipRgb = "20,150,190";
+        (ict.ipda || []).forEach((r) => {
+          addLine({
+            price: r.high,
+            color: `rgba(${ipRgb},0.85)`,
+            lineWidth: 1,
+            lineStyle: LW.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `IPDA${r.days} hi`
+          });
+          addLine({
+            price: r.low,
+            color: `rgba(${ipRgb},0.85)`,
+            lineWidth: 1,
+            lineStyle: LW.LineStyle.Solid,
+            axisLabelVisible: true,
+            title: `IPDA${r.days} lo`
+          });
+          addLine({
+            price: r.eq,
+            color: `rgba(${ipRgb},0.5)`,
+            lineWidth: 1,
+            lineStyle: LW.LineStyle.Dashed,
+            axisLabelVisible: false,
+            title: `IPDA${r.days} eq`
+          });
+        });
+      }
       if (ict.draw && ict.draw.level != null) addLine({
         price: ict.draw.level,
         color: "rgba(124,92,255,0.9)",
@@ -2736,7 +2765,7 @@
         }
         markedRef.current = false;
       }
-    }, [snap, forecast]);
+    }, [snap, forecast, showIpda]);
     if (!hasLW2()) {
       return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
     }
@@ -2766,6 +2795,7 @@
     const [preparing, setPreparing] = useState5(false);
     const [prepNote, setPrepNote] = useState5(null);
     const [read, setRead] = useState5(null);
+    const [showIpda, setShowIpda] = useState5(false);
     const [scoring, setScoring] = useState5(null);
     const abortRef = useRef2(null);
     useEffect4(() => () => {
@@ -2868,7 +2898,18 @@ ${ref}`;
         }
       ),
       /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "Load")
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET", s.history_days > 1 ? ` \xB7 ${s.history_days}-day history` : ""), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-grid" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET", s.history_days > 1 ? ` \xB7 ${s.history_days}-day history` : ""), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast target / invalidation"), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        type: "button",
+        className: cls("vg-fc-lgtoggle", showIpda && "vg-fc-lgtoggle-on"),
+        onClick: () => setShowIpda((v) => !v),
+        title: "ICT IPDA data ranges: 20/40/60 trading-day high, low, and equilibrium"
+      },
+      /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgb(20,150,190)" } }),
+      "IPDA ranges (20/40/60d) ",
+      showIpda ? "\u2713" : ""
+    )), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields, showIpda }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",

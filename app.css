@@ -910,6 +910,12 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-lg-sw { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
 .vg-lg-dash { height: 0; border-top: 2px dashed; border-radius: 0; }
 .vg-lg-dot { height: 0; border-top: 2px dotted; border-radius: 0; }
+.vg-fc-lgtoggle { display: inline-flex; align-items: center; gap: 5px; font-size: 11px;
+  color: var(--vg-dim); background: none; border: 1px solid var(--vg-hairline);
+  border-radius: 4px; padding: 2px 8px; cursor: pointer; font-family: var(--vg-font-ui); }
+.vg-fc-lgtoggle:hover { color: var(--vg-ink); background: var(--vg-raised); }
+.vg-fc-lgtoggle-on { color: var(--vg-ink); border-color: rgb(20,150,190);
+  background: rgba(20,150,190,0.1); }
 
 /* ── full-screen 0DTE Playbook layout ─────────────────────────────────────── */
 .vg-subtabs { display: flex; gap: 6px; margin-bottom: 14px; }

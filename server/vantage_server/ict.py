@@ -131,6 +131,29 @@ def active_obs(hi, lo, cl, op, at=None):
     return out
 
 
+#: ICT's canonical IPDA data-range lookbacks, in TRADING days.
+IPDA_LOOKBACKS = (20, 40, 60)
+
+
+def ipda_ranges(daily_hi, daily_lo, lookbacks=IPDA_LOOKBACKS):
+    """ICT IPDA data ranges: for each lookback of N trading days, the highest
+    high, lowest low, and equilibrium (midpoint) over the last N daily bars.
+    These are the reference extremes the "algorithm" is said to draw price
+    toward. ``daily_hi``/``daily_lo`` are chronological daily high/low arrays.
+    Returns [{days, high, low, eq}] for each lookback that has enough data."""
+    out = []
+    n = min(len(daily_hi), len(daily_lo))
+    for days in lookbacks:
+        if n == 0:
+            continue
+        win = min(days, n)               # short history → use what we have
+        hh = max(daily_hi[n - win:n])
+        ll = min(daily_lo[n - win:n])
+        out.append({"days": days, "high": round(hh, 1), "low": round(ll, 1),
+                    "eq": round((hh + ll) / 2, 1), "bars": win})
+    return out
+
+
 def draw_from_levels(price, levels, tol=0.0):
     """The DRAW = the nearer opposing PLAYBOOK level (the validated magnet — NOT a
     1m FVG). Returns {'dir': 'up'|'down'|None, 'level': price, 'dist': pts}."""
