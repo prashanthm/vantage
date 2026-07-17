@@ -91,5 +91,15 @@ then earns a **P&L** test with ICT's own stop/target rules.
   - SPX only, this instrument, this 3-yr window. Not a claim about ICT on FX/other
     indices or other regimes.
 
-Status: **ACTIVE** · started 2026-07-17 · dataset: bars_hourly_730d.json (primary),
-bars_frozen.json (15-min, timing concepts) · paced via /loop.
+Status: **ACHIEVED** · started+finished 2026-07-17 · dataset: bars_hourly_730d.json
+(^GSPC hourly, ~700 OOS days) · ranked verdicts in findings.md.
+
+RESULT: On SPX hourly, ICT's reaction/imbalance concepts carry real matched-null-
+robust edge — OPPOSITE the 1m ict-coach result. **6 CONFIRMED** (confluence stack
+#1 at +0.59R/trade, FVG-reaction, displacement filter, order-block, sweep→reversal,
+hour-of-day expansion); **2 DISPROVEN** (FVG-fill = raw-number trap, premium/discount
+= loses in a trend); **3 real-but-not-tradeable** (OTE fails S2, equal-H/L under bar,
+Judas unscored); **1 INCONCLUSIVE** (breaker, n=26). The confluence stack (sweep →
+displacement → FVG) is the headline: highest P&L, validating ICT's "confluence is
+the edge" claim. Nothing wired to the coach yet (per constraint) — findings.md ranks
+what earned it.

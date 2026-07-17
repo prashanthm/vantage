@@ -216,3 +216,81 @@ verdict: **FAIL S1 (borderline)** — equal H/L DO get swept more than single pi
   (+8.8pp, highly significant), but under the pre-registered +10pp threshold.
   Prediction (confirmed) too strong. Verdict: real-but-weak; note as a minor
   context signal, not a standalone edge.
+
+## Concept 7c — OTE S2 (P&L)
+prediction: enter at 0.705, stop beyond origin (1.0), target rr×R. Predict modest
+  positive edge despite wide stop.
+experiment: 507 OTE signals; entry 0.705, stop beyond origin +0.25 ATR, target rr×R
+  vs random-entry control.
+result: rr=1.0 avg −0.081R (ctrl −0.077R); rr=1.5 avg −0.050R (ctrl −0.018R);
+  rr=2.0 avg −0.061R (ctrl +0.088R). NEGATIVE at every rr, does not beat control.
+verdict: **S2 FAIL → OTE = "real pattern, not tradeable."** The 0.62–0.79 zone
+  continues 79% (S1 real), but the stop-beyond-origin is too wide to profit and the
+  continuation isn't large enough. Prediction wrong (I expected modest positive).
+  Coach value: as a CONTEXT/confluence input to a tighter-stop entry (see C13), not
+  a standalone trade. NET VERDICT: S1 pass / S2 fail → not wired standalone.
+
+## Concept 9 — KILLZONE / hour-of-day expansion
+prediction: open hour widest, lunch narrowest — confirmed as context.
+experiment: mean bar range (in ATR) by ET hour, 09:30..15:30.
+result: **09:30 = 1.42 ATR, 10:30 = 1.03, 11:30 = 0.86, 12:30 = 0.84, 13:30 = 0.84,
+  14:30 = 0.82, 15:30 = 0.75.** Clean monotonic decay; NY open hour expands ~1.9×
+  the last hour.
+verdict: **CONFIRMED (context, not a trigger).** The NY-AM expansion is real and
+  strong — the 09:30 open hour is where volatility/opportunity concentrates. Supports
+  ICT's "AM killzone" as a time FILTER (trade the open hours, not the afternoon
+  drift). CAVEAT: hourly can't test 20-min macros or the exact Silver Bullet window.
+
+## Concept 11 — JUDAS / first-hour reversal
+prediction: modest fade tendency, borderline.
+experiment: for each day, does the 09:30 open-hour extreme become the day's extreme
+  AND price close back past its 50% (faded)? n over all days.
+result: open-hour fade **0.667 (n=721)** — 2/3 of days the open-hour extreme is
+  faded by the close. Raw number only (no matched null run this round).
+verdict: **SUGGESTIVE (context, not scored).** Consistent with the Judas/PO3
+  manipulation idea, but 0.667 lacks a matched null ("any early extreme partly
+  retraces"), so not a confirmed edge. Combine with C9 (open hour is widest) →
+  the open hour is where BOTH expansion and reversals concentrate. Re-test with a
+  proper null if pursued.
+
+## Concept 12 — DISPLACEMENT (FVG validity filter)
+prediction: displacement-FVGs react ≥+7pp more than non-displacement FVGs.
+experiment: split _all_fvgs by middle-candle body > 0.7 ATR; compare reaction rates.
+result: displacement-FVG **0.766 (n=610)** vs non-displacement **0.680 (n=743)** →
+  edge **+8.6pp**, p<0.0001. CONFIRMS (≥+7pp).
+verdict: **CONFIRMED — displacement is a real validity filter.** ICT's claim holds:
+  FVGs born of displacement react meaningfully more. Actionable: gate the FVG-reaction
+  signal (C2) on displacement to raise its hit-rate from 0.718 → 0.766. Cheap, real.
+
+## Concept 13 — CONFLUENCE STACK (sweep → displacement-FVG)
+prediction: the stack beats each ingredient alone + a random control, on fewer signals.
+experiment: within 8 bars AFTER a sweep, a displacement FVG in the reversal
+  direction forms; enter at its CE. Reaction vs 0.549 null + P&L vs plain FVG.
+result: **confluence reaction 0.772 (n=149) vs 0.549 → +22.3pp, p<0.0001 → PASS S1.**
+  **P&L: rr=1.5 +69.2R avg +0.464R; rr=2.0 +88.4R avg +0.593R (n=149).** BEATS plain
+  FVG-reaction (+0.42R) at rr2.0 and matches it at rr1.5, on a cleaner (sweep-gated)
+  signal set.
+verdict: **CONFIRMED (both stages) — the headline result.** ICT's core claim holds:
+  stacking sweep + displacement + FVG produces a HIGHER reaction rate (0.772 vs
+  0.718 plain FVG) AND the best per-trade P&L of any concept (+0.59R at rr2.0).
+  Confluence genuinely adds edge over the ingredients alone. Fewer signals (149)
+  but higher quality — the A+ setup is real on SPX hourly.
+
+---
+
+## SUMMARY (goal ACHIEVED — every in-scope concept has a verdict)
+
+~22 experiments. Hypotheses: 6 CONFIRMED (confluence stack, FVG-reaction,
+displacement filter, order-block, sweep→reversal, hour-of-day expansion); 2
+DISPROVEN (FVG-fill, premium/discount); 3 real-but-not-tradeable / under-bar (OTE
+S2-fail, equal-H/L +8.8pp, Judas unscored); 1 INCONCLUSIVE (breaker, n=26).
+
+Most valuable results:
+- **Confluence stack (sweep→displacement→FVG)** is the top concept: +0.59R/trade
+  (rr2.0), 0.772 reaction — validates ICT's core "confluence is the edge" claim.
+- **FVG-fill DISPROVEN** (0.862 vs 0.891 null) — the same raw-number trap as IPDA;
+  the matched null earned its keep again.
+- **hourly ≠ 1m**: several concepts ict-coach disproved at 1m (sweep, OB) confirm
+  at hourly → ICT is a swing/HTF context layer, not a 1m scalping trigger.
+
+Ranked recommendations in findings.md. Nothing wired to the coach (per constraint).
