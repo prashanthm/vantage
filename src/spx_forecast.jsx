@@ -12,6 +12,7 @@ import { chartTheme } from "./charts.jsx";
 import {
   useLive, streamTurn, getSpxSnapshot, saveSpxForecast,
   getSpxForecasts, scoreSpxForecast, prepareSpx, refreshSpx,
+  planReplay, getReplay, scoreReplay, calibrateReplay,
 } from "./live.js";
 
 const { useState, useRef, useEffect } = React;
@@ -611,6 +612,454 @@ export function SpxPlaybookRail() {
       <p className="vg-note" style={{ fontSize: 11, color: "var(--vg-dim)" }}>
         Levels are the nightly EOD estimate · 0DTE-blind · not advice.
       </p>
+    </div>
+  );
+}
+
+// ── Replay Forecast ──────────────────────────────────────────────────────────
+// Step a chosen day at an interval, fire a fresh forecast at each step, plot the
+// whole SEQUENCE on one chart + a comparison table, then GRADE the run. The score
+// is code (backend score_forecast); the grade is Mira narrating those numbers.
+
+// a short HH:MM ET label for an as_of ISO string.
+const hhmm = (iso) => String(iso || "").slice(11, 16);
+
+// hue-ramp a forecast by its position in the run: early = cool blue, late = warm
+// orange, so you can read the time-of-day of each path at a glance.
+function rampColor(i, n, alpha) {
+  const t = n > 1 ? i / (n - 1) : 0;              // 0 (early) → 1 (late)
+  const hue = 210 - 210 * t;                       // 210 (blue) → 0 (red)
+  return `hsla(${hue}, 75%, 55%, ${alpha})`;
+}
+
+// The multi-path replay chart: session candles + one faint projected path per
+// forecast (hue-ramped by time), the selected/hovered one at full strength, and
+// ALL step markers aggregated into a single setMarkers call (it replaces).
+function ReplayChart({ snap, forecasts, activeId }) {
+  const elRef = useRef(null);
+  const chartRef = useRef(null);
+  const candleRef = useRef(null);
+  const pathSeriesRefs = useRef([]);               // one line series per forecast
+
+  useEffect(() => {
+    const el = elRef.current;
+    if (!el || !hasLW()) return undefined;
+    const LW = window.LightweightCharts;
+    const th = chartTheme();
+    const chart = LW.createChart(el, {
+      autoSize: true,
+      layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
+      grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
+      rightPriceScale: { borderColor: th.border, minimumWidth: 72,
+        scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
+      timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false },
+      crosshair: { mode: LW.CrosshairMode.Normal },
+      handleScale: { mouseWheel: true, pinch: true,
+        axisPressedMouseMove: { time: true, price: true },
+        axisDoubleClickReset: { time: true, price: true } },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true,
+        horzTouchDrag: true, vertTouchDrag: true },
+    });
+    const candle = chart.addCandlestickSeries({
+      upColor: th.up, downColor: th.down, wickUpColor: th.up, wickDownColor: th.down,
+      borderUpColor: th.up, borderDownColor: th.down,
+    });
+    chartRef.current = chart; candleRef.current = candle;
+    return () => { chart.remove(); chartRef.current = candleRef.current = null;
+      pathSeriesRefs.current = []; };
+  }, []);
+
+  // candles (fit once)
+  const fittedRef = useRef(false);
+  useEffect(() => {
+    const candle = candleRef.current;
+    const bars = snap && snap.bars_5m;
+    if (!candle || !bars || !bars.length) return;
+    candle.setData(bars);
+    if (chartRef.current && !fittedRef.current) {
+      chartRef.current.timeScale().fitContent(); fittedRef.current = true;
+    }
+  }, [snap]);
+
+  // paths: rebuild all series on any change to the forecast set / selection.
+  useEffect(() => {
+    const chart = chartRef.current, candle = candleRef.current;
+    if (!chart || !candle) return;
+    const LW = window.LightweightCharts;
+    // clear prior series
+    for (const s of pathSeriesRefs.current) { try { chart.removeSeries(s); } catch (e) { /* */ } }
+    pathSeriesRefs.current = [];
+    const list = (forecasts || []).filter((f) => f.plot && Array.isArray(f.plot.path) && f.plot.path.length);
+    const n = list.length;
+    const allMarkers = [];
+    list.forEach((f, i) => {
+      const isActive = activeId != null && f.id === activeId;
+      const alpha = activeId == null ? 0.5 : (isActive ? 1.0 : 0.14);
+      const steps = f.plot.path.filter((st) => st.price != null);
+      if (!steps.length) return;
+      // anchor at the forecast's own price_at, projected forward one step per point
+      const data = [{ time: f._t0, value: f.price_at != null ? f.price_at : steps[0].price }];
+      steps.forEach((st, k) => data.push({ time: f._t0 + f._barSec * (k + 1), value: st.price }));
+      try {
+        const ps = chart.addLineSeries({
+          color: rampColor(i, n, alpha),
+          lineWidth: isActive ? 3 : 1,
+          lineStyle: isActive ? LW.LineStyle.Solid : LW.LineStyle.Dashed,
+          lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+        });
+        ps.setData(data);
+        pathSeriesRefs.current.push(ps);
+      } catch (e) { /* older LW */ }
+      // one origin marker per forecast (its called-at time). Only the active
+      // forecast also gets numbered step arrows, so the chart stays legible.
+      allMarkers.push({ time: f._t0, position: "aboveBar", shape: "circle",
+        color: rampColor(i, n, isActive ? 1 : 0.6), text: isActive ? hhmm(f.as_of) : "" });
+      if (isActive) {
+        const th = chartTheme();
+        steps.forEach((st, k) => allMarkers.push({
+          time: f._t0 + f._barSec * (k + 1),
+          position: st.dir === "down" ? "belowBar" : "aboveBar",
+          shape: st.dir === "down" ? "arrowDown" : "arrowUp",
+          color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
+          text: `${st.seq} · ${st.price}`,
+        }));
+      }
+    });
+    // markers sort by time (LW requires ascending) and replace in one call
+    allMarkers.sort((a, b) => a.time - b.time);
+    try { candle.setMarkers(allMarkers); } catch (e) { /* */ }
+  }, [snap, forecasts, activeId]);
+
+  if (!hasLW()) {
+    return <p className="vg-note" style={{ marginTop: 8 }}>Chart unavailable (Lightweight Charts didn't load).</p>;
+  }
+  return <div ref={elRef} className="vg-fc-chart" />;
+}
+
+// The replay store: drives the plan → serial forecast loop → score, and holds the
+// run state the view renders. Serial (one Mira turn at a time) with a Stop.
+function useReplayStore() {
+  const [symbol, setSymbol] = useState("SPX");
+  const [entry, setEntry] = useState("SPX");
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const [day, setDay] = useState(todayISO);
+  const [stepMin, setStepMin] = useState(15);
+  const [premarket, setPremarket] = useState(false);
+  const [note, setNote] = useState(null);
+  const [runId, setRunId] = useState(null);
+  const [runState, setRunState] = useState(null);   // {total, done, status} | null
+  const [nonce, setNonce] = useState(0);
+  const [activeId, setActiveId] = useState(null);    // hovered/selected row
+  const [grade, setGrade] = useState(null);          // {loading|data|text|error}
+  const stopRef = useRef(false);
+  const abortRef = useRef(null);
+  useEffect(() => () => { stopRef.current = true; if (abortRef.current) abortRef.current(); }, []);
+
+  // the run's saved forecasts (+ scores + calibration), re-fetched on nonce bump.
+  const runQ = useLive(() => (runId ? getReplay(runId) : Promise.resolve(null)),
+    null, [runId, nonce]);
+
+  // one Mira forecast for (day, asOf); resolves when the turn is done + saved.
+  const forecastStep = (asOf) => new Promise((resolve) => {
+    getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
+      const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
+      if (!snapshot) { resolve(false); return; }
+      let text = "";
+      const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
+      const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).\n${ref}`;
+      abortRef.current = streamTurn(prompt, `replay-${symbol}-${day}-${asOf}`, (evt) => {
+        if (evt.kind === "error") { resolve(false); return; }
+        if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+          text += evt.text; return;
+        }
+        if (evt.kind === "done") {
+          abortRef.current = null;
+          if (evt.text && !text) text = evt.text;
+          const data = parseMira(text);
+          saveSpxForecast({ day, as_of: asOf, symbol, snapshot,
+            forecast: data || null, forecast_text: text, run_id: runId })
+            .then(() => resolve(true)).catch(() => resolve(false));
+        }
+      });
+    }).catch(() => resolve(false));
+  });
+
+  // PLAN → loop over steps (skipping any already saved for this run) → SCORE.
+  const start = () => {
+    setNote(null); setGrade(null); stopRef.current = false;
+    setRunState({ status: "planning", total: 0, done: 0 });
+    planReplay(day, symbol, premarket, stepMin).then(async (plan) => {
+      if (!plan || !plan.available) {
+        setRunState(null);
+        setNote((plan && plan.note) || "Couldn't plan the run for that day.");
+        return;
+      }
+      const rid = plan.run_id;
+      setRunId(rid);
+      const steps = plan.steps || [];
+      // resume: skip as_ofs already saved for this run
+      let existing = [];
+      try { const g = await getReplay(rid); existing = (g && g.forecasts) || []; } catch (e) { /* */ }
+      const done0 = new Set(existing.map((f) => f.as_of));
+      setRunState({ status: "running", total: steps.length, done: done0.size });
+      for (let k = 0; k < steps.length; k++) {
+        if (stopRef.current) { setRunState((r) => ({ ...r, status: "stopped" })); return; }
+        const asOf = steps[k].as_of;
+        if (!done0.has(asOf)) {
+          await forecastStep(asOf);
+          setNonce((x) => x + 1);
+        }
+        setRunState((r) => ({ ...r, status: "running", done: k + 1 }));
+      }
+      // grade with code once the sequence is in
+      try { await scoreReplay(rid); } catch (e) { /* */ }
+      setRunState((r) => ({ ...(r || {}), status: "done", done: steps.length, total: steps.length }));
+      setNonce((x) => x + 1);
+    }).catch((e) => { setRunState(null); setNote(String((e && e.message) || e)); });
+  };
+
+  const stop = () => { stopRef.current = true; if (abortRef.current) abortRef.current(); };
+
+  const applySymbol = (sym) => {
+    const s2 = String(sym || "").trim().toUpperCase();
+    if (!s2) return;
+    setSymbol(s2); setEntry(s2);
+    setRunId(null); setRunState(null); setGrade(null); setNote(null);
+  };
+
+  // GRADE: persist the deterministic calibration, then stream the Mira grader over
+  // the run. The grade NARRATES the code scores — it never produces a number.
+  const gradeRun = () => {
+    if (!runId) return;
+    setGrade({ loading: true });
+    calibrateReplay(runId).then(() => {
+      let text = "";
+      const ref = `FORECAST_GRADE_REF run_id=${runId}`;
+      const prompt = `Grade this replay forecast run — how did the analyst's read evolve through the day? Read the code-computed scores and narrate them.\n${ref}`;
+      abortRef.current = streamTurn(prompt, `grade-${runId}`, (evt) => {
+        if (evt.kind === "error") { setGrade({ error: evt.message || "Mira error" }); return; }
+        if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+          text += evt.text; setGrade({ loading: true, text }); return;
+        }
+        if (evt.kind === "done") {
+          abortRef.current = null;
+          if (evt.text && !text) text = evt.text;
+          const data = parseMira(text);
+          setGrade({ text, data });
+          setNonce((x) => x + 1);   // re-pull the persisted calibration
+        }
+      });
+    }).catch((e) => setGrade({ error: String((e && e.message) || e) }));
+  };
+
+  return {
+    symbol, entry, setEntry, applySymbol, PLAYBOOK_SYMBOLS,
+    day, setDay, stepMin, setStepMin, premarket, setPremarket,
+    note, runId, runState, start, stop, runQ, activeId, setActiveId,
+    grade, gradeRun, todayISO,
+  };
+}
+
+// enrich a saved forecast row for the chart: parse its plot + attach the chart
+// time anchor (t0) and bar spacing so the path can project forward from it.
+function enrichForRun(forecasts, snap) {
+  const bars = (snap && snap.bars_5m) || [];
+  const lastT = bars.length ? bars[bars.length - 1].time : 0;
+  const barSec = bars.length > 1 ? (bars[bars.length - 1].time - bars[bars.length - 2].time) || 300 : 300;
+  // map each forecast's as_of (ET ISO) to the nearest candle time at-or-before it
+  const toUnix = (iso) => Math.floor(new Date(iso).getTime() / 1000);
+  return (forecasts || []).map((f) => {
+    const ff = forecastFields(f.forecast);
+    const fUnix = toUnix(f.as_of);
+    // snap t0 to the candle at-or-before the forecast time (else the last bar)
+    let t0 = lastT;
+    for (const b of bars) { if (b.time <= fUnix) t0 = b.time; else break; }
+    return { ...f, plot: { bias: ff.bias, target: ff.target, invalidation: ff.invalid, path: ff.path },
+      _t0: t0, _barSec: barSec };
+  });
+}
+
+// The Replay Forecast view: inputs, progress, the multi-path chart, the step
+// comparison table, and the grade + calibration panel.
+export function SpxReplayView() {
+  const p = useReplayStore();
+  const { symbol, entry, setEntry, applySymbol, day, setDay, stepMin, setStepMin,
+    premarket, setPremarket, note, runId, runState, start, stop, runQ,
+    activeId, setActiveId, grade, gradeRun, todayISO } = p;
+
+  // the run's forecasts + a snapshot of the WHOLE day (as_of=null → full session)
+  const rows = (runQ.data && runQ.data.forecasts) || [];
+  const cal = runQ.data && runQ.data.calibration;
+  const snapQ = useLive(() => (runId ? getSpxSnapshot(day, undefined, symbol) : Promise.resolve(null)),
+    null, [runId, day, symbol, rows.length]);
+  const snap = snapQ.data && snapQ.data.available ? snapQ.data : null;
+  const enriched = snap ? enrichForRun(rows, snap) : [];
+
+  const running = runState && (runState.status === "running" || runState.status === "planning");
+  const pct = runState && runState.total ? Math.round((runState.done / runState.total) * 100) : 0;
+
+  // 30-day 1m reach: clamp the date picker so the user can't pick a day the data
+  // can't reach (the backend also reports it, but this is the honest UI guard).
+  const minDay = (() => { const d = new Date(); d.setDate(d.getDate() - 30); return d.toISOString().slice(0, 10); })();
+
+  return (
+    <div className="vg-loadhost">
+      {(running || snapQ.loading || (grade && grade.loading)) && <LoadBar />}
+
+      <div className="vg-spread" style={{ marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 19 }}>🎬 Replay Forecast — {symbol}</h2>
+          <p className="vg-sub" style={{ margin: "4px 0 0" }}>
+            Step the day, forecast at each interval, plot the sequence, grade the run.
+          </p>
+        </div>
+      </div>
+
+      <div className="vg-card" style={{ padding: 14, marginBottom: 12 }}>
+        <form className="vg-fc-symbar" style={{ flexWrap: "wrap", gap: 10 }}
+          onSubmit={(e) => { e.preventDefault(); applySymbol(entry); }}>
+          {PLAYBOOK_SYMBOLS.map((sy) => (
+            <button type="button" key={sy}
+              className={cls("vg-fc-chip", sy === symbol && "vg-fc-chip-on")}
+              onClick={() => applySymbol(sy)}>{sy}</button>
+          ))}
+          <input className="vg-fc-syminput" value={entry} spellCheck={false}
+            onChange={(e) => setEntry(e.target.value.toUpperCase())}
+            placeholder="symbol" aria-label="replay symbol" />
+          <label className="vg-note">day{" "}
+            <input type="date" value={day} min={minDay} max={todayISO}
+              onChange={(e) => setDay(e.target.value)} aria-label="replay day" />
+          </label>
+          <label className="vg-note">every{" "}
+            <select value={stepMin} onChange={(e) => setStepMin(Number(e.target.value))}
+              aria-label="replay interval">
+              <option value={5}>5m</option>
+              <option value={15}>15m</option>
+              <option value={30}>30m</option>
+              <option value={60}>60m</option>
+            </select>
+          </label>
+          <label className="vg-note" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+            <input type="checkbox" checked={premarket}
+              onChange={(e) => setPremarket(e.target.checked)} /> pre-market
+          </label>
+          {running
+            ? <button type="button" className="vg-btn-sm" onClick={stop}>■ Stop</button>
+            : <button type="submit" className="vg-btn" onClick={(e) => { e.preventDefault(); applySymbol(entry); start(); }}>
+                ▶ Run replay
+              </button>}
+        </form>
+
+        {runState && (
+          <div style={{ marginTop: 10 }}>
+            <div className="vg-note">
+              {runState.status === "planning" ? "Priming data & planning steps…"
+                : runState.status === "running" ? `Forecasting ${runState.done}/${runState.total} …`
+                : runState.status === "stopped" ? `Stopped at ${runState.done}/${runState.total}`
+                : `Done — ${runState.total} forecasts.`}
+            </div>
+            <div className="vg-fc-progress"><div className="vg-fc-progress-bar" style={{ width: `${pct}%` }} /></div>
+          </div>)}
+        {note && <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{note}</p>}
+      </div>
+
+      {snap && enriched.length > 0 && (
+        <div className="vg-card vg-fc-chartcard" style={{ padding: 14, marginBottom: 12 }}>
+          <div className="vg-fc-legend" style={{ marginBottom: 8 }}>
+            <span><i className="vg-lg-sw" style={{ background: rampColor(0, 2, 1) }} />early</span>
+            <span><i className="vg-lg-sw" style={{ background: rampColor(1, 2, 1) }} />late</span>
+            <span className="vg-note">hover a row to highlight its path</span>
+          </div>
+          <ReplayChart key={`${symbol}-${runId}`} snap={snap} forecasts={enriched} activeId={activeId} />
+        </div>)}
+
+      {rows.length > 0 && (
+        <div className="vg-card" style={{ padding: 0, marginBottom: 12, overflowX: "auto" }}>
+          <table className="vg-fc-cmp">
+            <thead>
+              <tr>
+                <th>time</th><th>@ px</th><th>bias</th>
+                <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>
+                <th>target</th><th>invalid</th><th>result</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enriched.map((f) => {
+                const path = (f.plot && f.plot.path) || [];
+                const sc = f.score;
+                const tone = !sc ? "plain"
+                  : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good"
+                  : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
+                return (
+                  <tr key={f.id}
+                    className={cls("vg-fc-cmprow", activeId === f.id && "vg-fc-cmprow-on")}
+                    onMouseEnter={() => setActiveId(f.id)} onMouseLeave={() => setActiveId(null)}>
+                    <td>{hhmm(f.as_of)}</td>
+                    <td>{f.price_at}</td>
+                    <td className={dirCls(f.plot.bias === "up" ? 1 : f.plot.bias === "down" ? -1 : 0)}>
+                      {f.plot.bias || "—"}</td>
+                    {[0, 1, 2, 3, 4].map((i) => (
+                      <td key={i} className="vg-fc-cmpstep" title={path[i] ? path[i].note : ""}>
+                        {path[i] ? path[i].price : ""}</td>))}
+                    <td>{f.plot.target != null ? f.plot.target : "—"}</td>
+                    <td>{f.plot.invalidation != null ? f.plot.invalidation : "—"}</td>
+                    <td>{sc
+                      ? <span className={cls("vg-badge", tone)} style={{ fontSize: 10 }}>{sc.verdict}</span>
+                      : <span className="vg-note">—</span>}</td>
+                  </tr>);
+              })}
+            </tbody>
+          </table>
+        </div>)}
+
+      {rows.length > 0 && (
+        <div className="vg-card" style={{ padding: 14 }}>
+          <div className="vg-spread">
+            <div className="vg-kicker" style={{ margin: 0 }}>Grade this run</div>
+            <button className="vg-btn-sm" disabled={grade && grade.loading} onClick={gradeRun}>
+              {grade && grade.loading ? <><span className="vg-spin" aria-hidden="true">⟳</span> Grading…</> : "⚖️ Grade the run"}
+            </button>
+          </div>
+          <p className="vg-note" style={{ marginTop: 6, fontSize: 11, color: "var(--vg-dim)" }}>
+            Scores are computed in code; the grader reads and narrates them — it never invents a number.
+            The calibration below is grader-owned and read-only (never fed back to the forecaster).
+          </p>
+          {grade && (grade.error
+            ? <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{grade.error}</p>
+            : (grade.data || grade.text)
+              ? <div style={{ marginTop: 10 }}><MiraRender data={grade.data} text={grade.text} /></div>
+              : null)}
+
+          {cal && cal.scores && (
+            <div className="vg-fc-cal" style={{ marginTop: 12 }}>
+              <div className="vg-kicker">Calibration record <span className="vg-note">(read-only)</span></div>
+              <ReplayCalibration scores={cal.scores} />
+            </div>)}
+        </div>)}
+    </div>
+  );
+}
+
+// The deterministic calibration — hit-rate overall + by time/bias/tier. Insufficient
+// buckets show "n<min" and NO rate (never a fabricated number).
+function ReplayCalibration({ scores }) {
+  const pctOf = (b) => (b && b.insufficient) ? "insufficient" : `${Math.round((b.hit_rate || 0) * 100)}% (${b.wins}/${b.n})`;
+  const overall = scores.overall || {};
+  const group = (label, obj) => (
+    <div className="vg-fc-calgrp">
+      <div className="vg-note" style={{ fontWeight: 600 }}>{label}</div>
+      {Object.entries(obj || {}).map(([k, v]) => (
+        <div key={k} className="vg-fc-calrow"><span>{k}</span><span>{pctOf(v)}</span></div>
+      ))}
+    </div>
+  );
+  return (
+    <div>
+      <div className="vg-fc-calrow" style={{ fontWeight: 600 }}>
+        <span>Overall</span><span>{pctOf(overall)}</span></div>
+      {group("By time of day", scores.by_time)}
+      {group("By called bias", scores.by_bias)}
+      {group("By hourly tier", scores.by_tier)}
     </div>
   );
 }

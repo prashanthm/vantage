@@ -282,6 +282,7 @@
     allocation: () => allocation,
     analyzeSymbol: () => analyzeSymbol,
     botPoll: () => botPoll,
+    calibrateReplay: () => calibrateReplay,
     closePaperTrade: () => closePaperTrade,
     createAccount: () => createAccount,
     deleteAccount: () => deleteAccount,
@@ -313,6 +314,7 @@
     getPlaybook: () => getPlaybook,
     getPlaybookPine: () => getPlaybookPine,
     getReclaimPine: () => getReclaimPine,
+    getReplay: () => getReplay,
     getRoundtrips: () => getRoundtrips,
     getSessionActivity: () => getSessionActivity,
     getSignals: () => getSignals,
@@ -349,6 +351,7 @@
     mapWash: () => mapWash,
     miraHealth: () => miraHealth,
     openPaperTrade: () => openPaperTrade,
+    planReplay: () => planReplay,
     positions: () => positions,
     postJson: () => postJson,
     postNote: () => postNote,
@@ -365,6 +368,7 @@
     saveSpxForecast: () => saveSpxForecast,
     saveTradeAnalysis: () => saveTradeAnalysis,
     scoreJournal: () => scoreJournal,
+    scoreReplay: () => scoreReplay,
     scoreSpxForecast: () => scoreSpxForecast,
     settlePaper: () => settlePaper,
     streamTurn: () => streamTurn,
@@ -1121,6 +1125,14 @@
   var scoreSpxForecast = (fid) => postJson(`${backendBase()}/api/spx/forecast/${fid}/score`, {});
   var prepareSpx = (symbol, days = 5) => postJson(`${backendBase()}/api/spx/prepare`, { symbol, days });
   var refreshSpx = (symbol) => postJson(`${backendBase()}/api/spx/refresh`, { symbol });
+  var planReplay = (day, symbol = "SPX", premarket = false, stepMin = 15) => postJson(
+    `${backendBase()}/api/replay/plan`,
+    { day, symbol, premarket, step_min: stepMin },
+    { timeoutMs: 6e4 }
+  );
+  var getReplay = (runId) => getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 2e4 });
+  var scoreReplay = (runId) => postJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}/score`, {});
+  var calibrateReplay = (runId, body = {}) => postJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}/calibration`, body);
   var getTradeablePositions = () => getJson(`${backendBase()}/api/positions/tradeable`);
   async function recomputePlaybook(asOf, symbol = "SPX") {
     const base = backendBase();
@@ -3095,6 +3107,467 @@ ${ref}`;
       }
     ))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, color: "var(--vg-dim)" } }, "Levels are the nightly EOD estimate \xB7 0DTE-blind \xB7 not advice."));
   }
+  var hhmm = (iso) => String(iso || "").slice(11, 16);
+  function rampColor(i, n, alpha) {
+    const t = n > 1 ? i / (n - 1) : 0;
+    const hue = 210 - 210 * t;
+    return `hsla(${hue}, 75%, 55%, ${alpha})`;
+  }
+  function ReplayChart({ snap, forecasts, activeId }) {
+    const elRef = useRef2(null);
+    const chartRef = useRef2(null);
+    const candleRef = useRef2(null);
+    const pathSeriesRefs = useRef2([]);
+    useEffect4(() => {
+      const el = elRef.current;
+      if (!el || !hasLW2()) return void 0;
+      const LW = window.LightweightCharts;
+      const th = chartTheme();
+      const chart = LW.createChart(el, {
+        autoSize: true,
+        layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
+        grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
+        rightPriceScale: {
+          borderColor: th.border,
+          minimumWidth: 72,
+          scaleMargins: { top: 0.08, bottom: 0.08 },
+          autoScale: true
+        },
+        timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false },
+        crosshair: { mode: LW.CrosshairMode.Normal },
+        handleScale: {
+          mouseWheel: true,
+          pinch: true,
+          axisPressedMouseMove: { time: true, price: true },
+          axisDoubleClickReset: { time: true, price: true }
+        },
+        handleScroll: {
+          mouseWheel: true,
+          pressedMouseMove: true,
+          horzTouchDrag: true,
+          vertTouchDrag: true
+        }
+      });
+      const candle = chart.addCandlestickSeries({
+        upColor: th.up,
+        downColor: th.down,
+        wickUpColor: th.up,
+        wickDownColor: th.down,
+        borderUpColor: th.up,
+        borderDownColor: th.down
+      });
+      chartRef.current = chart;
+      candleRef.current = candle;
+      return () => {
+        chart.remove();
+        chartRef.current = candleRef.current = null;
+        pathSeriesRefs.current = [];
+      };
+    }, []);
+    const fittedRef = useRef2(false);
+    useEffect4(() => {
+      const candle = candleRef.current;
+      const bars = snap && snap.bars_5m;
+      if (!candle || !bars || !bars.length) return;
+      candle.setData(bars);
+      if (chartRef.current && !fittedRef.current) {
+        chartRef.current.timeScale().fitContent();
+        fittedRef.current = true;
+      }
+    }, [snap]);
+    useEffect4(() => {
+      const chart = chartRef.current, candle = candleRef.current;
+      if (!chart || !candle) return;
+      const LW = window.LightweightCharts;
+      for (const s of pathSeriesRefs.current) {
+        try {
+          chart.removeSeries(s);
+        } catch (e) {
+        }
+      }
+      pathSeriesRefs.current = [];
+      const list = (forecasts || []).filter((f) => f.plot && Array.isArray(f.plot.path) && f.plot.path.length);
+      const n = list.length;
+      const allMarkers = [];
+      list.forEach((f, i) => {
+        const isActive = activeId != null && f.id === activeId;
+        const alpha = activeId == null ? 0.5 : isActive ? 1 : 0.14;
+        const steps = f.plot.path.filter((st) => st.price != null);
+        if (!steps.length) return;
+        const data = [{ time: f._t0, value: f.price_at != null ? f.price_at : steps[0].price }];
+        steps.forEach((st, k) => data.push({ time: f._t0 + f._barSec * (k + 1), value: st.price }));
+        try {
+          const ps = chart.addLineSeries({
+            color: rampColor(i, n, alpha),
+            lineWidth: isActive ? 3 : 1,
+            lineStyle: isActive ? LW.LineStyle.Solid : LW.LineStyle.Dashed,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false
+          });
+          ps.setData(data);
+          pathSeriesRefs.current.push(ps);
+        } catch (e) {
+        }
+        allMarkers.push({
+          time: f._t0,
+          position: "aboveBar",
+          shape: "circle",
+          color: rampColor(i, n, isActive ? 1 : 0.6),
+          text: isActive ? hhmm(f.as_of) : ""
+        });
+        if (isActive) {
+          const th = chartTheme();
+          steps.forEach((st, k) => allMarkers.push({
+            time: f._t0 + f._barSec * (k + 1),
+            position: st.dir === "down" ? "belowBar" : "aboveBar",
+            shape: st.dir === "down" ? "arrowDown" : "arrowUp",
+            color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
+            text: `${st.seq} \xB7 ${st.price}`
+          }));
+        }
+      });
+      allMarkers.sort((a, b) => a.time - b.time);
+      try {
+        candle.setMarkers(allMarkers);
+      } catch (e) {
+      }
+    }, [snap, forecasts, activeId]);
+    if (!hasLW2()) {
+      return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
+    }
+    return /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-fc-chart" });
+  }
+  function useReplayStore() {
+    const [symbol, setSymbol] = useState5("SPX");
+    const [entry, setEntry] = useState5("SPX");
+    const todayISO2 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+    const [day, setDay] = useState5(todayISO2);
+    const [stepMin, setStepMin] = useState5(15);
+    const [premarket, setPremarket] = useState5(false);
+    const [note, setNote] = useState5(null);
+    const [runId, setRunId] = useState5(null);
+    const [runState, setRunState] = useState5(null);
+    const [nonce, setNonce] = useState5(0);
+    const [activeId, setActiveId] = useState5(null);
+    const [grade, setGrade] = useState5(null);
+    const stopRef = useRef2(false);
+    const abortRef = useRef2(null);
+    useEffect4(() => () => {
+      stopRef.current = true;
+      if (abortRef.current) abortRef.current();
+    }, []);
+    const runQ = useLive(
+      () => runId ? getReplay(runId) : Promise.resolve(null),
+      null,
+      [runId, nonce]
+    );
+    const forecastStep = (asOf) => new Promise((resolve) => {
+      getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
+        const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
+        if (!snapshot) {
+          resolve(false);
+          return;
+        }
+        let text = "";
+        const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
+        const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
+${ref}`;
+        abortRef.current = streamTurn(prompt, `replay-${symbol}-${day}-${asOf}`, (evt) => {
+          if (evt.kind === "error") {
+            resolve(false);
+            return;
+          }
+          if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+            text += evt.text;
+            return;
+          }
+          if (evt.kind === "done") {
+            abortRef.current = null;
+            if (evt.text && !text) text = evt.text;
+            const data = parseMira(text);
+            saveSpxForecast({
+              day,
+              as_of: asOf,
+              symbol,
+              snapshot,
+              forecast: data || null,
+              forecast_text: text,
+              run_id: runId
+            }).then(() => resolve(true)).catch(() => resolve(false));
+          }
+        });
+      }).catch(() => resolve(false));
+    });
+    const start = () => {
+      setNote(null);
+      setGrade(null);
+      stopRef.current = false;
+      setRunState({ status: "planning", total: 0, done: 0 });
+      planReplay(day, symbol, premarket, stepMin).then(async (plan) => {
+        if (!plan || !plan.available) {
+          setRunState(null);
+          setNote(plan && plan.note || "Couldn't plan the run for that day.");
+          return;
+        }
+        const rid = plan.run_id;
+        setRunId(rid);
+        const steps = plan.steps || [];
+        let existing = [];
+        try {
+          const g = await getReplay(rid);
+          existing = g && g.forecasts || [];
+        } catch (e) {
+        }
+        const done0 = new Set(existing.map((f) => f.as_of));
+        setRunState({ status: "running", total: steps.length, done: done0.size });
+        for (let k = 0; k < steps.length; k++) {
+          if (stopRef.current) {
+            setRunState((r) => ({ ...r, status: "stopped" }));
+            return;
+          }
+          const asOf = steps[k].as_of;
+          if (!done0.has(asOf)) {
+            await forecastStep(asOf);
+            setNonce((x) => x + 1);
+          }
+          setRunState((r) => ({ ...r, status: "running", done: k + 1 }));
+        }
+        try {
+          await scoreReplay(rid);
+        } catch (e) {
+        }
+        setRunState((r) => ({ ...r || {}, status: "done", done: steps.length, total: steps.length }));
+        setNonce((x) => x + 1);
+      }).catch((e) => {
+        setRunState(null);
+        setNote(String(e && e.message || e));
+      });
+    };
+    const stop = () => {
+      stopRef.current = true;
+      if (abortRef.current) abortRef.current();
+    };
+    const applySymbol = (sym) => {
+      const s2 = String(sym || "").trim().toUpperCase();
+      if (!s2) return;
+      setSymbol(s2);
+      setEntry(s2);
+      setRunId(null);
+      setRunState(null);
+      setGrade(null);
+      setNote(null);
+    };
+    const gradeRun = () => {
+      if (!runId) return;
+      setGrade({ loading: true });
+      calibrateReplay(runId).then(() => {
+        let text = "";
+        const ref = `FORECAST_GRADE_REF run_id=${runId}`;
+        const prompt = `Grade this replay forecast run \u2014 how did the analyst's read evolve through the day? Read the code-computed scores and narrate them.
+${ref}`;
+        abortRef.current = streamTurn(prompt, `grade-${runId}`, (evt) => {
+          if (evt.kind === "error") {
+            setGrade({ error: evt.message || "Mira error" });
+            return;
+          }
+          if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+            text += evt.text;
+            setGrade({ loading: true, text });
+            return;
+          }
+          if (evt.kind === "done") {
+            abortRef.current = null;
+            if (evt.text && !text) text = evt.text;
+            const data = parseMira(text);
+            setGrade({ text, data });
+            setNonce((x) => x + 1);
+          }
+        });
+      }).catch((e) => setGrade({ error: String(e && e.message || e) }));
+    };
+    return {
+      symbol,
+      entry,
+      setEntry,
+      applySymbol,
+      PLAYBOOK_SYMBOLS,
+      day,
+      setDay,
+      stepMin,
+      setStepMin,
+      premarket,
+      setPremarket,
+      note,
+      runId,
+      runState,
+      start,
+      stop,
+      runQ,
+      activeId,
+      setActiveId,
+      grade,
+      gradeRun,
+      todayISO: todayISO2
+    };
+  }
+  function enrichForRun(forecasts, snap) {
+    const bars = snap && snap.bars_5m || [];
+    const lastT = bars.length ? bars[bars.length - 1].time : 0;
+    const barSec = bars.length > 1 ? bars[bars.length - 1].time - bars[bars.length - 2].time || 300 : 300;
+    const toUnix = (iso) => Math.floor(new Date(iso).getTime() / 1e3);
+    return (forecasts || []).map((f) => {
+      const ff = forecastFields(f.forecast);
+      const fUnix = toUnix(f.as_of);
+      let t0 = lastT;
+      for (const b of bars) {
+        if (b.time <= fUnix) t0 = b.time;
+        else break;
+      }
+      return {
+        ...f,
+        plot: { bias: ff.bias, target: ff.target, invalidation: ff.invalid, path: ff.path },
+        _t0: t0,
+        _barSec: barSec
+      };
+    });
+  }
+  function SpxReplayView() {
+    const p = useReplayStore();
+    const {
+      symbol,
+      entry,
+      setEntry,
+      applySymbol,
+      day,
+      setDay,
+      stepMin,
+      setStepMin,
+      premarket,
+      setPremarket,
+      note,
+      runId,
+      runState,
+      start,
+      stop,
+      runQ,
+      activeId,
+      setActiveId,
+      grade,
+      gradeRun,
+      todayISO: todayISO2
+    } = p;
+    const rows = runQ.data && runQ.data.forecasts || [];
+    const cal = runQ.data && runQ.data.calibration;
+    const snapQ = useLive(
+      () => runId ? getSpxSnapshot(day, void 0, symbol) : Promise.resolve(null),
+      null,
+      [runId, day, symbol, rows.length]
+    );
+    const snap = snapQ.data && snapQ.data.available ? snapQ.data : null;
+    const enriched = snap ? enrichForRun(rows, snap) : [];
+    const running = runState && (runState.status === "running" || runState.status === "planning");
+    const pct5 = runState && runState.total ? Math.round(runState.done / runState.total * 100) : 0;
+    const minDay = (() => {
+      const d = /* @__PURE__ */ new Date();
+      d.setDate(d.getDate() - 30);
+      return d.toISOString().slice(0, 10);
+    })();
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-loadhost" }, (running || snapQ.loading || grade && grade.loading) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 12, flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "\u{1F3AC} Replay Forecast \u2014 ", symbol), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "Step the day, forecast at each interval, plot the sequence, grade the run."))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
+      "form",
+      {
+        className: "vg-fc-symbar",
+        style: { flexWrap: "wrap", gap: 10 },
+        onSubmit: (e) => {
+          e.preventDefault();
+          applySymbol(entry);
+        }
+      },
+      PLAYBOOK_SYMBOLS.map((sy) => /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          type: "button",
+          key: sy,
+          className: cls("vg-fc-chip", sy === symbol && "vg-fc-chip-on"),
+          onClick: () => applySymbol(sy)
+        },
+        sy
+      )),
+      /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          className: "vg-fc-syminput",
+          value: entry,
+          spellCheck: false,
+          onChange: (e) => setEntry(e.target.value.toUpperCase()),
+          placeholder: "symbol",
+          "aria-label": "replay symbol"
+        }
+      ),
+      /* @__PURE__ */ React.createElement("label", { className: "vg-note" }, "day", " ", /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "date",
+          value: day,
+          min: minDay,
+          max: todayISO2,
+          onChange: (e) => setDay(e.target.value),
+          "aria-label": "replay day"
+        }
+      )),
+      /* @__PURE__ */ React.createElement("label", { className: "vg-note" }, "every", " ", /* @__PURE__ */ React.createElement(
+        "select",
+        {
+          value: stepMin,
+          onChange: (e) => setStepMin(Number(e.target.value)),
+          "aria-label": "replay interval"
+        },
+        /* @__PURE__ */ React.createElement("option", { value: 5 }, "5m"),
+        /* @__PURE__ */ React.createElement("option", { value: 15 }, "15m"),
+        /* @__PURE__ */ React.createElement("option", { value: 30 }, "30m"),
+        /* @__PURE__ */ React.createElement("option", { value: 60 }, "60m")
+      )),
+      /* @__PURE__ */ React.createElement("label", { className: "vg-note", style: { display: "inline-flex", alignItems: "center", gap: 4 } }, /* @__PURE__ */ React.createElement(
+        "input",
+        {
+          type: "checkbox",
+          checked: premarket,
+          onChange: (e) => setPremarket(e.target.checked)
+        }
+      ), " pre-market"),
+      running ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "vg-btn-sm", onClick: stop }, "\u25A0 Stop") : /* @__PURE__ */ React.createElement("button", { type: "submit", className: "vg-btn", onClick: (e) => {
+        e.preventDefault();
+        applySymbol(entry);
+        start();
+      } }, "\u25B6 Run replay")
+    ), runState && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, runState.status === "planning" ? "Priming data & planning steps\u2026" : runState.status === "running" ? `Forecasting ${runState.done}/${runState.total} \u2026` : runState.status === "stopped" ? `Stopped at ${runState.done}/${runState.total}` : `Done \u2014 ${runState.total} forecasts.`), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress" }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress-bar", style: { width: `${pct5}%` } }))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, note)), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(0, 2, 1) } }), "early"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(1, 2, 1) } }), "late"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "hover a row to highlight its path")), /* @__PURE__ */ React.createElement(ReplayChart, { key: `${symbol}-${runId}`, snap, forecasts: enriched, activeId })), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
+      const path = f.plot && f.plot.path || [];
+      const sc = f.score;
+      const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
+      return /* @__PURE__ */ React.createElement(
+        "tr",
+        {
+          key: f.id,
+          className: cls("vg-fc-cmprow", activeId === f.id && "vg-fc-cmprow-on"),
+          onMouseEnter: () => setActiveId(f.id),
+          onMouseLeave: () => setActiveId(null)
+        },
+        /* @__PURE__ */ React.createElement("td", null, hhmm(f.as_of)),
+        /* @__PURE__ */ React.createElement("td", null, f.price_at),
+        /* @__PURE__ */ React.createElement("td", { className: dirCls(f.plot.bias === "up" ? 1 : f.plot.bias === "down" ? -1 : 0) }, f.plot.bias || "\u2014"),
+        [0, 1, 2, 3, 4].map((i) => /* @__PURE__ */ React.createElement("td", { key: i, className: "vg-fc-cmpstep", title: path[i] ? path[i].note : "" }, path[i] ? path[i].price : "")),
+        /* @__PURE__ */ React.createElement("td", null, f.plot.target != null ? f.plot.target : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", null, f.plot.invalidation != null ? f.plot.invalidation : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", null, sc ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontSize: 10 } }, sc.verdict) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014"))
+      );
+    })))), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Grade this run"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: grade && grade.loading, onClick: gradeRun }, grade && grade.loading ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Grading\u2026") : "\u2696\uFE0F Grade the run")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6, fontSize: 11, color: "var(--vg-dim)" } }, "Scores are computed in code; the grader reads and narrates them \u2014 it never invents a number. The calibration below is grader-owned and read-only (never fed back to the forecaster)."), grade && (grade.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, grade.error) : grade.data || grade.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: grade.data, text: grade.text })) : null), cal && cal.scores && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-cal", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Calibration record ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "(read-only)")), /* @__PURE__ */ React.createElement(ReplayCalibration, { scores: cal.scores }))));
+  }
+  function ReplayCalibration({ scores }) {
+    const pctOf = (b) => b && b.insufficient ? "insufficient" : `${Math.round((b.hit_rate || 0) * 100)}% (${b.wins}/${b.n})`;
+    const overall = scores.overall || {};
+    const group = (label, obj) => /* @__PURE__ */ React.createElement("div", { className: "vg-fc-calgrp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontWeight: 600 } }, label), Object.entries(obj || {}).map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-fc-calrow" }, /* @__PURE__ */ React.createElement("span", null, k), /* @__PURE__ */ React.createElement("span", null, pctOf(v)))));
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-calrow", style: { fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", null, "Overall"), /* @__PURE__ */ React.createElement("span", null, pctOf(overall))), group("By time of day", scores.by_time), group("By called bias", scores.by_bias), group("By hourly tier", scores.by_tier));
+  }
 
   // src/exits.jsx
   var { useEffect: useEffect5, useState: useState6 } = React;
@@ -4828,11 +5301,18 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     ), /* @__PURE__ */ React.createElement(
       "button",
       {
+        className: cls("vg-subtab", tab === "replay" && "vg-subtab-on"),
+        onClick: () => setTab("replay")
+      },
+      "\u{1F3AC} Replay"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
         className: cls("vg-subtab", tab === "plan" && "vg-subtab-on"),
         onClick: () => setTab("plan")
       },
       "\u{1F4D0} Daily plan"
-    )), tab === "chart" ? /* @__PURE__ */ React.createElement(SpxPlaybookView, null) : /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }));
+    )), tab === "chart" ? /* @__PURE__ */ React.createElement(SpxPlaybookView, null) : tab === "replay" ? /* @__PURE__ */ React.createElement(SpxReplayView, null) : /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }));
   }
   function App() {
     const [settings, setSettings] = useState12(loadSettings);

@@ -14,7 +14,7 @@ import { ChartsView, ChartsRail } from "./charts.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
-import { SpxPlaybookView, SpxPlaybookRail, PlaybookProvider } from "./spx_forecast.jsx";
+import { SpxPlaybookView, SpxPlaybookRail, SpxReplayView, PlaybookProvider } from "./spx_forecast.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
 import { TodayView } from "./today.jsx";
@@ -99,12 +99,16 @@ function PlaybookRoute({ refreshNonce, tab, setTab }) {
       <div className="vg-subtabs">
         <button className={cls("vg-subtab", tab === "chart" && "vg-subtab-on")}
           onClick={() => setTab("chart")}>📈 Chart & forecast</button>
+        <button className={cls("vg-subtab", tab === "replay" && "vg-subtab-on")}
+          onClick={() => setTab("replay")}>🎬 Replay</button>
         <button className={cls("vg-subtab", tab === "plan" && "vg-subtab-on")}
           onClick={() => setTab("plan")}>📐 Daily plan</button>
       </div>
       {tab === "chart"
         ? <SpxPlaybookView />
-        : <PlaybookView refreshNonce={refreshNonce} />}
+        : tab === "replay"
+          ? <SpxReplayView />
+          : <PlaybookView refreshNonce={refreshNonce} />}
     </div>
   );
 }
@@ -115,7 +119,7 @@ function App() {
   const [accountId, setAccountId] = useState(settings.defaultAccount);
   const [symbol, setSymbol] = useState("SPY");
   const [route, go] = useHashRoute();
-  const [playbookTab, setPlaybookTab] = useState("chart");   // chart | plan (0DTE Playbook)
+  const [playbookTab, setPlaybookTab] = useState("chart");   // chart | replay | plan (0DTE Playbook)
   const [notifs, setNotifs] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);

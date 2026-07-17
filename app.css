@@ -981,6 +981,32 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-fc-caret { margin-left: auto; color: var(--vg-dim); font-size: 11px; }
 .vg-fc-rowbody { padding: 6px 2px 12px; }
 
+/* ── Replay Forecast (spx_forecast.jsx SpxReplayView) ─────────────────────── */
+.vg-fc-progress { height: 6px; border-radius: 3px; background: var(--vg-raised);
+  margin-top: 6px; overflow: hidden; }
+.vg-fc-progress-bar { height: 100%; background: var(--vg-up);
+  transition: width 0.3s ease; }
+/* the step comparison table — dense, tabular, hover-highlightable rows */
+.vg-fc-cmp { width: 100%; border-collapse: collapse; font-size: 12px;
+  font-variant-numeric: tabular-nums; }
+.vg-fc-cmp th { text-align: right; padding: 8px 10px; color: var(--vg-dim);
+  font-weight: 600; border-bottom: 1px solid var(--vg-hairline);
+  position: sticky; top: 0; background: var(--vg-card); }
+.vg-fc-cmp th:first-child, .vg-fc-cmp td:first-child { text-align: left; }
+.vg-fc-cmp td { text-align: right; padding: 7px 10px;
+  border-bottom: 1px solid var(--vg-hairline); }
+.vg-fc-cmprow { cursor: default; }
+.vg-fc-cmprow:hover, .vg-fc-cmprow-on { background: var(--vg-raised); }
+.vg-fc-cmpstep { color: var(--vg-ink); }
+.vg-fc-cmp td.up { color: var(--vg-up); }
+.vg-fc-cmp td.down { color: var(--vg-down); }
+/* the read-only calibration record */
+.vg-fc-cal { border-top: 1px solid var(--vg-hairline); padding-top: 10px; }
+.vg-fc-calgrp { margin-top: 8px; }
+.vg-fc-calrow { display: flex; justify-content: space-between; gap: 12px;
+  padding: 3px 0; font-size: 12px; font-variant-numeric: tabular-nums; }
+.vg-fc-calrow span:last-child { color: var(--vg-dim); }
+
 /* ── generic Mira renderer (mira-render.jsx) — shared across all sections ──── */
 .vg-mr { display: flex; flex-direction: column; gap: 14px; }
 .vg-mr-headline { margin: 0; font-size: 16px; letter-spacing: -0.01em; line-height: 1.35; }

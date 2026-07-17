@@ -1018,6 +1018,23 @@ export const prepareSpx = (symbol, days = 5) =>
 export const refreshSpx = (symbol) =>
   postJson(`${backendBase()}/api/spx/refresh`, { symbol });
 
+// ── Replay Forecast (ticker-neutral) ─────────────────────────────────────────
+// Plan a run: primes the day's 1m bars if missing (may fetch → longer timeout),
+// enumerates the as_of step grid, mints a run_id. available=false out of window.
+export const planReplay = (day, symbol = "SPX", premarket = false, stepMin = 15) =>
+  postJson(`${backendBase()}/api/replay/plan`,
+    { day, symbol, premarket, step_min: stepMin }, { timeoutMs: 60000 });
+// A run's saved forecasts (chronological) + persisted scores + calibration.
+export const getReplay = (runId) =>
+  getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 20000 });
+// Grade EVERY forecast of the run with CODE (score_forecast). Mira-free.
+export const scoreReplay = (runId) =>
+  postJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}/score`, {});
+// Compute + persist the run's deterministic calibration (grader-owned memory).
+// `body` may carry {patterns, narrative} from a completed grade.
+export const calibrateReplay = (runId, body = {}) =>
+  postJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}/calibration`, body);
+
 // The positions that matter while trading: reclaim proxies you actually hold,
 // each flagged with whether the exit monitor is protecting it.
 export const getTradeablePositions = () =>
