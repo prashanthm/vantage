@@ -681,7 +681,8 @@ if htfFire
     // long → arrow-up BELOW the bar; short → arrow-down ABOVE it.
     htfCol = htfDir == "long" ? color.new(#39d98a, 0) : color.new(#ff6b74, 0)
     htfMk = (htfDir == "long" ? "▲" : "▼") + htfTier
-    label.new(bar_index, htfDir == "long" ? low : high, htfMk, yloc=(htfDir == "long" ? yloc.belowbar : yloc.abovebar), style=(htfDir == "long" ? label.style_label_up : label.style_label_down), color=htfCol, textcolor=color.white, size=size.tiny)
+    // dark text on the bright green/red fill so the tier is readable (white washed out)
+    label.new(bar_index, htfDir == "long" ? low : high, htfMk, yloc=(htfDir == "long" ? yloc.belowbar : yloc.abovebar), style=(htfDir == "long" ? label.style_label_up : label.style_label_down), color=htfCol, textcolor=color.new(#0d1017, 0), size=size.tiny)
 
 if firedNow
     f_alert("TRIGGERED", (tDir == 1 ? "🔔 BUY CALLS" : "🔔 BUY PUTS") + " · " + armLbl + " " + str.tostring(tEntry, "#.#") + (lowConviction ? " · ⚠ LOW CONVICTION" : ""), "target " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")) + (lowConviction ? " · " + convReason : "") + " · read: " + str.lower(readVerd))
