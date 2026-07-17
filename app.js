@@ -3253,6 +3253,7 @@ ${ref}`;
     const [grade, setGrade] = useState5(null);
     const stopRef = useRef2(false);
     const abortRef = useRef2(null);
+    const runningRef = useRef2(false);
     useEffect4(() => () => {
       stopRef.current = true;
       if (abortRef.current) abortRef.current();
@@ -3262,7 +3263,7 @@ ${ref}`;
       null,
       [runId, nonce]
     );
-    const forecastStep = (asOf) => new Promise((resolve) => {
+    const forecastStep = (asOf, rid) => new Promise((resolve) => {
       getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
         const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
         if (!snapshot) {
@@ -3293,13 +3294,15 @@ ${ref}`;
               snapshot,
               forecast: data || null,
               forecast_text: text,
-              run_id: runId
+              run_id: rid
             }).then(() => resolve(true)).catch(() => resolve(false));
           }
         });
       }).catch(() => resolve(false));
     });
     const start = () => {
+      if (runningRef.current) return;
+      runningRef.current = true;
       setNote(null);
       setGrade(null);
       stopRef.current = false;
@@ -3321,31 +3324,38 @@ ${ref}`;
         }
         const done0 = new Set(existing.map((f) => f.as_of));
         setRunState({ status: "running", total: steps.length, done: done0.size });
+        let stopped = false;
         for (let k = 0; k < steps.length; k++) {
           if (stopRef.current) {
             setRunState((r) => ({ ...r, status: "stopped" }));
-            return;
+            stopped = true;
+            break;
           }
           const asOf = steps[k].as_of;
           if (!done0.has(asOf)) {
-            await forecastStep(asOf);
+            await forecastStep(asOf, rid);
             setNonce((x) => x + 1);
           }
           setRunState((r) => ({ ...r, status: "running", done: k + 1 }));
         }
-        try {
-          await scoreReplay(rid);
-        } catch (e) {
+        if (!stopped) {
+          try {
+            await scoreReplay(rid);
+          } catch (e) {
+          }
+          setRunState((r) => ({ ...r || {}, status: "done", done: steps.length, total: steps.length }));
+          setNonce((x) => x + 1);
         }
-        setRunState((r) => ({ ...r || {}, status: "done", done: steps.length, total: steps.length }));
-        setNonce((x) => x + 1);
       }).catch((e) => {
         setRunState(null);
         setNote(String(e && e.message || e));
+      }).finally(() => {
+        runningRef.current = false;
       });
     };
     const stop = () => {
       stopRef.current = true;
+      runningRef.current = false;
       if (abortRef.current) abortRef.current();
     };
     const applySymbol = (sym) => {
@@ -3381,7 +3391,8 @@ ${ref}`;
             if (evt.text && !text) text = evt.text;
             const data = parseMira(text);
             setGrade({ text, data });
-            setNonce((x) => x + 1);
+            const narrative = data && data.headline || (text || "").replace(/\s+/g, " ").slice(0, 800) || null;
+            calibrateReplay(runId, { narrative }).then(() => setNonce((x) => x + 1)).catch(() => setNonce((x) => x + 1));
           }
         });
       }).catch((e) => setGrade({ error: String(e && e.message || e) }));
@@ -3537,7 +3548,7 @@ ${ref}`;
       ), " pre-market"),
       running ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "vg-btn-sm", onClick: stop }, "\u25A0 Stop") : /* @__PURE__ */ React.createElement("button", { type: "submit", className: "vg-btn", onClick: (e) => {
         e.preventDefault();
-        applySymbol(entry);
+        if (entry !== symbol) applySymbol(entry);
         start();
       } }, "\u25B6 Run replay")
     ), runState && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, runState.status === "planning" ? "Priming data & planning steps\u2026" : runState.status === "running" ? `Forecasting ${runState.done}/${runState.total} \u2026` : runState.status === "stopped" ? `Stopped at ${runState.done}/${runState.total}` : `Done \u2014 ${runState.total} forecasts.`), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress" }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress-bar", style: { width: `${pct5}%` } }))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, note)), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(0, 2, 1) } }), "early"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(1, 2, 1) } }), "late"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "hover a row to highlight its path")), /* @__PURE__ */ React.createElement(ReplayChart, { key: `${symbol}-${runId}`, snap, forecasts: enriched, activeId })), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {

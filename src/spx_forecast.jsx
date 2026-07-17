@@ -753,6 +753,7 @@ function useReplayStore() {
   const [grade, setGrade] = useState(null);          // {loading|data|text|error}
   const stopRef = useRef(false);
   const abortRef = useRef(null);
+  const runningRef = useRef(false);   // airtight re-entry guard (sync, not state)
   useEffect(() => () => { stopRef.current = true; if (abortRef.current) abortRef.current(); }, []);
 
   // the run's saved forecasts (+ scores + calibration), re-fetched on nonce bump.
@@ -760,7 +761,10 @@ function useReplayStore() {
     null, [runId, nonce]);
 
   // one Mira forecast for (day, asOf); resolves when the turn is done + saved.
-  const forecastStep = (asOf) => new Promise((resolve) => {
+  // `rid` is passed EXPLICITLY (not read from state) — the run_id is minted inside
+  // `start` and the loop calls this before the setRunId re-render lands, so the
+  // closed-over state value would still be stale (null).
+  const forecastStep = (asOf, rid) => new Promise((resolve) => {
     getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
       const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
       if (!snapshot) { resolve(false); return; }
@@ -777,7 +781,7 @@ function useReplayStore() {
           if (evt.text && !text) text = evt.text;
           const data = parseMira(text);
           saveSpxForecast({ day, as_of: asOf, symbol, snapshot,
-            forecast: data || null, forecast_text: text, run_id: runId })
+            forecast: data || null, forecast_text: text, run_id: rid })
             .then(() => resolve(true)).catch(() => resolve(false));
         }
       });
@@ -786,6 +790,12 @@ function useReplayStore() {
 
   // PLAN → loop over steps (skipping any already saved for this run) → SCORE.
   const start = () => {
+    // guard against re-entry: a second Run while one is in flight would mint a new
+    // run_id and race the first loop's saves. Ignore it — Stop first to restart.
+    // A ref (not the async `runState`) is the source of truth so overlapping calls
+    // in the same tick can't both pass.
+    if (runningRef.current) return;
+    runningRef.current = true;
     setNote(null); setGrade(null); stopRef.current = false;
     setRunState({ status: "planning", total: 0, done: 0 });
     planReplay(day, symbol, premarket, stepMin).then(async (plan) => {
@@ -802,23 +812,27 @@ function useReplayStore() {
       try { const g = await getReplay(rid); existing = (g && g.forecasts) || []; } catch (e) { /* */ }
       const done0 = new Set(existing.map((f) => f.as_of));
       setRunState({ status: "running", total: steps.length, done: done0.size });
+      let stopped = false;
       for (let k = 0; k < steps.length; k++) {
-        if (stopRef.current) { setRunState((r) => ({ ...r, status: "stopped" })); return; }
+        if (stopRef.current) { setRunState((r) => ({ ...r, status: "stopped" })); stopped = true; break; }
         const asOf = steps[k].as_of;
         if (!done0.has(asOf)) {
-          await forecastStep(asOf);
+          await forecastStep(asOf, rid);
           setNonce((x) => x + 1);
         }
         setRunState((r) => ({ ...r, status: "running", done: k + 1 }));
       }
-      // grade with code once the sequence is in
-      try { await scoreReplay(rid); } catch (e) { /* */ }
-      setRunState((r) => ({ ...(r || {}), status: "done", done: steps.length, total: steps.length }));
-      setNonce((x) => x + 1);
-    }).catch((e) => { setRunState(null); setNote(String((e && e.message) || e)); });
+      if (!stopped) {
+        // grade with code once the sequence is in
+        try { await scoreReplay(rid); } catch (e) { /* score-later is fine */ }
+        setRunState((r) => ({ ...(r || {}), status: "done", done: steps.length, total: steps.length }));
+        setNonce((x) => x + 1);
+      }
+    }).catch((e) => { setRunState(null); setNote(String((e && e.message) || e)); })
+      .finally(() => { runningRef.current = false; });
   };
 
-  const stop = () => { stopRef.current = true; if (abortRef.current) abortRef.current(); };
+  const stop = () => { stopRef.current = true; runningRef.current = false; if (abortRef.current) abortRef.current(); };
 
   const applySymbol = (sym) => {
     const s2 = String(sym || "").trim().toUpperCase();
@@ -846,7 +860,14 @@ function useReplayStore() {
           if (evt.text && !text) text = evt.text;
           const data = parseMira(text);
           setGrade({ text, data });
-          setNonce((x) => x + 1);   // re-pull the persisted calibration
+          // persist the grader's PROSE back onto the calibration record so the
+          // memory compounds (the SCORES were already written by calibrateReplay
+          // above; here we only add the narrative — never a number).
+          const narrative = (data && data.headline)
+            || (text || "").replace(/\s+/g, " ").slice(0, 800) || null;
+          calibrateReplay(runId, { narrative })
+            .then(() => setNonce((x) => x + 1))
+            .catch(() => setNonce((x) => x + 1));
         }
       });
     }).catch((e) => setGrade({ error: String((e && e.message) || e) }));
@@ -945,7 +966,7 @@ export function SpxReplayView() {
           </label>
           {running
             ? <button type="button" className="vg-btn-sm" onClick={stop}>■ Stop</button>
-            : <button type="submit" className="vg-btn" onClick={(e) => { e.preventDefault(); applySymbol(entry); start(); }}>
+            : <button type="submit" className="vg-btn" onClick={(e) => { e.preventDefault(); if (entry !== symbol) applySymbol(entry); start(); }}>
                 ▶ Run replay
               </button>}
         </form>
