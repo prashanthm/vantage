@@ -38,12 +38,14 @@ def test_coach_is_spx_gated_by_symbol():
     # auto-detect SPX from the chart symbol; GEX used only when on SPX
     assert "syminfo.ticker" in s
     assert "isSpx" in s and "useGex" in s
-    # GEX level lines are drawn ONLY when useGex (i.e. on an SPX chart)
+    # levels draw whenever there ARE levels — GEX on SPX, the ICT ladder elsewhere
     line_draw = next(ln for ln in s.splitlines() if "showLines" in ln and "if " in ln)
-    assert "useGex" in line_draw
-    # non-SPX still arms off swing structure
+    assert "hasLevels" in line_draw
+    # non-SPX builds its ladder from ICT structure (unswept liquidity + FVGs)
     assert "ta.pivothigh" in s and "ta.pivotlow" in s
-    assert '"swing low"' in s and '"swing high"' in s
+    assert "ictPx" in s and "buildIct" in s and "useIct" in s
+    assert '"swing high (BSL)"' in s and '"swing low (SSL)"' in s
+    assert '"bull FVG"' in s and '"bear FVG"' in s
 
 
 def test_coach_scale_out_when_target_at_risk():

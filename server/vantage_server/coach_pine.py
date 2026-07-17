@@ -247,8 +247,66 @@ htfTier = confLong or confShort ? "A+" : "B"
 htfDir = confLong or bLong ? "long" : "short"
 htfCe = confLong or bLong ? (high[2] + low) / 2 : (low[2] + high) / 2
 
-// working ladder (price, label, role) — either the GEX arrays or the swings.
+// ── ICT LEVEL LADDER (non-SPX) — structure the coach already computes ─────────
+// SPX plans off the baked GEX ladder. Other tickers have no options chain, so
+// there's no GEX — but the ICT engine is PURE PRICE, so we build a ladder from
+// the structure the coach already tracks: unswept liquidity (swing highs = BSL /
+// resistance, swing lows = SSL / support) + fresh displacement-FVG midlines
+// (validated reaction levels). Same shape as the GEX arrays so ALL the downstream
+// ladder / draw / arming / drawing code consumes it unchanged.
+// HONEST CAVEAT: the ICT edge was backtested on SPX hourly, not on arbitrary
+// tickers — these are ICT STRUCTURAL context on non-SPX, not a validated edge.
+var float[] ictPx = array.new_float()
+var string[] ictLb = array.new_string()
+var string[] ictRo = array.new_string()
+ictMax = input.int(8, "ICT levels kept (non-SPX)", minval=3, maxval=16, group="Coach", tooltip="On non-SPX charts the coach draws this many recent ICT levels (unswept liquidity + fresh FVGs) instead of GEX.")
+// candidate ICT levels this bar (price, label, role); pushed inline (Pine mutates
+// the persistent var arrays directly — matches how the coach handles its arrays).
+buildIct = not isSpx
+_cP = array.new_float()
+_cL = array.new_string()
+_cR = array.new_string()
+if buildIct and not na(swHi)
+    array.push(_cP, swHi)
+    array.push(_cL, "swing high (BSL)")
+    array.push(_cR, "resistance")
+if buildIct and not na(swLo)
+    array.push(_cP, swLo)
+    array.push(_cL, "swing low (SSL)")
+    array.push(_cR, "support")
+if buildIct and bullFvg
+    array.push(_cP, (high[2] + low) / 2)
+    array.push(_cL, "bull FVG")
+    array.push(_cR, "support")
+if buildIct and bearFvg
+    array.push(_cP, (low[2] + high) / 2)
+    array.push(_cL, "bear FVG")
+    array.push(_cR, "resistance")
+if buildIct and array.size(_cP) > 0
+    for _k = 0 to array.size(_cP) - 1
+        _p = array.get(_cP, _k)
+        _dup = false
+        if array.size(ictPx) > 0
+            for _i = 0 to array.size(ictPx) - 1
+                if math.abs(array.get(ictPx, _i) - _p) < (na(atr) ? 0.0 : atr * 0.15)
+                    _dup := true
+        if not _dup
+            array.push(ictPx, _p)
+            array.push(ictLb, array.get(_cL, _k))
+            array.push(ictRo, array.get(_cR, _k))
+            if array.size(ictPx) > ictMax
+                array.shift(ictPx)
+                array.shift(ictLb)
+                array.shift(ictRo)
+
+// working ladder (price, label, role) — GEX on SPX, ICT structure elsewhere.
 useGex = isSpx and array.size(gexPx) > 0
+useIct = not isSpx and array.size(ictPx) > 0
+// unified level source the downstream ladder/draw/drawing code reads from.
+lvlPx = useGex ? gexPx : ictPx
+lvlLb = useGex ? gexLb : ictLb
+lvlRo = useGex ? gexRo : ictRo
+hasLevels = array.size(lvlPx) > 0
 
 // nearest support-ish (below/at price) and resistance-ish (above/at price)
 var float supPx = na
@@ -259,13 +317,13 @@ supPx := na
 supLb := na
 resPx := na
 resLb := na
-if useGex
+if hasLevels
     bestSup = 1e9
     bestRes = 1e9
-    for i = 0 to array.size(gexPx) - 1
-        p = array.get(gexPx, i)
-        ro = array.get(gexRo, i)
-        lb = array.get(gexLb, i)
+    for i = 0 to array.size(lvlPx) - 1
+        p = array.get(lvlPx, i)
+        ro = array.get(lvlRo, i)
+        lb = array.get(lvlLb, i)
         // Arm off the S/R-tagged levels only. Backtested (coach-edge H4): making
         // EVERY level tradeable by position (incl. bare volume-PoC / fib) cut
         // WR 0.73 → 0.37 / PF 6.9 → 1.15 — the support/resistance-tagged levels
@@ -281,13 +339,6 @@ if useGex
             bestRes := p - close
             resPx := p
             resLb := lb
-else
-    if not na(lastSwLo)
-        supPx := lastSwLo
-        supLb := "swing low"
-    if not na(lastSwHi)
-        resPx := lastSwHi
-        resLb := "swing high"
 
 // distance from VWAP in ATR — the "extended / chasing" gauge
 vwGap = na(vwap) or na(atr) or atr == 0 ? na : (close - vwap) / atr
@@ -312,9 +363,9 @@ midday = mins >= 11*60 and mins < 14*60
 // above and below price:
 nearAbove = 1e11
 nearBelow = -1e11
-if useGex and array.size(gexPx) > 0
-    for i = 0 to array.size(gexPx) - 1
-        p = array.get(gexPx, i)
+if hasLevels
+    for i = 0 to array.size(lvlPx) - 1
+        p = array.get(lvlPx, i)
         if p > close and p < nearAbove
             nearAbove := p
         if p < close and p > nearBelow
@@ -539,16 +590,16 @@ plot(armRR,      "RR",     display=display.none)
 // always readable next to price, not stranded off-screen.
 var line[] gexLines = array.new_line()
 var label[] gexLabels = array.new_label()
-if showLines and useGex and barstate.islast
+if showLines and hasLevels and barstate.islast
     if array.size(gexLines) > 0
         for i = 0 to array.size(gexLines) - 1
             line.delete(array.get(gexLines, i))
             label.delete(array.get(gexLabels, i))
         array.clear(gexLines)
         array.clear(gexLabels)
-    for i = 0 to array.size(gexPx) - 1
-        p  = array.get(gexPx, i)
-        ro = array.get(gexRo, i)
+    for i = 0 to array.size(lvlPx) - 1
+        p  = array.get(lvlPx, i)
+        ro = array.get(lvlRo, i)
         isRes = ro == "callwall" or ro == "resistance"
         isSup = ro == "putwall" or ro == "support"
         col = isRes ? color.new(#cf3b47, 25) : isSup ? color.new(#16915b, 25) : color.new(#e0a020, 15)
@@ -556,7 +607,7 @@ if showLines and useGex and barstate.islast
         array.push(gexLines, line.new(bar_index - 300, p, bar_index, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=wide ? 2 : 1))
         // anchor the level tag to the RIGHT EDGE (a few bars into the future
         // space) so it sits off the candles, not floating over price action.
-        array.push(gexLabels, label.new(bar_index + 8, p, array.get(gexLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
+        array.push(gexLabels, label.new(bar_index + 8, p, array.get(lvlLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
 
 // TRADE / PLAN lines on the chart: entry · stop · target.
 // While IN a trade they're solid; while ARMED they're drawn FAINT + dotted so
@@ -655,7 +706,7 @@ if showPanel and barstate.islast
     // once the chart has moved past it (re-pull the coach to refresh).
     todayNum = year * 10000 + month * 100 + dayofmonth
     gexStale = useGex and gexDateNum > 0 and todayNum > gexDateNum
-    caveatTxt = useGex ? ("GEX levels · " + gexDate + (gexStale ? "  ⚠ STALE — re-pull" : "  ✓")) : "coach read — not a prediction"
+    caveatTxt = useGex ? ("GEX levels · " + gexDate + (gexStale ? "  ⚠ STALE — re-pull" : "  ✓")) : useIct ? "ICT structure levels · not SPX-validated" : "coach read — not a prediction"
     table.cell(panel, 0, 10, caveatTxt, text_color=gexStale ? color.new(#ffc247, 0) : color.new(#5a6270, 0), bgcolor=dark, text_size=size.tiny, text_halign=text.align_center)
     table.merge_cells(panel, 0, 10, 1, 10)
 
