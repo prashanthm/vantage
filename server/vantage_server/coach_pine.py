@@ -209,6 +209,44 @@ var float lastSwLo = na
 lastSwHi := not na(swHi) ? swHi : lastSwHi
 lastSwLo := not na(swLo) ? swLo : lastSwLo
 
+// ── HOURLY ICT HEADS-UP (backtest-validated; fires only on >=60m charts) ─────
+// Put this indicator on your 1H chart and it detects the setups the
+// ict-concepts-edge goal confirmed on SPX hourly, then alerts you to drop to a
+// lower timeframe for entry. On <60m charts it stays silent (its normal ARMED/
+// TRIGGER role runs instead). NOTE: this Pine detection is an APPROXIMATION of
+// the server-side ict_htf (which is the parity-validated source of truth) — the
+// sandbox can't perfectly replicate the Python. Two tiers:
+//   A+ = a liquidity SWEEP of a pivot, then within 8 bars a DISPLACEMENT FVG
+//        (3-candle gap, middle body > 0.7*ATR) in the reversal direction.
+//   B  = a displacement FVG alone (the +0.42R workhorse).
+isHtfTf = timeframe.in_seconds(timeframe.period) >= 3600
+dispBody = na(atr) or atr == 0 ? false : math.abs(close[1] - open[1]) > 0.7 * atr
+// 3-candle FVG on the just-closed gap (bar[1] is the middle candle)
+bullFvg = low > high[2] and dispBody
+bearFvg = high < low[2] and dispBody
+// sweep of the most recent swing: wick beyond, close back inside
+sweepUp = not na(lastSwLo) and low < lastSwLo and close > lastSwLo   // swept SSL, bullish
+sweepDn = not na(lastSwHi) and high > lastSwHi and close < lastSwHi  // swept BSL, bearish
+var int sweepBar = na
+var int sweepDir = 0
+if sweepUp
+    sweepBar := bar_index
+    sweepDir := 1
+if sweepDn
+    sweepBar := bar_index
+    sweepDir := -1
+recentSweep = not na(sweepBar) and (bar_index - sweepBar) <= 8
+// confluence = a fresh displacement FVG in the swept direction, within 8 bars
+confLong = isHtfTf and recentSweep and sweepDir == 1 and bullFvg
+confShort = isHtfTf and recentSweep and sweepDir == -1 and bearFvg
+// bare displacement-FVG (tier B) when there's no qualifying sweep confluence
+bLong = isHtfTf and bullFvg and not confLong
+bShort = isHtfTf and bearFvg and not confShort
+htfFire = confLong or confShort or bLong or bShort
+htfTier = confLong or confShort ? "A+" : "B"
+htfDir = confLong or bLong ? "long" : "short"
+htfCe = confLong or bLong ? (high[2] + low) / 2 : (low[2] + high) / 2
+
 // working ladder (price, label, role) — either the GEX arrays or the swings.
 useGex = isSpx and array.size(gexPx) > 0
 
@@ -631,6 +669,15 @@ f_alert(evt, headline, detail) =>
     alert(msg, alert.freq_once_per_bar_close)
 
 dirWord = tDir == 1 or showLong ? "LONG" : "SHORT"
+
+// HOURLY heads-up (only on >=60m charts): fire once when a setup forms, telling
+// you to look to a lower timeframe for the entry. Not an entry itself.
+if htfFire
+    f_alert("HEADS_UP", "⚡ " + htfTier + " HOURLY SETUP · " + str.upper(htfDir) + " · near " + str.tostring(htfCe, "#.#"), "backtest-validated hourly " + (htfTier == "A+" ? "confluence (sweep→displacement FVG)" : "displacement-FVG") + " — drop to 5m/1m for entry")
+    // a chart marker so the setup is visible on the 1H chart, not just Telegram
+    htfCol = htfDir == "long" ? color.new(#39d98a, 20) : color.new(#ff6b74, 20)
+    label.new(bar_index, htfDir == "long" ? low : high, "⚡ " + htfTier + " " + str.upper(htfDir) + " → LTF", style=(htfDir == "long" ? label.style_label_up : label.style_label_down), color=htfCol, textcolor=color.white, size=size.small)
+
 if firedNow
     f_alert("TRIGGERED", (tDir == 1 ? "🔔 BUY CALLS" : "🔔 BUY PUTS") + " · " + armLbl + " " + str.tostring(tEntry, "#.#") + (lowConviction ? " · ⚠ LOW CONVICTION" : ""), "target " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")) + (lowConviction ? " · " + convReason : "") + " · read: " + str.lower(readVerd))
 if state == "SCALE" and state[1] != "SCALE"
@@ -654,4 +701,5 @@ alertcondition(stateChanged and state == "SCALE", "Coach: SCALE OUT", '{"secret"
 alertcondition(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", "Coach: TARGET HIT", '{"secret":"{webhook_secret}","source":"coach","event":"TARGET","symbol":"{{ticker}}","target":{{plot("Target")}},"price":{{close}}}')
 alertcondition(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", "Coach: STOPPED", '{"secret":"{webhook_secret}","source":"coach","event":"STOPPED","symbol":"{{ticker}}","stop":{{plot("Stop")}},"price":{{close}}}')
 alertcondition(stateChanged and state == "ARMED", "Coach: ARMED", '{"secret":"{webhook_secret}","source":"coach","event":"ARMED","symbol":"{{ticker}}","entry":{{plot("Entry")}},"target":{{plot("Target")}},"stop":{{plot("Stop")}},"rr":{{plot("RR")}},"price":{{close}}}')
+alertcondition(htfFire, "Coach: HOURLY SETUP", '{"secret":"{webhook_secret}","source":"coach","event":"HEADS_UP","symbol":"{{ticker}}","headline":"hourly setup — drop to LTF for entry","price":{{close}}}')
 '''

@@ -60,6 +60,7 @@ _COACH_EVENT = {
     "ARMED": "⏳ ARMED",
     "TARGET": "✅ TARGET HIT",
     "STOPPED": "🛑 STOPPED",
+    "HEADS_UP": "⚡ HOURLY SETUP",
 }
 
 
