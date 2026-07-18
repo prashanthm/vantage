@@ -315,6 +315,7 @@
     getPlaybookPine: () => getPlaybookPine,
     getReclaimPine: () => getReclaimPine,
     getReplay: () => getReplay,
+    getReplays: () => getReplays,
     getRoundtrips: () => getRoundtrips,
     getSessionActivity: () => getSessionActivity,
     getSignals: () => getSignals,
@@ -1130,6 +1131,7 @@
     { day, symbol, premarket, step_min: stepMin },
     { timeoutMs: 6e4 }
   );
+  var getReplays = (limit = 40) => getJson(`${backendBase()}/api/replay/runs?limit=${limit}`, { timeoutMs: 2e4 });
   var getReplay = (runId) => getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 2e4 });
   var scoreReplay = (runId) => postJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}/score`, {});
   var calibrateReplay = (runId, body = {}) => postJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}/calibration`, body);
@@ -3397,6 +3399,20 @@ ${ref}`;
         });
       }).catch((e) => setGrade({ error: String(e && e.message || e) }));
     };
+    const runsQ = useLive(() => getReplays(40), null, [nonce]);
+    const loadRun = (run) => {
+      if (!run || !run.run_id) return;
+      stop();
+      runningRef.current = false;
+      setSymbol(run.symbol || "SPX");
+      setEntry(run.symbol || "SPX");
+      if (run.day) setDay(run.day);
+      setGrade(null);
+      setNote(null);
+      setRunState({ status: "done", total: run.n || 0, done: run.n || 0 });
+      setRunId(run.run_id);
+      setNonce((x) => x + 1);
+    };
     return {
       symbol,
       entry,
@@ -3415,6 +3431,8 @@ ${ref}`;
       start,
       stop,
       runQ,
+      runsQ,
+      loadRun,
       activeId,
       setActiveId,
       grade,
@@ -3462,6 +3480,8 @@ ${ref}`;
       start,
       stop,
       runQ,
+      runsQ,
+      loadRun,
       activeId,
       setActiveId,
       grade,
@@ -3551,7 +3571,19 @@ ${ref}`;
         if (entry !== symbol) applySymbol(entry);
         start();
       } }, "\u25B6 Run replay")
-    ), runState && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, runState.status === "planning" ? "Priming data & planning steps\u2026" : runState.status === "running" ? `Forecasting ${runState.done}/${runState.total} \u2026` : runState.status === "stopped" ? `Stopped at ${runState.done}/${runState.total}` : `Done \u2014 ${runState.total} forecasts.`), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress" }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress-bar", style: { width: `${pct5}%` } }))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, note)), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(0, 2, 1) } }), "early"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(1, 2, 1) } }), "late"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "hover a row to highlight its path")), /* @__PURE__ */ React.createElement(ReplayChart, { key: `${symbol}-${runId}`, snap, forecasts: enriched, activeId })), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
+    ), runState && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, runState.status === "planning" ? "Priming data & planning steps\u2026" : runState.status === "running" ? `Forecasting ${runState.done}/${runState.total} \u2026` : runState.status === "stopped" ? `Stopped at ${runState.done}/${runState.total}` : `Done \u2014 ${runState.total} forecasts.`), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress" }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress-bar", style: { width: `${pct5}%` } }))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, note)), runsQ.data && runsQ.data.runs && runsQ.data.runs.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 0 8px" } }, "Saved runs"), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-runlist" }, runsQ.data.runs.map((r) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: r.run_id,
+        className: cls("vg-fc-runchip", r.run_id === runId && "vg-fc-runchip-on"),
+        onClick: () => loadRun(r),
+        title: `load ${r.symbol} ${r.day} \u2014 ${r.n} forecasts`
+      },
+      /* @__PURE__ */ React.createElement("b", null, r.symbol),
+      /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, r.day),
+      /* @__PURE__ */ React.createElement("span", { className: "vg-fc-runmeta" }, r.n_scored, "/", r.n, " scored"),
+      r.graded && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { fontSize: 9 } }, "graded")
+    )))), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(0, 2, 1) } }), "early"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(1, 2, 1) } }), "late"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "hover a row to highlight its path")), /* @__PURE__ */ React.createElement(ReplayChart, { key: `${symbol}-${runId}`, snap, forecasts: enriched, activeId })), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
       const path = f.plot && f.plot.path || [];
       const sc = f.score;
       const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";

@@ -1000,6 +1000,17 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-fc-cmpstep { color: var(--vg-ink); }
 .vg-fc-cmp td.up { color: var(--vg-up); }
 .vg-fc-cmp td.down { color: var(--vg-down); }
+/* the saved-runs picker */
+.vg-fc-runlist { display: flex; flex-wrap: wrap; gap: 8px; }
+.vg-fc-runchip { display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 12px; border-radius: var(--vg-r-sm); cursor: pointer;
+  border: 1px solid var(--vg-hairline); background: var(--vg-card);
+  color: var(--vg-ink); font-size: 12px; }
+.vg-fc-runchip:hover { background: var(--vg-raised); }
+.vg-fc-runchip-on { border-color: color-mix(in srgb, var(--vg-up) 45%, transparent);
+  background: var(--vg-up-soft); }
+.vg-fc-runmeta { color: var(--vg-dim); font-variant-numeric: tabular-nums; }
+
 /* the read-only calibration record */
 .vg-fc-cal { border-top: 1px solid var(--vg-hairline); padding-top: 10px; }
 .vg-fc-calgrp { margin-top: 8px; }

@@ -1024,6 +1024,9 @@ export const refreshSpx = (symbol) =>
 export const planReplay = (day, symbol = "SPX", premarket = false, stepMin = 15) =>
   postJson(`${backendBase()}/api/replay/plan`,
     { day, symbol, premarket, step_min: stepMin }, { timeoutMs: 60000 });
+// Saved replay runs, newest first — the picker list (summary per run).
+export const getReplays = (limit = 40) =>
+  getJson(`${backendBase()}/api/replay/runs?limit=${limit}`, { timeoutMs: 20000 });
 // A run's saved forecasts (chronological) + persisted scores + calibration.
 export const getReplay = (runId) =>
   getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 20000 });

@@ -193,6 +193,31 @@ def test_grade_bundle_none_for_unknown_run(tmp_path):
     assert rf.gather_grade_bundle(store, "nope") is None
 
 
+def test_list_replay_runs_summarizes_newest_first(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _seed_day(store, "2026-07-16")
+    d1 = store.load_intraday_bars("^GSPC", "2026-07-16", "1m")
+    # run A: 2 forecasts, 1 scored; run B: 1 forecast, graded
+    for k in (30, 60):
+        fid = store.save_spx_forecast(
+            symbol="SPX", day="2026-07-16", as_of=d1["ts"][k], price_at=d1["close"][k],
+            snapshot={}, forecast={"plot": {"bias": "up"}}, forecast_text="", run_id="run-A")
+    store.save_spx_forecast_score(fid, {"verdict": "hit target"})   # one scored in A
+    store.save_spx_forecast(
+        symbol="QQQ", day="2026-07-16", as_of=d1["ts"][90], price_at=d1["close"][90],
+        snapshot={}, forecast={"plot": {"bias": "down"}}, forecast_text="", run_id="run-B")
+    store.save_spx_calibration({"day": "2026-07-16", "underlying": "QQQ", "run_id": "run-B",
+                                "generated_at": "2026-07-16T20:00:00Z", "n_forecasts": 1,
+                                "scores": {"overall": {"n": 1}}})
+    runs = store.list_replay_runs()
+    ids = [r["run_id"] for r in runs]
+    assert "run-A" in ids and "run-B" in ids
+    a = next(r for r in runs if r["run_id"] == "run-A")
+    b = next(r for r in runs if r["run_id"] == "run-B")
+    assert a["n"] == 2 and a["n_scored"] == 1 and a["graded"] is False
+    assert b["symbol"] == "QQQ" and b["graded"] is True
+
+
 def test_grade_prompt_forbids_computing_scores(tmp_path):
     # the anti-reward-hacking clause must be in the prompt the grader receives
     store = _sqlite_store(tmp_path)

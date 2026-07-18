@@ -12,7 +12,7 @@ import { chartTheme } from "./charts.jsx";
 import {
   useLive, streamTurn, getSpxSnapshot, saveSpxForecast,
   getSpxForecasts, scoreSpxForecast, prepareSpx, refreshSpx,
-  planReplay, getReplay, scoreReplay, calibrateReplay,
+  planReplay, getReplays, getReplay, scoreReplay, calibrateReplay,
 } from "./live.js";
 
 const { useState, useRef, useEffect } = React;
@@ -873,10 +873,27 @@ function useReplayStore() {
     }).catch((e) => setGrade({ error: String((e && e.message) || e) }));
   };
 
+  // the saved-runs list (newest first), re-pulled when a run completes (nonce).
+  const runsQ = useLive(() => getReplays(40), null, [nonce]);
+
+  // LOAD a saved run — point the view at an existing run_id (no new forecasting).
+  // Sync the symbol/day inputs to it too so the header + snapshot match.
+  const loadRun = (run) => {
+    if (!run || !run.run_id) return;
+    stop();                              // halt any in-flight run first
+    runningRef.current = false;
+    setSymbol(run.symbol || "SPX"); setEntry(run.symbol || "SPX");
+    if (run.day) setDay(run.day);
+    setGrade(null); setNote(null);
+    setRunState({ status: "done", total: run.n || 0, done: run.n || 0 });
+    setRunId(run.run_id);
+    setNonce((x) => x + 1);
+  };
+
   return {
     symbol, entry, setEntry, applySymbol, PLAYBOOK_SYMBOLS,
     day, setDay, stepMin, setStepMin, premarket, setPremarket,
-    note, runId, runState, start, stop, runQ, activeId, setActiveId,
+    note, runId, runState, start, stop, runQ, runsQ, loadRun, activeId, setActiveId,
     grade, gradeRun, todayISO,
   };
 }
@@ -905,7 +922,7 @@ function enrichForRun(forecasts, snap) {
 export function SpxReplayView() {
   const p = useReplayStore();
   const { symbol, entry, setEntry, applySymbol, day, setDay, stepMin, setStepMin,
-    premarket, setPremarket, note, runId, runState, start, stop, runQ,
+    premarket, setPremarket, note, runId, runState, start, stop, runQ, runsQ, loadRun,
     activeId, setActiveId, grade, gradeRun, todayISO } = p;
 
   // the run's forecasts + a snapshot of the WHOLE day (as_of=null → full session)
@@ -983,6 +1000,24 @@ export function SpxReplayView() {
           </div>)}
         {note && <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{note}</p>}
       </div>
+
+      {runsQ.data && runsQ.data.runs && runsQ.data.runs.length > 0 && (
+        <div className="vg-card" style={{ padding: 14, marginBottom: 12 }}>
+          <div className="vg-kicker" style={{ margin: "0 0 8px" }}>Saved runs</div>
+          <div className="vg-fc-runlist">
+            {runsQ.data.runs.map((r) => (
+              <button key={r.run_id}
+                className={cls("vg-fc-runchip", r.run_id === runId && "vg-fc-runchip-on")}
+                onClick={() => loadRun(r)}
+                title={`load ${r.symbol} ${r.day} — ${r.n} forecasts`}>
+                <b>{r.symbol}</b>
+                <span className="vg-note">{r.day}</span>
+                <span className="vg-fc-runmeta">{r.n_scored}/{r.n} scored</span>
+                {r.graded && <span className="vg-badge info" style={{ fontSize: 9 }}>graded</span>}
+              </button>
+            ))}
+          </div>
+        </div>)}
 
       {snap && enriched.length > 0 && (
         <div className="vg-card vg-fc-chartcard" style={{ padding: 14, marginBottom: 12 }}>

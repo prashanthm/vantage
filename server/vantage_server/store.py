@@ -1250,6 +1250,34 @@ class Store:
             conn.close()
         return [self._forecast_row(r) for r in rows]
 
+    def list_replay_runs(self, limit: int = 40) -> list[dict]:
+        """One summary row per saved replay run, newest first — for the SPA's
+        saved-runs picker. Each carries {run_id, symbol, day, n, n_scored,
+        created_at, graded} so the list can show a date + a hit-rate badge
+        without loading every forecast. The hit-rate itself comes from the
+        graded calibration when present (kept in code, never recomputed here)."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT run_id, symbol, day, COUNT(*) AS n, "
+                "  SUM(CASE WHEN scored_at IS NOT NULL THEN 1 ELSE 0 END) AS n_scored, "
+                "  MIN(created_at) AS created_at "
+                "FROM spx_forecast WHERE run_id IS NOT NULL "
+                "GROUP BY run_id ORDER BY MIN(created_at) DESC LIMIT ?",
+                (int(limit),)).fetchall()
+            cal_runs = {r["run_id"] for r in conn.execute(
+                "SELECT DISTINCT run_id FROM spx_calibration").fetchall()}
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["graded"] = d["run_id"] in cal_runs
+            out.append(d)
+        return out
+
     def list_spx_forecasts(self, symbol: str = "SPX", day: str | None = None,
                            limit: int = 50) -> list[dict]:
         """Stored forecasts, newest first."""

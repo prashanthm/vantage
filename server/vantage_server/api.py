@@ -620,6 +620,15 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         primed=primed.get("primed", False), has_levels=has_levels,
                         steps=steps, note=note)
 
+    @app.get("/api/replay/runs")
+    def replay_list(limit: int = Query(40)):
+        """Saved replay runs, newest first — one summary row each (run_id, symbol,
+        day, n, n_scored, graded) for the SPA's saved-runs picker. Declared BEFORE
+        the /{run_id} route so 'runs' isn't captured as a run_id."""
+        snap = state.snapshot()
+        runs = store.list_replay_runs(limit) if getattr(store, "uses_sqlite", False) else []
+        return envelope(snap, available=True, runs=runs)
+
     @app.get("/api/replay/{run_id}")
     def replay_get(run_id: str):
         """The run's saved forecasts (chronological) with their persisted scores,
