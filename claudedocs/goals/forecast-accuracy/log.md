@@ -191,3 +191,23 @@ work for this problem; HIT-RATE is what moves. Switching the predicate needs the
 Recommendation: adopt hit-rate as primary (predicate: hit-rate ↑ vs E0 0.436, holds
 on held-out days), KEEP C1 (the target-discipline prompt — biggest hit-rate gain,
 consistent), and continue the C-arm optimizing hit-rate. Loop paused for this call.
+
+## C2 weight the DRAW + validated HTF over 1m micro-structure (prompt, on C1)
+baseline for comparison: C1 run (hit 0.593) — C1 is now shipped, so C2 = C1 prompt +
+this change. Predicate metric: hit-rate.
+prediction: HELPS — prior goals proved ICT edge is HOURLY not 1m (ict-concepts-edge
+confirmed vs ict-coach disproved 1m). Telling the analyst to anchor its bias/target
+on the DRAW (validated magnet) + the ict_htf setup, and DISCOUNT 1m noise, should
+lift hit-rate further (fewer whipsaw calls). Predict hit-rate ↑ vs C1 (≥0.62); target
+one-sided flat/down.
+experiment: add one prompt line to spx_analyst (keeping C1's target discipline):
+'weight the DRAW and the ict_htf hourly setup as your PRIMARY bias driver; treat
+1-minute wiggles as noise, not signal.' Re-forecast 8 E0 days `--run-tag c2` vs c1.
+result: C1 (baseline) hit 0.593. C2 hit **0.482 (−0.11, WORSE)**, mean-undershoot 1.86.
+verdict: **DISPROVEN.** Anchoring bias on the draw/HTF and discounting 1m tape made
+the analyst WORSE at reading intraday direction — it hit less often, presumably slower
+to follow the actual move. Refutes trust-HTF-over-price for INTRADAY direction (the
+hourly edge is for SWING context, not minute-by-minute bias) and reinforces C1
+(reachable targets) as the real lever. C2 is still above E0 (0.436) only because it
+keeps C1s target discipline.
+kept: reverted (C2 prompt line removed; C1 stays).
