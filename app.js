@@ -3118,8 +3118,8 @@ ${ref}`;
   function ReplayChart({ snap, forecasts, activeId }) {
     const elRef = useRef2(null);
     const chartRef = useRef2(null);
-    const candleRef = useRef2(null);
-    const pathSeriesRefs = useRef2([]);
+    const actualRef = useRef2(null);
+    const predSeriesRefs = useRef2([]);
     useEffect4(() => {
       const el = elRef.current;
       if (!el || !hasLW2()) return void 0;
@@ -3132,7 +3132,7 @@ ${ref}`;
         rightPriceScale: {
           borderColor: th.border,
           minimumWidth: 72,
-          scaleMargins: { top: 0.08, bottom: 0.08 },
+          scaleMargins: { top: 0.12, bottom: 0.12 },
           autoScale: true
         },
         timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false },
@@ -3150,88 +3150,88 @@ ${ref}`;
           vertTouchDrag: true
         }
       });
-      const candle = chart.addCandlestickSeries({
-        upColor: th.up,
-        downColor: th.down,
-        wickUpColor: th.up,
-        wickDownColor: th.down,
-        borderUpColor: th.up,
-        borderDownColor: th.down
+      const actual = chart.addLineSeries({
+        color: th.text,
+        lineWidth: 2,
+        priceLineVisible: false,
+        lastValueVisible: true,
+        crosshairMarkerVisible: true
       });
       chartRef.current = chart;
-      candleRef.current = candle;
+      actualRef.current = actual;
       return () => {
         chart.remove();
-        chartRef.current = candleRef.current = null;
-        pathSeriesRefs.current = [];
+        chartRef.current = actualRef.current = null;
+        predSeriesRefs.current = [];
       };
     }, []);
     const fittedRef = useRef2(false);
     useEffect4(() => {
-      const candle = candleRef.current;
+      const actual = actualRef.current;
       const bars = snap && snap.bars_5m;
-      if (!candle || !bars || !bars.length) return;
-      candle.setData(bars);
-      if (chartRef.current && !fittedRef.current) {
+      if (!actual || !bars || !bars.length) return;
+      const day = snap.day;
+      const dayBars = day ? bars.filter((b) => {
+        const d = new Date(b.time * 1e3).toISOString().slice(0, 10);
+        return d === day;
+      }) : bars;
+      const use = dayBars.length ? dayBars : bars;
+      actual.setData(use.map((b) => ({ time: b.time, value: b.close })));
+      if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
         fittedRef.current = true;
       }
     }, [snap]);
     useEffect4(() => {
-      const chart = chartRef.current, candle = candleRef.current;
-      if (!chart || !candle) return;
+      const chart = chartRef.current;
+      if (!chart) return;
       const LW = window.LightweightCharts;
-      for (const s of pathSeriesRefs.current) {
+      const th = chartTheme();
+      for (const s of predSeriesRefs.current) {
         try {
           chart.removeSeries(s);
         } catch (e) {
         }
       }
-      pathSeriesRefs.current = [];
-      const list = (forecasts || []).filter((f) => f.plot && Array.isArray(f.plot.path) && f.plot.path.length);
+      predSeriesRefs.current = [];
+      const list = (forecasts || []).filter((f) => f.plot && f.plot.target != null && f._t0);
       const n = list.length;
-      const allMarkers = [];
+      const markers = [];
+      const horizon = list.length ? (list[0]._barSec || 300) * 6 : 1800;
       list.forEach((f, i) => {
         const isActive = activeId != null && f.id === activeId;
-        const alpha = activeId == null ? 0.5 : isActive ? 1 : 0.14;
-        const steps = f.plot.path.filter((st) => st.price != null);
-        if (!steps.length) return;
-        const data = [{ time: f._t0, value: f.price_at != null ? f.price_at : steps[0].price }];
-        steps.forEach((st, k) => data.push({ time: f._t0 + f._barSec * (k + 1), value: st.price }));
+        const dimmed = activeId != null && !isActive;
+        const alpha = dimmed ? 0.12 : isActive ? 1 : 0.7;
+        const sc = f.score || {};
+        const good = sc.verdict === "hit target" || sc.verdict === "direction correct";
+        const bad = sc.verdict === "invalidated" || sc.verdict === "direction wrong";
+        const col = good ? `rgba(${th.upRgb.join(",")},${alpha})` : bad ? `rgba(${th.downRgb.join(",")},${alpha})` : rampColor(i, n, alpha);
+        const from = f.price_at != null ? f.price_at : f.plot.target;
         try {
           const ps = chart.addLineSeries({
-            color: rampColor(i, n, alpha),
+            color: col,
             lineWidth: isActive ? 3 : 1,
-            lineStyle: isActive ? LW.LineStyle.Solid : LW.LineStyle.Dashed,
+            lineStyle: LW.LineStyle.Dashed,
             lastValueVisible: false,
             priceLineVisible: false,
             crosshairMarkerVisible: false
           });
-          ps.setData(data);
-          pathSeriesRefs.current.push(ps);
+          ps.setData([{ time: f._t0, value: from }, { time: f._t0 + horizon, value: f.plot.target }]);
+          predSeriesRefs.current.push(ps);
         } catch (e) {
         }
-        allMarkers.push({
+        const up = f.plot.target >= from;
+        markers.push({
           time: f._t0,
-          position: "aboveBar",
-          shape: "circle",
-          color: rampColor(i, n, isActive ? 1 : 0.6),
-          text: isActive ? hhmm(f.as_of) : ""
+          position: up ? "aboveBar" : "belowBar",
+          shape: up ? "arrowUp" : "arrowDown",
+          color: good ? `rgb(${th.upRgb.join(",")})` : bad ? `rgb(${th.downRgb.join(",")})` : rampColor(i, n, 0.9),
+          text: isActive ? `${hhmm(f.as_of)} \u2192 ${f.plot.target}` : hhmm(f.as_of)
         });
-        if (isActive) {
-          const th = chartTheme();
-          steps.forEach((st, k) => allMarkers.push({
-            time: f._t0 + f._barSec * (k + 1),
-            position: st.dir === "down" ? "belowBar" : "aboveBar",
-            shape: st.dir === "down" ? "arrowDown" : "arrowUp",
-            color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
-            text: `${st.seq} \xB7 ${st.price}`
-          }));
-        }
       });
-      allMarkers.sort((a, b) => a.time - b.time);
+      markers.sort((a, b) => a.time - b.time);
       try {
-        candle.setMarkers(allMarkers);
+        if (actualRef.current) actualRef.current.setMarkers(markers);
       } catch (e) {
       }
     }, [snap, forecasts, activeId]);
@@ -3583,7 +3583,7 @@ ${ref}`;
       /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, r.day),
       /* @__PURE__ */ React.createElement("span", { className: "vg-fc-runmeta" }, r.n_scored, "/", r.n, " scored"),
       r.graded && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { fontSize: 9 } }, "graded")
-    )))), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(0, 2, 1) } }), "early"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: rampColor(1, 2, 1) } }), "late"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "hover a row to highlight its path")), /* @__PURE__ */ React.createElement(ReplayChart, { key: `${symbol}-${runId}`, snap, forecasts: enriched, activeId })), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
+    )))), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-ink)" } }), "actual price"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "prediction hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "prediction missed"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "hover a row to highlight its prediction")), /* @__PURE__ */ React.createElement(ReplayChart, { key: `${symbol}-${runId}`, snap, forecasts: enriched, activeId })), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
       const path = f.plot && f.plot.path || [];
       const sc = f.score;
       const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";

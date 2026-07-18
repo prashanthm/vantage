@@ -638,8 +638,8 @@ function rampColor(i, n, alpha) {
 function ReplayChart({ snap, forecasts, activeId }) {
   const elRef = useRef(null);
   const chartRef = useRef(null);
-  const candleRef = useRef(null);
-  const pathSeriesRefs = useRef([]);               // one line series per forecast
+  const actualRef = useRef(null);                  // the real market path (line)
+  const predSeriesRefs = useRef([]);               // one dashed line per forecast prediction
 
   useEffect(() => {
     const el = elRef.current;
@@ -651,7 +651,7 @@ function ReplayChart({ snap, forecasts, activeId }) {
       layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
       grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
       rightPriceScale: { borderColor: th.border, minimumWidth: 72,
-        scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
+        scaleMargins: { top: 0.12, bottom: 0.12 }, autoScale: true },
       timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false },
       crosshair: { mode: LW.CrosshairMode.Normal },
       handleScale: { mouseWheel: true, pinch: true,
@@ -660,74 +660,82 @@ function ReplayChart({ snap, forecasts, activeId }) {
       handleScroll: { mouseWheel: true, pressedMouseMove: true,
         horzTouchDrag: true, vertTouchDrag: true },
     });
-    const candle = chart.addCandlestickSeries({
-      upColor: th.up, downColor: th.down, wickUpColor: th.up, wickDownColor: th.down,
-      borderUpColor: th.up, borderDownColor: th.down,
+    // the ACTUAL market path — a solid neutral line of the real closes, so the
+    // forecasts can be read AGAINST what price actually did.
+    const actual = chart.addLineSeries({
+      color: th.text, lineWidth: 2, priceLineVisible: false, lastValueVisible: true,
+      crosshairMarkerVisible: true,
     });
-    chartRef.current = chart; candleRef.current = candle;
-    return () => { chart.remove(); chartRef.current = candleRef.current = null;
-      pathSeriesRefs.current = []; };
+    chartRef.current = chart; actualRef.current = actual;
+    return () => { chart.remove(); chartRef.current = actualRef.current = null;
+      predSeriesRefs.current = []; };
   }, []);
 
-  // candles (fit once)
+  // the actual market line: close of each candle, restricted to the run's day so
+  // the chart frames the session (not the whole multi-day history). Fit once.
   const fittedRef = useRef(false);
   useEffect(() => {
-    const candle = candleRef.current;
+    const actual = actualRef.current;
     const bars = snap && snap.bars_5m;
-    if (!candle || !bars || !bars.length) return;
-    candle.setData(bars);
-    if (chartRef.current && !fittedRef.current) {
-      chartRef.current.timeScale().fitContent(); fittedRef.current = true;
-    }
+    if (!actual || !bars || !bars.length) return;
+    const day = snap.day;
+    // keep the run day's bars (+ a little context) — the real path to compare to.
+    const dayBars = day ? bars.filter((b) => {
+      const d = new Date(b.time * 1000).toISOString().slice(0, 10);
+      return d === day;
+    }) : bars;
+    const use = dayBars.length ? dayBars : bars;
+    actual.setData(use.map((b) => ({ time: b.time, value: b.close })));
+    if (chartRef.current) { chartRef.current.timeScale().fitContent(); fittedRef.current = true; }
   }, [snap]);
 
-  // paths: rebuild all series on any change to the forecast set / selection.
+  // predictions: each forecast drawn AT its real timestamp — a dashed line from
+  // the price when it was made to its target, so you see the CALLED move next to
+  // the actual line. Hue-ramped by time; the active/hovered one at full strength.
   useEffect(() => {
-    const chart = chartRef.current, candle = candleRef.current;
-    if (!chart || !candle) return;
+    const chart = chartRef.current;
+    if (!chart) return;
     const LW = window.LightweightCharts;
-    // clear prior series
-    for (const s of pathSeriesRefs.current) { try { chart.removeSeries(s); } catch (e) { /* */ } }
-    pathSeriesRefs.current = [];
-    const list = (forecasts || []).filter((f) => f.plot && Array.isArray(f.plot.path) && f.plot.path.length);
+    const th = chartTheme();
+    for (const s of predSeriesRefs.current) { try { chart.removeSeries(s); } catch (e) { /* */ } }
+    predSeriesRefs.current = [];
+    const list = (forecasts || []).filter((f) => f.plot && f.plot.target != null && f._t0);
     const n = list.length;
-    const allMarkers = [];
+    const markers = [];
+    // horizon: draw the predicted move over ~the step interval so it reads as a
+    // short vector at the call time, not a projection to the close.
+    const horizon = list.length ? (list[0]._barSec || 300) * 6 : 1800;
     list.forEach((f, i) => {
       const isActive = activeId != null && f.id === activeId;
-      const alpha = activeId == null ? 0.5 : (isActive ? 1.0 : 0.14);
-      const steps = f.plot.path.filter((st) => st.price != null);
-      if (!steps.length) return;
-      // anchor at the forecast's own price_at, projected forward one step per point
-      const data = [{ time: f._t0, value: f.price_at != null ? f.price_at : steps[0].price }];
-      steps.forEach((st, k) => data.push({ time: f._t0 + f._barSec * (k + 1), value: st.price }));
+      const dimmed = activeId != null && !isActive;
+      const alpha = dimmed ? 0.12 : (isActive ? 1.0 : 0.7);
+      const sc = f.score || {};
+      // color the prediction by outcome when scored: green hit / red miss / grey neutral
+      const good = sc.verdict === "hit target" || sc.verdict === "direction correct";
+      const bad = sc.verdict === "invalidated" || sc.verdict === "direction wrong";
+      const col = good ? `rgba(${th.upRgb.join(",")},${alpha})`
+        : bad ? `rgba(${th.downRgb.join(",")},${alpha})`
+        : rampColor(i, n, alpha);
+      const from = f.price_at != null ? f.price_at : f.plot.target;
       try {
         const ps = chart.addLineSeries({
-          color: rampColor(i, n, alpha),
-          lineWidth: isActive ? 3 : 1,
-          lineStyle: isActive ? LW.LineStyle.Solid : LW.LineStyle.Dashed,
+          color: col, lineWidth: isActive ? 3 : 1, lineStyle: LW.LineStyle.Dashed,
           lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
         });
-        ps.setData(data);
-        pathSeriesRefs.current.push(ps);
+        ps.setData([{ time: f._t0, value: from }, { time: f._t0 + horizon, value: f.plot.target }]);
+        predSeriesRefs.current.push(ps);
       } catch (e) { /* older LW */ }
-      // one origin marker per forecast (its called-at time). Only the active
-      // forecast also gets numbered step arrows, so the chart stays legible.
-      allMarkers.push({ time: f._t0, position: "aboveBar", shape: "circle",
-        color: rampColor(i, n, isActive ? 1 : 0.6), text: isActive ? hhmm(f.as_of) : "" });
-      if (isActive) {
-        const th = chartTheme();
-        steps.forEach((st, k) => allMarkers.push({
-          time: f._t0 + f._barSec * (k + 1),
-          position: st.dir === "down" ? "belowBar" : "aboveBar",
-          shape: st.dir === "down" ? "arrowDown" : "arrowUp",
-          color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
-          text: `${st.seq} · ${st.price}`,
-        }));
-      }
+      // a marker at the call time: arrow toward the target, tinted by outcome
+      const up = f.plot.target >= from;
+      markers.push({
+        time: f._t0, position: up ? "aboveBar" : "belowBar",
+        shape: up ? "arrowUp" : "arrowDown",
+        color: good ? `rgb(${th.upRgb.join(",")})` : bad ? `rgb(${th.downRgb.join(",")})` : rampColor(i, n, 0.9),
+        text: isActive ? `${hhmm(f.as_of)} → ${f.plot.target}` : hhmm(f.as_of),
+      });
     });
-    // markers sort by time (LW requires ascending) and replace in one call
-    allMarkers.sort((a, b) => a.time - b.time);
-    try { candle.setMarkers(allMarkers); } catch (e) { /* */ }
+    markers.sort((a, b) => a.time - b.time);
+    try { if (actualRef.current) actualRef.current.setMarkers(markers); } catch (e) { /* */ }
   }, [snap, forecasts, activeId]);
 
   if (!hasLW()) {
@@ -1022,9 +1030,10 @@ export function SpxReplayView() {
       {snap && enriched.length > 0 && (
         <div className="vg-card vg-fc-chartcard" style={{ padding: 14, marginBottom: 12 }}>
           <div className="vg-fc-legend" style={{ marginBottom: 8 }}>
-            <span><i className="vg-lg-sw" style={{ background: rampColor(0, 2, 1) }} />early</span>
-            <span><i className="vg-lg-sw" style={{ background: rampColor(1, 2, 1) }} />late</span>
-            <span className="vg-note">hover a row to highlight its path</span>
+            <span><i className="vg-lg-sw" style={{ background: "var(--vg-ink)" }} />actual price</span>
+            <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-up)" }} />prediction hit</span>
+            <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-down)" }} />prediction missed</span>
+            <span className="vg-note">hover a row to highlight its prediction</span>
           </div>
           <ReplayChart key={`${symbol}-${runId}`} snap={snap} forecasts={enriched} activeId={activeId} />
         </div>)}
