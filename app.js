@@ -4273,11 +4273,13 @@ ${ref}`;
         grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
         rightPriceScale: {
           borderColor: th.border,
-          minimumWidth: 64,
+          minimumWidth: 72,
           scaleMargins: { top: 0.08, bottom: 0.08 },
           autoScale: true
         },
-        timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false, rightOffset: 6 },
+        // rightOffset leaves blank chart space on the right so price-line TITLE labels
+        // (coach levels, PDH/PDL, DRAW…) land in the gutter instead of over the candles.
+        timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false, rightOffset: 18 },
         crosshair: { mode: LW.CrosshairMode.Normal },
         handleScale: {
           mouseWheel: true,
