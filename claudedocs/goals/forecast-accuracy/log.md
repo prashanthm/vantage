@@ -120,5 +120,29 @@ could differ.) Uses each day's REAL ^VIX daily close (no look-ahead).
 experiment: guarded `vol_regime` block {vix, band} from yfinance ^VIX for the day,
 env SNAPSHOT_VOL_REGIME + a prompt line to scale expected range by VIX band. Re-
 forecast 8 E0 days `--run-tag b4` vs E0.
+result: E0 median_err 30.2 / hit 0.436. B4 median_err **30.35 (flat)** / hit 0.509.
+verdict: **INCONCLUSIVE on the predicate** — exactly as predicted (VIX 16-17 all 8
+days → no discriminating signal). hit-rate drift +0.07 is the same up-call gain the
+level/context adds keep showing, not error reduction. kept: reverted.
+
+## PIVOT DECISION (after B1-B4)
+FOUR context-field adds (B1 GEX, B2 clock, B3 prior-levels, B4 VIX) ALL left median
+target-error flat at ~30pt. Hit-rate wobbles +0.05-0.07 but the PRIMARY metric never
+moves. Strong evidence: **adding INPUTS is not the lever — the error is in how the
+analyst SELECTS/SIZES its target.** Per the thorough contract I keep experimenting,
+but redirect from the remaining B-arm context adds (B5-B10, same expected null) to
+the C-ARM (prompt/output) — the hypothesis the data points at. B5-B10 stand as
+'not run — B1-B4 ruled out the class'; B11 stack becomes moot (no error-winners to
+stack). This is a legitimate loop decision (chase the live hypothesis), logged here.
+
+## C1 target discipline — nearest reachable level, not most ambitious (prompt-only)
+prediction: HELPS the primary metric — this directly attacks target-error MAGNITUDE.
+B1-B4 showed the analyst has the levels; the error is picking targets that are too
+FAR (over-ambitious). Instructing 'nearest high-probability level, ~≤1 ATR, prefer
+reachable over a big round number' should pull median target-error DOWN materially.
+Predict median error ↓≥5pt; hit-rate flat-or-up (nearer targets are hit more often).
+This is the first C-arm (prompt/output) experiment — the hypothesis B1-B4 point at.
+experiment: prompt-only change to spx_analyst (no snapshot fields); all env flags OFF
+(baseline snapshot). Re-forecast 8 E0 days `--run-tag c1` vs E0.
 result: _running_
 verdict: _pending_
