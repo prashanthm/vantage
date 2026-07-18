@@ -494,14 +494,18 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         bar_sym = _cd._bar_sym(sym)
         tf = str(body.get("tf") or "5m")
         src = _cd._TF.get(tf, ("1m", ""))[0]
+        # days: the ↻ refresh sends 1 (force-refetch today); loading a fresh ticker
+        # sends ~30 to backfill the full window yfinance serves (idempotent — skips
+        # days already stored, so it's not a re-fetch of what's there).
+        days = max(1, min(30, int(body.get("days") or 1)))
         note = None
         try:
             if src == "1m":
                 from . import seed_intraday as _seed
-                _seed.seed(store, symbol=bar_sym, days=1, force=True)
+                _seed.seed(store, symbol=bar_sym, days=days, force=(days == 1))
             elif src == "60m":
                 from . import scanner as _sc
-                _sc.seed_hourly(store, [bar_sym], lookback_days=5)
+                _sc.seed_hourly(store, [bar_sym], lookback_days=max(5, days))
             else:
                 note = "daily/weekly/monthly bars update on the nightly job."
         except Exception as e:  # noqa: BLE001

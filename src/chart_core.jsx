@@ -222,10 +222,11 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const q = useLive(() => (symbol ? getChart(symbol, tf) : Promise.resolve(null)),
     null, [symbol, tf, nonce]);
 
-  const doRefresh = useCallback(async () => {
+  // days: 1 = the ↻ quick refresh; 30 = load a fresh ticker's full window.
+  const doRefresh = useCallback(async (days = 1) => {
     if (!symbol || refreshing) return;
     setRefreshing(true);
-    try { await refreshChart(symbol, tf); }
+    try { await refreshChart(symbol, tf, days); }
     catch (e) { /* surfaced by the chart note on re-pull */ }
     finally { setRefreshing(false); setNonce((n) => n + 1); }
   }, [symbol, tf, refreshing]);
@@ -545,7 +546,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
           ))}
         </div>
         <button className={cls("vg-ic-refresh", refreshing && "spin")}
-          onClick={doRefresh} disabled={refreshing} title={`Refresh ${symbol} bars`}
+          onClick={() => doRefresh(1)} disabled={refreshing} title={`Refresh ${symbol} bars`}
           aria-label={`Refresh ${symbol} bars`}>↻</button>
       </div>
       <div className="vg-ic-inds">
@@ -611,7 +612,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         {!q.loading && !data && (
           <div className="vg-ic-empty">
             <p className="vg-note">{(q.data && q.data.note) || `No chart data for ${symbol}.`}</p>
-            <button className="vg-btn-sm" onClick={doRefresh} disabled={refreshing}>
+            <button className="vg-btn-sm" onClick={() => doRefresh(30)} disabled={refreshing}>
               {refreshing ? `Loading ${symbol}…` : `Load ${symbol} data`}
             </button>
           </div>)}

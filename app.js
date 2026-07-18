@@ -1137,10 +1137,10 @@
     `${backendBase()}/api/chart/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&days=${days}`,
     { timeoutMs: 2e4 }
   );
-  var refreshChart = (symbol, tf = "5m") => postJson(
+  var refreshChart = (symbol, tf = "5m", days = 1) => postJson(
     `${backendBase()}/api/chart/${encodeURIComponent(symbol)}/refresh`,
-    { tf },
-    { timeoutMs: 3e4 }
+    { tf, days },
+    { timeoutMs: 6e4 }
   );
   var getDrawings = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`);
   var saveDrawing = (symbol, drawing) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, drawing);
@@ -4469,11 +4469,11 @@ ${ref}`;
       null,
       [symbol, tf, nonce]
     );
-    const doRefresh = useCallback(async () => {
+    const doRefresh = useCallback(async (days = 1) => {
       if (!symbol || refreshing) return;
       setRefreshing(true);
       try {
-        await refreshChart(symbol, tf);
+        await refreshChart(symbol, tf, days);
       } catch (e) {
       } finally {
         setRefreshing(false);
@@ -4860,7 +4860,7 @@ ${ref}`;
       "button",
       {
         className: cls("vg-ic-refresh", refreshing && "spin"),
-        onClick: doRefresh,
+        onClick: () => doRefresh(1),
         disabled: refreshing,
         title: `Refresh ${symbol} bars`,
         "aria-label": `Refresh ${symbol} bars`
@@ -4934,7 +4934,7 @@ ${ref}`;
         },
         ly.label
       );
-    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: doRefresh, disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
+    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => doRefresh(30), disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
       ReplayCompareTable,
       {
         forecasts: replayData.forecasts,

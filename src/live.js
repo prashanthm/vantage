@@ -1000,9 +1000,10 @@ export const getChart = (symbol, tf = "5m", days = 15) =>
     { timeoutMs: 20000 });
 // Manual refresh — force-refetch the source bars for this symbol+tf so new candles
 // appear, then the caller re-pulls getChart.
-export const refreshChart = (symbol, tf = "5m") =>
-  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/refresh`, { tf },
-    { timeoutMs: 30000 });
+// days: 1 = the ↻ quick refresh (today); ~30 = load a fresh ticker's full window.
+export const refreshChart = (symbol, tf = "5m", days = 1) =>
+  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/refresh`, { tf, days },
+    { timeoutMs: 60000 });
 // Chart drawings — persisted per-symbol annotations (Mira-readable context).
 export const getDrawings = (symbol) =>
   getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`);
