@@ -1,5 +1,5 @@
 """SPX intraday SNAPSHOT — a chart-centric view of the session so far, the payload
-the spx_analyst reasons over to answer "what will price do?".
+the forecast-analyst reasons over to answer "what will price do?".
 
 Assembles, for a day up to an as-of time (default: latest bar in the stored 1m
 series): current price + the coach's playbook levels + live technicals

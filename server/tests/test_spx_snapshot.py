@@ -1,4 +1,4 @@
-"""SPX snapshot + ICT detection — the chart-centric payload for spx_analyst."""
+"""SPX snapshot + ICT detection — the chart-centric payload for forecast_analyst."""
 from vantage_server import ict, spx_snapshot as ss
 
 

@@ -97,7 +97,7 @@ CREATE TABLE IF NOT EXISTS quotes (
     asset_class TEXT
 );
 
--- SPX-analyst FORECASTS: a persisted "what will price do?" read + its later
+-- FORECAST-ANALYST forecasts (any ticker): a persisted "what will price do?" read + its later
 -- accuracy score against the elapsed price action. Compounds like the journal.
 CREATE TABLE IF NOT EXISTS spx_forecast (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,

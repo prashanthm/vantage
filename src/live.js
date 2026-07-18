@@ -1023,13 +1023,13 @@ export const getReplayRuns = (limit = 40) =>
 export const getReplayRun = (runId) =>
   getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 20000 });
 
-// ── SPX-analyst forecast loop ────────────────────────────────────────────────
+// ── forecast-analyst loop (any ticker) ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).
 export const getSpxSnapshot = (day, asOf, symbol = "SPX") =>
   getJson(`${backendBase()}/api/spx/snapshot?symbol=${encodeURIComponent(symbol)}`
     + (day ? `&day=${encodeURIComponent(day)}` : "")
     + (asOf ? `&as_of=${encodeURIComponent(asOf)}` : ""));
-// Persist a forecast the SPA generated via Mira's spx_analyst.
+// Persist a forecast the SPA generated via Mira's forecast_analyst.
 export const saveSpxForecast = (body) =>
   postJson(`${backendBase()}/api/spx/forecast`, body);
 // Stored forecasts (newest first), each with its score if scored.

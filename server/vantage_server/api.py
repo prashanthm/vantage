@@ -637,8 +637,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),
                           as_of: str | None = Query(None)):
-        """The chart-centric SNAPSHOT for the SPX-analyst forecast loop: price +
-        the coach's playbook levels + live technicals (VWAP/RSI/rel-vol/ATR) +
+        """The chart-centric SNAPSHOT for the forecast-analyst loop (any ticker):
+        price + the coach's playbook levels + live technicals (VWAP/RSI/rel-vol/ATR) +
         the ICT structures (unswept liquidity, active order blocks, fresh FVGs,
         the level-based draw), from the persisted 1m bars. ``day`` defaults to the
         latest stored session; ``as_of`` (ISO time) truncates mid-session."""
@@ -721,7 +721,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     @app.post("/api/spx/forecast")
     def spx_forecast_save(body: dict = Body(default={})):
         """Persist a 'what will price do?' forecast the SPA generated via Mira's
-        spx_analyst. Body: {day, as_of, symbol?, snapshot, forecast?, forecast_text}.
+        forecast_analyst. Body: {day, as_of, symbol?, snapshot, forecast?, forecast_text}.
         Backend stays Mira-free (the SPA owns the LLM call); this only stores the
         result so it compounds and can be scored later. Returns the new id."""
         snap = state.snapshot()

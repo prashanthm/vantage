@@ -1201,7 +1201,7 @@ class Store:
         out["day_bounds"] = day_bounds
         return out
 
-    # ── SPX-analyst forecasts (SQLite-only) ──────────────────────────────────
+    # ── forecast-analyst forecasts (any ticker, SQLite-only) ──────────────────────────────────
 
     def save_spx_forecast(self, *, symbol: str, day: str, as_of: str,
                           price_at: float | None, snapshot: dict,
