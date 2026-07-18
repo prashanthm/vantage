@@ -2,9 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Vantage — every account, one view</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📊</text></svg>">
+  <!-- PWA: installable to the home screen, opens fullscreen (no browser chrome). -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <meta name="theme-color" content="#131A2A">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Vantage">
   <!-- Stamp the saved theme BEFORE first paint (no flash). "system" = no stamp:
        the prefers-color-scheme media query in app.css decides. -->
   <script>
@@ -24,6 +32,6 @@
   <script src="ds/_ds_bundle.js"></script>
   <!-- TradingView Lightweight Charts v4.2.3 (Apache-2.0) — standalone UMD, exposes window.LightweightCharts. -->
   <script src="vendor/lightweight-charts.standalone.production.js"></script>
-  <script src="app.js?v=1784392677"></script>
+  <script src="app.js?v=1784393998"></script>
 </body>
 </html>

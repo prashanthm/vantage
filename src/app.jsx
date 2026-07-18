@@ -309,6 +309,8 @@ function App() {
         </div>
         <span style={{ padding: "0 14px" }}><LiveStatusDots settings={settings} /></span>
         <div className="tools">
+          <button className="tbtn vg-topbar-bell" onClick={() => setNotifOpen(true)}
+            aria-label="Notifications">🔔{unread > 0 && <span className="vg-bell-cnt">{unread}</span>}</button>
           <button className={cls("tbtn", focus && "on")} onClick={toggleFocus}
             title={focus ? "Exit focus (Esc)" : "Focus chart — hide panels (F)"}
             aria-label="Toggle focus mode">{focus ? "⤢ Exit" : "⤢ Focus"}</button>
@@ -318,7 +320,12 @@ function App() {
       </div>
 
       <MaybePlaybookProvider active={route === "playbook"}>
-      <div className="vg-studio">
+      <div className={cls("vg-studio", (leftOpen || rightOpen) && "drawer-open")}>
+        {/* mobile-only backdrop: tapping it closes whichever drawer is open. A real
+            element (not a ::after) so the tap has a reliable target. CSS hides it
+            >820px and when no drawer is open. */}
+        <div className="vg-mob-backdrop" onClick={() => { setLeftOpen(false); setRightOpen(false); }}
+          aria-hidden="true" />
         {/* -------- left pane: nav + account scope -------- */}
         <aside className={cls("vg-pane", "vg-pane-left", !leftOpen && "clps")}>
           <div className="vg-pane-top">
@@ -488,6 +495,20 @@ function App() {
                 : <ChatPanel docked settings={settings} />)}
         </aside>
       </div>
+      {/* mobile-only drawer handles (CSS hides them >820px). Each opens its drawer
+          and closes the other, so only one overlay shows at a time. Hidden in focus. */}
+      {!focus && (
+        <div className="vg-mob-handles">
+          <button className="vg-mob-handle"
+            onClick={() => { setLeftOpen(!leftOpen); setRightOpen(false); }}>
+            ☰ Menu
+          </button>
+          <button className="vg-mob-handle"
+            onClick={() => { setRightOpen(!rightOpen); setLeftOpen(false); }}>
+            ✦ Mira
+          </button>
+        </div>
+      )}
       </MaybePlaybookProvider>
 
       <div className="vg-fabs">

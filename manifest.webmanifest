@@ -1,0 +1,14 @@
+{
+  "name": "Vantage",
+  "short_name": "Vantage",
+  "description": "Chart-first trading analysis — levels, ICT, GEX, forecast, and Mira's read on one chart.",
+  "start_url": "./index.html#/ic/SPX",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#131A2A",
+  "theme_color": "#131A2A",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

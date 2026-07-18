@@ -6545,13 +6545,32 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return /* @__PURE__ */ React.createElement("div", { className: "vg-app" }, /* @__PURE__ */ React.createElement("div", { className: "vg-compliance" }, "AI-generated analysis \xB7 Educational purposes only \u2014 not financial, investment, or tax advice"), /* @__PURE__ */ React.createElement("div", { className: "vg-topbar" }, /* @__PURE__ */ React.createElement("div", { className: "brand" }, "Vantage"), /* @__PURE__ */ React.createElement("div", { className: "vg-ticker", style: { flex: 1, borderBottom: "none" } }, marketBand && marketBand.indexes.map((t) => /* @__PURE__ */ React.createElement("span", { className: "vg-tick", key: t.sym }, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 } }, t.label), /* @__PURE__ */ React.createElement("b", null, t.price != null ? t.price.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("span", { className: dirCls(t.dayPct) }, signPct(t.dayPct))))), /* @__PURE__ */ React.createElement("span", { style: { padding: "0 14px" } }, /* @__PURE__ */ React.createElement(LiveStatusDots, { settings })), /* @__PURE__ */ React.createElement("div", { className: "tools" }, /* @__PURE__ */ React.createElement(
       "button",
       {
+        className: "tbtn vg-topbar-bell",
+        onClick: () => setNotifOpen(true),
+        "aria-label": "Notifications"
+      },
+      "\u{1F514}",
+      unread > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-bell-cnt" }, unread)
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
         className: cls("tbtn", focus && "on"),
         onClick: toggleFocus,
         title: focus ? "Exit focus (Esc)" : "Focus chart \u2014 hide panels (F)",
         "aria-label": "Toggle focus mode"
       },
       focus ? "\u2922 Exit" : "\u2922 Focus"
-    ), /* @__PURE__ */ React.createElement(ThemeButton, null), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => setSettingsOpen(true) }, "Settings"))), /* @__PURE__ */ React.createElement(MaybePlaybookProvider, { active: route === "playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-studio" }, /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-left", !leftOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, leftOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, "Workspace"), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(ThemeButton, null), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => setSettingsOpen(true) }, "Settings"))), /* @__PURE__ */ React.createElement(MaybePlaybookProvider, { active: route === "playbook" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-studio", (leftOpen || rightOpen) && "drawer-open") }, /* @__PURE__ */ React.createElement(
+      "div",
+      {
+        className: "vg-mob-backdrop",
+        onClick: () => {
+          setLeftOpen(false);
+          setRightOpen(false);
+        },
+        "aria-hidden": "true"
+      }
+    ), /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-left", !leftOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, leftOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, "Workspace"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-collapse",
@@ -6652,6 +6671,26 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       )),
       !rightOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-sparkle", "aria-hidden": "true" }, "\u2726"),
       rightOpen && (isPlaybookChart ? /* @__PURE__ */ React.createElement(SpxPlaybookRail, null) : hasChartRail ? /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-rail" }, /* @__PURE__ */ React.createElement(ChartsRail, { symbol })) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
+    )), !focus && /* @__PURE__ */ React.createElement("div", { className: "vg-mob-handles" }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-mob-handle",
+        onClick: () => {
+          setLeftOpen(!leftOpen);
+          setRightOpen(false);
+        }
+      },
+      "\u2630 Menu"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-mob-handle",
+        onClick: () => {
+          setRightOpen(!rightOpen);
+          setLeftOpen(false);
+        }
+      },
+      "\u2726 Mira"
     ))), /* @__PURE__ */ React.createElement("div", { className: "vg-fabs" }, /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Notifications", onClick: () => setNotifOpen(true) }, "\u{1F514}", unread > 0 && /* @__PURE__ */ React.createElement("span", { className: "cnt" }, unread)), (hasChartRail || !rightOpen) && /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Vantage AI chat", onClick: () => setChatOpen(true) }, "\u{1F4AC}")), notifOpen && /* @__PURE__ */ React.createElement(
       NotifPanel,
       {
