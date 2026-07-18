@@ -215,6 +215,7 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
             max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setGenDay(e.target.value)} />
           <select className="vg-rp-step" value={stepMin} onChange={(e) => setStepMin(Number(e.target.value))}>
+            <option value={15}>15m</option>
             <option value={30}>30m</option>
             <option value={60}>1h</option>
           </select>
