@@ -1016,6 +1016,11 @@ export const getLayers = (symbol) =>
 // The latest stored forecast for a symbol (target/invalidation/path), chart-ready.
 export const getChartForecast = (symbol) =>
   getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/forecast`, { timeoutMs: 20000 });
+// Saved replay runs (read-only — no Mira). List summaries + one run's forecasts+scores.
+export const getReplayRuns = (limit = 40) =>
+  getJson(`${backendBase()}/api/replay/runs?limit=${limit}`, { timeoutMs: 20000 });
+export const getReplayRun = (runId) =>
+  getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 20000 });
 
 // ── SPX-analyst forecast loop ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).

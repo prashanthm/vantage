@@ -10,7 +10,7 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
-import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast } from "./live.js";
+import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRuns, getReplayRun } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
 import { drawOne, removeOne } from "./chart_drawings.jsx";
 import { LAYERS, LAYER_DRAWERS, removeLayerHandle } from "./chart_layers.jsx";
@@ -118,6 +118,38 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
   const fcQ = useLive(() => (symbol ? getChartForecast(symbol) : Promise.resolve(null)),
     null, [symbol]);
   const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
+
+  // Replay: saved runs for this symbol (read-only, no Mira), a selected run id, and
+  // that run's forecasts+scores parsed for the overlay.
+  const [replayRun, setReplayRun] = useState(null);   // selected run_id
+  const runsQ = useLive(() => getReplayRuns(40), null, []);
+  const symbolRuns = ((runsQ.data && runsQ.data.runs) || [])
+    .filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
+  const runDetailQ = useLive(() => (replayRun ? getReplayRun(replayRun) : Promise.resolve(null)),
+    null, [replayRun]);
+  // parse the selected run's forecasts into overlay-ready {as_of_ts, price_at, target, verdict}.
+  const replayData = React.useMemo(() => {
+    const d = runDetailQ.data;
+    if (!d || !d.available || !Array.isArray(d.forecasts)) return null;
+    const forecasts = d.forecasts.map((f) => {
+      const fc = f.forecast || {};
+      const plot = (fc && typeof fc === "object") ? fc.plot : null;
+      const t = f.as_of ? Math.floor(new Date(f.as_of).getTime() / 1000) : null;
+      return { as_of_ts: t, price_at: f.price_at,
+               target: plot && plot.target != null ? plot.target : null,
+               verdict: (f.score && f.score.verdict) || null };
+    }).filter((f) => f.as_of_ts != null);
+    return { run_id: d.run_id, forecasts };
+  }, [runDetailQ.data]);
+
+  // when Replay is on, default the selected run to this symbol's newest run; clear
+  // the selection when switching to a symbol that has no runs (or none matching).
+  useEffect(() => {
+    if (!activeLayers.has("replay")) return;
+    const ids = symbolRuns.map((r) => r.run_id);
+    if (!ids.length) { if (replayRun) setReplayRun(null); return; }
+    if (!replayRun || !ids.includes(replayRun)) setReplayRun(ids[0]);  // runs are newest-first
+  }, [activeLayers, symbolRuns, replayRun]);
 
   const toggleLayer = useCallback((key) => {
     setActiveLayers((prev) => {
@@ -373,17 +405,18 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     if (!candles.length) return undefined;
     const ctx = { chart, candle, LW: window.LightweightCharts, candles,
                   layers: (layerData && layerData.layers) || {}, forecast: forecastData,
+                  replay: replayData,
                   price: (layerData && layerData.layers && layerData.layers.price)
                     || candles[candles.length - 1].close };
     for (const key of activeLayers) {
-      // the forecast layer draws from forecastData; the rest need layerData.
-      if (key !== "forecast" && !layerData) continue;
+      // forecast/replay draw from their own data; the rest need layerData.
+      if (key !== "forecast" && key !== "replay" && !layerData) continue;
       const drawer = LAYER_DRAWERS[key];
       if (!drawer) continue;
       try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
     }
     return undefined;
-  }, [activeLayers, layerData, forecastData, candles]);
+  }, [activeLayers, layerData, forecastData, replayData, candles]);
 
   const last = candles.length ? candles[candles.length - 1].close : null;
 
@@ -436,9 +469,11 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
         {LAYERS.map((ly) => {
           const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
           const gatedFc = ly.needsForecast && !fcQ.loading && !forecastData;
-          const gated = gatedLevels || gatedFc;
+          const gatedRp = ly.needsReplay && !runsQ.loading && !symbolRuns.length;
+          const gated = gatedLevels || gatedFc || gatedRp;
           const on = activeLayers.has(ly.key) && !gated;
           const why = gatedFc ? `No stored forecast for this symbol yet`
+            : gatedRp ? `No saved replay runs for this symbol`
             : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)`
             : `Toggle ${ly.label}`;
           return (
@@ -447,6 +482,15 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
               {ly.label}
             </button>);
         })}
+        {activeLayers.has("replay") && symbolRuns.length > 0 && (
+          <select className="vg-ic-runpick" value={replayRun || ""}
+            onChange={(e) => setReplayRun(e.target.value || null)}
+            title="Pick a saved replay run">
+            {symbolRuns.map((r) => (
+              <option key={r.run_id} value={r.run_id}>
+                {r.day} · {r.n} calls{r.n_scored ? ` · ${r.n_scored} scored` : ""}
+              </option>))}
+          </select>)}
         {layerQ.loading && <span className="vg-ic-hint">…</span>}
         {layerData && !layerData.has_levels && (
           <span className="vg-ic-layers-note">bars-derived only (no coach chain)</span>)}

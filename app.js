@@ -321,6 +321,8 @@
     getPlaybookPine: () => getPlaybookPine,
     getReclaimPine: () => getReclaimPine,
     getReplay: () => getReplay,
+    getReplayRun: () => getReplayRun,
+    getReplayRuns: () => getReplayRuns,
     getReplays: () => getReplays,
     getRoundtrips: () => getRoundtrips,
     getScanner: () => getScanner,
@@ -1145,6 +1147,8 @@
   var deleteDrawing = (symbol, id) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, { delete: id });
   var getLayers = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/layers`, { timeoutMs: 2e4 });
   var getChartForecast = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/forecast`, { timeoutMs: 2e4 });
+  var getReplayRuns = (limit = 40) => getJson(`${backendBase()}/api/replay/runs?limit=${limit}`, { timeoutMs: 2e4 });
+  var getReplayRun = (runId) => getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 2e4 });
   var getSpxSnapshot = (day, asOf, symbol = "SPX") => getJson(`${backendBase()}/api/spx/snapshot?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + (asOf ? `&as_of=${encodeURIComponent(asOf)}` : ""));
   var saveSpxForecast = (body) => postJson(`${backendBase()}/api/spx/forecast`, body);
   var getSpxForecasts = (day, symbol = "SPX", limit = 50) => getJson(`${backendBase()}/api/spx/forecast?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + `&limit=${limit}`);
@@ -4108,6 +4112,42 @@ ${ref}`;
         }
       }
       return out;
+    },
+    // a saved REPLAY run: the sequence of that day's forecasts drawn on the chart —
+    // a marker at each forecast's origin (as_of / price_at) colored by its graded
+    // verdict (hit target = green, invalidated = red, else neutral), plus a faint
+    // target line per forecast. Reads ctx.replay = {forecasts:[{as_of_ts, price_at,
+    // target, verdict}]}. Read-only; drawn from already-stored scores (no Mira).
+    replay(ctx) {
+      const rp = ctx.replay;
+      if (!rp || !rp.forecasts || !rp.forecasts.length) return [];
+      const th = chartTheme();
+      const out = [];
+      const markers = [];
+      const [t0, t1] = timeSpan(ctx.candles);
+      for (const f of rp.forecasts) {
+        if (f.as_of_ts == null || f.price_at == null) continue;
+        if (t0 && t1 && (f.as_of_ts < t0 || f.as_of_ts > t1)) continue;
+        const hit = f.verdict === "hit target";
+        const bad = f.verdict === "invalidated";
+        const color = hit ? `rgb(${th.upRgb.join(",")})` : bad ? `rgb(${th.downRgb.join(",")})` : "rgb(176,106,0)";
+        markers.push({
+          time: f.as_of_ts,
+          position: "aboveBar",
+          shape: "circle",
+          color,
+          text: `${f.target != null ? "\u2192" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 22)
+        });
+      }
+      if (markers.length) {
+        markers.sort((a, b) => a.time - b.time);
+        try {
+          ctx.candle.setMarkers(markers);
+          out.push({ kind: "markers", handle: null });
+        } catch (e) {
+        }
+      }
+      return out;
     }
   };
   var LAYERS = [
@@ -4118,7 +4158,8 @@ ${ref}`;
     { key: "draw", label: "Draw", needsLevels: false },
     { key: "prior", label: "PD H/L/C", needsLevels: false },
     { key: "gex", label: "GEX", needsLevels: true },
-    { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true }
+    { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true },
+    { key: "replay", label: "Replay", needsLevels: false, needsReplay: true }
   ];
   function line(ctx, price, rgb, alpha, style, title, width = 1) {
     return { kind: "line", handle: ctx.candle.createPriceLine({
@@ -4159,6 +4200,7 @@ ${ref}`;
     if (!h) return;
     try {
       if (h.kind === "line") candle.removePriceLine(h.handle);
+      else if (h.kind === "markers") candle.setMarkers([]);
       else chart.removeSeries(h.handle);
     } catch (e) {
     }
@@ -4268,6 +4310,39 @@ ${ref}`;
       [symbol]
     );
     const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
+    const [replayRun, setReplayRun] = useState7(null);
+    const runsQ = useLive(() => getReplayRuns(40), null, []);
+    const symbolRuns = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
+    const runDetailQ = useLive(
+      () => replayRun ? getReplayRun(replayRun) : Promise.resolve(null),
+      null,
+      [replayRun]
+    );
+    const replayData = React.useMemo(() => {
+      const d = runDetailQ.data;
+      if (!d || !d.available || !Array.isArray(d.forecasts)) return null;
+      const forecasts = d.forecasts.map((f) => {
+        const fc = f.forecast || {};
+        const plot = fc && typeof fc === "object" ? fc.plot : null;
+        const t = f.as_of ? Math.floor(new Date(f.as_of).getTime() / 1e3) : null;
+        return {
+          as_of_ts: t,
+          price_at: f.price_at,
+          target: plot && plot.target != null ? plot.target : null,
+          verdict: f.score && f.score.verdict || null
+        };
+      }).filter((f) => f.as_of_ts != null);
+      return { run_id: d.run_id, forecasts };
+    }, [runDetailQ.data]);
+    useEffect6(() => {
+      if (!activeLayers.has("replay")) return;
+      const ids = symbolRuns.map((r) => r.run_id);
+      if (!ids.length) {
+        if (replayRun) setReplayRun(null);
+        return;
+      }
+      if (!replayRun || !ids.includes(replayRun)) setReplayRun(ids[0]);
+    }, [activeLayers, symbolRuns, replayRun]);
     const toggleLayer = useCallback((key) => {
       setActiveLayers((prev) => {
         const next = new Set(prev);
@@ -4591,10 +4666,11 @@ ${ref}`;
         candles,
         layers: layerData && layerData.layers || {},
         forecast: forecastData,
+        replay: replayData,
         price: layerData && layerData.layers && layerData.layers.price || candles[candles.length - 1].close
       };
       for (const key of activeLayers) {
-        if (key !== "forecast" && !layerData) continue;
+        if (key !== "forecast" && key !== "replay" && !layerData) continue;
         const drawer = LAYER_DRAWERS[key];
         if (!drawer) continue;
         try {
@@ -4604,7 +4680,7 @@ ${ref}`;
         }
       }
       return void 0;
-    }, [activeLayers, layerData, forecastData, candles]);
+    }, [activeLayers, layerData, forecastData, replayData, candles]);
     const last = candles.length ? candles[candles.length - 1].close : null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
       "button",
@@ -4675,9 +4751,10 @@ ${ref}`;
     ))), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-layers" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-tag" }, "DNA"), LAYERS.map((ly) => {
       const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
       const gatedFc = ly.needsForecast && !fcQ.loading && !forecastData;
-      const gated = gatedLevels || gatedFc;
+      const gatedRp = ly.needsReplay && !runsQ.loading && !symbolRuns.length;
+      const gated = gatedLevels || gatedFc || gatedRp;
       const on = activeLayers.has(ly.key) && !gated;
-      const why = gatedFc ? `No stored forecast for this symbol yet` : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`;
+      const why = gatedFc ? `No stored forecast for this symbol yet` : gatedRp ? `No saved replay runs for this symbol` : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`;
       return /* @__PURE__ */ React.createElement(
         "button",
         {
@@ -4689,7 +4766,16 @@ ${ref}`;
         },
         ly.label
       );
-    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
+    }), activeLayers.has("replay") && symbolRuns.length > 0 && /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        className: "vg-ic-runpick",
+        value: replayRun || "",
+        onChange: (e) => setReplayRun(e.target.value || null),
+        title: "Pick a saved replay run"
+      },
+      symbolRuns.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.run_id, value: r.run_id }, r.day, " \xB7 ", r.n, " calls", r.n_scored ? ` \xB7 ${r.n_scored} scored` : ""))
+    ), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
   }
   function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height }) {
     const [tf, setTf] = useState7(defaultTf);

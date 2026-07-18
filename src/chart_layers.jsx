@@ -154,6 +154,38 @@ export const LAYER_DRAWERS = {
     }
     return out;
   },
+
+  // a saved REPLAY run: the sequence of that day's forecasts drawn on the chart —
+  // a marker at each forecast's origin (as_of / price_at) colored by its graded
+  // verdict (hit target = green, invalidated = red, else neutral), plus a faint
+  // target line per forecast. Reads ctx.replay = {forecasts:[{as_of_ts, price_at,
+  // target, verdict}]}. Read-only; drawn from already-stored scores (no Mira).
+  replay(ctx) {
+    const rp = ctx.replay;
+    if (!rp || !rp.forecasts || !rp.forecasts.length) return [];
+    const th = chartTheme();
+    const out = [];
+    const markers = [];
+    const [t0, t1] = timeSpan(ctx.candles);
+    for (const f of rp.forecasts) {
+      if (f.as_of_ts == null || f.price_at == null) continue;
+      // only mark forecasts whose origin falls within the visible candle range.
+      if (t0 && t1 && (f.as_of_ts < t0 || f.as_of_ts > t1)) continue;
+      const hit = f.verdict === "hit target";
+      const bad = f.verdict === "invalidated";
+      const color = hit ? `rgb(${th.upRgb.join(",")})`
+        : bad ? `rgb(${th.downRgb.join(",")})` : "rgb(176,106,0)";
+      markers.push({ time: f.as_of_ts, position: "aboveBar", shape: "circle", color,
+        text: `${f.target != null ? "→" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 22) });
+    }
+    if (markers.length) {
+      // markers must be sorted by time for LWC.
+      markers.sort((a, b) => a.time - b.time);
+      try { ctx.candle.setMarkers(markers); out.push({ kind: "markers", handle: null }); }
+      catch (e) { /* */ }
+    }
+    return out;
+  },
 };
 
 // the toggleable layer chips (order = draw order top→bottom in the toolbar).
@@ -167,6 +199,7 @@ export const LAYERS = [
   { key: "prior", label: "PD H/L/C", needsLevels: false },
   { key: "gex", label: "GEX", needsLevels: true },
   { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true },
+  { key: "replay", label: "Replay", needsLevels: false, needsReplay: true },
 ];
 
 // ── primitives ───────────────────────────────────────────────────────────────
@@ -194,6 +227,7 @@ export function removeLayerHandle(chart, candle, h) {
   if (!h) return;
   try {
     if (h.kind === "line") candle.removePriceLine(h.handle);
+    else if (h.kind === "markers") candle.setMarkers([]);  // clear replay origin markers
     else chart.removeSeries(h.handle);
   } catch (e) { /* */ }
 }
