@@ -144,5 +144,25 @@ Predict median error ↓≥5pt; hit-rate flat-or-up (nearer targets are hit more
 This is the first C-arm (prompt/output) experiment — the hypothesis B1-B4 point at.
 experiment: prompt-only change to spx_analyst (no snapshot fields); all env flags OFF
 (baseline snapshot). Re-forecast 8 E0 days `--run-tag c1` vs E0.
-result: _running_
-verdict: _pending_
+result: E0 median_err 30.2 / hit 0.436. C1 median_err **58.4 (WORSE, ~2x)** / hit
+**0.593 (+0.16, big gain)**. Diagnostic: C1 hit_target rows 21→31, overshoot 41→46,
+undershoot 12→7 — the analyst's nearer targets are REACHED far more often, but price
+then RUNS PAST them, and target_error = |target − realized excursion| counts that
+overshoot as error.
+verdict: **prediction INVERTED + exposes a METRIC FLAW.** C1 made the FORECASTS
+better (hit 0.44→0.59, more targets reached, fewer undershoots) but the primary
+metric WORSE, because target_error penalizes a conservative target that price EXCEEDS
+the same as one price never reaches. Overshoot (hit + kept going) is not a forecasting
+failure — undershoot (never reached) is. The metric conflates them.
+kept: reverted the C1 prompt PENDING a metric decision.
+
+## METRIC FLAW (blocker — needs a call)
+`target_error = |target − excursion|` penalizes OVERSHOOT (target reached then price
+ran past) identically to UNDERSHOOT (target never reached). But overshoot means the
+call was RIGHT (hit + correct direction) — only undershoot is a real miss. C1 proved
+this: it improved every honest signal (hit-rate, targets-reached) yet doubled the
+"error". The metric as defined optimizes for OVER-ambitious targets (which happen to
+land near where price stops), which is backwards. FIX: make target_error one-sided —
+zero (or small) when the target is REACHED (overshoot not penalized), the shortfall
+only when price fell short. Re-baseline E0 under the fixed metric, then re-judge C1.
+This is a metric-correctness fix, not a predicate change — surfaced to the user.
