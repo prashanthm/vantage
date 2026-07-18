@@ -94,6 +94,41 @@ def test_spx_maps_to_gspc(tmp_path):
     assert out["available"] and out["candles"]
 
 
+def test_4h_aggregates_60m_into_four_hour_buckets(tmp_path):
+    store = _sqlite_store(tmp_path)
+    # 8 hourly bars 09:30..16:30 → buckets floor by 4h: [08-12), [12-16), [16-20)
+    ts = [f"2026-07-16T{9+i:02d}:30:00-04:00" for i in range(8)]
+    store.save_intraday_bars("NVDA", "2026-07-16", "60m",
+                             {"ts": ts, "open": [10] * 8, "high": [12] * 8, "low": [9] * 8,
+                              "close": [11] * 8, "volume": [1] * 8})
+    out = cd.chart_candles(store, "NVDA", "4H")
+    assert out["available"]
+    # 09:30-11:30 → 08-12 bucket (3 bars), 12:30-15:30 → 12-16 (4 bars), 16:30 → 16-20 (1)
+    assert len(out["candles"]) == 3
+
+
+def test_weekly_buckets_daily_by_iso_week(tmp_path):
+    store = _sqlite_store(tmp_path)
+    # Mon 2026-07-13 .. Fri 07-17 (one ISO week) + Mon 07-20 (next week)
+    daily = [{"date": d, "open": 100, "high": 105, "low": 99, "close": 102}
+             for d in ("2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16", "2026-07-17", "2026-07-20")]
+    store.put_bars("^GSPC", {"daily": daily}, as_of="2026-07-20T20:00:00Z")
+    out = cd.chart_candles(store, "SPX", "1W")
+    assert out["available"] and len(out["candles"]) == 2   # two ISO weeks
+
+
+def test_monthly_buckets_daily_by_calendar_month(tmp_path):
+    store = _sqlite_store(tmp_path)
+    daily = [{"date": d, "open": 100, "high": 106, "low": 98, "close": 103}
+             for d in ("2026-06-29", "2026-06-30", "2026-07-01", "2026-07-02", "2026-08-03")]
+    store.put_bars("^GSPC", {"daily": daily}, as_of="2026-08-03T20:00:00Z")
+    out = cd.chart_candles(store, "SPX", "1M")
+    assert out["available"] and len(out["candles"]) == 3   # Jun, Jul, Aug
+    # monthly OHLC aggregates: first open, last close, span hi/lo
+    jun = out["candles"][0]
+    assert jun["open"] == 100 and jun["high"] == 106
+
+
 def test_unavailable_when_no_bars(tmp_path):
     store = _sqlite_store(tmp_path)
     out = cd.chart_candles(store, "ZZZ", "5m")

@@ -3762,7 +3762,7 @@ ${ref}`;
 
   // src/chart_core.jsx
   var { useState: useState7, useRef: useRef3, useEffect: useEffect6, useCallback } = React;
-  var TIMEFRAMES = ["1m", "5m", "15m", "1H", "1D"];
+  var TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
   var hasLW3 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   function ohlcText(bar) {
     if (!bar) return null;

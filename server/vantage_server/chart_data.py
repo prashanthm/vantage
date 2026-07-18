@@ -15,12 +15,20 @@ from __future__ import annotations
 import datetime as _dt
 
 #: supported timeframes → (source interval, bucket minutes | None for pass-through/daily)
+#: timeframe → (source, bucketing). Source is where bars come from; bucketing is how
+#: raw bars aggregate into the candle. Intraday tfs derive from 1m/60m; the higher
+#: tfs (1D/1W/1M) derive from the daily bars table (W/M by calendar). "min:N" = floor
+#: to N-minute buckets; "hour:N" = floor to N-hour buckets (4h); "week"/"month" =
+#: calendar buckets.
 _TF = {
-    "1m":  ("1m", 1),
-    "5m":  ("1m", 5),
-    "15m": ("1m", 15),
-    "1H":  ("60m", None),   # stored 60m used verbatim
-    "1D":  ("1D", None),    # from the daily bars table
+    "1m":  ("1m",  "min:1"),
+    "5m":  ("1m",  "min:5"),
+    "15m": ("1m",  "min:15"),
+    "1H":  ("60m", "min:60"),   # stored 60m; verbatim after floor
+    "4H":  ("60m", "hour:4"),   # 60m bars aggregated into 4-hour buckets
+    "1D":  ("1D",  "day"),      # daily bars, one candle each
+    "1W":  ("1D",  "week"),     # daily → weekly (ISO week)
+    "1M":  ("1D",  "month"),    # daily → monthly (calendar month)
 }
 
 TIMEFRAMES = tuple(_TF.keys())
@@ -35,31 +43,50 @@ def _to_candle(ts_iso: str, o, h, l, c, v=None) -> dict:
     return row
 
 
-def _resample(ohlc: dict, bucket_min: int) -> list[dict]:
-    """Resample an intraday OHLC dict ({ts, open, high, low, close, volume}) into
-    ``bucket_min``-minute LWC candles. bucket_min==1 passes 1m through as candles."""
-    ts = ohlc.get("ts") or []
-    if not ts:
-        return []
-    op, hi, lo, cl = ohlc["open"], ohlc["high"], ohlc["low"], ohlc["close"]
-    vol = ohlc.get("volume") or [0] * len(ts)
+def _bucket_key(t: _dt.datetime, mode: str):
+    """The bucket a timestamp falls in, for the given bucketing mode."""
+    kind, _, n = mode.partition(":")
+    if kind == "min":
+        n = int(n)
+        fm = (t.minute // n) * n if n > 1 else t.minute
+        return t.replace(minute=fm, second=0, microsecond=0)
+    if kind == "hour":
+        n = int(n)
+        fh = (t.hour // n) * n
+        return t.replace(hour=fh, minute=0, second=0, microsecond=0)
+    if kind == "day":
+        return t.replace(hour=0, minute=0, second=0, microsecond=0)
+    if kind == "week":
+        iso = t.isocalendar()           # (year, week, weekday) — bucket by ISO week
+        return (iso[0], iso[1])
+    if kind == "month":
+        return (t.year, t.month)
+    return t
+
+
+def _resample(rows: list[dict], mode: str) -> list[dict]:
+    """Aggregate normalized rows ({ts_iso, open, high, low, close, volume}) into LWC
+    candles by the bucketing ``mode`` (see _bucket_key). The candle's ``time`` is the
+    bucket's first bar's start (calendar buckets use that bar's midnight/day)."""
     out, bucket = [], None
-    for k in range(len(ts)):
-        t = _dt.datetime.fromisoformat(ts[k])
-        floor_min = (t.minute // bucket_min) * bucket_min if bucket_min > 1 else t.minute
-        key = t.replace(minute=floor_min, second=0, microsecond=0)
+    for r in rows:
+        t = _dt.datetime.fromisoformat(r["ts"])
+        key = _bucket_key(t, mode)
         if bucket is None or bucket["key"] != key:
             if bucket is not None:
                 out.append(bucket["row"])
+            # anchor time: for min/hour/day the floored instant; for week/month the
+            # first bar's own day (a stable, real trading date).
+            anchor = key if isinstance(key, _dt.datetime) else t.replace(hour=0, minute=0, second=0, microsecond=0)
             bucket = {"key": key, "row": {
-                "time": int(key.timestamp()), "open": float(op[k]), "high": float(hi[k]),
-                "low": float(lo[k]), "close": float(cl[k]), "volume": float(vol[k] or 0)}}
+                "time": int(anchor.timestamp()), "open": float(r["open"]), "high": float(r["high"]),
+                "low": float(r["low"]), "close": float(r["close"]), "volume": float(r.get("volume") or 0)}}
         else:
-            r = bucket["row"]
-            r["high"] = max(r["high"], float(hi[k]))
-            r["low"] = min(r["low"], float(lo[k]))
-            r["close"] = float(cl[k])
-            r["volume"] += float(vol[k] or 0)
+            row = bucket["row"]
+            row["high"] = max(row["high"], float(r["high"]))
+            row["low"] = min(row["low"], float(r["low"]))
+            row["close"] = float(r["close"])
+            row["volume"] += float(r.get("volume") or 0)
     if bucket is not None:
         out.append(bucket["row"])
     for r in out:
@@ -72,29 +99,43 @@ def _bar_sym(symbol: str) -> str:
     return "^GSPC" if (symbol or "").upper() == "SPX" else (symbol or "").upper()
 
 
+def _rows_from_intraday(ohlc: dict) -> list[dict]:
+    """intraday OHLC arrays → the common row shape."""
+    ts = ohlc.get("ts") or []
+    op, hi, lo, cl = ohlc["open"], ohlc["high"], ohlc["low"], ohlc["close"]
+    vol = ohlc.get("volume") or [0] * len(ts)
+    return [{"ts": ts[k], "open": op[k], "high": hi[k], "low": lo[k],
+             "close": cl[k], "volume": vol[k] or 0} for k in range(len(ts))]
+
+
+def _rows_from_daily(daily: list[dict]) -> list[dict]:
+    """daily bars → the common row shape (date may be a bare day or a full ISO ts)."""
+    return [{"ts": f"{str(d['date'])[:10]}T00:00:00+00:00", "open": d["open"],
+             "high": d["high"], "low": d["low"], "close": d["close"], "volume": 0}
+            for d in daily if d.get("date")]
+
+
 def chart_candles(store, symbol: str, tf: str = "5m", days: int = 15) -> dict:
     """Candles for (symbol, tf). Returns {symbol, tf, candles:[...], available, note?}.
-    Intraday tfs concatenate the last ``days`` stored sessions; 1D reads the daily
-    table. ``available`` is False (with a note) when no bars are stored for the tf."""
+    Intraday tfs concatenate the last ``days`` stored sessions; 1D/1W/1M come from the
+    daily table (weekly/monthly by calendar bucket); 4H aggregates 60m. ``available``
+    is False (with a note) when no source bars exist for the tf."""
     tf = tf if tf in _TF else "5m"
-    src, bucket = _TF[tf]
+    src, mode = _TF[tf]
     sym = _bar_sym(symbol)
 
-    if tf == "1D":
+    if src == "1D":
         b = store.load_bars(sym) if hasattr(store, "load_bars") else None
         daily = (b or {}).get("daily") or []
-        # `date` may be a bare 'YYYY-MM-DD' or a full ISO ts — normalize to the day.
-        candles = [_to_candle(f"{str(d['date'])[:10]}T00:00:00+00:00", d["open"],
-                              d["high"], d["low"], d["close"])
-                   for d in daily if d.get("date")]
-        if not candles:
+        if not daily:
             return {"symbol": symbol, "tf": tf, "available": False, "candles": [],
                     "note": f"no daily bars for {symbol}"}
+        candles = _resample(_rows_from_daily(daily), mode)
         return {"symbol": symbol, "tf": tf, "available": True, "candles": candles}
 
     # intraday: concatenate the last `days` stored sessions of the source interval.
-    # 1H prefers stored 60m; if a symbol only has 1m (e.g. SPX from the forecast
-    # seed, no 60m), fall back to resampling 1m → 60m so every intraday symbol has 1H.
+    # 1H/4H prefer stored 60m; if a symbol only has 1m (e.g. SPX from the forecast
+    # seed, no 60m), fall back to resampling 1m so every intraday symbol has them.
     def _load(interval: str):
         latest = (store.latest_intraday_day(sym, interval)
                   if hasattr(store, "latest_intraday_day") else None)
@@ -104,10 +145,10 @@ def chart_candles(store, symbol: str, tf: str = "5m", days: int = 15) -> dict:
         return o if (o and o.get("ts")) else store.load_intraday_bars(sym, latest, interval)
 
     ohlc = _load(src)
-    if (not ohlc or not ohlc.get("ts")) and tf == "1H":
-        ohlc = _load("1m")       # 1H fallback: resample from 1m
+    if (not ohlc or not ohlc.get("ts")) and src == "60m":
+        ohlc = _load("1m")       # 1H/4H fallback: resample from 1m
     if not ohlc or not ohlc.get("ts"):
         return {"symbol": symbol, "tf": tf, "available": False, "candles": [],
                 "note": f"no bars stored for {symbol} at {tf} — prime it first"}
-    candles = _resample(ohlc, 60 if bucket is None else bucket)
+    candles = _resample(_rows_from_intraday(ohlc), mode)
     return {"symbol": symbol, "tf": tf, "available": True, "candles": candles}

@@ -14,7 +14,7 @@ import { useLive, getChart } from "./live.js";
 
 const { useState, useRef, useEffect, useCallback } = React;
 
-const TIMEFRAMES = ["1m", "5m", "15m", "1H", "1D"];
+const TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
 const hasLW = () => typeof window !== "undefined"
   && !!(window.LightweightCharts && window.LightweightCharts.createChart);
 
