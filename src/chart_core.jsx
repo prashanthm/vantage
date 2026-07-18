@@ -8,7 +8,7 @@
 //
 // Extracted from the Playbook chart (spx_forecast.jsx) and generalized: data comes
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
-import { cls, LoadBar } from "./util.jsx";
+import { cls, LoadBar, dirCls } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
 import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRun } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
@@ -113,7 +113,7 @@ function setInd(drawn, key, candles, th) {
 }
 
 export function InstrumentChart({ symbol, tf, setTf, overlays, height,
-    replayRunId, replayActive, onReplayToggle, activeCallId }) {
+    replayRunId, replayActive, onReplayToggle, activeCallId, setActiveCallId }) {
   const elRef = useRef(null);
   const chartRef = useRef(null);
   const candleRef = useRef(null);
@@ -159,8 +159,11 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       const fc = f.forecast || {};
       const plot = (fc && typeof fc === "object") ? fc.plot : null;
       const t = f.as_of ? Math.floor(new Date(f.as_of).getTime() / 1000) : null;
-      return { id: f.id, as_of_ts: t, price_at: f.price_at,
+      return { id: f.id, as_of: f.as_of, as_of_ts: t, price_at: f.price_at,
+               bias: (plot && plot.bias) || "",
+               path: (plot && Array.isArray(plot.path)) ? plot.path : [],
                target: plot && plot.target != null ? plot.target : null,
+               invalidation: plot && plot.invalidation != null ? plot.invalidation : null,
                verdict: (f.score && f.score.verdict) || null };
     }).filter((f) => f.as_of_ts != null);
     return { run_id: d.run_id, forecasts, activeCallId };
@@ -532,6 +535,12 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         {layerData && !layerData.has_levels && (
           <span className="vg-ic-layers-note">bars-derived only (no coach chain)</span>)}
       </div>
+      {replayShown && (
+        <div className="vg-ic-legend">
+          <span><i className="vg-lg-sw" style={{ background: "rgba(124,92,255,0.95)" }} /> predicted path</span>
+          <span><i className="vg-lg-sw" style={{ background: `rgb(${chartTheme().upRgb.join(",")})` }} /> call hit</span>
+          <span><i className="vg-lg-sw" style={{ background: `rgb(${chartTheme().downRgb.join(",")})` }} /> call missed</span>
+        </div>)}
       <div className="vg-ic-body">
         {(q.loading) && <LoadBar />}
         {!hasLW()
@@ -542,15 +551,62 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
             <p className="vg-note">{(q.data && q.data.note) || `No chart data for ${symbol}.`}</p>
           </div>)}
       </div>
+      {replayShown && replayData && replayData.forecasts.length > 0 && (
+        <ReplayCompareTable forecasts={replayData.forecasts}
+          activeId={activeCallId} setActiveId={setActiveCallId} />)}
+    </div>
+  );
+}
+
+// The per-call comparison table under the chart (Replay). Reused verbatim from the
+// old ReplayChart view (spx_forecast.jsx): time · @px · bias · path 1-5 · target ·
+// invalid · result, with row-hover ↔ chart-marker highlight via activeId.
+function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
+  const hhmm = (iso) => String(iso || "").slice(11, 16);
+  const tone = (sc) => !sc ? "plain"
+    : sc === "hit target" || sc === "direction correct" ? "good"
+    : sc === "invalidated" || sc === "direction wrong" ? "bad" : "plain";
+  return (
+    <div className="vg-ic-cmpwrap">
+      <table className="vg-fc-cmp">
+        <thead>
+          <tr>
+            <th>time</th><th>@ px</th><th>bias</th>
+            <th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>
+            <th>target</th><th>invalid</th><th>result</th>
+          </tr>
+        </thead>
+        <tbody>
+          {forecasts.map((f) => {
+            const path = f.path || [];
+            return (
+              <tr key={f.id} className={cls("vg-fc-cmprow", activeId === f.id && "vg-fc-cmprow-on")}
+                onMouseEnter={() => setActiveId && setActiveId(f.id)}
+                onMouseLeave={() => setActiveId && setActiveId(null)}>
+                <td>{hhmm(f.as_of)}</td>
+                <td>{f.price_at}</td>
+                <td className={dirCls(f.bias === "up" ? 1 : f.bias === "down" ? -1 : 0)}>{f.bias || "—"}</td>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <td key={i} className="vg-fc-cmpstep" title={path[i] ? path[i].note : ""}>
+                    {path[i] ? path[i].price : ""}</td>))}
+                <td>{f.target != null ? f.target : "—"}</td>
+                <td>{f.invalidation != null ? f.invalidation : "—"}</td>
+                <td>{f.verdict
+                  ? <span className={cls("vg-badge", tone(f.verdict))} style={{ fontSize: 10 }}>{f.verdict}</span>
+                  : <span className="vg-note">—</span>}</td>
+              </tr>);
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
 
 // A self-contained wrapper that owns the timeframe state — for quick drop-in use.
 export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height,
-    replayActive, replayRunId, onReplayToggle, activeCallId }) {
+    replayActive, replayRunId, onReplayToggle, activeCallId, setActiveCallId }) {
   const [tf, setTf] = useState(defaultTf);
   return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height}
     replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle}
-    activeCallId={activeCallId} />;
+    activeCallId={activeCallId} setActiveCallId={setActiveCallId} />;
 }

@@ -165,10 +165,12 @@ function App() {
   }, [toggleFocus, exitFocus, focus]);
   // Resizable right pane: user-dragged width persisted to localStorage. Clamped
   // to a sane range; the .clps collapse rule (48px) still wins when collapsed.
-  const RIGHT_MIN = 300, RIGHT_MAX = 720;
+  // Max is ~half the viewport (the Replay panel + comparison table want room).
+  const RIGHT_MIN = 300;
+  const rightMax = () => Math.min(1100, Math.round(window.innerWidth * 0.5));
   const [rightWidth, setRightWidth] = useState(() => {
     const saved = Number(localStorage.getItem("vantage.rightWidth"));
-    return saved >= RIGHT_MIN && saved <= RIGHT_MAX ? saved : 360;
+    return saved >= RIGHT_MIN ? Math.min(saved, rightMax()) : 360;
   });
   const [resizing, setResizing] = useState(false);
   const startResize = (e) => {
@@ -178,7 +180,7 @@ function App() {
     const startW = rightWidth;
     const onMove = (ev) => {
       // dragging left (smaller clientX) widens the right pane
-      const next = Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, startW + (startX - ev.clientX)));
+      const next = Math.min(rightMax(), Math.max(RIGHT_MIN, startW + (startX - ev.clientX)));
       setRightWidth(next);
     };
     const onUp = () => {
@@ -472,7 +474,8 @@ function App() {
           {route === "ic" && (
             <div className="vg-ic-route">
               <InstrumentChartCard symbol={icSymbol} height="100%"
-                replayActive={replayOn} replayRunId={replayRunId} activeCallId={activeCallId}
+                replayActive={replayOn} replayRunId={replayRunId}
+                activeCallId={activeCallId} setActiveCallId={setActiveCallId}
                 onReplayToggle={() => {
                   const next = !replayOn;
                   setReplayOn(next);

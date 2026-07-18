@@ -167,22 +167,42 @@ export const LAYER_DRAWERS = {
     const out = [];
     const markers = [];
     const [t0, t1] = timeSpan(ctx.candles);
+    const inView = (t) => !(t0 && t1) || (t >= t0 && t <= t1);
+    // graded hit/miss arrow markers on the candles (= actual price) + the
+    // connected predicted-path points (call time → target). Reused from the old
+    // ReplayChart (spx_forecast.jsx). Candles already ARE the actual line, so no
+    // separate grey series.
+    const pts = [];
+    let lastT = -Infinity;
     for (const f of rp.forecasts) {
-      if (f.as_of_ts == null || f.price_at == null) continue;
-      // only mark forecasts whose origin falls within the visible candle range.
-      if (t0 && t1 && (f.as_of_ts < t0 || f.as_of_ts > t1)) continue;
-      const hit = f.verdict === "hit target";
-      const bad = f.verdict === "invalidated";
+      if (f.as_of_ts == null || f.price_at == null || !inView(f.as_of_ts)) continue;
+      const hit = f.verdict === "hit target" || f.verdict === "direction correct";
+      const bad = f.verdict === "invalidated" || f.verdict === "direction wrong";
       const color = hit ? `rgb(${th.upRgb.join(",")})`
         : bad ? `rgb(${th.downRgb.join(",")})` : "rgb(176,106,0)";
+      const up = f.target != null && f.target >= f.price_at;
       const isActive = rp.activeCallId != null && f.id === rp.activeCallId;
       markers.push({ time: f.as_of_ts,
-        position: isActive ? "belowBar" : "aboveBar",
-        shape: isActive ? "arrowUp" : "circle", color,
-        text: `${f.target != null ? "→" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 22) });
+        position: up ? "aboveBar" : "belowBar",
+        shape: up ? "arrowUp" : "arrowDown", color,
+        text: isActive ? `${f.target != null ? "→" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 24)
+          : (f.verdict || "") });
+      if (f.target != null) {
+        const tt = f.as_of_ts <= lastT ? lastT + 1 : f.as_of_ts;   // LW needs ascending, unique time
+        pts.push({ time: tt, value: f.target });
+        lastT = tt;
+      }
+    }
+    if (pts.length) {
+      try {
+        const ps = ctx.chart.addLineSeries({ color: "rgba(124,92,255,0.95)", lineWidth: 2,
+          lineStyle: ctx.LW.LineStyle.Solid, lastValueVisible: false, priceLineVisible: false,
+          crosshairMarkerVisible: true, pointMarkersVisible: true });
+        ps.setData(pts);
+        out.push({ kind: "series", handle: ps });
+      } catch (e) { /* older LW */ }
     }
     if (markers.length) {
-      // markers must be sorted by time for LWC.
       markers.sort((a, b) => a.time - b.time);
       try { ctx.candle.setMarkers(markers); out.push({ kind: "markers", handle: null }); }
       catch (e) { /* */ }

@@ -4125,20 +4125,44 @@ ${ref}`;
       const out = [];
       const markers = [];
       const [t0, t1] = timeSpan(ctx.candles);
+      const inView = (t) => !(t0 && t1) || t >= t0 && t <= t1;
+      const pts2 = [];
+      let lastT = -Infinity;
       for (const f of rp.forecasts) {
-        if (f.as_of_ts == null || f.price_at == null) continue;
-        if (t0 && t1 && (f.as_of_ts < t0 || f.as_of_ts > t1)) continue;
-        const hit = f.verdict === "hit target";
-        const bad = f.verdict === "invalidated";
+        if (f.as_of_ts == null || f.price_at == null || !inView(f.as_of_ts)) continue;
+        const hit = f.verdict === "hit target" || f.verdict === "direction correct";
+        const bad = f.verdict === "invalidated" || f.verdict === "direction wrong";
         const color = hit ? `rgb(${th.upRgb.join(",")})` : bad ? `rgb(${th.downRgb.join(",")})` : "rgb(176,106,0)";
+        const up = f.target != null && f.target >= f.price_at;
         const isActive = rp.activeCallId != null && f.id === rp.activeCallId;
         markers.push({
           time: f.as_of_ts,
-          position: isActive ? "belowBar" : "aboveBar",
-          shape: isActive ? "arrowUp" : "circle",
+          position: up ? "aboveBar" : "belowBar",
+          shape: up ? "arrowUp" : "arrowDown",
           color,
-          text: `${f.target != null ? "\u2192" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 22)
+          text: isActive ? `${f.target != null ? "\u2192" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 24) : f.verdict || ""
         });
+        if (f.target != null) {
+          const tt = f.as_of_ts <= lastT ? lastT + 1 : f.as_of_ts;
+          pts2.push({ time: tt, value: f.target });
+          lastT = tt;
+        }
+      }
+      if (pts2.length) {
+        try {
+          const ps = ctx.chart.addLineSeries({
+            color: "rgba(124,92,255,0.95)",
+            lineWidth: 2,
+            lineStyle: ctx.LW.LineStyle.Solid,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: true,
+            pointMarkersVisible: true
+          });
+          ps.setData(pts2);
+          out.push({ kind: "series", handle: ps });
+        } catch (e) {
+        }
       }
       if (markers.length) {
         markers.sort((a, b) => a.time - b.time);
@@ -4314,7 +4338,8 @@ ${ref}`;
     replayRunId,
     replayActive,
     onReplayToggle,
-    activeCallId
+    activeCallId,
+    setActiveCallId
   }) {
     const elRef = useRef3(null);
     const chartRef = useRef3(null);
@@ -4364,9 +4389,13 @@ ${ref}`;
         const t = f.as_of ? Math.floor(new Date(f.as_of).getTime() / 1e3) : null;
         return {
           id: f.id,
+          as_of: f.as_of,
           as_of_ts: t,
           price_at: f.price_at,
+          bias: plot && plot.bias || "",
+          path: plot && Array.isArray(plot.path) ? plot.path : [],
           target: plot && plot.target != null ? plot.target : null,
+          invalidation: plot && plot.invalidation != null ? plot.invalidation : null,
           verdict: f.score && f.score.verdict || null
         };
       }).filter((f) => f.as_of_ts != null);
@@ -4827,7 +4856,37 @@ ${ref}`;
         },
         ly.label
       );
-    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
+    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
+      ReplayCompareTable,
+      {
+        forecasts: replayData.forecasts,
+        activeId: activeCallId,
+        setActiveId: setActiveCallId
+      }
+    ));
+  }
+  function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
+    const hhmm3 = (iso) => String(iso || "").slice(11, 16);
+    const tone = (sc) => !sc ? "plain" : sc === "hit target" || sc === "direction correct" ? "good" : sc === "invalidated" || sc === "direction wrong" ? "bad" : "plain";
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-ic-cmpwrap" }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, forecasts.map((f) => {
+      const path = f.path || [];
+      return /* @__PURE__ */ React.createElement(
+        "tr",
+        {
+          key: f.id,
+          className: cls("vg-fc-cmprow", activeId === f.id && "vg-fc-cmprow-on"),
+          onMouseEnter: () => setActiveId && setActiveId(f.id),
+          onMouseLeave: () => setActiveId && setActiveId(null)
+        },
+        /* @__PURE__ */ React.createElement("td", null, hhmm3(f.as_of)),
+        /* @__PURE__ */ React.createElement("td", null, f.price_at),
+        /* @__PURE__ */ React.createElement("td", { className: dirCls(f.bias === "up" ? 1 : f.bias === "down" ? -1 : 0) }, f.bias || "\u2014"),
+        [0, 1, 2, 3, 4].map((i) => /* @__PURE__ */ React.createElement("td", { key: i, className: "vg-fc-cmpstep", title: path[i] ? path[i].note : "" }, path[i] ? path[i].price : "")),
+        /* @__PURE__ */ React.createElement("td", null, f.target != null ? f.target : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", null, f.invalidation != null ? f.invalidation : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", null, f.verdict ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone(f.verdict)), style: { fontSize: 10 } }, f.verdict) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014"))
+      );
+    }))));
   }
   function InstrumentChartCard({
     symbol,
@@ -4837,7 +4896,8 @@ ${ref}`;
     replayActive,
     replayRunId,
     onReplayToggle,
-    activeCallId
+    activeCallId,
+    setActiveCallId
   }) {
     const [tf, setTf] = useState7(defaultTf);
     return /* @__PURE__ */ React.createElement(
@@ -4851,7 +4911,8 @@ ${ref}`;
         replayActive,
         replayRunId,
         onReplayToggle,
-        activeCallId
+        activeCallId,
+        setActiveCallId
       }
     );
   }
@@ -6933,10 +6994,11 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
     }, [toggleFocus, exitFocus, focus]);
-    const RIGHT_MIN = 300, RIGHT_MAX = 720;
+    const RIGHT_MIN = 300;
+    const rightMax = () => Math.min(1100, Math.round(window.innerWidth * 0.5));
     const [rightWidth, setRightWidth] = useState15(() => {
       const saved = Number(localStorage.getItem("vantage.rightWidth"));
-      return saved >= RIGHT_MIN && saved <= RIGHT_MAX ? saved : 360;
+      return saved >= RIGHT_MIN ? Math.min(saved, rightMax()) : 360;
     });
     const [resizing, setResizing] = useState15(false);
     const startResize = (e) => {
@@ -6945,7 +7007,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       const startX = e.clientX;
       const startW = rightWidth;
       const onMove = (ev) => {
-        const next = Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, startW + (startX - ev.clientX)));
+        const next = Math.min(rightMax(), Math.max(RIGHT_MIN, startW + (startX - ev.clientX)));
         setRightWidth(next);
       };
       const onUp = () => {
@@ -7174,6 +7236,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         replayActive: replayOn,
         replayRunId,
         activeCallId,
+        setActiveCallId,
         onReplayToggle: () => {
           const next = !replayOn;
           setReplayOn(next);

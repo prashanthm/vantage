@@ -1092,6 +1092,11 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   color: var(--vg-dim); padding-right: 4px; }
 .vg-ic-layers-note { font-family: var(--vg-font-ui); font-size: 10px; color: var(--vg-dim);
   font-style: italic; margin-left: 4px; }
+/* Replay legend + comparison table strip under the chart (reuses .vg-fc-cmp). */
+.vg-ic-legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 6px 13px 0;
+  font-size: 11px; color: var(--vg-dim); }
+.vg-ic-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.vg-ic-cmpwrap { max-height: 34vh; overflow: auto; border-top: 1px solid var(--vg-hairline); }
 /* ── Replay panel (right pane, chart-first) ──────────────────────────────────── */
 .vg-rp { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; }
 .vg-rp-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px;
