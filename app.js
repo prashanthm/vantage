@@ -3956,18 +3956,21 @@ ${ref}`;
     levels(ctx) {
       const th = chartTheme();
       const out = [];
+      const sel = ctx.selectedLevel;
       for (const lv of ctx.layers.levels || []) {
         const lbl = String(lv.label || "");
         const isRes = /resist|call wall/i.test(lbl);
         const isSup = /support|put wall|max pain/i.test(lbl);
         const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
+        const isSel = sel != null && Math.abs(lv.price - sel) < 0.01;
+        const alpha = sel == null ? 0.6 : isSel ? 0.95 : 0.18;
         out.push({ kind: "line", handle: ctx.candle.createPriceLine({
           price: lv.price,
-          color: `rgba(${rgb.join(",")},0.6)`,
-          lineWidth: /wall|max pain|durable/i.test(lbl) ? 2 : 1,
+          color: `rgba(${rgb.join(",")},${alpha})`,
+          lineWidth: isSel ? 2 : /wall|max pain|durable/i.test(lbl) ? 2 : 1,
           lineStyle: ctx.LW.LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: lbl.replace(/\s*[★✦].*$/, "").slice(0, 20)
+          axisLabelVisible: sel == null || isSel,
+          title: sel != null && !isSel ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 20)
         }) });
       }
       return out;
@@ -4352,6 +4355,8 @@ ${ref}`;
     const toolRef = useRef3("cursor");
     const commitDrawingRef = useRef3(() => {
     });
+    const levelClickRef = useRef3(() => {
+    });
     const [hover, setHover] = useState7(null);
     const [nonce, setNonce] = useState7(0);
     const [refreshing, setRefreshing] = useState7(false);
@@ -4360,6 +4365,7 @@ ${ref}`;
     const [drawings, setDrawings] = useState7([]);
     const [pendingN, setPendingN] = useState7(0);
     const [activeLayers, setActiveLayers] = useState7(loadLayerPref);
+    const [selectedLevel, setSelectedLevel] = useState7(null);
     const layerHandlesRef = useRef3({});
     toolRef.current = tool;
     const layerQ = useLive(
@@ -4429,6 +4435,12 @@ ${ref}`;
       }
     }, [symbol]);
     commitDrawingRef.current = commitDrawing;
+    useEffect6(() => {
+      if (!activeLayers.has("levels")) setSelectedLevel(null);
+    }, [activeLayers]);
+    useEffect6(() => {
+      setSelectedLevel(null);
+    }, [symbol]);
     const clearDrawings = useCallback(async () => {
       const ids = drawings.map((d) => d.id);
       setDrawings([]);
@@ -4466,6 +4478,44 @@ ${ref}`;
     }, [symbol, tf, refreshing]);
     const data = q.data && q.data.available ? q.data : null;
     const candles = data && data.candles || [];
+    const frameToLevel = useCallback((clickPrice) => {
+      const levels = layerData && layerData.layers && layerData.layers.levels || [];
+      if (!levels.length || !candles.length || clickPrice == null) return;
+      let lv = null, best = Infinity;
+      for (const l of levels) {
+        const d = Math.abs(l.price - clickPrice);
+        if (d < best) {
+          best = d;
+          lv = l;
+        }
+      }
+      if (!lv || best > Math.abs(clickPrice) * 4e-3) {
+        setSelectedLevel(null);
+        return;
+      }
+      let ci = 0, cbest = Infinity;
+      candles.forEach((c, i) => {
+        const d = lv.price > c.high ? lv.price - c.high : lv.price < c.low ? c.low - lv.price : 0;
+        if (d < cbest) {
+          cbest = d;
+          ci = i;
+        }
+      });
+      const chart = chartRef.current;
+      if (chart) {
+        const span = 40;
+        const from = candles[Math.max(0, ci - span)].time;
+        const to = candles[Math.min(candles.length - 1, ci + span)].time;
+        requestAnimationFrame(() => {
+          try {
+            chart.timeScale().setVisibleRange({ from, to });
+          } catch (e) {
+          }
+        });
+      }
+      setSelectedLevel(lv.price);
+    }, [layerData, candles]);
+    levelClickRef.current = frameToLevel;
     useEffect6(() => {
       const el = elRef.current;
       if (!el || !hasLW3()) return void 0;
@@ -4527,6 +4577,10 @@ ${ref}`;
       chart.subscribeClick((p) => {
         const t = toolRef.current;
         const need = TOOL_PTS[t] || 0;
+        if (t === "cursor") {
+          if (p && p.point) levelClickRef.current(candle.coordinateToPrice(p.point.y));
+          return;
+        }
         if (!need || !p || !p.point) return;
         const price = candle.coordinateToPrice(p.point.y);
         const time = p.time != null ? p.time : chart.timeScale().coordinateToTime(p.point.x);
@@ -4733,6 +4787,7 @@ ${ref}`;
         layers: layerData && layerData.layers || {},
         forecast: forecastData,
         replay: replayData,
+        selectedLevel,
         price: layerData && layerData.layers && layerData.layers.price || candles[candles.length - 1].close
       };
       const keysToDraw = new Set(activeLayers);
@@ -4749,7 +4804,7 @@ ${ref}`;
         }
       }
       return void 0;
-    }, [activeLayers, layerData, forecastData, replayData, replayShown, candles]);
+    }, [activeLayers, layerData, forecastData, replayData, replayShown, selectedLevel, candles]);
     useEffect6(() => {
       const chart = chartRef.current;
       if (!chart || !replayShown || !replayData || !candles.length) return;

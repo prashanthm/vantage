@@ -124,6 +124,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const pendingRef = useRef([]);               // click points for the in-progress drawing
   const toolRef = useRef("cursor");            // current tool (ref so the click cb sees it)
   const commitDrawingRef = useRef(() => {});   // latest commit fn (creation effect runs once)
+  const levelClickRef = useRef(() => {});      // latest level-click handler (once-mounted cb)
   const [hover, setHover] = useState(null);   // crosshair OHLC
   const [nonce, setNonce] = useState(0);      // manual-refresh cache bust
   const [refreshing, setRefreshing] = useState(false);
@@ -132,6 +133,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const [drawings, setDrawings] = useState([]);     // persisted drawings for this symbol
   const [pendingN, setPendingN] = useState(0);      // clicks captured so far (UI hint)
   const [activeLayers, setActiveLayers] = useState(loadLayerPref);  // active DNA layers
+  const [selectedLevel, setSelectedLevel] = useState(null);         // clicked level price (anchor + focus)
   const layerHandlesRef = useRef({});               // layer key → [handles]
   toolRef.current = tool;
 
@@ -197,6 +199,10 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   }, [symbol]);
   commitDrawingRef.current = commitDrawing;
 
+  // clear a level selection when Levels turns off or the symbol changes.
+  useEffect(() => { if (!activeLayers.has("levels")) setSelectedLevel(null); }, [activeLayers]);
+  useEffect(() => { setSelectedLevel(null); }, [symbol]);
+
   const clearDrawings = useCallback(async () => {
     const ids = drawings.map((d) => d.id);
     setDrawings([]);
@@ -222,6 +228,32 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   }, [symbol, tf, refreshing]);
   const data = q.data && q.data.available ? q.data : null;
   const candles = (data && data.candles) || [];
+
+  // click near a coach level → anchor the chart to it: nearest level to the clicked
+  // price (within ~0.4%), scroll the TIME axis to where price traded closest to that
+  // level (price auto-scales to frame it), mark it selected (layer draws it bold +
+  // dims the rest). Click empty space → clear. Defined after `candles` (TDZ).
+  const frameToLevel = useCallback((clickPrice) => {
+    const levels = (layerData && layerData.layers && layerData.layers.levels) || [];
+    if (!levels.length || !candles.length || clickPrice == null) return;
+    let lv = null, best = Infinity;
+    for (const l of levels) { const d = Math.abs(l.price - clickPrice); if (d < best) { best = d; lv = l; } }
+    if (!lv || best > Math.abs(clickPrice) * 0.004) { setSelectedLevel(null); return; }
+    let ci = 0, cbest = Infinity;
+    candles.forEach((c, i) => {
+      const d = (lv.price > c.high) ? lv.price - c.high : (lv.price < c.low) ? c.low - lv.price : 0;
+      if (d < cbest) { cbest = d; ci = i; }
+    });
+    const chart = chartRef.current;
+    if (chart) {
+      const span = 40;
+      const from = candles[Math.max(0, ci - span)].time;
+      const to = candles[Math.min(candles.length - 1, ci + span)].time;
+      requestAnimationFrame(() => { try { chart.timeScale().setVisibleRange({ from, to }); } catch (e) { /* */ } });
+    }
+    setSelectedLevel(lv.price);
+  }, [layerData, candles]);
+  levelClickRef.current = frameToLevel;
 
   // create the chart once
   useEffect(() => {
@@ -259,10 +291,15 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       const bar = p.seriesData.get(candle);
       setHover(bar ? ohlcText(bar) : null);
     });
-    // click → capture drawing points when a tool is active. Cursor = no-op (pan).
+    // click → capture drawing points when a tool is active; with the cursor tool,
+    // a click near a coach level anchors the chart to it (see frameToLevel).
     chart.subscribeClick((p) => {
       const t = toolRef.current;
       const need = TOOL_PTS[t] || 0;
+      if (t === "cursor") {
+        if (p && p.point) levelClickRef.current(candle.coordinateToPrice(p.point.y));
+        return;
+      }
       if (!need || !p || !p.point) return;
       const price = candle.coordinateToPrice(p.point.y);
       const time = p.time != null ? p.time : chart.timeScale().coordinateToTime(p.point.x);
@@ -426,7 +463,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     if (!candles.length) return undefined;
     const ctx = { chart, candle, LW: window.LightweightCharts, candles,
                   layers: (layerData && layerData.layers) || {}, forecast: forecastData,
-                  replay: replayData,
+                  replay: replayData, selectedLevel,
                   price: (layerData && layerData.layers && layerData.layers.price)
                     || candles[candles.length - 1].close };
     // draw each active layer. replay is special: it draws only when a run is
@@ -442,7 +479,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
     }
     return undefined;
-  }, [activeLayers, layerData, forecastData, replayData, replayShown, candles]);
+  }, [activeLayers, layerData, forecastData, replayData, replayShown, selectedLevel, candles]);
 
   // scroll the chart to the selected replay run's day so its markers are in view
   // (a run is day-specific; without this, picking an older day draws markers

@@ -29,16 +29,21 @@ export const LAYER_DRAWERS = {
   levels(ctx) {
     const th = chartTheme();
     const out = [];
+    const sel = ctx.selectedLevel;
     for (const lv of ctx.layers.levels || []) {
       const lbl = String(lv.label || "");
       const isRes = /resist|call wall/i.test(lbl);
       const isSup = /support|put wall|max pain/i.test(lbl);
       const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
+      // a selected level (from a chart click) draws bold + labeled; the rest dim so
+      // it stands out. No selection → all at the normal 0.6.
+      const isSel = sel != null && Math.abs(lv.price - sel) < 0.01;
+      const alpha = sel == null ? 0.6 : isSel ? 0.95 : 0.18;
       out.push({ kind: "line", handle: ctx.candle.createPriceLine({
-        price: lv.price, color: `rgba(${rgb.join(",")},0.6)`,
-        lineWidth: /wall|max pain|durable/i.test(lbl) ? 2 : 1,
-        lineStyle: ctx.LW.LineStyle.Dashed, axisLabelVisible: true,
-        title: lbl.replace(/\s*[★✦].*$/, "").slice(0, 20) }) });
+        price: lv.price, color: `rgba(${rgb.join(",")},${alpha})`,
+        lineWidth: isSel ? 2 : /wall|max pain|durable/i.test(lbl) ? 2 : 1,
+        lineStyle: ctx.LW.LineStyle.Dashed, axisLabelVisible: sel == null || isSel,
+        title: (sel != null && !isSel) ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 20) }) });
     }
     return out;
   },
