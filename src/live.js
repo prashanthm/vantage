@@ -1013,6 +1013,9 @@ export const deleteDrawing = (symbol, id) =>
 // Vantage-DNA layers (coach levels / ICT / liquidity / draw / prior / GEX) for a symbol.
 export const getLayers = (symbol) =>
   getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/layers`, { timeoutMs: 20000 });
+// The latest stored forecast for a symbol (target/invalidation/path), chart-ready.
+export const getChartForecast = (symbol) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/forecast`, { timeoutMs: 20000 });
 
 // ── SPX-analyst forecast loop ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).

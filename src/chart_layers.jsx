@@ -106,6 +106,54 @@ export const LAYER_DRAWERS = {
     mk(g.max_pain, "max pain", "120,120,130");
     return out;
   },
+
+  // the analyst's latest forecast: TARGET (green) / INVALIDATION (red) as reference
+  // lines, and the numbered predicted PATH projected forward from the last candle
+  // into the empty right space (so it reads "from here, price goes 1→2→3…").
+  // Adapted from the Playbook overlay (spx_forecast.jsx). Reads ctx.forecast.
+  forecast(ctx) {
+    const fc = ctx.forecast;
+    if (!fc) return [];
+    const th = chartTheme();
+    const out = [];
+    if (fc.target != null) out.push({ kind: "line", handle: ctx.candle.createPriceLine({
+      price: fc.target, color: `rgb(${th.upRgb.join(",")})`, lineWidth: 2,
+      lineStyle: ctx.LW.LineStyle.Solid, axisLabelVisible: true, title: "🎯 TARGET" }) });
+    if (fc.invalidation != null) out.push({ kind: "line", handle: ctx.candle.createPriceLine({
+      price: fc.invalidation, color: `rgb(${th.downRgb.join(",")})`, lineWidth: 2,
+      lineStyle: ctx.LW.LineStyle.Solid, axisLabelVisible: true, title: "✕ INVALID" }) });
+
+    // project the path forward: one bar per step from the last candle, at each
+    // step's price, with a numbered arrow marker carrying the step's note.
+    const steps = (fc.path || []).filter((s) => s.price != null);
+    const candles = ctx.candles;
+    if (steps.length && candles.length) {
+      const t1 = candles[candles.length - 1].time;
+      const barSec = candles.length > 1
+        ? (candles[candles.length - 1].time - candles[candles.length - 2].time) || 300 : 300;
+      const px0 = ctx.price || candles[candles.length - 1].close;
+      const data = [{ time: t1, value: px0 }];
+      const markers = [];
+      const down = fc.bias === "down";
+      steps.forEach((st, i) => {
+        const tt = t1 + barSec * (i + 1);
+        data.push({ time: tt, value: st.price });
+        markers.push({ time: tt, position: down ? "belowBar" : "aboveBar",
+          shape: down ? "arrowDown" : "arrowUp",
+          color: down ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
+          text: `${st.seq} · ${st.price}${st.note ? " " + st.note : ""}`.slice(0, 34) });
+      });
+      try {
+        const ps = ctx.chart.addLineSeries({ color: "rgba(124,92,255,0.95)", lineWidth: 2,
+          lineStyle: ctx.LW.LineStyle.Dashed, lastValueVisible: false,
+          priceLineVisible: false, crosshairMarkerVisible: false });
+        ps.setData(data);
+        ps.setMarkers(markers);
+        out.push({ kind: "series", handle: ps });
+      } catch (e) { /* older LW builds — skip the projection */ }
+    }
+    return out;
+  },
 };
 
 // the toggleable layer chips (order = draw order top→bottom in the toolbar).
@@ -118,6 +166,7 @@ export const LAYERS = [
   { key: "draw", label: "Draw", needsLevels: false },
   { key: "prior", label: "PD H/L/C", needsLevels: false },
   { key: "gex", label: "GEX", needsLevels: true },
+  { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true },
 ];
 
 // ── primitives ───────────────────────────────────────────────────────────────

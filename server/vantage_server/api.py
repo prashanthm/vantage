@@ -584,6 +584,51 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, symbol=sym, day=day,
                         has_levels=(sym in playbook_syms), layers=layers)
 
+    @app.get("/api/chart/{symbol}/forecast")
+    def chart_forecast(symbol: str):
+        """The latest stored forecast for a symbol, parsed into chart-ready fields:
+        {as_of, price_at, bias, target, invalidation, path[], score}. Read-only;
+        the chart's Forecast layer draws target/invalidation as reference lines and
+        projects the numbered path forward from as_of. Empty when no forecast exists."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="forecasts need the SQLite backend")
+        sym = (symbol or "SPX").upper()
+        rows = store.list_spx_forecasts(sym, None, 1)
+        if not rows:
+            return envelope(snap, available=False, symbol=sym, note=f"no forecast for {sym} yet")
+        row = rows[0]
+        fc = row.get("forecast") or {}
+        plot = fc.get("plot") if isinstance(fc, dict) else None
+        if not isinstance(plot, dict):
+            return envelope(snap, available=False, symbol=sym,
+                            note="forecast has no structured plot")
+
+        def _num(v):
+            try:
+                n = float(v)
+                return n if n == n else None  # drop NaN
+            except (TypeError, ValueError):
+                return None
+
+        b = str(plot.get("bias") or "").lower()
+        bias = "down" if any(k in b for k in ("down", "bear", "short")) \
+            else "up" if any(k in b for k in ("up", "bull", "long")) else b
+        path = []
+        for i, st in enumerate(plot.get("path") or []):
+            price = _num(st.get("price"))
+            if price is None:
+                continue
+            path.append({"seq": int(_num(st.get("seq")) or i + 1), "price": price,
+                         "note": str(st.get("note") or "")[:40]})
+            if len(path) >= 5:
+                break
+        return envelope(snap, available=True, symbol=sym, as_of=row.get("as_of"),
+                        price_at=row.get("price_at"), forecast={
+                            "bias": bias, "target": _num(plot.get("target")),
+                            "invalidation": _num(plot.get("invalidation")),
+                            "path": path, "score": row.get("score")})
+
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),

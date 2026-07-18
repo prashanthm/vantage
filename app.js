@@ -300,6 +300,7 @@
     getBotPerformance: () => getBotPerformance,
     getBotStatus: () => getBotStatus,
     getChart: () => getChart,
+    getChartForecast: () => getChartForecast,
     getCoachPine: () => getCoachPine,
     getDayPnl: () => getDayPnl,
     getDrawings: () => getDrawings,
@@ -1143,6 +1144,7 @@
   var saveDrawing = (symbol, drawing) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, drawing);
   var deleteDrawing = (symbol, id) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, { delete: id });
   var getLayers = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/layers`, { timeoutMs: 2e4 });
+  var getChartForecast = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/forecast`, { timeoutMs: 2e4 });
   var getSpxSnapshot = (day, asOf, symbol = "SPX") => getJson(`${backendBase()}/api/spx/snapshot?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + (asOf ? `&as_of=${encodeURIComponent(asOf)}` : ""));
   var saveSpxForecast = (body) => postJson(`${backendBase()}/api/spx/forecast`, body);
   var getSpxForecasts = (day, symbol = "SPX", limit = 50) => getJson(`${backendBase()}/api/spx/forecast?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + `&limit=${limit}`);
@@ -4044,6 +4046,68 @@ ${ref}`;
       mk(g.gamma_flip, "\u03B3 flip", "176,106,0");
       mk(g.max_pain, "max pain", "120,120,130");
       return out;
+    },
+    // the analyst's latest forecast: TARGET (green) / INVALIDATION (red) as reference
+    // lines, and the numbered predicted PATH projected forward from the last candle
+    // into the empty right space (so it reads "from here, price goes 1→2→3…").
+    // Adapted from the Playbook overlay (spx_forecast.jsx). Reads ctx.forecast.
+    forecast(ctx) {
+      const fc = ctx.forecast;
+      if (!fc) return [];
+      const th = chartTheme();
+      const out = [];
+      if (fc.target != null) out.push({ kind: "line", handle: ctx.candle.createPriceLine({
+        price: fc.target,
+        color: `rgb(${th.upRgb.join(",")})`,
+        lineWidth: 2,
+        lineStyle: ctx.LW.LineStyle.Solid,
+        axisLabelVisible: true,
+        title: "\u{1F3AF} TARGET"
+      }) });
+      if (fc.invalidation != null) out.push({ kind: "line", handle: ctx.candle.createPriceLine({
+        price: fc.invalidation,
+        color: `rgb(${th.downRgb.join(",")})`,
+        lineWidth: 2,
+        lineStyle: ctx.LW.LineStyle.Solid,
+        axisLabelVisible: true,
+        title: "\u2715 INVALID"
+      }) });
+      const steps = (fc.path || []).filter((s) => s.price != null);
+      const candles = ctx.candles;
+      if (steps.length && candles.length) {
+        const t1 = candles[candles.length - 1].time;
+        const barSec = candles.length > 1 ? candles[candles.length - 1].time - candles[candles.length - 2].time || 300 : 300;
+        const px0 = ctx.price || candles[candles.length - 1].close;
+        const data = [{ time: t1, value: px0 }];
+        const markers = [];
+        const down = fc.bias === "down";
+        steps.forEach((st, i) => {
+          const tt = t1 + barSec * (i + 1);
+          data.push({ time: tt, value: st.price });
+          markers.push({
+            time: tt,
+            position: down ? "belowBar" : "aboveBar",
+            shape: down ? "arrowDown" : "arrowUp",
+            color: down ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
+            text: `${st.seq} \xB7 ${st.price}${st.note ? " " + st.note : ""}`.slice(0, 34)
+          });
+        });
+        try {
+          const ps = ctx.chart.addLineSeries({
+            color: "rgba(124,92,255,0.95)",
+            lineWidth: 2,
+            lineStyle: ctx.LW.LineStyle.Dashed,
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false
+          });
+          ps.setData(data);
+          ps.setMarkers(markers);
+          out.push({ kind: "series", handle: ps });
+        } catch (e) {
+        }
+      }
+      return out;
     }
   };
   var LAYERS = [
@@ -4053,7 +4117,8 @@ ${ref}`;
     { key: "liquidity", label: "Liq", needsLevels: false },
     { key: "draw", label: "Draw", needsLevels: false },
     { key: "prior", label: "PD H/L/C", needsLevels: false },
-    { key: "gex", label: "GEX", needsLevels: true }
+    { key: "gex", label: "GEX", needsLevels: true },
+    { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true }
   ];
   function line(ctx, price, rgb, alpha, style, title, width = 1) {
     return { kind: "line", handle: ctx.candle.createPriceLine({
@@ -4197,6 +4262,12 @@ ${ref}`;
       [symbol]
     );
     const layerData = layerQ.data && layerQ.data.available ? layerQ.data : null;
+    const fcQ = useLive(
+      () => symbol ? getChartForecast(symbol) : Promise.resolve(null),
+      null,
+      [symbol]
+    );
+    const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
     const toggleLayer = useCallback((key) => {
       setActiveLayers((prev) => {
         const next = new Set(prev);
@@ -4512,16 +4583,18 @@ ${ref}`;
         delete handles[key];
       };
       for (const key of Object.keys(handles)) removeGroup(key);
-      if (!layerData || !candles.length) return void 0;
+      if (!candles.length) return void 0;
       const ctx = {
         chart,
         candle,
         LW: window.LightweightCharts,
         candles,
-        layers: layerData.layers || {},
-        price: (layerData.layers || {}).price || (candles.length ? candles[candles.length - 1].close : 0)
+        layers: layerData && layerData.layers || {},
+        forecast: forecastData,
+        price: layerData && layerData.layers && layerData.layers.price || candles[candles.length - 1].close
       };
       for (const key of activeLayers) {
+        if (key !== "forecast" && !layerData) continue;
         const drawer = LAYER_DRAWERS[key];
         if (!drawer) continue;
         try {
@@ -4531,7 +4604,7 @@ ${ref}`;
         }
       }
       return void 0;
-    }, [activeLayers, layerData, candles]);
+    }, [activeLayers, layerData, forecastData, candles]);
     const last = candles.length ? candles[candles.length - 1].close : null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
       "button",
@@ -4600,8 +4673,11 @@ ${ref}`;
       },
       "\u2715"
     ))), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-layers" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-tag" }, "DNA"), LAYERS.map((ly) => {
-      const gated = ly.needsLevels && layerData && !layerData.has_levels;
+      const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
+      const gatedFc = ly.needsForecast && !fcQ.loading && !forecastData;
+      const gated = gatedLevels || gatedFc;
       const on = activeLayers.has(ly.key) && !gated;
+      const why = gatedFc ? `No stored forecast for this symbol yet` : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`;
       return /* @__PURE__ */ React.createElement(
         "button",
         {
@@ -4609,7 +4685,7 @@ ${ref}`;
           className: cls("vg-ic-chip", on && "on", gated && "off"),
           onClick: () => !gated && toggleLayer(ly.key),
           disabled: gated,
-          title: gated ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`
+          title: why
         },
         ly.label
       );

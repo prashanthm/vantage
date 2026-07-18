@@ -10,7 +10,7 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
-import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers } from "./live.js";
+import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
 import { drawOne, removeOne } from "./chart_drawings.jsx";
 import { LAYERS, LAYER_DRAWERS, removeLayerHandle } from "./chart_layers.jsx";
@@ -114,6 +114,10 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
   const layerQ = useLive(() => (symbol ? getLayers(symbol) : Promise.resolve(null)),
     null, [symbol]);
   const layerData = layerQ.data && layerQ.data.available ? layerQ.data : null;
+  // the analyst's latest forecast (target/invalidation/path) for the Forecast layer.
+  const fcQ = useLive(() => (symbol ? getChartForecast(symbol) : Promise.resolve(null)),
+    null, [symbol]);
+  const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
 
   const toggleLayer = useCallback((key) => {
     setActiveLayers((prev) => {
@@ -366,17 +370,20 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     };
     // if the data or candles changed, everything drawn is stale — redraw all active.
     for (const key of Object.keys(handles)) removeGroup(key);
-    if (!layerData || !candles.length) return undefined;
+    if (!candles.length) return undefined;
     const ctx = { chart, candle, LW: window.LightweightCharts, candles,
-                  layers: layerData.layers || {}, price: (layerData.layers || {}).price
-                    || (candles.length ? candles[candles.length - 1].close : 0) };
+                  layers: (layerData && layerData.layers) || {}, forecast: forecastData,
+                  price: (layerData && layerData.layers && layerData.layers.price)
+                    || candles[candles.length - 1].close };
     for (const key of activeLayers) {
+      // the forecast layer draws from forecastData; the rest need layerData.
+      if (key !== "forecast" && !layerData) continue;
       const drawer = LAYER_DRAWERS[key];
       if (!drawer) continue;
       try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
     }
     return undefined;
-  }, [activeLayers, layerData, candles]);
+  }, [activeLayers, layerData, forecastData, candles]);
 
   const last = candles.length ? candles[candles.length - 1].close : null;
 
@@ -427,12 +434,16 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
       <div className="vg-ic-layers">
         <span className="vg-ic-layers-tag">DNA</span>
         {LAYERS.map((ly) => {
-          const gated = ly.needsLevels && layerData && !layerData.has_levels;
+          const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
+          const gatedFc = ly.needsForecast && !fcQ.loading && !forecastData;
+          const gated = gatedLevels || gatedFc;
           const on = activeLayers.has(ly.key) && !gated;
+          const why = gatedFc ? `No stored forecast for this symbol yet`
+            : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)`
+            : `Toggle ${ly.label}`;
           return (
             <button key={ly.key} className={cls("vg-ic-chip", on && "on", gated && "off")}
-              onClick={() => !gated && toggleLayer(ly.key)} disabled={gated}
-              title={gated ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`}>
+              onClick={() => !gated && toggleLayer(ly.key)} disabled={gated} title={why}>
               {ly.label}
             </button>);
         })}
