@@ -1115,6 +1115,21 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-rp-px { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim); }
 .vg-rp-caret { margin-left: auto; color: var(--vg-dim); font-size: 11px; }
 .vg-rp-callbody { padding: 4px 14px 12px; }
+/* new-replay controls + generate progress */
+.vg-rp-gen { padding: 6px 14px 10px; border-bottom: 1px solid var(--vg-hairline);
+  display: flex; flex-direction: column; gap: 6px; }
+.vg-rp-genform { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vg-rp-date, .vg-rp-step { font-family: var(--vg-font-data); font-size: 12px;
+  border: 1px solid var(--vg-hairline); background: var(--vg-card); color: var(--vg-ink);
+  border-radius: 5px; padding: 3px 6px; }
+.vg-rp-genprog { display: flex; align-items: center; gap: 10px; }
+.vg-rp-gennote { padding: 0; color: var(--vg-down); }
+/* run-level analysis (grade) block atop the calls */
+.vg-rp-gradeblock { border-bottom: 1px solid var(--vg-hairline); }
+.vg-rp-gradehead { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
+.vg-rp-gradelabel { font: 600 11px/1 var(--vg-font-ui); letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--vg-dim); display: inline-flex; align-items: center; gap: 5px; }
+.vg-rp-gradehint { padding: 0 14px 10px; }
 .vg-ic-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .vg-ic-canvas { flex: 1; width: 100%; min-height: 340px; }
 .vg-ic-empty { position: absolute; inset: 0; display: flex; align-items: center;

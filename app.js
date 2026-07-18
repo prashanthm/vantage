@@ -4821,7 +4821,8 @@ ${ref}`;
   }
 
   // src/chart_replay_panel.jsx
-  var { useState: useState8, useEffect: useEffect7 } = React;
+  var { useState: useState8, useEffect: useEffect7, useRef: useRef4, useCallback: useCallback2 } = React;
+  var REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
   function verdictTone(sc) {
     if (!sc) return "plain";
     if (sc.verdict === "hit target" || sc.verdict === "direction correct") return "good";
@@ -4870,12 +4871,13 @@ ${ref}`;
   function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId }) {
     const [scoring, setScoring] = useState8(null);
     const [nonce, setNonce] = useState8(0);
+    const runningRef = useRef4(false);
+    const genRunRef = useRef4(null);
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
     useEffect7(() => {
-      if (!runs.length) return;
-      const ids = runs.map((r) => r.run_id);
-      if (!runId || !ids.includes(runId)) setRunId(ids[0]);
+      if (!runs.length || runId || runningRef.current || genRunRef.current) return;
+      setRunId(runs[0].run_id);
     }, [runs, runId]);
     const runQ = useLive(() => runId ? getReplayRun(runId) : Promise.resolve(null), null, [runId, nonce]);
     const detail = runQ.data && runQ.data.available ? runQ.data : null;
@@ -4888,8 +4890,175 @@ ${ref}`;
     const scored = forecasts.filter((f) => f.score);
     const hits = scored.filter((f) => verdictTone(f.score) === "good").length;
     const hitRate = scored.length ? Math.round(hits / scored.length * 100) : null;
+    const [gen, setGen] = useState8(null);
+    const [showGen, setShowGen] = useState8(false);
+    const [genDay, setGenDay] = useState8(() => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
+    const [stepMin, setStepMin] = useState8(60);
+    const [note, setNote] = useState8(null);
+    const [grade, setGrade] = useState8(null);
+    const [gradeOpen, setGradeOpen] = useState8(true);
+    const stopRef = useRef4(false);
+    const abortRef = useRef4(null);
+    useEffect7(() => () => {
+      stopRef.current = true;
+      if (abortRef.current) abortRef.current();
+    }, []);
+    const forecastStep = useCallback2((asOf, rid, day) => new Promise((resolve) => {
+      getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
+        const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
+        if (!snapshot) {
+          resolve(false);
+          return;
+        }
+        let text = "";
+        const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
+        const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
+${ref}`;
+        abortRef.current = streamTurn(prompt, `replay-${symbol}-${day}-${asOf}`, (evt) => {
+          if (evt.kind === "error") {
+            resolve(false);
+            return;
+          }
+          if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+            text += evt.text;
+            return;
+          }
+          if (evt.kind === "done") {
+            abortRef.current = null;
+            if (evt.text && !text) text = evt.text;
+            const data = parseMira(text);
+            saveSpxForecast({
+              day,
+              as_of: asOf,
+              symbol,
+              snapshot,
+              forecast: data || null,
+              forecast_text: text,
+              run_id: rid
+            }).then(() => resolve(true)).catch(() => resolve(false));
+          }
+        });
+      }).catch(() => resolve(false));
+    }), [symbol]);
+    const generate = useCallback2(() => {
+      if (runningRef.current) return;
+      runningRef.current = true;
+      setNote(null);
+      setGrade(null);
+      stopRef.current = false;
+      setGen({ status: "planning", total: 0, done: 0, day: genDay });
+      planReplay(genDay, symbol, false, stepMin).then(async (plan) => {
+        if (!plan || !plan.available) {
+          setGen(null);
+          setNote(plan && plan.note || "Couldn't plan a run for that day.");
+          runningRef.current = false;
+          return;
+        }
+        const rid = plan.run_id;
+        genRunRef.current = rid;
+        setRunId(rid);
+        setActiveCallId(null);
+        setShowGen(false);
+        const steps = plan.steps || [];
+        let existing = [];
+        try {
+          const g = await getReplayRun(rid);
+          existing = g && g.forecasts || [];
+        } catch (e) {
+        }
+        const done0 = new Set(existing.map((f) => f.as_of));
+        setGen({ status: "running", total: steps.length, done: done0.size, day: genDay });
+        let stopped = false;
+        for (let k = 0; k < steps.length; k++) {
+          if (stopRef.current) {
+            stopped = true;
+            break;
+          }
+          const asOf = steps[k].as_of;
+          if (!done0.has(asOf)) {
+            setGen((g) => ({ ...g, at: String(asOf).slice(11, 16) }));
+            await forecastStep(asOf, rid, genDay);
+            setNonce((x) => x + 1);
+          }
+          setGen((g) => ({ ...g, done: k + 1 }));
+        }
+        if (!stopped) {
+          try {
+            await scoreReplay(rid);
+          } catch (e) {
+          }
+          setGen((g) => ({ ...g || {}, status: "done", done: steps.length, total: steps.length }));
+          setNonce((x) => x + 1);
+        } else {
+          setGen((g) => ({ ...g || {}, status: "stopped" }));
+        }
+      }).catch((e) => {
+        setGen(null);
+        setNote(String(e && e.message || e));
+      }).finally(() => {
+        runningRef.current = false;
+        genRunRef.current = null;
+        setNonce((x) => x + 1);
+      });
+    }, [genDay, stepMin, symbol, forecastStep, setRunId, setActiveCallId]);
+    const stopGen = useCallback2(() => {
+      stopRef.current = true;
+      runningRef.current = false;
+      if (abortRef.current) abortRef.current();
+      setGen((g) => g ? { ...g, status: "stopped" } : g);
+    }, []);
+    const gradeRun = useCallback2(() => {
+      if (!runId) return;
+      setGrade({ loading: true, text: "" });
+      setGradeOpen(true);
+      calibrateReplay(runId).then(() => {
+        let text = "";
+        const ref = `FORECAST_GRADE_REF run_id=${runId}`;
+        const prompt = `Grade this replay forecast run \u2014 how did the analyst's read evolve through the day? Read the code-computed scores and narrate them.
+${ref}`;
+        abortRef.current = streamTurn(prompt, `grade-${runId}`, (evt) => {
+          if (evt.kind === "error") {
+            setGrade({ error: evt.message || "Mira error" });
+            return;
+          }
+          if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+            text += evt.text;
+            setGrade({ loading: true, text });
+            return;
+          }
+          if (evt.kind === "done") {
+            abortRef.current = null;
+            if (evt.text && !text) text = evt.text;
+            const data = parseMira(text);
+            setGrade({ text, data });
+            const narrative = data && data.headline || (text || "").replace(/\s+/g, " ").slice(0, 800) || null;
+            calibrateReplay(runId, { narrative }).then(() => setNonce((x) => x + 1)).catch(() => setNonce((x) => x + 1));
+          }
+        });
+      }).catch((e) => setGrade({ error: String(e && e.message || e) }));
+    }, [runId]);
+    const genBusy = gen && (gen.status === "planning" || gen.status === "running");
+    const gradeText = grade && grade.text || cal && cal.narrative || null;
+    const genControls = /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gen" }, !showGen && !genBusy && /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setShowGen(true) }, "\uFF0B New replay"), showGen && !genBusy && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-genform" }, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        type: "date",
+        className: "vg-rp-date",
+        value: genDay,
+        max: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
+        onChange: (e) => setGenDay(e.target.value)
+      }
+    ), /* @__PURE__ */ React.createElement("select", { className: "vg-rp-step", value: stepMin, onChange: (e) => setStepMin(Number(e.target.value)) }, /* @__PURE__ */ React.createElement("option", { value: 30 }, "30m"), /* @__PURE__ */ React.createElement("option", { value: 60 }, "1h")), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm on",
+        onClick: generate,
+        title: `Forecast ${symbol} across ${genDay} \u2014 calls Mira per step`
+      },
+      "Generate"
+    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setShowGen(false) }, "cancel")), genBusy && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-genprog" }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, gen.status === "planning" ? "planning\u2026" : `forecasting ${gen.done}/${gen.total}${gen.at ? ` \xB7 ${gen.at}` : ""}`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: stopGen }, "Stop")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gennote" }, note));
     if (!runs.length) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 14 } }, "No saved replay runs for ", symbol, ". A replay steps a past day and forecasts at each interval \u2014 run one from the 0DTE Playbook, then it shows here."));
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Replay \xB7 ", symbol)), genControls, !REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "Replay needs a coach snapshot \u2014 SPX / QQQ / IWM."), REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && !genBusy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "No saved runs for ", symbol, ". Generate one \u2014 it steps the day and forecasts at each interval."));
     }
     return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Replay \xB7 ", symbol), /* @__PURE__ */ React.createElement(
       "select",
@@ -4902,7 +5071,25 @@ ${ref}`;
         }
       },
       runs.map((r, i) => /* @__PURE__ */ React.createElement("option", { key: r.run_id, value: r.run_id }, r.day, i === 0 ? " (latest)" : "", " \xB7 ", r.n, " calls", r.n_scored ? ` \xB7 ${r.n_scored} scored` : ""))
-    )), runsQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), runId && runQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), detail && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-day" }, detail.forecasts[0] && detail.forecasts[0].day), /* @__PURE__ */ React.createElement("span", { className: "vg-rp-stat" }, forecasts.length, " calls \xB7 ", scored.length, " scored"), hitRate != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", hitRate >= 50 ? "good" : "bad") }, hitRate, "% hit")), cal && cal.narrative && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-grade" }, /* @__PURE__ */ React.createElement(MiraRender, { text: cal.narrative })), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-calls" }, forecasts.map((f) => /* @__PURE__ */ React.createElement(
+    )), genControls, runsQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), runId && runQ.loading && !genBusy && /* @__PURE__ */ React.createElement(LoadBar, null), detail && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-day" }, detail.forecasts[0] && detail.forecasts[0].day), /* @__PURE__ */ React.createElement("span", { className: "vg-rp-stat" }, forecasts.length, " calls \xB7 ", scored.length, " scored"), hitRate != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", hitRate >= 50 ? "good" : "bad") }, hitRate, "% hit")), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradeblock" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradehead" }, /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        className: "vg-rp-gradelabel",
+        onClick: () => gradeText && setGradeOpen((v) => !v),
+        style: { cursor: gradeText ? "pointer" : "default" }
+      },
+      gradeText && /* @__PURE__ */ React.createElement("span", { className: "vg-rp-caret" }, gradeOpen ? "\u25BE" : "\u25B8"),
+      "Run analysis"
+    ), grade && grade.loading ? /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto" } }, "grading\u2026") : /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        style: { marginLeft: "auto" },
+        onClick: gradeRun,
+        disabled: !!genBusy
+      },
+      gradeText ? "re-grade" : "grade run"
+    )), grade && grade.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gennote" }, grade.error), gradeText && gradeOpen && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-grade" }, grade && grade.data ? /* @__PURE__ */ React.createElement(MiraRender, { data: grade.data, text: grade.text }) : /* @__PURE__ */ React.createElement(MiraRender, { text: gradeText })), !gradeText && !(grade && grade.loading) && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gradehint" }, "How did the read evolve across the day? Grade it for Mira's narrative.")), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-calls" }, forecasts.map((f) => /* @__PURE__ */ React.createElement(
       CallRow,
       {
         key: f.id,
@@ -5535,7 +5722,7 @@ ${ref}`;
   }
 
   // src/journal.jsx
-  var { useState: useState14, useRef: useRef4, useEffect: useEffect11, useMemo: useMemo5 } = React;
+  var { useState: useState14, useRef: useRef5, useEffect: useEffect11, useMemo: useMemo5 } = React;
   var pct3 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
   var MONTHS = [
@@ -5583,7 +5770,7 @@ ${ref}`;
     const jv = useLive(() => getJournal(sym), null, [refreshNonce, nonce, sym]);
     const d = jv.data;
     const reload = () => setNonce((n) => n + 1);
-    const ensuredRef = useRef4({});
+    const ensuredRef = useRef5({});
     useEffect11(() => {
       if (ensuredRef.current[sym]) return;
       ensuredRef.current[sym] = true;
@@ -5648,7 +5835,7 @@ ${ref}`;
   }
   var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function DayStrip({ byDay, selDay, onSelect, sym }) {
-    const stripRef = useRef4(null);
+    const stripRef = useRef5(null);
     const [pnl, setPnl] = useState14({});
     const days = useMemo5(() => {
       const out = [];
@@ -5785,7 +5972,7 @@ ${ref}`;
       }
     });
     const [drag, setDrag] = useState14(false);
-    const fileRef = useRef4(null);
+    const fileRef = useRef5(null);
     useEffect11(() => {
       setEntry(s.entry || {});
       try {
@@ -6070,7 +6257,7 @@ ${ref}`;
     const [read, setRead] = useState14(null);
     const [saved, setSaved] = useState14(false);
     const [hist, setHist] = useState14(null);
-    const abortRef = useRef4(null);
+    const abortRef = useRef5(null);
     const [openId, setOpenId] = useState14(null);
     const toggleStored = (h) => setOpenId((cur) => cur === h.id ? null : h.id);
     const loadHist = async () => {
@@ -6311,8 +6498,8 @@ ${ref}`;
   }
   function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
     const [state, setState] = useState14(null);
-    const abortRef = useRef4(null);
-    const readRef = useRef4(null);
+    const abortRef = useRef5(null);
+    const readRef = useRef5(null);
     const busy = state === "loading" || state === "streaming";
     const run = async () => {
       setState("loading");
@@ -6590,7 +6777,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState15, useMemo: useMemo7, useEffect: useEffect12, useRef: useRef5, useCallback: useCallback2 } = React;
+  var { useState: useState15, useMemo: useMemo7, useEffect: useEffect12, useRef: useRef6, useCallback: useCallback3 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -6679,19 +6866,19 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [leftOpen, setLeftOpen] = useState15(() => window.innerWidth >= 860);
     const [rightOpen, setRightOpen] = useState15(() => window.innerWidth >= 1100);
     const [focus, setFocus] = useState15(false);
-    const focusPrev = useRef5({ left: true, right: true });
-    const enterFocus = useCallback2(() => {
+    const focusPrev = useRef6({ left: true, right: true });
+    const enterFocus = useCallback3(() => {
       focusPrev.current = { left: leftOpen, right: rightOpen };
       setLeftOpen(false);
       setRightOpen(false);
       setFocus(true);
     }, [leftOpen, rightOpen]);
-    const exitFocus = useCallback2(() => {
+    const exitFocus = useCallback3(() => {
       setLeftOpen(focusPrev.current.left);
       setRightOpen(focusPrev.current.right);
       setFocus(false);
     }, []);
-    const toggleFocus = useCallback2(() => {
+    const toggleFocus = useCallback3(() => {
       focus ? exitFocus() : enterFocus();
     }, [focus, enterFocus, exitFocus]);
     useEffect12(() => {
@@ -6739,7 +6926,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     };
-    const rightWidthRef = useRef5(rightWidth);
+    const rightWidthRef = useRef6(rightWidth);
     rightWidthRef.current = rightWidth;
     const [refreshNonce, setRefreshNonce] = useState15(0);
     const [refreshing, setRefreshing] = useState15({});
@@ -7622,8 +7809,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     ]);
     const [draft, setDraft] = useState15("");
     const [busy, setBusy] = useState15(false);
-    const bodyRef = useRef5(null);
-    const abortRef = useRef5(null);
+    const bodyRef = useRef6(null);
+    const abortRef = useRef6(null);
     useEffect12(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
