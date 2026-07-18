@@ -635,7 +635,7 @@ function rampColor(i, n, alpha) {
 // The multi-path replay chart: session candles + one faint projected path per
 // forecast (hue-ramped by time), the selected/hovered one at full strength, and
 // ALL step markers aggregated into a single setMarkers call (it replaces).
-function ReplayChart({ snap, forecasts, activeId }) {
+function ReplayChart({ snap, forecasts, activeId, etShiftSec = 0 }) {
   const elRef = useRef(null);
   const chartRef = useRef(null);
   const actualRef = useRef(null);                  // the real market path (line)
@@ -679,19 +679,22 @@ function ReplayChart({ snap, forecasts, activeId }) {
     const bars = snap && snap.bars_5m;
     if (!actual || !bars || !bars.length) return;
     const day = snap.day;
-    // keep the run day's bars (+ a little context) — the real path to compare to.
-    const dayBars = day ? bars.filter((b) => {
-      const d = new Date(b.time * 1000).toISOString().slice(0, 10);
-      return d === day;
-    }) : bars;
+    // LightweightCharts renders the time axis in UTC, so an ET session (09:30-16:00)
+    // would label as 13:30-20:00. We shift every time by the ET offset so the axis
+    // prints ET wall-clock. The day-filter must use the SAME shifted time so a
+    // 09:30-ET bar (13:30 UTC) is matched on the ET date, not the UTC date.
+    const shifted = (t) => t + etShiftSec;
+    const etDate = (t) => new Date(shifted(t) * 1000).toISOString().slice(0, 10);
+    const dayBars = day ? bars.filter((b) => etDate(b.time) === day) : bars;
     const use = dayBars.length ? dayBars : bars;
-    actual.setData(use.map((b) => ({ time: b.time, value: b.close })));
+    actual.setData(use.map((b) => ({ time: shifted(b.time), value: b.close })));
     if (chartRef.current) { chartRef.current.timeScale().fitContent(); fittedRef.current = true; }
-  }, [snap]);
+  }, [snap, etShiftSec]);
 
-  // predictions: each forecast drawn AT its real timestamp — a dashed line from
-  // the price when it was made to its target, so you see the CALLED move next to
-  // the actual line. Hue-ramped by time; the active/hovered one at full strength.
+  // predictions: ONE connected "predicted path" — each forecast's target plotted
+  // at its call time, joined chronologically, so it reads as a single predicted
+  // line laid against the actual line. Per-call hit/miss + call-time is carried by
+  // the arrow markers on the actual line (a single line can't colour per-segment).
   useEffect(() => {
     const chart = chartRef.current;
     if (!chart) return;
@@ -699,36 +702,45 @@ function ReplayChart({ snap, forecasts, activeId }) {
     const th = chartTheme();
     for (const s of predSeriesRefs.current) { try { chart.removeSeries(s); } catch (e) { /* */ } }
     predSeriesRefs.current = [];
-    const list = (forecasts || []).filter((f) => f.plot && f.plot.target != null && f._t0);
+    const list = (forecasts || [])
+      .filter((f) => f.plot && f.plot.target != null && f._t0)
+      .slice().sort((a, b) => a._t0 - b._t0);
     const n = list.length;
     const markers = [];
-    // horizon: draw the predicted move over ~the step interval so it reads as a
-    // short vector at the call time, not a projection to the close.
-    const horizon = list.length ? (list[0]._barSec || 300) * 6 : 1800;
-    list.forEach((f, i) => {
-      const isActive = activeId != null && f.id === activeId;
-      const dimmed = activeId != null && !isActive;
-      const alpha = dimmed ? 0.12 : (isActive ? 1.0 : 0.7);
-      const sc = f.score || {};
-      // color the prediction by outcome when scored: green hit / red miss / grey neutral
-      const good = sc.verdict === "hit target" || sc.verdict === "direction correct";
-      const bad = sc.verdict === "invalidated" || sc.verdict === "direction wrong";
-      const col = good ? `rgba(${th.upRgb.join(",")},${alpha})`
-        : bad ? `rgba(${th.downRgb.join(",")},${alpha})`
-        : rampColor(i, n, alpha);
-      const from = f.price_at != null ? f.price_at : f.plot.target;
+    if (list.length) {
+      // the connected predicted-path: (call time → its target), point per forecast.
+      // Dedupe/monotonic time so LW accepts it; use a violet accent distinct from
+      // the neutral actual line.
+      const pts = [];
+      let lastT = -Infinity;
+      for (const f of list) {
+        const base = f._t0 + etShiftSec;   // same ET display shift as the actual line
+        const t = base <= lastT ? lastT + 1 : base;
+        pts.push({ time: t, value: f.plot.target });
+        lastT = t;
+      }
       try {
         const ps = chart.addLineSeries({
-          color: col, lineWidth: isActive ? 3 : 1, lineStyle: LW.LineStyle.Dashed,
-          lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+          color: "rgba(124,92,255,0.95)", lineWidth: 2, lineStyle: LW.LineStyle.Solid,
+          lastValueVisible: false, priceLineVisible: false,
+          crosshairMarkerVisible: true, pointMarkersVisible: true,
         });
-        ps.setData([{ time: f._t0, value: from }, { time: f._t0 + horizon, value: f.plot.target }]);
+        ps.setData(pts);
         predSeriesRefs.current.push(ps);
       } catch (e) { /* older LW */ }
-      // a marker at the call time: arrow toward the target, tinted by outcome
+    }
+    // arrow markers at each call time, tinted by OUTCOME (green hit / red miss),
+    // on the ACTUAL line — so the connected predicted line stays one clean colour
+    // while each call's correctness is still legible.
+    list.forEach((f, i) => {
+      const isActive = activeId != null && f.id === activeId;
+      const sc = f.score || {};
+      const good = sc.verdict === "hit target" || sc.verdict === "direction correct";
+      const bad = sc.verdict === "invalidated" || sc.verdict === "direction wrong";
+      const from = f.price_at != null ? f.price_at : f.plot.target;
       const up = f.plot.target >= from;
       markers.push({
-        time: f._t0, position: up ? "aboveBar" : "belowBar",
+        time: f._t0 + etShiftSec, position: up ? "aboveBar" : "belowBar",
         shape: up ? "arrowUp" : "arrowDown",
         color: good ? `rgb(${th.upRgb.join(",")})` : bad ? `rgb(${th.downRgb.join(",")})` : rampColor(i, n, 0.9),
         text: isActive ? `${hhmm(f.as_of)} → ${f.plot.target}` : hhmm(f.as_of),
@@ -736,7 +748,7 @@ function ReplayChart({ snap, forecasts, activeId }) {
     });
     markers.sort((a, b) => a.time - b.time);
     try { if (actualRef.current) actualRef.current.setMarkers(markers); } catch (e) { /* */ }
-  }, [snap, forecasts, activeId]);
+  }, [snap, forecasts, activeId, etShiftSec]);
 
   if (!hasLW()) {
     return <p className="vg-note" style={{ marginTop: 8 }}>Chart unavailable (Lightweight Charts didn't load).</p>;
@@ -941,6 +953,18 @@ export function SpxReplayView() {
   const snap = snapQ.data && snapQ.data.available ? snapQ.data : null;
   const enriched = snap ? enrichForRun(rows, snap) : [];
 
+  // ET display shift: LightweightCharts renders its axis in UTC, so an ET session
+  // would mislabel (09:30 ET → 13:30). Derive the session's ET offset from a
+  // forecast's as_of (…-04:00 / -05:00) and shift chart times so the axis prints
+  // ET wall-clock. Negative offset (behind UTC) → shift back by that many seconds.
+  const etShiftSec = (() => {
+    const iso = (rows[0] && rows[0].as_of) || "";
+    const m = iso.match(/([+-])(\d{2}):(\d{2})$/);
+    if (!m) return 0;
+    const sign = m[1] === "-" ? -1 : 1;
+    return sign * (parseInt(m[2], 10) * 3600 + parseInt(m[3], 10) * 60);
+  })();
+
   const running = runState && (runState.status === "running" || runState.status === "planning");
   const pct = runState && runState.total ? Math.round((runState.done / runState.total) * 100) : 0;
 
@@ -1031,11 +1055,12 @@ export function SpxReplayView() {
         <div className="vg-card vg-fc-chartcard" style={{ padding: 14, marginBottom: 12 }}>
           <div className="vg-fc-legend" style={{ marginBottom: 8 }}>
             <span><i className="vg-lg-sw" style={{ background: "var(--vg-ink)" }} />actual price</span>
-            <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-up)" }} />prediction hit</span>
-            <span><i className="vg-lg-sw vg-lg-dash" style={{ borderColor: "var(--vg-down)" }} />prediction missed</span>
-            <span className="vg-note">hover a row to highlight its prediction</span>
+            <span><i className="vg-lg-sw" style={{ background: "#7c5cff" }} />predicted path</span>
+            <span><i className="vg-lg-sw" style={{ background: "var(--vg-up)" }} />▲ call hit</span>
+            <span><i className="vg-lg-sw" style={{ background: "var(--vg-down)" }} />▲ call missed</span>
           </div>
-          <ReplayChart key={`${symbol}-${runId}`} snap={snap} forecasts={enriched} activeId={activeId} />
+          <ReplayChart key={`${symbol}-${runId}`} snap={snap} forecasts={enriched}
+            activeId={activeId} etShiftSec={etShiftSec} />
         </div>)}
 
       {rows.length > 0 && (

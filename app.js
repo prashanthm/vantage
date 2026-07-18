@@ -3115,7 +3115,7 @@ ${ref}`;
     const hue = 210 - 210 * t;
     return `hsla(${hue}, 75%, 55%, ${alpha})`;
   }
-  function ReplayChart({ snap, forecasts, activeId }) {
+  function ReplayChart({ snap, forecasts, activeId, etShiftSec = 0 }) {
     const elRef = useRef2(null);
     const chartRef = useRef2(null);
     const actualRef = useRef2(null);
@@ -3171,17 +3171,16 @@ ${ref}`;
       const bars = snap && snap.bars_5m;
       if (!actual || !bars || !bars.length) return;
       const day = snap.day;
-      const dayBars = day ? bars.filter((b) => {
-        const d = new Date(b.time * 1e3).toISOString().slice(0, 10);
-        return d === day;
-      }) : bars;
+      const shifted = (t) => t + etShiftSec;
+      const etDate = (t) => new Date(shifted(t) * 1e3).toISOString().slice(0, 10);
+      const dayBars = day ? bars.filter((b) => etDate(b.time) === day) : bars;
       const use = dayBars.length ? dayBars : bars;
-      actual.setData(use.map((b) => ({ time: b.time, value: b.close })));
+      actual.setData(use.map((b) => ({ time: shifted(b.time), value: b.close })));
       if (chartRef.current) {
         chartRef.current.timeScale().fitContent();
         fittedRef.current = true;
       }
-    }, [snap]);
+    }, [snap, etShiftSec]);
     useEffect4(() => {
       const chart = chartRef.current;
       if (!chart) return;
@@ -3194,35 +3193,42 @@ ${ref}`;
         }
       }
       predSeriesRefs.current = [];
-      const list = (forecasts || []).filter((f) => f.plot && f.plot.target != null && f._t0);
+      const list = (forecasts || []).filter((f) => f.plot && f.plot.target != null && f._t0).slice().sort((a, b) => a._t0 - b._t0);
       const n = list.length;
       const markers = [];
-      const horizon = list.length ? (list[0]._barSec || 300) * 6 : 1800;
-      list.forEach((f, i) => {
-        const isActive = activeId != null && f.id === activeId;
-        const dimmed = activeId != null && !isActive;
-        const alpha = dimmed ? 0.12 : isActive ? 1 : 0.7;
-        const sc = f.score || {};
-        const good = sc.verdict === "hit target" || sc.verdict === "direction correct";
-        const bad = sc.verdict === "invalidated" || sc.verdict === "direction wrong";
-        const col = good ? `rgba(${th.upRgb.join(",")},${alpha})` : bad ? `rgba(${th.downRgb.join(",")},${alpha})` : rampColor(i, n, alpha);
-        const from = f.price_at != null ? f.price_at : f.plot.target;
+      if (list.length) {
+        const pts2 = [];
+        let lastT = -Infinity;
+        for (const f of list) {
+          const base = f._t0 + etShiftSec;
+          const t = base <= lastT ? lastT + 1 : base;
+          pts2.push({ time: t, value: f.plot.target });
+          lastT = t;
+        }
         try {
           const ps = chart.addLineSeries({
-            color: col,
-            lineWidth: isActive ? 3 : 1,
-            lineStyle: LW.LineStyle.Dashed,
+            color: "rgba(124,92,255,0.95)",
+            lineWidth: 2,
+            lineStyle: LW.LineStyle.Solid,
             lastValueVisible: false,
             priceLineVisible: false,
-            crosshairMarkerVisible: false
+            crosshairMarkerVisible: true,
+            pointMarkersVisible: true
           });
-          ps.setData([{ time: f._t0, value: from }, { time: f._t0 + horizon, value: f.plot.target }]);
+          ps.setData(pts2);
           predSeriesRefs.current.push(ps);
         } catch (e) {
         }
+      }
+      list.forEach((f, i) => {
+        const isActive = activeId != null && f.id === activeId;
+        const sc = f.score || {};
+        const good = sc.verdict === "hit target" || sc.verdict === "direction correct";
+        const bad = sc.verdict === "invalidated" || sc.verdict === "direction wrong";
+        const from = f.price_at != null ? f.price_at : f.plot.target;
         const up = f.plot.target >= from;
         markers.push({
-          time: f._t0,
+          time: f._t0 + etShiftSec,
           position: up ? "aboveBar" : "belowBar",
           shape: up ? "arrowUp" : "arrowDown",
           color: good ? `rgb(${th.upRgb.join(",")})` : bad ? `rgb(${th.downRgb.join(",")})` : rampColor(i, n, 0.9),
@@ -3234,7 +3240,7 @@ ${ref}`;
         if (actualRef.current) actualRef.current.setMarkers(markers);
       } catch (e) {
       }
-    }, [snap, forecasts, activeId]);
+    }, [snap, forecasts, activeId, etShiftSec]);
     if (!hasLW2()) {
       return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
     }
@@ -3497,6 +3503,13 @@ ${ref}`;
     );
     const snap = snapQ.data && snapQ.data.available ? snapQ.data : null;
     const enriched = snap ? enrichForRun(rows, snap) : [];
+    const etShiftSec = (() => {
+      const iso = rows[0] && rows[0].as_of || "";
+      const m = iso.match(/([+-])(\d{2}):(\d{2})$/);
+      if (!m) return 0;
+      const sign = m[1] === "-" ? -1 : 1;
+      return sign * (parseInt(m[2], 10) * 3600 + parseInt(m[3], 10) * 60);
+    })();
     const running = runState && (runState.status === "running" || runState.status === "planning");
     const pct5 = runState && runState.total ? Math.round(runState.done / runState.total * 100) : 0;
     const minDay = (() => {
@@ -3583,7 +3596,16 @@ ${ref}`;
       /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, r.day),
       /* @__PURE__ */ React.createElement("span", { className: "vg-fc-runmeta" }, r.n_scored, "/", r.n, " scored"),
       r.graded && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { fontSize: 9 } }, "graded")
-    )))), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-ink)" } }), "actual price"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "prediction hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "prediction missed"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "hover a row to highlight its prediction")), /* @__PURE__ */ React.createElement(ReplayChart, { key: `${symbol}-${runId}`, snap, forecasts: enriched, activeId })), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
+    )))), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-ink)" } }), "actual price"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "#7c5cff" } }), "predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u25B2 call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-down)" } }), "\u25B2 call missed")), /* @__PURE__ */ React.createElement(
+      ReplayChart,
+      {
+        key: `${symbol}-${runId}`,
+        snap,
+        forecasts: enriched,
+        activeId,
+        etShiftSec
+      }
+    )), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
       const path = f.plot && f.plot.path || [];
       const sc = f.score;
       const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
