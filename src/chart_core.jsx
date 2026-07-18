@@ -149,9 +149,9 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
 
   // Replay: the OVERLAY only. Run selection + the rich detail (descriptions, scores)
   // live in the right-pane ReplayPanel; the chart just draws the selected run's
-  // calls as markers. `replayRunId` is the shared selection (from App); the layer is
-  // active when replayActive AND the layer chip is on.
-  const replayShown = replayActive && activeLayers.has("replay") && !!replayRunId;
+  // calls as markers. `replayActive` (App) is the single on/off truth — don't also
+  // gate on activeLayers.has("replay") (a redundant second source that can desync).
+  const replayShown = replayActive && !!replayRunId;
   const runDetailQ = useLive(() => (replayShown ? getReplayRun(replayRunId) : Promise.resolve(null)),
     null, [replayShown, replayRunId]);
   const replayData = React.useMemo(() => {
@@ -560,7 +560,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
             : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)`
             : `Toggle ${ly.label}`;
           const onClick = ly.needsReplay
-            ? () => { toggleLayer("replay"); onReplayToggle && onReplayToggle(); }
+            ? () => { onReplayToggle && onReplayToggle(); }   // replayActive is the only truth
             : () => !gated && toggleLayer(ly.key);
           return (
             <button key={ly.key} className={cls("vg-ic-chip", on && "on", gated && "off")}

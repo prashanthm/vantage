@@ -4380,7 +4380,7 @@ ${ref}`;
       [symbol]
     );
     const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
-    const replayShown = replayActive && activeLayers.has("replay") && !!replayRunId;
+    const replayShown = replayActive && !!replayRunId;
     const runDetailQ = useLive(
       () => replayShown ? getReplayRun(replayRunId) : Promise.resolve(null),
       null,
@@ -4897,7 +4897,6 @@ ${ref}`;
       const on = (ly.needsReplay ? replayActive : activeLayers.has(ly.key)) && !gated;
       const why = gatedFc ? `No stored forecast for this symbol yet` : ly.needsReplay ? `Replay \u2014 pick a run in the right panel` : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`;
       const onClick = ly.needsReplay ? () => {
-        toggleLayer("replay");
         onReplayToggle && onReplayToggle();
       } : () => !gated && toggleLayer(ly.key);
       return /* @__PURE__ */ React.createElement(
@@ -5026,6 +5025,11 @@ ${ref}`;
     const runningRef = useRef4(false);
     const genRunRef = useRef4(null);
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
+    useEffect7(() => {
+      const onFocus = () => setNonce((n) => n + 1);
+      window.addEventListener("focus", onFocus);
+      return () => window.removeEventListener("focus", onFocus);
+    }, []);
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
     useEffect7(() => {
       if (!runs.length || runId || runningRef.current || genRunRef.current) return;

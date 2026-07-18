@@ -63,6 +63,14 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
   const genRunRef = useRef(null);   // the run_id currently being generated (if any)
 
   const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
+  // refresh the runs list when the tab regains focus, so a run generated in another
+  // tab/session shows up without a hard reload (the generating panel already bumps
+  // nonce itself). Native 'focus' — no polling, no socket.
+  useEffect(() => {
+    const onFocus = () => setNonce((n) => n + 1);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
   const runs = ((runsQ.data && runsQ.data.runs) || [])
     .filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
   // default to the LATEST session (runs are newest-first by created_at) when nothing
