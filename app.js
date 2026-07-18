@@ -4821,7 +4821,7 @@ ${ref}`;
   }
 
   // src/chart_replay_panel.jsx
-  var { useState: useState8 } = React;
+  var { useState: useState8, useEffect: useEffect7 } = React;
   function verdictTone(sc) {
     if (!sc) return "plain";
     if (sc.verdict === "hit target" || sc.verdict === "direction correct") return "good";
@@ -4872,6 +4872,11 @@ ${ref}`;
     const [nonce, setNonce] = useState8(0);
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
+    useEffect7(() => {
+      if (!runs.length) return;
+      const ids = runs.map((r) => r.run_id);
+      if (!runId || !ids.includes(runId)) setRunId(ids[0]);
+    }, [runs, runId]);
     const runQ = useLive(() => runId ? getReplayRun(runId) : Promise.resolve(null), null, [runId, nonce]);
     const detail = runQ.data && runQ.data.available ? runQ.data : null;
     const forecasts = detail && detail.forecasts || [];
@@ -4896,9 +4901,8 @@ ${ref}`;
           setActiveCallId(null);
         }
       },
-      /* @__PURE__ */ React.createElement("option", { value: "" }, "Pick a run\u2026"),
-      runs.map((r) => /* @__PURE__ */ React.createElement("option", { key: r.run_id, value: r.run_id }, r.day, " \xB7 ", r.n, " calls", r.n_scored ? ` \xB7 ${r.n_scored} scored` : ""))
-    )), runsQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !runId && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "Pick a run to see its calls on the chart."), runId && runQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), detail && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-day" }, detail.forecasts[0] && detail.forecasts[0].day), /* @__PURE__ */ React.createElement("span", { className: "vg-rp-stat" }, forecasts.length, " calls \xB7 ", scored.length, " scored"), hitRate != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", hitRate >= 50 ? "good" : "bad") }, hitRate, "% hit")), cal && cal.narrative && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-grade" }, /* @__PURE__ */ React.createElement(MiraRender, { text: cal.narrative })), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-calls" }, forecasts.map((f) => /* @__PURE__ */ React.createElement(
+      runs.map((r, i) => /* @__PURE__ */ React.createElement("option", { key: r.run_id, value: r.run_id }, r.day, i === 0 ? " (latest)" : "", " \xB7 ", r.n, " calls", r.n_scored ? ` \xB7 ${r.n_scored} scored` : ""))
+    )), runsQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), runId && runQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), detail && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-day" }, detail.forecasts[0] && detail.forecasts[0].day), /* @__PURE__ */ React.createElement("span", { className: "vg-rp-stat" }, forecasts.length, " calls \xB7 ", scored.length, " scored"), hitRate != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", hitRate >= 50 ? "good" : "bad") }, hitRate, "% hit")), cal && cal.narrative && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-grade" }, /* @__PURE__ */ React.createElement(MiraRender, { text: cal.narrative })), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-calls" }, forecasts.map((f) => /* @__PURE__ */ React.createElement(
       CallRow,
       {
         key: f.id,
@@ -4912,7 +4916,7 @@ ${ref}`;
   }
 
   // src/exits.jsx
-  var { useEffect: useEffect7, useState: useState9 } = React;
+  var { useEffect: useEffect8, useState: useState9 } = React;
   var fmt = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var STATUS_TONE = {
     pending_entry: "warn",
@@ -4926,10 +4930,10 @@ ${ref}`;
     const [actions, setActions] = useState9(null);
     const [note, setNote] = useState9(null);
     const load = async () => setData(await getExits(void 0, { mergeBroker: true }));
-    useEffect7(() => {
+    useEffect8(() => {
       load();
     }, [refreshNonce]);
-    useEffect7(() => {
+    useEffect8(() => {
       const open2 = data.positions.some((p) => p.status === "active" || p.status === "pending_entry");
       if (!open2) return void 0;
       const t = setInterval(load, 3e4);
@@ -4983,7 +4987,7 @@ ${ref}`;
   }
 
   // src/signalbot.jsx
-  var { useEffect: useEffect8, useState: useState10 } = React;
+  var { useEffect: useEffect9, useState: useState10 } = React;
   var fmt2 = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var money2 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}`;
   function SignalBotView({ refreshNonce }) {
@@ -5002,7 +5006,7 @@ ${ref}`;
       setPerf(p && p.available !== false ? p : null);
       setNightly(n && n.available && n.runs ? n.runs : []);
     };
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [refreshNonce]);
     const poll = async () => {
@@ -5093,7 +5097,7 @@ ${ref}`;
   }
 
   // src/today.jsx
-  var { useEffect: useEffect9, useState: useState11 } = React;
+  var { useEffect: useEffect10, useState: useState11 } = React;
   var fmt3 = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var money3 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(Number(v)).toFixed(0)}`;
   function TodayView({ refreshNonce }) {
@@ -5117,10 +5121,10 @@ ${ref}`;
       setPb(b && b.available ? b : null);
       setPos(q && q.positions ? q.positions : []);
     };
-    useEffect9(() => {
+    useEffect10(() => {
       load();
     }, [refreshNonce]);
-    useEffect9(() => {
+    useEffect10(() => {
       if (!status || !status.market_open) return void 0;
       const t = setInterval(load, 6e4);
       return () => clearInterval(t);
@@ -5531,7 +5535,7 @@ ${ref}`;
   }
 
   // src/journal.jsx
-  var { useState: useState14, useRef: useRef4, useEffect: useEffect10, useMemo: useMemo5 } = React;
+  var { useState: useState14, useRef: useRef4, useEffect: useEffect11, useMemo: useMemo5 } = React;
   var pct3 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
   var MONTHS = [
@@ -5580,7 +5584,7 @@ ${ref}`;
     const d = jv.data;
     const reload = () => setNonce((n) => n + 1);
     const ensuredRef = useRef4({});
-    useEffect10(() => {
+    useEffect11(() => {
       if (ensuredRef.current[sym]) return;
       ensuredRef.current[sym] = true;
       (async () => {
@@ -5658,7 +5662,7 @@ ${ref}`;
       }
       return out;
     }, []);
-    useEffect10(() => {
+    useEffect11(() => {
       let live = true;
       (async () => {
         const v = await getDayPnl(days, sym);
@@ -5668,7 +5672,7 @@ ${ref}`;
         live = false;
       };
     }, [days.join(","), sym]);
-    useEffect10(() => {
+    useEffect11(() => {
       const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
       if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
     }, [selDay]);
@@ -5782,7 +5786,7 @@ ${ref}`;
     });
     const [drag, setDrag] = useState14(false);
     const fileRef = useRef4(null);
-    useEffect10(() => {
+    useEffect11(() => {
       setEntry(s.entry || {});
       try {
         setThoughts(JSON.parse((s.entry || {}).trades || "{}"));
@@ -5967,7 +5971,7 @@ ${ref}`;
       setBatch({ done, total: targets.length, running: false });
       await load();
     };
-    useEffect10(() => {
+    useEffect11(() => {
       setData(null);
       setOpen(null);
       setTk("all");
@@ -6075,7 +6079,7 @@ ${ref}`;
       setHist(list);
       return list;
     };
-    useEffect10(() => {
+    useEffect11(() => {
       setBundle(null);
       setRead(null);
       setSaved(false);
@@ -6135,7 +6139,7 @@ ${ref}`;
         }
       });
     };
-    useEffect10(() => () => {
+    useEffect11(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const b = bundle;
@@ -6348,7 +6352,7 @@ ${ref}`;
         }
       });
     };
-    useEffect10(() => {
+    useEffect11(() => {
       let live = true;
       (async () => {
         const res = await getTradeDna(day, tradeIndex, underlying);
@@ -6586,7 +6590,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState15, useMemo: useMemo7, useEffect: useEffect11, useRef: useRef5, useCallback: useCallback2 } = React;
+  var { useState: useState15, useMemo: useMemo7, useEffect: useEffect12, useRef: useRef5, useCallback: useCallback2 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -6623,7 +6627,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       return { route, param };
     };
     const [state, setState] = useState15(parse);
-    useEffect11(() => {
+    useEffect12(() => {
       const onHash = () => setState(parse());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
@@ -6690,7 +6694,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const toggleFocus = useCallback2(() => {
       focus ? exitFocus() : enterFocus();
     }, [focus, enterFocus, exitFocus]);
-    useEffect11(() => {
+    useEffect12(() => {
       const onKey = (e) => {
         const el = e.target;
         const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -6740,7 +6744,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [refreshNonce, setRefreshNonce] = useState15(0);
     const [refreshing, setRefreshing] = useState15({});
     const [refreshNote, setRefreshNote] = useState15(null);
-    useEffect11(() => {
+    useEffect12(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
       const mqLeft = window.matchMedia("(max-width: 859px)");
@@ -6834,17 +6838,17 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [activeCallId, setActiveCallId] = useState15(null);
     const showReplayPanel = route === "ic" && replayOn;
     const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
-    useEffect11(() => {
+    useEffect12(() => {
       if (icSymbol) setSymbol(icSymbol);
     }, [icSymbol]);
-    useEffect11(() => {
+    useEffect12(() => {
       if (route !== "ic") {
         setReplayOn(false);
         setReplayRunId(null);
         setActiveCallId(null);
       }
     }, [route]);
-    useEffect11(() => {
+    useEffect12(() => {
       setReplayRunId(null);
       setActiveCallId(null);
     }, [icSymbol]);
@@ -7077,7 +7081,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function LiveStatusDots({ settings }) {
     const [st, setSt] = useState15({ backend: null, mira: null });
-    useEffect11(() => {
+    useEffect12(() => {
       let alive = true;
       health().then((h) => {
         if (alive) setSt((s) => ({ ...s, backend: h }));
@@ -7451,7 +7455,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       null,
       [accountId, settings, refreshNonce]
     ).data;
-    useEffect11(() => {
+    useEffect12(() => {
       setShown(ACTIVITY_PAGE);
     }, [accountId, kind]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -7620,10 +7624,10 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [busy, setBusy] = useState15(false);
     const bodyRef = useRef5(null);
     const abortRef = useRef5(null);
-    useEffect11(() => {
+    useEffect12(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect11(() => () => {
+    useEffect12(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -7704,7 +7708,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         setRows([]);
       }
     };
-    useEffect11(() => {
+    useEffect12(() => {
       load();
     }, []);
     const startAdd = () => {

@@ -13,7 +13,7 @@ import { cls, LoadBar } from "./util.jsx";
 import { useLive, getReplayRuns, getReplayRun, scoreSpxForecast } from "./live.js";
 import { parseMira, MiraRender } from "./mira-render.jsx";
 
-const { useState } = React;
+const { useState, useEffect } = React;
 
 function verdictTone(sc) {
   if (!sc) return "plain";
@@ -56,6 +56,15 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
   const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
   const runs = ((runsQ.data && runsQ.data.runs) || [])
     .filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
+  // default to the LATEST session (runs are newest-first by created_at) when none is
+  // selected or the current selection isn't for this symbol — so the panel opens on
+  // the most recent replay, no manual pick needed.
+  useEffect(() => {
+    if (!runs.length) return;
+    const ids = runs.map((r) => r.run_id);
+    if (!runId || !ids.includes(runId)) setRunId(ids[0]);
+  }, [runs, runId]);
+
   const runQ = useLive(() => (runId ? getReplayRun(runId) : Promise.resolve(null)), null, [runId, nonce]);
   const detail = runQ.data && runQ.data.available ? runQ.data : null;
   const forecasts = (detail && detail.forecasts) || [];
@@ -88,16 +97,14 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
         <span className="vg-rp-title">Replay · {symbol}</span>
         <select className="vg-rp-runpick" value={runId || ""}
           onChange={(e) => { setRunId(e.target.value || null); setActiveCallId(null); }}>
-          <option value="">Pick a run…</option>
-          {runs.map((r) => (
+          {runs.map((r, i) => (
             <option key={r.run_id} value={r.run_id}>
-              {r.day} · {r.n} calls{r.n_scored ? ` · ${r.n_scored} scored` : ""}
+              {r.day}{i === 0 ? " (latest)" : ""} · {r.n} calls{r.n_scored ? ` · ${r.n_scored} scored` : ""}
             </option>))}
         </select>
       </div>
 
       {runsQ.loading && <LoadBar />}
-      {!runId && <p className="vg-note" style={{ padding: "4px 14px" }}>Pick a run to see its calls on the chart.</p>}
 
       {runId && runQ.loading && <LoadBar />}
       {detail && (
