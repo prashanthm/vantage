@@ -526,6 +526,10 @@ ALLOWED_WRITE_ROUTES = {
     # new candles appear. Writes only our own SQLite (intraday bars); no broker/order
     # path (ADR-010 holds).
     "/api/chart/{symbol}/refresh",
+    # Chart drawings — upsert/delete user-drawn annotations (client-generated id →
+    # idempotent). POST-only per convention ({delete:id} removes). Writes only our
+    # own SQLite (chart_drawings); no broker/order path (ADR-010 holds).
+    "/api/chart/{symbol}/drawings",
 }
 
 

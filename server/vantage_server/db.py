@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 21  # v21: ICT scanner (scanner_universe + scanner_result)
+SCHEMA_VERSION = 22  # v22: chart_drawings (per-symbol chart annotations)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -542,6 +542,22 @@ CREATE TABLE IF NOT EXISTS scanner_result (
     ran_at     TEXT NOT NULL,
     result     TEXT NOT NULL              -- JSON: full scan result
 );
+
+-- CHART DRAWINGS (v22). User-drawn annotations on the chart-first InstrumentChart,
+-- persisted per symbol so they survive reload and become context Mira can read
+-- ("the operator drew support at 7460"). One row per drawing; `kind` is the tool
+-- (hline|trendline|ray|rect); `points` is JSON [{time,price}...] (1 pt for hline,
+-- 2 for the rest); `style` is JSON (color/width). Deterministic, no LLM, no orders.
+CREATE TABLE IF NOT EXISTS chart_drawings (
+    id          TEXT PRIMARY KEY,         -- client-generated uuid (idempotent upsert)
+    symbol      TEXT NOT NULL,
+    kind        TEXT NOT NULL,            -- 'hline' | 'trendline' | 'ray' | 'rect'
+    points      TEXT NOT NULL,            -- JSON [{time,price}, ...]
+    style       TEXT,                     -- JSON {color, width, label?}
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_chart_drawings_sym ON chart_drawings(symbol, created_at);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard

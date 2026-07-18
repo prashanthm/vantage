@@ -287,6 +287,7 @@
     closePaperTrade: () => closePaperTrade,
     createAccount: () => createAccount,
     deleteAccount: () => deleteAccount,
+    deleteDrawing: () => deleteDrawing,
     deleteJournal: () => deleteJournal,
     disarmExit: () => disarmExit,
     editAccount: () => editAccount,
@@ -301,6 +302,7 @@
     getChart: () => getChart,
     getCoachPine: () => getCoachPine,
     getDayPnl: () => getDayPnl,
+    getDrawings: () => getDrawings,
     getExits: () => getExits,
     getExplanation: () => getExplanation,
     getFuturesAnalysis: () => getFuturesAnalysis,
@@ -370,6 +372,7 @@
     refreshSpx: () => refreshSpx,
     removeScannerTicker: () => removeScannerTicker,
     saveBotConfig: () => saveBotConfig,
+    saveDrawing: () => saveDrawing,
     saveJournalAnalysis: () => saveJournalAnalysis,
     saveJournalEntry: () => saveJournalEntry,
     saveSpxForecast: () => saveSpxForecast,
@@ -1135,6 +1138,9 @@
     { tf },
     { timeoutMs: 3e4 }
   );
+  var getDrawings = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`);
+  var saveDrawing = (symbol, drawing) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, drawing);
+  var deleteDrawing = (symbol, id) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, { delete: id });
   var getSpxSnapshot = (day, asOf, symbol = "SPX") => getJson(`${backendBase()}/api/spx/snapshot?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + (asOf ? `&as_of=${encodeURIComponent(asOf)}` : ""));
   var saveSpxForecast = (body) => postJson(`${backendBase()}/api/spx/forecast`, body);
   var getSpxForecasts = (day, symbol = "SPX", limit = 50) => getJson(`${backendBase()}/api/spx/forecast?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + `&limit=${limit}`);
@@ -3858,8 +3864,89 @@ ${ref}`;
     return Math.round(x * 100) / 100;
   }
 
+  // src/chart_drawings.jsx
+  var DEFAULT_COLOR = "#B97A16";
+  function drawOne(chart, candle, d) {
+    const color = d.style && d.style.color || DEFAULT_COLOR;
+    const width = d.style && d.style.width || 1.5;
+    const pts2 = d.points || [];
+    if (d.kind === "hline") {
+      if (!pts2.length) return null;
+      const line = candle.createPriceLine({
+        price: pts2[0].price,
+        color,
+        lineWidth: Math.round(width),
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: d.style?.label || ""
+      });
+      return { kind: "priceLine", handle: line };
+    }
+    const series = chart.addLineSeries({
+      color,
+      lineWidth: width,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false
+    });
+    series.setData(segmentData(d, chart));
+    return { kind: "series", handle: series };
+  }
+  function segmentData(d, chart) {
+    const [a, b] = d.points;
+    if (d.kind === "rect") {
+      const t0 = Math.min(a.time, b.time), t1 = Math.max(a.time, b.time);
+      const p0 = a.price, p1 = b.price;
+      return sortByTime([
+        { time: t0, value: p0 },
+        { time: t1, value: p0 },
+        { time: t1, value: p1 },
+        { time: t0, value: p1 },
+        { time: t0, value: p0 }
+      ]);
+    }
+    if (d.kind === "ray") {
+      const last = lastTime(chart) || Math.max(a.time, b.time);
+      const [lo, hi] = a.time <= b.time ? [a, b] : [b, a];
+      const slope = (hi.price - lo.price) / (hi.time - lo.time || 1);
+      const endT = Math.max(hi.time, last);
+      const endP = lo.price + slope * (endT - lo.time);
+      return [{ time: lo.time, value: lo.price }, { time: endT, value: endP }];
+    }
+    return sortByTime([{ time: a.time, value: a.price }, { time: b.time, value: b.price }]);
+  }
+  function sortByTime(rows) {
+    return rows.slice().sort((x, y) => x.time - y.time);
+  }
+  function lastTime(chart) {
+    try {
+      const r = chart.timeScale().getVisibleRange();
+      return r ? r.to : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function removeOne(chart, candle, drawn) {
+    if (!drawn) return;
+    try {
+      if (drawn.kind === "priceLine") candle.removePriceLine(drawn.handle);
+      else chart.removeSeries(drawn.handle);
+    } catch (e) {
+    }
+  }
+
   // src/chart_core.jsx
   var { useState: useState7, useRef: useRef3, useEffect: useEffect6, useCallback } = React;
+  var TOOLS = [
+    { key: "cursor", label: "\u2316", title: "Cursor / pan", pts: 0 },
+    { key: "hline", label: "\u2500", title: "Horizontal line", pts: 1 },
+    { key: "trendline", label: "\u2571", title: "Trendline", pts: 2 },
+    { key: "ray", label: "\u2192", title: "Ray", pts: 2 },
+    { key: "rect", label: "\u25AD", title: "Rectangle", pts: 2 }
+  ];
+  var TOOL_PTS = Object.fromEntries(TOOLS.map((t) => [t.key, t.pts]));
+  var _didSeq = 0;
+  var newDrawingId = () => `d${(_didSeq++).toString(36)}${performance.now().toString(36).replace(".", "")}`;
   var TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
   var hasLW3 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   var INDICATORS = [
@@ -3911,10 +3998,19 @@ ${ref}`;
     const fittedKey = useRef3(null);
     const indRef = useRef3({});
     const pocLineRef = useRef3(null);
+    const drawnRef = useRef3({});
+    const pendingRef = useRef3([]);
+    const toolRef = useRef3("cursor");
+    const commitDrawingRef = useRef3(() => {
+    });
     const [hover, setHover] = useState7(null);
     const [nonce, setNonce] = useState7(0);
     const [refreshing, setRefreshing] = useState7(false);
     const [active, setActive] = useState7(loadPref);
+    const [tool, setTool] = useState7("cursor");
+    const [drawings, setDrawings] = useState7([]);
+    const [pendingN, setPendingN] = useState7(0);
+    toolRef.current = tool;
     const toggleInd = useCallback((key) => {
       setActive((prev) => {
         const next = new Set(prev);
@@ -3924,6 +4020,35 @@ ${ref}`;
         return next;
       });
     }, []);
+    const commitDrawing = useCallback(async (kind, points) => {
+      const d = { id: newDrawingId(), kind, points, style: {} };
+      setDrawings((prev) => [...prev, d]);
+      setTool("cursor");
+      try {
+        await saveDrawing(symbol, { id: d.id, kind, points, style: {} });
+      } catch (e) {
+      }
+    }, [symbol]);
+    commitDrawingRef.current = commitDrawing;
+    const clearDrawings = useCallback(async () => {
+      const ids = drawings.map((d) => d.id);
+      setDrawings([]);
+      for (const id of ids) {
+        try {
+          await deleteDrawing(symbol, id);
+        } catch (e) {
+        }
+      }
+    }, [symbol, drawings]);
+    const undoLastDrawing = useCallback(async () => {
+      const last2 = drawings[drawings.length - 1];
+      if (!last2) return;
+      setDrawings((prev) => prev.slice(0, -1));
+      try {
+        await deleteDrawing(symbol, last2.id);
+      } catch (e) {
+      }
+    }, [symbol, drawings]);
     const q = useLive(
       () => symbol ? getChart(symbol, tf) : Promise.resolve(null),
       null,
@@ -3989,6 +4114,22 @@ ${ref}`;
         }
         const bar = p.seriesData.get(candle);
         setHover(bar ? ohlcText(bar) : null);
+      });
+      chart.subscribeClick((p) => {
+        const t = toolRef.current;
+        const need = TOOL_PTS[t] || 0;
+        if (!need || !p || !p.point) return;
+        const price = candle.coordinateToPrice(p.point.y);
+        const time = p.time != null ? p.time : chart.timeScale().coordinateToTime(p.point.x);
+        if (price == null || time == null) return;
+        pendingRef.current = [...pendingRef.current, { time, price: Math.round(price * 100) / 100 }];
+        setPendingN(pendingRef.current.length);
+        if (pendingRef.current.length >= need) {
+          const pts2 = pendingRef.current;
+          pendingRef.current = [];
+          setPendingN(0);
+          commitDrawingRef.current(t, pts2);
+        }
       });
       return () => {
         chart.remove();
@@ -4127,6 +4268,44 @@ ${ref}`;
       }
       return void 0;
     }, [candles, active, tf]);
+    useEffect6(() => {
+      let alive = true;
+      pendingRef.current = [];
+      setPendingN(0);
+      if (!symbol) {
+        setDrawings([]);
+        return void 0;
+      }
+      getDrawings(symbol).then((r) => {
+        if (alive && r && r.available) setDrawings(r.drawings || []);
+      }).catch(() => {
+      });
+      return () => {
+        alive = false;
+      };
+    }, [symbol]);
+    useEffect6(() => {
+      const chart = chartRef.current, candle = candleRef.current;
+      if (!chart || !candle) return void 0;
+      const drawn = drawnRef.current;
+      const wanted = new Set(drawings.map((d) => d.id));
+      for (const id of Object.keys(drawn)) {
+        if (!wanted.has(id)) {
+          removeOne(chart, candle, drawn[id]);
+          delete drawn[id];
+        }
+      }
+      for (const d of drawings) {
+        if (drawn[d.id] && d.kind === "hline") continue;
+        if (drawn[d.id]) {
+          removeOne(chart, candle, drawn[d.id]);
+          delete drawn[d.id];
+        }
+        const h = drawOne(chart, candle, d);
+        if (h) drawn[d.id] = h;
+      }
+      return void 0;
+    }, [drawings, candles]);
     const last = candles.length ? candles[candles.length - 1].close : null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
       "button",
@@ -4160,7 +4339,41 @@ ${ref}`;
         },
         ind.label
       );
-    })), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
+    }), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tools" }, TOOLS.map((t) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: t.key,
+        className: cls("vg-ic-tool", t.key === tool && "on"),
+        onClick: () => {
+          pendingRef.current = [];
+          setPendingN(0);
+          setTool(t.key);
+        },
+        title: t.title,
+        "aria-label": t.title
+      },
+      t.label
+    )), tool !== "cursor" && pendingN > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, pendingN, "/", TOOL_PTS[tool]), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-ic-tool",
+        onClick: undoLastDrawing,
+        disabled: !drawings.length,
+        title: "Undo last drawing",
+        "aria-label": "Undo last drawing"
+      },
+      "\u232B"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-ic-tool",
+        onClick: clearDrawings,
+        disabled: !drawings.length,
+        title: "Clear all drawings",
+        "aria-label": "Clear all drawings"
+      },
+      "\u2715"
+    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
   }
   function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height }) {
     const [tf, setTf] = useState7(defaultTf);

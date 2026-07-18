@@ -489,6 +489,41 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             return envelope(snap, available=False, note=f"refresh failed: {e}")
         return envelope(snap, available=True, symbol=sym, tf=tf, note=note)
 
+    @app.get("/api/chart/{symbol}/drawings")
+    def chart_drawings_list(symbol: str):
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, drawings=[], note="drawings need the SQLite backend")
+        drawings = store.load_chart_drawings((symbol or "").upper())
+        return envelope(snap, available=True, symbol=symbol.upper(), drawings=drawings)
+
+    @app.post("/api/chart/{symbol}/drawings")
+    def chart_drawings_upsert(symbol: str, body: dict = Body(...)):
+        """Create or update one drawing (client-generated id → idempotent upsert).
+        POST per the codebase's POST-only write convention (ADR-010). A body with
+        {delete: <id>} removes that drawing; otherwise it upserts. Writes only the
+        chart_drawings table; no broker/order path."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="drawings need the SQLite backend")
+        del_id = str(body.get("delete") or "").strip()
+        if del_id:
+            removed = store.delete_chart_drawing(del_id)
+            return envelope(snap, available=True, removed=removed)
+        kind = str(body.get("kind") or "")
+        if kind not in ("hline", "trendline", "ray", "rect"):
+            raise HTTPException(status_code=422, detail=f"unknown drawing kind: {kind!r}")
+        did = str(body.get("id") or "").strip()
+        if not did:
+            raise HTTPException(status_code=422, detail="drawing id required")
+        import datetime as _dt
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        row = store.upsert_chart_drawing(
+            {"id": did, "symbol": (symbol or "").upper(), "kind": kind,
+             "points": body.get("points") or [], "style": body.get("style") or {}},
+            now=now)
+        return envelope(snap, available=True, drawing=row)
+
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),

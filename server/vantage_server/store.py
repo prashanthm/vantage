@@ -2381,6 +2381,58 @@ class Store:
             conn.close()
         return row is not None
 
+    # -- chart drawings (per-symbol annotations) ---------------------------
+
+    def upsert_chart_drawing(self, drawing: dict, *, now: str) -> dict:
+        """Insert or update one drawing (keyed on client-generated id). Returns the
+        stored row. Requires SQLite. `drawing` = {id, symbol, kind, points[], style?}."""
+        if not self.uses_sqlite:
+            raise RuntimeError("upsert_chart_drawing requires the SQLite backend")
+        did = str(drawing["id"])
+        symbol = str(drawing["symbol"]).upper()
+        kind = str(drawing["kind"])
+        points = _db.dumps(drawing.get("points") or [])
+        style = _db.dumps(drawing.get("style") or {})
+        with self._sqlite_txn() as conn:
+            existing = conn.execute(
+                "SELECT created_at FROM chart_drawings WHERE id=?", (did,)
+            ).fetchone()
+            created = existing["created_at"] if existing else now
+            conn.execute(
+                "INSERT INTO chart_drawings(id, symbol, kind, points, style, created_at, updated_at) "
+                "VALUES(?,?,?,?,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET symbol=excluded.symbol, kind=excluded.kind, "
+                "points=excluded.points, style=excluded.style, updated_at=excluded.updated_at",
+                (did, symbol, kind, points, style, created, now),
+            )
+        return {"id": did, "symbol": symbol, "kind": kind,
+                "points": drawing.get("points") or [], "style": drawing.get("style") or {},
+                "created_at": created, "updated_at": now}
+
+    def load_chart_drawings(self, symbol: str) -> list[dict]:
+        """All drawings for one symbol, oldest first. [] off SQLite."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM chart_drawings WHERE symbol=? ORDER BY created_at, id",
+                (symbol.upper(),),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [{"id": r["id"], "symbol": r["symbol"], "kind": r["kind"],
+                 "points": _db.loads(r["points"], []), "style": _db.loads(r["style"], {}),
+                 "created_at": r["created_at"], "updated_at": r["updated_at"]} for r in rows]
+
+    def delete_chart_drawing(self, drawing_id: str) -> bool:
+        """Delete one drawing by id. Returns True if a row was removed."""
+        if not self.uses_sqlite:
+            return False
+        with self._sqlite_txn() as conn:
+            cur = conn.execute("DELETE FROM chart_drawings WHERE id=?", (str(drawing_id),))
+            return cur.rowcount > 0
+
     # -- sqlite txn helper --------------------------------------------------
 
     def _sqlite_txn(self):

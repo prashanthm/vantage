@@ -10,10 +10,24 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
-import { useLive, getChart, refreshChart } from "./live.js";
+import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
+import { drawOne, removeOne } from "./chart_drawings.jsx";
 
 const { useState, useRef, useEffect, useCallback } = React;
+
+// drawing tools: cursor pans; the rest capture 1 (hline) or 2 (others) clicks.
+const TOOLS = [
+  { key: "cursor", label: "⌖", title: "Cursor / pan", pts: 0 },
+  { key: "hline", label: "─", title: "Horizontal line", pts: 1 },
+  { key: "trendline", label: "╱", title: "Trendline", pts: 2 },
+  { key: "ray", label: "→", title: "Ray", pts: 2 },
+  { key: "rect", label: "▭", title: "Rectangle", pts: 2 },
+];
+const TOOL_PTS = Object.fromEntries(TOOLS.map((t) => [t.key, t.pts]));
+// small id without Date/Math.random dependence surprises — fine for a client key.
+let _didSeq = 0;
+const newDrawingId = () => `d${(_didSeq++).toString(36)}${performance.now().toString(36).replace(".", "")}`;
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
 const hasLW = () => typeof window !== "undefined"
@@ -70,10 +84,18 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
   const fittedKey = useRef(null);
   const indRef = useRef({});                   // key → LWC series handle(s)
   const pocLineRef = useRef(null);             // POC price-line handle
+  const drawnRef = useRef({});                 // drawing id → LWC handle
+  const pendingRef = useRef([]);               // click points for the in-progress drawing
+  const toolRef = useRef("cursor");            // current tool (ref so the click cb sees it)
+  const commitDrawingRef = useRef(() => {});   // latest commit fn (creation effect runs once)
   const [hover, setHover] = useState(null);   // crosshair OHLC
   const [nonce, setNonce] = useState(0);      // manual-refresh cache bust
   const [refreshing, setRefreshing] = useState(false);
   const [active, setActive] = useState(loadPref);   // active indicator keys
+  const [tool, setTool] = useState("cursor");       // active drawing tool
+  const [drawings, setDrawings] = useState([]);     // persisted drawings for this symbol
+  const [pendingN, setPendingN] = useState(0);      // clicks captured so far (UI hint)
+  toolRef.current = tool;
 
   const toggleInd = useCallback((key) => {
     setActive((prev) => {
@@ -83,6 +105,29 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
       return next;
     });
   }, []);
+
+  // persist a finished drawing, then render it (optimistically) and reset the tool.
+  const commitDrawing = useCallback(async (kind, points) => {
+    const d = { id: newDrawingId(), kind, points, style: {} };
+    setDrawings((prev) => [...prev, d]);
+    setTool("cursor");
+    try { await saveDrawing(symbol, { id: d.id, kind, points, style: {} }); }
+    catch (e) { /* stays rendered locally; reload will reconcile */ }
+  }, [symbol]);
+  commitDrawingRef.current = commitDrawing;
+
+  const clearDrawings = useCallback(async () => {
+    const ids = drawings.map((d) => d.id);
+    setDrawings([]);
+    for (const id of ids) { try { await deleteDrawing(symbol, id); } catch (e) { /* */ } }
+  }, [symbol, drawings]);
+
+  const undoLastDrawing = useCallback(async () => {
+    const last = drawings[drawings.length - 1];
+    if (!last) return;
+    setDrawings((prev) => prev.slice(0, -1));
+    try { await deleteDrawing(symbol, last.id); } catch (e) { /* */ }
+  }, [symbol, drawings]);
 
   const q = useLive(() => (symbol ? getChart(symbol, tf) : Promise.resolve(null)),
     null, [symbol, tf, nonce]);
@@ -127,6 +172,23 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
       if (!p || !p.time || !p.seriesData) { setHover(null); return; }
       const bar = p.seriesData.get(candle);
       setHover(bar ? ohlcText(bar) : null);
+    });
+    // click → capture drawing points when a tool is active. Cursor = no-op (pan).
+    chart.subscribeClick((p) => {
+      const t = toolRef.current;
+      const need = TOOL_PTS[t] || 0;
+      if (!need || !p || !p.point) return;
+      const price = candle.coordinateToPrice(p.point.y);
+      const time = p.time != null ? p.time : chart.timeScale().coordinateToTime(p.point.x);
+      if (price == null || time == null) return;
+      pendingRef.current = [...pendingRef.current, { time, price: Math.round(price * 100) / 100 }];
+      setPendingN(pendingRef.current.length);
+      if (pendingRef.current.length >= need) {
+        const pts = pendingRef.current;
+        pendingRef.current = [];
+        setPendingN(0);
+        commitDrawingRef.current(t, pts);
+      }
     });
     return () => { chart.remove(); chartRef.current = candleRef.current = null; };
   }, []);
@@ -227,6 +289,40 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     return undefined;
   }, [candles, active, tf]);
 
+  // load persisted drawings when the symbol changes; clear pending on switch.
+  useEffect(() => {
+    let alive = true;
+    pendingRef.current = []; setPendingN(0);
+    if (!symbol) { setDrawings([]); return undefined; }
+    getDrawings(symbol)
+      .then((r) => { if (alive && r && r.available) setDrawings(r.drawings || []); })
+      .catch(() => { /* leave whatever's there */ });
+    return () => { alive = false; };
+  }, [symbol]);
+
+  // render drawings — reconcile the `drawings` list against drawn LWC handles.
+  // Re-runs when candles change (ray endpoints depend on the visible range) so we
+  // rebuild segment kinds; hlines are stable.
+  useEffect(() => {
+    const chart = chartRef.current, candle = candleRef.current;
+    if (!chart || !candle) return undefined;
+    const drawn = drawnRef.current;
+    const wanted = new Set(drawings.map((d) => d.id));
+    // remove handles no longer in the list
+    for (const id of Object.keys(drawn)) {
+      if (!wanted.has(id)) { removeOne(chart, candle, drawn[id]); delete drawn[id]; }
+    }
+    // (re)draw each drawing. Segment kinds are cheap to rebuild; do so every pass
+    // so rays track the range. hlines only need drawing once.
+    for (const d of drawings) {
+      if (drawn[d.id] && d.kind === "hline") continue;
+      if (drawn[d.id]) { removeOne(chart, candle, drawn[d.id]); delete drawn[d.id]; }
+      const h = drawOne(chart, candle, d);
+      if (h) drawn[d.id] = h;
+    }
+    return undefined;
+  }, [drawings, candles]);
+
   const last = candles.length ? candles[candles.length - 1].close : null;
 
   return (
@@ -259,6 +355,19 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
               {ind.label}
             </button>);
         })}
+        <div className="vg-ic-tools">
+          {TOOLS.map((t) => (
+            <button key={t.key} className={cls("vg-ic-tool", t.key === tool && "on")}
+              onClick={() => { pendingRef.current = []; setPendingN(0); setTool(t.key); }}
+              title={t.title} aria-label={t.title}>{t.label}</button>
+          ))}
+          {tool !== "cursor" && pendingN > 0 && (
+            <span className="vg-ic-hint">{pendingN}/{TOOL_PTS[tool]}</span>)}
+          <button className="vg-ic-tool" onClick={undoLastDrawing} disabled={!drawings.length}
+            title="Undo last drawing" aria-label="Undo last drawing">⌫</button>
+          <button className="vg-ic-tool" onClick={clearDrawings} disabled={!drawings.length}
+            title="Clear all drawings" aria-label="Clear all drawings">✕</button>
+        </div>
       </div>
       <div className="vg-ic-body">
         {(q.loading) && <LoadBar />}

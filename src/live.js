@@ -1003,6 +1003,13 @@ export const getChart = (symbol, tf = "5m", days = 15) =>
 export const refreshChart = (symbol, tf = "5m") =>
   postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/refresh`, { tf },
     { timeoutMs: 30000 });
+// Chart drawings — persisted per-symbol annotations (Mira-readable context).
+export const getDrawings = (symbol) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`);
+export const saveDrawing = (symbol, drawing) =>
+  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, drawing);
+export const deleteDrawing = (symbol, id) =>
+  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, { delete: id });
 
 // ── SPX-analyst forecast loop ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).
