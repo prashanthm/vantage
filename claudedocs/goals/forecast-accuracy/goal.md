@@ -10,11 +10,19 @@ yet met (E0 median 30.2pt; target ≤22.7pt).
 The SPX-analyst's predicted path tracks the actual intraday tape more closely —
 smaller points-error — without trading away directional correctness.
 
-## Success predicate (measurable)
+## Success predicate (measurable) — REVISED 2026-07-18 (user-approved)
 On a fixed evaluation set of replay days (re-forecast under each variant), the
-**median absolute per-forecast target-error drops ≥ 25% vs the E0 baseline**, AND
-the overall **hit-rate does not regress**. Both numbers come from a NEW
-deterministic metric — no LLM judgment in the measurement.
+**overall hit-rate rises materially vs the E0 baseline (0.436) and holds on the
+held-out days**. Hit-rate = wins/resolved (a win is verdict "hit target" or
+"direction correct"), fully deterministic. `target_error` (now one-sided) is kept
+as a SECONDARY read only.
+
+**Why revised:** the original predicate was median target-error ↓25%. Six
+experiments proved that metric doesn't work for this problem — two-sided it rewards
+over-ambitious targets (C1 finding); one-sided its median is 0.0 for every run (most
+forecasts hit-or-overshoot). Hit-rate is the signal that consistently moves and
+measures forecast quality. C1 (target-discipline prompt) is the confirmed win:
+0.436 → 0.593.
 
 ## Primary metric — `target_error` (new, deterministic, offline)
 Per resolved forecast, direction-aware distance between predicted `plot.target`

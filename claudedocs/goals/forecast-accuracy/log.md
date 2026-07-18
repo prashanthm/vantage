@@ -154,7 +154,7 @@ better (hit 0.44→0.59, more targets reached, fewer undershoots) but the primar
 metric WORSE, because target_error penalizes a conservative target that price EXCEEDS
 the same as one price never reaches. Overshoot (hit + kept going) is not a forecasting
 failure — undershoot (never reached) is. The metric conflates them.
-kept: reverted the C1 prompt PENDING a metric decision.
+kept: **YES — C1 SHIPPED** (target-discipline prompt live in spx_analyst). Confirmed win under the revised hit-rate predicate: 0.436→0.593, consistent per-day.
 
 ## METRIC FLAW (blocker — needs a call)
 `target_error = |target − excursion|` penalizes OVERSHOOT (target reached then price
