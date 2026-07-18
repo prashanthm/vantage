@@ -1,7 +1,10 @@
 # Goal: forecast-accuracy
 
 **Started:** 2026-07-17
-**Status:** active
+**Status:** active — E0 baseline set, Arm A done (metric shipped), A1/A2/B1 run.
+Next: B2 (session clock), B3 (prior-day H/L/C), B4 (VIX/vol regime), … C/D arms.
+Paced via /loop (each experiment ~15-70 min of LLM re-forecasting). Predicate not
+yet met (E0 median 30.2pt; target ≤22.7pt).
 
 ## Outcome
 The SPX-analyst's predicted path tracks the actual intraday tape more closely —
