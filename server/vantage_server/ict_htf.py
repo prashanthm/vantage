@@ -230,5 +230,10 @@ def htf_setup(hi, lo, cl, op, hour_of_day, active_obs=None, near_atr=3.0):
         "invalid": round(invalid, 2),
         "ob_backed": ob_backed,
         "hour": hour_of_day,
+        # how many hourly bars ago the setup TRIGGERED (0 = the last bar). Lets the
+        # scanner gate to CURRENT setups (a snapshot always ends "now", so this is
+        # ~0 there; a multi-day scan series can surface stale setups without it).
+        "trigger_i": ti,
+        "bars_ago": (N - 1) - ti,
         "reason": " · ".join(reasons),
     }

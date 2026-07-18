@@ -1018,6 +1018,17 @@ export const prepareSpx = (symbol, days = 5) =>
 export const refreshSpx = (symbol) =>
   postJson(`${backendBase()}/api/spx/refresh`, { symbol });
 
+// ── ICT Scanner ──────────────────────────────────────────────────────────────
+// The latest stored scan result (ranked hits + universe status). Read-only.
+export const getScanner = (scanner = "ict_htf") =>
+  getJson(`${backendBase()}/api/scanner?scanner=${encodeURIComponent(scanner)}`,
+    { timeoutMs: 20000 });
+// Seed fresh 60m bars for the universe + run the scan (fetches ~24 tickers → long
+// timeout). `refreshUniverse` re-pulls the ETF holdings too.
+export const refreshScanner = (scanner = "ict_htf", refreshUniverse = false) =>
+  postJson(`${backendBase()}/api/scanner/refresh`,
+    { scanner, refresh_universe: refreshUniverse }, { timeoutMs: 120000 });
+
 // ── Replay Forecast (ticker-neutral) ─────────────────────────────────────────
 // Plan a run: primes the day's 1m bars if missing (may fetch → longer timeout),
 // enumerates the as_of step grid, mints a run_id. available=false out of window.

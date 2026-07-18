@@ -1946,6 +1946,66 @@ class Store:
             conn.close()
         return self._decode_cal(r) if r else None
 
+    # ── ICT scanner (universe + latest scan result) ─────────────────────────
+
+    def save_scanner_universe(self, symbols: list[str], source: str,
+                              set_key: str = "default") -> None:
+        """Cache the resolved scanner universe (deduped ticker list) so a scan
+        doesn't refetch ETF holdings every run."""
+        if not self.uses_sqlite:
+            raise RuntimeError("save_scanner_universe requires the SQLite backend")
+        import datetime as _d
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scanner_universe(set_key, symbols, source, fetched_at) "
+                "VALUES(?,?,?,?)",
+                (set_key, _db.dumps(list(symbols)), source,
+                 _d.datetime.now(_d.timezone.utc).isoformat()))
+
+    def load_scanner_universe(self, set_key: str = "default") -> dict | None:
+        """The cached universe row {symbols, source, fetched_at}, or None."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            r = conn.execute(
+                "SELECT * FROM scanner_universe WHERE set_key=?", (set_key,)).fetchone()
+        finally:
+            conn.close()
+        if not r:
+            return None
+        d = dict(r)
+        d["symbols"] = _db.loads(d.get("symbols"), []) or []
+        return d
+
+    def save_scanner_result(self, scanner: str, result: dict) -> None:
+        """Persist the latest scan snapshot for a scanner type (overwrites)."""
+        if not self.uses_sqlite:
+            raise RuntimeError("save_scanner_result requires the SQLite backend")
+        import datetime as _d
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO scanner_result(scanner, ran_at, result) "
+                "VALUES(?,?,?)",
+                (scanner, _d.datetime.now(_d.timezone.utc).isoformat(),
+                 _db.dumps(result)))
+
+    def load_scanner_result(self, scanner: str = "ict_htf") -> dict | None:
+        """The latest stored scan result for a scanner type, or None."""
+        if not self.uses_sqlite:
+            return None
+        conn = self._backend._conn()
+        try:
+            r = conn.execute(
+                "SELECT * FROM scanner_result WHERE scanner=?", (scanner,)).fetchone()
+        finally:
+            conn.close()
+        if not r:
+            return None
+        d = dict(r)
+        d["result"] = _db.loads(d.get("result"), {}) or {}
+        return d
+
     # ── chart-snapshot journal (SQLite metadata; image bytes on disk) ────────
 
     def record_journal_snapshot(self, snap: dict) -> int:

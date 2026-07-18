@@ -1011,6 +1011,26 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   background: var(--vg-up-soft); }
 .vg-fc-runmeta { color: var(--vg-dim); font-variant-numeric: tabular-nums; }
 
+/* ── ICT Scanner (scanner.jsx) ────────────────────────────────────────────── */
+.vg-scan-strip { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.vg-scan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px; margin-top: 8px; }
+.vg-scan-card { text-align: left; display: flex; flex-direction: column; gap: 6px;
+  padding: 12px 14px; border-radius: var(--vg-r-md); cursor: pointer;
+  border: 1px solid var(--vg-hairline); background: var(--vg-card); color: var(--vg-ink); }
+.vg-scan-card:hover { background: var(--vg-raised); }
+.vg-scan-card-ap { border-color: color-mix(in srgb, var(--vg-accent, #b8860b) 55%, transparent);
+  background: color-mix(in srgb, var(--vg-accent, #b8860b) 7%, var(--vg-card)); }
+.vg-scan-cardhead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vg-scan-sym { font-weight: 700; font-size: 15px; }
+.vg-scan-tier { font-size: 11px; font-weight: 700; color: var(--vg-dim); }
+.vg-scan-tier.ap { color: var(--vg-accent, #b8860b); }
+.vg-scan-age { margin-left: auto; }
+.vg-scan-cardmeta { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px;
+  font-variant-numeric: tabular-nums; }
+.vg-scan-cardmeta b { font-weight: 600; }
+.vg-scan-reason { font-size: 11.5px; line-height: 1.4; }
+
 /* the read-only calibration record */
 .vg-fc-cal { border-top: 1px solid var(--vg-hairline); padding-top: 10px; }
 .vg-fc-calgrp { margin-top: 8px; }

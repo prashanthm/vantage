@@ -15,6 +15,7 @@ import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
 import { SpxPlaybookView, SpxPlaybookRail, SpxReplayView, PlaybookProvider } from "./spx_forecast.jsx";
+import { ScannerView } from "./scanner.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
 import { TodayView } from "./today.jsx";
@@ -45,6 +46,7 @@ const NAV = [
     { id: "today", label: "Today", icon: "🎯" },
     { id: "options", label: "Options", icon: "◎" },
     { id: "playbook", label: "0DTE Playbook", icon: "📐" },
+    { id: "scanner", label: "Scanner", icon: "🔭" },
     { id: "signalbot", label: "Signal Bot", icon: "📡" },
     { id: "exits", label: "Managed Exits", icon: "🛡️" },
     { id: "paper", label: "Paper Trading", icon: "📝" },
@@ -396,6 +398,7 @@ function App() {
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
           {route === "playbook" && <PlaybookRoute refreshNonce={refreshNonce} tab={playbookTab} setTab={setPlaybookTab} />}
+          {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("charts"); }} />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}

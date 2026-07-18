@@ -697,6 +697,44 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, run_id=rid, id=cid,
                         calibration={**rec, "id": cid})
 
+    # ── ICT Scanner ──────────────────────────────────────────────────────────
+    # Run the backtest-validated hourly ICT setup detector across a universe (top-10
+    # holdings of SPY/QQQ/IWM). Deterministic — no LLM, no orders (ADR-010).
+
+    @app.get("/api/scanner")
+    def scanner_get(scanner: str = Query("ict_htf")):
+        """The latest stored scan result for a scanner type (+ its ran_at). Read-only.
+        Empty (available=False) until the first refresh has run."""
+        snap = state.snapshot()
+        row = store.load_scanner_result(scanner) if getattr(store, "uses_sqlite", False) else None
+        if not row:
+            return envelope(snap, available=False, scanner=scanner,
+                            note="no scan yet — run a refresh")
+        # the stored result already carries `scanner`/`ran_at`; spread it as-is.
+        return envelope(snap, available=True, **(row.get("result") or {}))
+
+    @app.post("/api/scanner/refresh")
+    def scanner_refresh(body: dict = Body(default={})):
+        """Seed fresh 60m bars for the universe + run the scan + persist. Body:
+        {scanner?, refresh_universe?}. Writes only our own store (universe row + 60m
+        bars + scanner_result); no broker/order path (ADR-010). Longer-running —
+        fetches ~24 tickers."""
+        from . import scanner as _sc
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="scanner needs the SQLite backend")
+        scanner = str(body.get("scanner") or "ict_htf")
+        try:
+            result = _sc.run_scan(store, scanner, refresh_bars=True,
+                                  refresh_universe=bool(body.get("refresh_universe")))
+        except Exception as e:  # noqa: BLE001
+            return envelope(snap, available=False, note=f"scan failed: {e}")
+        if not result.get("universe_n"):
+            return envelope(snap, available=False, scanner=scanner,
+                            note="could not resolve a universe (holdings fetch failed)")
+        # `result` already carries `scanner`/`ran_at`; spread it as-is.
+        return envelope(snap, available=True, **result)
+
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
                               risk: float, date: str | None,
                               entry: float | None = None):

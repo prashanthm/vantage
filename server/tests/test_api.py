@@ -517,6 +517,10 @@ ALLOWED_WRITE_ROUTES = {
     "/api/replay/plan",
     "/api/replay/{run_id}/score",
     "/api/replay/{run_id}/calibration",
+    # ICT scanner: seed 60m bars for the universe + run the validated htf detector.
+    # Writes only our own SQLite (universe, 60m bars, scanner_result); no broker/
+    # order path (ADR-010 holds).
+    "/api/scanner/refresh",
 }
 
 

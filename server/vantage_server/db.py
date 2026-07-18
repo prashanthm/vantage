@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 20  # v20: replay runs (spx_forecast.run_id) + spx_calibration memory
+SCHEMA_VERSION = 21  # v21: ICT scanner (scanner_universe + scanner_result)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -522,6 +522,26 @@ CREATE TABLE IF NOT EXISTS spx_calibration (
     UNIQUE (day, underlying, run_id)
 );
 CREATE INDEX IF NOT EXISTS ix_spx_calibration_gen ON spx_calibration(generated_at, underlying);
+
+-- ICT SCANNER (v21). Two single-purpose tables:
+-- `scanner_universe` — the resolved ticker universe (top-10 holdings of SPY/QQQ/IWM,
+-- deduped), cached so a scan doesn't refetch holdings every run. One row per set key
+-- (default 'default'); `symbols` is a JSON list, `fetched_at` marks freshness.
+CREATE TABLE IF NOT EXISTS scanner_universe (
+    set_key    TEXT PRIMARY KEY,          -- 'default' (future: named universes)
+    symbols    TEXT NOT NULL,             -- JSON list of tickers
+    source     TEXT,                      -- 'holdings' | 'pinned-fallback'
+    fetched_at TEXT NOT NULL
+);
+
+-- `scanner_result` — the LATEST scan snapshot per scanner type. `result` is the full
+-- JSON the UI + cron read ({hits[], no_data[], universe_n, covered_n, ...}); one row
+-- per scanner so a refresh overwrites. Deterministic, no LLM, no orders (ADR-010).
+CREATE TABLE IF NOT EXISTS scanner_result (
+    scanner    TEXT PRIMARY KEY,          -- 'ict_htf' (pluggable: more later)
+    ran_at     TEXT NOT NULL,
+    result     TEXT NOT NULL              -- JSON: full scan result
+);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard
