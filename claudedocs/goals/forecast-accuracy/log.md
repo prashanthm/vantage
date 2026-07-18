@@ -74,3 +74,18 @@ Each B/C variant = re-forecasting the eval set (~56-147 turns, 20-70 min). ~20
 experiments ahead. Pacing via /loop so it survives idle gaps; E0 + Arm A (metric)
 are committed and are the durable deliverable regardless of how many features move
 the number.
+
+## B2 session clock (`bars_into_session` + minutes-to-close) → snapshot
+prediction: HELPS — A1 showed error is worst at the CLOSE; giving the analyst an
+explicit clock should shrink late-day targets. Predict median error down ≥3pt.
+experiment: guarded `session_clock` block (minutes_into_session/minutes_to_close/
+session_frac) env-gated SNAPSHOT_SESSION_CLOCK + a prompt line to scale expected
+range by time-of-session. Re-forecast the 8 E0 days `--run-tag b2` vs E0 same days.
+result: E0 (n=56) median_err 30.2 / hit 0.436. B2 (n=56) median_err **35.25** /
+hit 0.426. Error +5.0 (WORSE), hit −0.01.
+verdict: **DISPROVEN.** The clock hint made targets slightly worse, not tighter —
+prediction inverted. The analyst doesn't convert "minutes to close" into better
+range sizing; if anything it over-shrinks or distracts from the levels. Ranks with
+B1 (GEX) as a no-help feature-add: the target-error bottleneck is not missing
+context fields.
+kept: reverted (env flag OFF = baseline; prompt line reverted).
