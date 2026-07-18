@@ -4366,6 +4366,8 @@ ${ref}`;
     const [pendingN, setPendingN] = useState7(0);
     const [activeLayers, setActiveLayers] = useState7(loadLayerPref);
     const [selectedLevel, setSelectedLevel] = useState7(null);
+    const selectedLevelRef = useRef3(null);
+    selectedLevelRef.current = selectedLevel;
     const layerHandlesRef = useRef3({});
     toolRef.current = tool;
     const layerQ = useLive(
@@ -4493,6 +4495,10 @@ ${ref}`;
         setSelectedLevel(null);
         return;
       }
+      if (selectedLevelRef.current != null && Math.abs(lv.price - selectedLevelRef.current) < 0.01) {
+        setSelectedLevel(null);
+        return;
+      }
       let ci = 0, cbest = Infinity;
       candles.forEach((c, i) => {
         const d = lv.price > c.high ? lv.price - c.high : lv.price < c.low ? c.low - lv.price : 0;
@@ -4503,12 +4509,12 @@ ${ref}`;
       });
       const chart = chartRef.current;
       if (chart) {
-        const span = 40;
-        const from = candles[Math.max(0, ci - span)].time;
-        const to = candles[Math.min(candles.length - 1, ci + span)].time;
+        const span = 40, gutter = 25;
+        const fromIx = Math.max(0, ci - span);
+        const toIx = Math.min(candles.length - 1, ci + span) + gutter;
         requestAnimationFrame(() => {
           try {
-            chart.timeScale().setVisibleRange({ from, to });
+            chart.timeScale().setVisibleLogicalRange({ from: fromIx, to: toIx });
           } catch (e) {
           }
         });
@@ -4533,13 +4539,13 @@ ${ref}`;
           scaleMargins: { top: 0.08, bottom: 0.08 },
           autoScale: true
         },
-        // rightOffset leaves blank chart space on the right so price-line TITLE labels
+        // rightOffset leaves ~25 blank bars on the right so price-line TITLE labels
         // (coach levels, PDH/PDL, DRAW…) land in the gutter instead of over the candles.
         timeScale: {
           borderColor: th.border,
           timeVisible: true,
           secondsVisible: false,
-          rightOffset: 18,
+          rightOffset: 25,
           tickMarkFormatter: etTickFormatter
         },
         crosshair: { mode: LW.CrosshairMode.Normal },

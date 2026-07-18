@@ -134,6 +134,8 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const [pendingN, setPendingN] = useState(0);      // clicks captured so far (UI hint)
   const [activeLayers, setActiveLayers] = useState(loadLayerPref);  // active DNA layers
   const [selectedLevel, setSelectedLevel] = useState(null);         // clicked level price (anchor + focus)
+  const selectedLevelRef = useRef(null);                            // live copy for the click cb
+  selectedLevelRef.current = selectedLevel;
   const layerHandlesRef = useRef({});               // layer key → [handles]
   toolRef.current = tool;
 
@@ -239,6 +241,13 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     let lv = null, best = Infinity;
     for (const l of levels) { const d = Math.abs(l.price - clickPrice); if (d < best) { best = d; lv = l; } }
     if (!lv || best > Math.abs(clickPrice) * 0.004) { setSelectedLevel(null); return; }
+    // clicking the already-selected level again → deselect. This also stops a
+    // pan-release click (LWC fires subscribeClick when a drag ends near a line)
+    // from re-framing a level you've already positioned.
+    if (selectedLevelRef.current != null && Math.abs(lv.price - selectedLevelRef.current) < 0.01) {
+      setSelectedLevel(null);
+      return;
+    }
     let ci = 0, cbest = Infinity;
     candles.forEach((c, i) => {
       const d = (lv.price > c.high) ? lv.price - c.high : (lv.price < c.low) ? c.low - lv.price : 0;
@@ -246,10 +255,14 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     });
     const chart = chartRef.current;
     if (chart) {
-      const span = 40;
-      const from = candles[Math.max(0, ci - span)].time;
-      const to = candles[Math.min(candles.length - 1, ci + span)].time;
-      requestAnimationFrame(() => { try { chart.timeScale().setVisibleRange({ from, to }); } catch (e) { /* */ } });
+      // frame ±40 bars around the level, but leave ~25 empty bars on the RIGHT so the
+      // level labels don't overlap the candles. Logical range takes fractional/
+      // beyond-data indices, so +25 past the window is blank gutter.
+      const span = 40, gutter = 25;
+      const fromIx = Math.max(0, ci - span);
+      const toIx = Math.min(candles.length - 1, ci + span) + gutter;
+      requestAnimationFrame(() => {
+        try { chart.timeScale().setVisibleLogicalRange({ from: fromIx, to: toIx }); } catch (e) { /* */ } });
     }
     setSelectedLevel(lv.price);
   }, [layerData, candles]);
@@ -269,9 +282,9 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       localization: { timeFormatter: etTimeFormatter },
       rightPriceScale: { borderColor: th.border, minimumWidth: 72,
         scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
-      // rightOffset leaves blank chart space on the right so price-line TITLE labels
+      // rightOffset leaves ~25 blank bars on the right so price-line TITLE labels
       // (coach levels, PDH/PDL, DRAW…) land in the gutter instead of over the candles.
-      timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false, rightOffset: 18,
+      timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false, rightOffset: 25,
         tickMarkFormatter: etTickFormatter },
       crosshair: { mode: LW.CrosshairMode.Normal },
       handleScale: { mouseWheel: true, pinch: true,
