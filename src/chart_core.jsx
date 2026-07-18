@@ -71,15 +71,18 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     return () => { chart.remove(); chartRef.current = candleRef.current = null; };
   }, []);
 
-  // candles — fit content when the (symbol,tf) changes, not on every refresh
+  // candles — fit content when the (symbol,tf) changes, not on every refresh. Fit
+  // on the next frame so the chart has laid out (esp. when coming from an empty tf,
+  // where the timescale would otherwise keep the prior/blank range and candles sit
+  // off-screen).
   useEffect(() => {
     const candle = candleRef.current, chart = chartRef.current;
     if (!candle || !candles.length) return;
     candle.setData(candles);
     const key = `${symbol}|${tf}`;
     if (chart && fittedKey.current !== key) {
-      chart.timeScale().fitContent();
       fittedKey.current = key;
+      requestAnimationFrame(() => { try { chart.timeScale().fitContent(); } catch (e) { /* */ } });
     }
   }, [candles, symbol, tf]);
 

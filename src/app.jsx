@@ -66,24 +66,30 @@ const NAV = [
 const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets", "ic"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
+// Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
+// Deep-linkable: bookmark or share a specific symbol's chart. `param` is the raw
+// second segment (uppercased for tickers); routes with no param get param=null.
 function useHashRoute() {
-  const initial = () => {
+  const parse = () => {
     const h = window.location.hash.replace(/^#\/?/, "");
-    return ROUTES.includes(h) ? h : "dashboard";
+    const [r, ...rest] = h.split("/");
+    const route = ROUTES.includes(r) ? r : "dashboard";
+    const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
+    return { route, param };
   };
-  const [route, setRoute] = useState(initial);
+  const [state, setState] = useState(parse);
   useEffect(() => {
-    const onHash = () => setRoute(initial());
+    const onHash = () => setState(parse());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  const go = (r) => {
-    window.location.hash = `/${r}`;
-    // Panels scroll independently now — reset the center canvas, not the window.
+  // go("ic", "NVDA") → #/ic/NVDA ; go("holdings") → #/holdings
+  const go = (r, param) => {
+    window.location.hash = param ? `/${r}/${encodeURIComponent(param)}` : `/${r}`;
     const center = document.getElementById("vg-center");
     if (center) center.scrollTo({ top: 0 });
   };
-  return [route, go];
+  return [state.route, go, state.param];
 }
 
 // Mount the playbook state provider only on the playbook route (so its snapshot
@@ -121,7 +127,7 @@ function App() {
   const [settings, setSettings] = useState(loadSettings);
   const [accountId, setAccountId] = useState(settings.defaultAccount);
   const [symbol, setSymbol] = useState("SPY");
-  const [route, go] = useHashRoute();
+  const [route, go, routeParam] = useHashRoute();
   const [playbookTab, setPlaybookTab] = useState("chart");   // chart | replay | plan (0DTE Playbook)
   const [notifs, setNotifs] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -399,7 +405,7 @@ function App() {
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
           {route === "playbook" && <PlaybookRoute refreshNonce={refreshNonce} tab={playbookTab} setTab={setPlaybookTab} />}
-          {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("charts"); }} />}
+          {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}
@@ -407,7 +413,7 @@ function App() {
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
-          {route === "ic" && <div style={{ height: "82vh" }}><InstrumentChartCard symbol="SPX" /></div>}
+          {route === "ic" && <div style={{ height: "82vh" }}><InstrumentChartCard symbol={(routeParam || "SPX").toUpperCase()} /></div>}
         </main>
 
         {/* -------- right pane: per-ticker Notebook (default) / chart rail / chat -------- */}

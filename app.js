@@ -3841,8 +3841,13 @@ ${ref}`;
       candle.setData(candles);
       const key = `${symbol}|${tf}`;
       if (chart && fittedKey.current !== key) {
-        chart.timeScale().fitContent();
         fittedKey.current = key;
+        requestAnimationFrame(() => {
+          try {
+            chart.timeScale().fitContent();
+          } catch (e) {
+          }
+        });
       }
     }, [candles, symbol, tf]);
     useEffect6(() => {
@@ -5572,22 +5577,25 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   var DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets", "ic"];
   var ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
   function useHashRoute() {
-    const initial = () => {
+    const parse = () => {
       const h = window.location.hash.replace(/^#\/?/, "");
-      return ROUTES.includes(h) ? h : "dashboard";
+      const [r, ...rest] = h.split("/");
+      const route = ROUTES.includes(r) ? r : "dashboard";
+      const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
+      return { route, param };
     };
-    const [route, setRoute] = useState14(initial);
+    const [state, setState] = useState14(parse);
     useEffect11(() => {
-      const onHash = () => setRoute(initial());
+      const onHash = () => setState(parse());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
     }, []);
-    const go = (r) => {
-      window.location.hash = `/${r}`;
+    const go = (r, param) => {
+      window.location.hash = param ? `/${r}/${encodeURIComponent(param)}` : `/${r}`;
       const center = document.getElementById("vg-center");
       if (center) center.scrollTo({ top: 0 });
     };
-    return [route, go];
+    return [state.route, go, state.param];
   }
   function MaybePlaybookProvider({ active, children }) {
     return active ? /* @__PURE__ */ React.createElement(PlaybookProvider, { initialSymbol: "SPX" }, children) : children;
@@ -5620,7 +5628,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [settings, setSettings] = useState14(loadSettings);
     const [accountId, setAccountId] = useState14(settings.defaultAccount);
     const [symbol, setSymbol] = useState14("SPY");
-    const [route, go] = useHashRoute();
+    const [route, go, routeParam] = useHashRoute();
     const [playbookTab, setPlaybookTab] = useState14("chart");
     const [notifs, setNotifs] = useState14([]);
     const [notifOpen, setNotifOpen] = useState14(false);
@@ -5813,8 +5821,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       )));
     }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookRoute, { refreshNonce, tab: playbookTab, setTab: setPlaybookTab }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
       setSymbol(sym);
-      go("charts");
-    } }), route === "signalbot" && /* @__PURE__ */ React.createElement(SignalBotView, { refreshNonce }), route === "exits" && /* @__PURE__ */ React.createElement(ExitsView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol }), route === "ic" && /* @__PURE__ */ React.createElement("div", { style: { height: "82vh" } }, /* @__PURE__ */ React.createElement(InstrumentChartCard, { symbol: "SPX" }))), /* @__PURE__ */ React.createElement(
+      go("ic", sym);
+    } }), route === "signalbot" && /* @__PURE__ */ React.createElement(SignalBotView, { refreshNonce }), route === "exits" && /* @__PURE__ */ React.createElement(ExitsView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol }), route === "ic" && /* @__PURE__ */ React.createElement("div", { style: { height: "82vh" } }, /* @__PURE__ */ React.createElement(InstrumentChartCard, { symbol: (routeParam || "SPX").toUpperCase() }))), /* @__PURE__ */ React.createElement(
       "aside",
       {
         className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps", resizing && "resizing"),
