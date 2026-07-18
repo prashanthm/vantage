@@ -39,28 +39,39 @@ def _seed_hourly_from_frozen(store, symbol, n=400):
 
 # ── universe ─────────────────────────────────────────────────────────────────
 
-def test_resolve_universe_dedupes_and_caches(tmp_path, monkeypatch):
+def test_universe_is_weighted_union_of_qqq_and_spy(tmp_path):
     store = _sqlite_store(tmp_path)
-    # SPY and QQQ share AAPL/MSFT; IWM distinct. Expect a deduped union, ETFs dropped.
-    fake = {"SPY": ["AAPL", "MSFT", "NVDA"], "QQQ": ["AAPL", "MSFT", "AMZN"],
-            "IWM": ["SMCI", "AAPL"]}
-    monkeypatch.setattr(sc, "_etf_top_holdings", lambda etf: fake.get(etf, []))
     uni = sc.resolve_universe(store, refresh=True)
-    assert uni["source"] == "holdings"
-    assert set(uni["symbols"]) == {"AAPL", "MSFT", "NVDA", "AMZN", "SMCI"}
-    # cached: a second call without refresh reads the store, doesn't refetch
-    monkeypatch.setattr(sc, "_etf_top_holdings", lambda etf: [])  # would empty it
-    uni2 = sc.resolve_universe(store, refresh=False)
-    assert uni2["from_cache"] is True
-    assert set(uni2["symbols"]) == {"AAPL", "MSFT", "NVDA", "AMZN", "SMCI"}
+    syms = uni["symbols"]
+    assert uni["source"] == "qqq100+spy100"
+    # deduped union of the two pinned 100-lists
+    assert len(syms) == len(set(syms))                      # no dups
+    assert 100 < len(syms) <= sc._UNIVERSE_CAP              # ~162 after overlap
+    assert syms[0] == "NVDA"                                # weight order preserved
+    assert "BRK-B" in syms and "JPM" in syms               # SPY-only names present
+    assert "PANW" in syms                                   # shared name once
+    # cached: a second call reads the store
+    assert sc.resolve_universe(store, refresh=False)["from_cache"] is True
 
 
-def test_resolve_universe_pinned_fallback_when_holdings_fail(tmp_path, monkeypatch):
+def test_universe_cap_keeps_weighted_head(tmp_path):
     store = _sqlite_store(tmp_path)
-    monkeypatch.setattr(sc, "_etf_top_holdings", lambda etf: [])   # all fail
-    uni = sc.resolve_universe(store, refresh=True)
-    assert uni["source"] == "pinned-fallback"
-    assert len(uni["symbols"]) > 0
+    uni = sc.resolve_universe(store, refresh=True, cap=20)
+    assert len(uni["symbols"]) == 20
+    assert uni["symbols"][0] == "NVDA"                      # top-weight kept
+
+
+def test_manual_tickers_add_remove_and_always_included(tmp_path):
+    store = _sqlite_store(tmp_path)
+    sc.add_manual_ticker(store, "spce")                     # lowercased → SPCE
+    sc.add_manual_ticker(store, "BRK.A")                    # dot → dash
+    assert set(sc.manual_tickers(store)) == {"SPCE", "BRK-A"}
+    # even a tiny cap keeps manual names (appended past the cap)
+    uni = sc.resolve_universe(store, refresh=True, cap=5)
+    assert "SPCE" in uni["symbols"] and "BRK-A" in uni["symbols"]
+    assert set(uni["manual"]) == {"SPCE", "BRK-A"}
+    sc.remove_manual_ticker(store, "SPCE")
+    assert sc.manual_tickers(store) == ["BRK-A"]
 
 
 # ── scan reproduces the detector ─────────────────────────────────────────────
@@ -118,9 +129,35 @@ def test_run_scan_buckets_and_persists(tmp_path, monkeypatch):
     # every hit is present with a tier; hits sorted A+ before B
     ranks = [sc._TIER_RANK.get(h.get("tier"), 9) for h in res["hits"]]
     assert ranks == sorted(ranks)
-    # persisted as the latest scan
+    # persisted as the latest scan, marked complete
     stored = store.load_scanner_result("ict_htf")
     assert stored and stored["result"]["universe_n"] == 3
+    assert stored["result"]["status"] == "complete"
+
+
+def test_run_scan_writes_running_then_complete_status(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    _seed_hourly_from_frozen(store, "AAPL")
+    monkeypatch.setattr(sc, "resolve_universe",
+                        lambda *a, **k: {"symbols": ["AAPL"], "source": "x",
+                                         "fetched_at": None, "manual": []})
+    seen = []
+    orig = store.save_scanner_result
+    monkeypatch.setattr(store, "save_scanner_result",
+                        lambda s, r: (seen.append(r.get("status")), orig(s, r))[1])
+    res = sc.run_scan(store, "ict_htf", refresh_bars=False)
+    assert "running" in seen and seen[-1] == "complete"   # progressed then finished
+    assert res["status"] == "complete"
+
+
+def test_background_scan_lock_rejects_overlap(tmp_path, monkeypatch):
+    store = _sqlite_store(tmp_path)
+    # hold the lock → a start returns already_running
+    assert sc._SCAN_LOCK.acquire(blocking=False)
+    try:
+        assert sc.start_background_scan(store)["status"] == "already_running"
+    finally:
+        sc._SCAN_LOCK.release()
 
 
 # ── fresh-A+ alert diff ──────────────────────────────────────────────────────

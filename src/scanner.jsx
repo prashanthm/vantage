@@ -3,9 +3,9 @@
 // ranked signal cards (A+ first). The A+ hourly setup is the first scanner type;
 // the selector is ready for more. Click a card → opens that ticker's chart.
 import { cls, dirCls, LoadBar } from "./util.jsx";
-import { useLive, getScanner, refreshScanner } from "./live.js";
+import { useLive, getScanner, refreshScanner, addScannerTicker, removeScannerTicker } from "./live.js";
 
-const { useState } = React;
+const { useState, useEffect } = React;
 
 const SCANNERS = [{ id: "ict_htf", label: "A+ ICT hourly setup" }];
 
@@ -48,32 +48,55 @@ function SignalCard({ h, onOpen }) {
 export function ScannerView({ onOpenSymbol }) {
   const [scanner, setScanner] = useState("ict_htf");
   const [nonce, setNonce] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
   const [note, setNote] = useState(null);
+  const [entry, setEntry] = useState("");
 
   const q = useLive(() => getScanner(scanner), null, [scanner, nonce]);
   const d = q.data && q.data.available ? q.data : null;
+  const running = d && d.status === "running";
+  const prog = (d && d.progress) || null;
   const hits = (d && d.hits) || [];
   const aplus = hits.filter((h) => h.tier === "A+");
   const bs = hits.filter((h) => h.tier !== "A+");
+  const manual = (d && d.manual_tickers) || [];
+
+  // while a background scan runs, poll the status every 3s until it completes.
+  useEffect(() => {
+    if (!running) return undefined;
+    const id = setInterval(() => setNonce((n) => n + 1), 3000);
+    return () => clearInterval(id);
+  }, [running]);
 
   const refresh = (refreshUniverse = false) => {
-    setRefreshing(true); setNote(null);
+    setNote(null);
     refreshScanner(scanner, refreshUniverse)
-      .then((r) => { if (r && !r.available && r.note) setNote(r.note); setNonce((n) => n + 1); })
-      .catch((e) => setNote(String((e && e.message) || e)))
-      .finally(() => setRefreshing(false));
+      .then((r) => {
+        if (r && r.status === "already_running") setNote("a scan is already running…");
+        setNonce((n) => n + 1);
+      })
+      .catch((e) => setNote(String((e && e.message) || e)));
   };
+
+  const addTicker = () => {
+    const s = entry.trim().toUpperCase();
+    if (!s) return;
+    setEntry("");
+    addScannerTicker(s).then(() => setNonce((n) => n + 1)).catch((e) => setNote(String((e && e.message) || e)));
+  };
+  const removeTicker = (s) =>
+    removeScannerTicker(s).then(() => setNonce((n) => n + 1)).catch(() => {});
+
+  const pct = prog && prog.total ? Math.round((prog.done / prog.total) * 100) : 0;
 
   return (
     <div className="vg-loadhost">
-      {(q.loading || refreshing) && <LoadBar />}
+      {(q.loading || running) && <LoadBar />}
 
       <div className="vg-spread" style={{ marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 19 }}>🔭 Scanner</h2>
           <p className="vg-sub" style={{ margin: "4px 0 0" }}>
-            Backtest-validated ICT hourly setups across the top holdings of SPY · QQQ · IWM.
+            Backtest-validated ICT hourly setups across the Nasdaq-100 + S&P top-100 (by weight).
           </p>
         </div>
       </div>
@@ -84,18 +107,42 @@ export function ScannerView({ onOpenSymbol }) {
           aria-label="scanner type" className="vg-fc-syminput" style={{ width: "auto" }}>
           {SCANNERS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
-        {d ? (
+        {running ? (
+          <span className="vg-note">
+            {prog ? `${prog.phase}… ${prog.done}/${prog.total}` : "scanning…"}
+          </span>
+        ) : d ? (
           <span className="vg-note">
             covered <b>{d.covered_n}</b>/<b>{d.universe_n}</b> · {aplus.length} A+ · {bs.length} B ·
-            last run {ago(d.ran_at)}{d.universe_source === "pinned-fallback" ? " · pinned list" : ""}
+            last run {ago(d.ran_at)}
           </span>
         ) : <span className="vg-note">no scan yet — run a refresh to seed data + scan</span>}
-        <button className="vg-btn-sm" disabled={refreshing} onClick={() => refresh(false)}
+        <button className="vg-btn-sm" disabled={running} onClick={() => refresh(false)}
           style={{ marginLeft: "auto" }}>
-          {refreshing ? <><span className="vg-spin" aria-hidden="true">⟳</span> Scanning…</> : "↻ Refresh scan"}
+          {running ? <><span className="vg-spin" aria-hidden="true">⟳</span> Scanning… ({pct}%)</> : "↻ Refresh scan"}
         </button>
-        <button className="vg-btn-sm" disabled={refreshing} onClick={() => refresh(true)}
-          title="re-pull the ETF top-10 holdings too">↻ universe</button>
+      </div>
+      {running && <div className="vg-fc-progress" style={{ marginBottom: 12 }}>
+        <div className="vg-fc-progress-bar" style={{ width: `${pct}%` }} /></div>}
+
+      {/* manual ticker box */}
+      <div className="vg-card vg-scan-manual" style={{ padding: 12, marginBottom: 12 }}>
+        <span className="vg-note" style={{ fontWeight: 600 }}>Watch tickers</span>
+        <form style={{ display: "inline-flex", gap: 6 }}
+          onSubmit={(e) => { e.preventDefault(); addTicker(); }}>
+          <input className="vg-fc-syminput" value={entry} spellCheck={false}
+            onChange={(e) => setEntry(e.target.value.toUpperCase())}
+            placeholder="add ticker" aria-label="add scanner ticker" style={{ width: 110 }} />
+          <button className="vg-btn-sm" type="submit">＋ add</button>
+        </form>
+        {manual.length > 0 && (
+          <div className="vg-scan-chips">
+            {manual.map((s) => (
+              <span key={s} className="vg-scan-chip">{s}
+                <button className="vg-scan-chip-x" title="remove" onClick={() => removeTicker(s)}>✕</button>
+              </span>))}
+          </div>)}
+        {manual.length === 0 && <span className="vg-note">none — add ad-hoc names to always scan them.</span>}
       </div>
       {note && <p className="vg-note" style={{ color: "var(--vg-down)", marginBottom: 10 }}>{note}</p>}
 

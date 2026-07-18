@@ -24,15 +24,40 @@ from . import ict_htf as _htf
 
 log = logging.getLogger("vantage.scanner")
 
-#: the ETFs whose top-10 holdings form the default universe.
-_UNIVERSE_ETFS = ("SPY", "QQQ", "IWM")
-
-#: pinned fallback if yfinance holdings ever fail — a reasonable liquid set so the
-#: scanner still runs. Logged as source='pinned-fallback' so the UI can flag it.
-_PINNED_FALLBACK = [
-    "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "AVGO", "META", "TSLA", "GOOG", "MU",
-    "NFLX", "COST", "PLTR", "AMD", "CSCO",
+#: The scanner universe = the Nasdaq-100 (QQQ) + S&P-top-100 (SPY) constituents, BY
+#: WEIGHT (highest-weight first), deduped. Pinned from the ETF holdings tables
+#: (yfinance caps its holdings feed at 10, Wikipedia has no weights / no clean NDX
+#: table) — so these are the ground-truth weighted lists, refreshed by re-pasting the
+#: holdings. Weight order preserved so a cap keeps the biggest names. `.`→`-` for
+#: yfinance (BRK.B → BRK-B).
+_QQQ_100 = [
+    "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "AVGO", "SPCX", "META", "TSLA",
+    "MU", "WMT", "AMD", "ASML", "INTC", "AMAT", "CSCO", "COST", "LRCX", "PLTR",
+    "NFLX", "PANW", "KLAC", "ARM", "TXN", "LIN", "SNDK", "TMUS", "CRWD", "AMGN",
+    "PEP", "ADI", "QCOM", "GILD", "MRVL", "STX", "SHOP", "WDC", "APP", "BKNG",
+    "ISRG", "SBUX", "PDD", "VRTX", "FTNT", "ADP", "CDNS", "MAR", "MNST", "CSX",
+    "MELI", "ADBE", "DDOG", "CEG", "ABNB", "CMCSA", "CTAS", "DASH", "INTU", "SNPS",
+    "MDLZ", "ROST", "AEP", "HON", "ORLY", "REGN", "WBD", "NXPI", "PCAR", "HONA",
+    "MPWR", "BKR", "LITE", "ALAB", "FAST", "FANG", "EA", "TER", "PYPL", "XEL",
+    "ODFL", "EXC", "CCEP", "ADSK", "FER", "IDXX", "TTWO", "MCHP", "AXON", "NBIS",
+    "TRI", "KDP", "RKLB", "PAYX", "CRWV", "ALNY", "ROP", "WDAY", "MSTR", "KHC",
 ]
+_SPY_100 = [
+    "NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "GOOG", "AVGO", "META", "TSLA", "BRK-B",
+    "LLY", "MU", "WMT", "JPM", "AMD", "V", "XOM", "JNJ", "INTC", "MA",
+    "ABBV", "CSCO", "BAC", "AMAT", "COST", "CAT", "UNH", "LRCX", "CVX", "GE",
+    "ORCL", "KO", "PG", "HD", "MS", "PLTR", "GS", "MRK", "PM", "NFLX",
+    "PANW", "GEV", "KLAC", "WFC", "RTX", "DELL", "TXN", "AXP", "LIN", "C",
+    "ANET", "SNDK", "TMUS", "CRWD", "IBM", "TMO", "AMGN", "MCD", "PEP", "APH",
+    "NEE", "VZ", "ADI", "QCOM", "UNP", "STX", "SCHW", "ABT", "WELL", "TJX",
+    "MRVL", "BA", "DIS", "GILD", "BLK", "WDC", "DE", "ETN", "BX", "T",
+    "UBER", "DHR", "PFE", "APP", "BKNG", "CRM", "PLD", "COP", "CVS", "CB",
+    "SPGI", "GLW", "COF", "BMY", "MO", "ISRG", "VRTX", "SYK", "PGR", "PH",
+]
+
+#: max symbols in a scan (bounds scan time / rate-limits). Weight-ordered union +
+#: manual tickers; manual names are never dropped by the cap.
+_UNIVERSE_CAP = 170
 
 ET_OPEN = 9 * 60 + 30
 ET_CLOSE = 16 * 60
@@ -46,42 +71,63 @@ _FRESH_BARS = 7
 
 # ── universe ─────────────────────────────────────────────────────────────────
 
-def _etf_top_holdings(etf: str) -> list[str]:
-    """The current top-10 holdings of an ETF via yfinance, or [] on failure."""
-    try:
-        import yfinance as yf
-        fd = yf.Ticker(etf).funds_data
-        h = fd.top_holdings
-        return [str(s).upper() for s in list(h.index)[:10]]
-    except Exception as e:  # noqa: BLE001 — a holdings failure degrades, never crashes
-        log.warning("top_holdings failed for %s: %s", etf, e)
-        return []
+def _norm(sym: str) -> str:
+    """Normalize a ticker for yfinance (upper, `.`→`-`, strip)."""
+    return str(sym or "").strip().upper().replace(".", "-")
 
 
-def resolve_universe(store, refresh: bool = False, set_key: str = "default") -> dict:
-    """The deduped scanner universe. Cached in the store so a scan doesn't refetch
-    holdings every run; ``refresh=True`` refetches. Returns
-    {symbols, source, fetched_at, from_cache}."""
+def manual_tickers(store) -> list[str]:
+    """The user-added ad-hoc tickers (persisted in a scanner_universe row keyed
+    'manual'). Always merged into the universe and never dropped by the cap."""
+    row = store.load_scanner_universe("manual") if hasattr(store, "load_scanner_universe") else None
+    return list((row or {}).get("symbols") or [])
+
+
+def add_manual_ticker(store, sym: str) -> list[str]:
+    """Add a ticker to the manual list (deduped). Returns the new list."""
+    s = _norm(sym)
+    cur = manual_tickers(store)
+    if s and s not in cur:
+        cur.append(s)
+        store.save_scanner_universe(cur, "manual", "manual")
+    return cur
+
+
+def remove_manual_ticker(store, sym: str) -> list[str]:
+    """Remove a ticker from the manual list. Returns the new list."""
+    s = _norm(sym)
+    cur = [x for x in manual_tickers(store) if x != s]
+    store.save_scanner_universe(cur, "manual", "manual")
+    return cur
+
+
+def resolve_universe(store, refresh: bool = False, set_key: str = "default",
+                     cap: int = _UNIVERSE_CAP) -> dict:
+    """The deduped, weight-ordered scanner universe: the pinned QQQ-100 + SPY-100
+    constituents (highest-weight first) ∪ the user's manual tickers, capped at
+    ``cap``. MANUAL tickers are always included (never dropped by the cap). Cached
+    so a scan doesn't recompute; ``refresh=True`` recomputes. Returns
+    {symbols, source, fetched_at, from_cache, manual}."""
+    manual = [_norm(s) for s in manual_tickers(store)]
     if not refresh:
         cached = store.load_scanner_universe(set_key) if hasattr(store, "load_scanner_universe") else None
         if cached and cached.get("symbols"):
-            return {**cached, "from_cache": True}
-    # fetch live top-10 of each ETF, union + dedupe (preserve first-seen order),
-    # drop the ETFs themselves (constituents only).
+            return {**cached, "manual": manual, "from_cache": True}
+    # weight-ordered union: QQQ then SPY (dedupe preserves the higher-weight slot),
+    # capped; then manual names appended (always kept).
     seen: dict[str, None] = {}
-    for etf in _UNIVERSE_ETFS:
-        for sym in _etf_top_holdings(etf):
-            if sym and sym not in _UNIVERSE_ETFS:
-                seen.setdefault(sym, None)
-    symbols = list(seen.keys())
-    source = "holdings"
-    if not symbols:
-        symbols, source = list(_PINNED_FALLBACK), "pinned-fallback"
+    for sym in _QQQ_100 + _SPY_100:
+        seen.setdefault(_norm(sym), None)
+    ranked = list(seen.keys())[:max(0, int(cap))]
+    for m in manual:
+        if m and m not in ranked:
+            ranked.append(m)
+    source = "qqq100+spy100"
     if hasattr(store, "save_scanner_universe"):
-        store.save_scanner_universe(symbols, source, set_key)
+        store.save_scanner_universe(ranked, source, set_key)
     row = store.load_scanner_universe(set_key) if hasattr(store, "load_scanner_universe") else None
-    return {**(row or {"symbols": symbols, "source": source, "fetched_at": None}),
-            "from_cache": False}
+    return {**(row or {"symbols": ranked, "source": source, "fetched_at": None}),
+            "manual": manual, "from_cache": False}
 
 
 # ── hourly bar seeding ───────────────────────────────────────────────────────
@@ -115,30 +161,58 @@ def _rth_hourly(symbol: str, lookback_days: int = 10):
         return None
 
 
-def seed_hourly(store, symbols: list[str], lookback_days: int = 10) -> dict:
-    """Fetch + store recent 60m bars for each symbol (interval='60m'). Splits the
-    fetched series by session-day so it slots into the (symbol, day, '60m') store
-    key. Idempotent (INSERT OR REPLACE). Returns a per-symbol summary."""
+#: inter-fetch delay + retries to stay under yfinance's rate limit on a big universe.
+_FETCH_DELAY_S = 0.4
+_FETCH_RETRIES = 2
+
+
+def _rth_hourly_retry(symbol: str, lookback_days: int):
+    """`_rth_hourly` with a couple of retries + a short backoff — a transient
+    rate-limit/network blip on one symbol shouldn't drop it from the scan."""
+    import time
+    for attempt in range(_FETCH_RETRIES + 1):
+        ohlc = _rth_hourly(symbol, lookback_days)
+        if ohlc and ohlc.get("ts"):
+            return ohlc
+        if attempt < _FETCH_RETRIES:
+            time.sleep(0.6 * (attempt + 1))
+    return None
+
+
+def seed_hourly(store, symbols: list[str], lookback_days: int = 10, progress=None) -> dict:
+    """Fetch + store recent 60m bars for each symbol (interval='60m'), THROTTLED for
+    a large universe (small inter-fetch delay + retries). Splits the fetched series by
+    session-day so it slots into the (symbol, day, '60m') key. Idempotent. ``progress``
+    (optional) is called (done, total) after each symbol so a background scan can
+    report progress. Returns a per-symbol summary."""
+    import time
     fetched = 0
     empty = 0
-    for sym in symbols:
-        ohlc = _rth_hourly(sym, lookback_days)
+    total = len(symbols)
+    for i, sym in enumerate(symbols):
+        ohlc = _rth_hourly_retry(sym, lookback_days)
         if not ohlc or not ohlc.get("ts"):
             empty += 1
-            continue
-        # group bars by ET session-day
-        by_day: dict[str, dict] = {}
-        for i, t in enumerate(ohlc["ts"]):
-            day = t[:10]
-            d = by_day.setdefault(day, {"ts": [], "open": [], "high": [],
-                                        "low": [], "close": [], "volume": []})
-            d["ts"].append(t)
-            for k in ("open", "high", "low", "close", "volume"):
-                d[k].append(ohlc[k][i])
-        for day, d in by_day.items():
-            store.save_intraday_bars(sym, day, "60m", d)
-        fetched += 1
-    return {"symbols": len(symbols), "fetched": fetched, "no_data": empty}
+        else:
+            by_day: dict[str, dict] = {}
+            for j, t in enumerate(ohlc["ts"]):
+                day = t[:10]
+                d = by_day.setdefault(day, {"ts": [], "open": [], "high": [],
+                                            "low": [], "close": [], "volume": []})
+                d["ts"].append(t)
+                for k in ("open", "high", "low", "close", "volume"):
+                    d[k].append(ohlc[k][j])
+            for day, d in by_day.items():
+                store.save_intraday_bars(sym, day, "60m", d)
+            fetched += 1
+        if progress:
+            try:
+                progress(i + 1, total)
+            except Exception:  # noqa: BLE001 — progress reporting must never break the seed
+                pass
+        if i + 1 < total:
+            time.sleep(_FETCH_DELAY_S)
+    return {"symbols": total, "fetched": fetched, "no_data": empty}
 
 
 def load_hourly_series(store, symbol: str, days: int = 15) -> dict | None:
@@ -177,23 +251,49 @@ SCANNERS = {"ict_htf": _scan_ict_htf}
 _TIER_RANK = {"A+": 0, "B": 1}
 
 
+import threading
+
+#: guards against overlapping scans (a background refresh while one runs).
+_SCAN_LOCK = threading.Lock()
+
+
+def _save_progress(store, scanner: str, phase: str, done: int, total: int,
+                   prev_hits: list | None = None) -> None:
+    """Persist an in-progress status so the UI can poll a live progress bar. Keeps
+    the prior scan's hits visible while a new scan runs."""
+    if not hasattr(store, "save_scanner_result"):
+        return
+    prev = (store.load_scanner_result(scanner) or {}).get("result") or {}
+    store.save_scanner_result(scanner, {
+        **prev,
+        "scanner": scanner,
+        "status": "running",
+        "progress": {"phase": phase, "done": done, "total": total},
+        "hits": prev_hits if prev_hits is not None else prev.get("hits", []),
+    })
+
+
 def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
              refresh_universe: bool = False, lookback_days: int = 10) -> dict:
     """Run ``scanner`` across the universe. When ``refresh_bars``, first seed fresh
-    60m bars for the universe. Returns a ranked result and persists it as the latest
-    scan for this scanner type. Deterministic — no LLM, no orders."""
+    60m bars (throttled), reporting progress as it goes. Persists a running→complete
+    status so a UI can poll. Deterministic — no LLM, no orders."""
     detector = SCANNERS.get(scanner)
     if detector is None:
-        return {"scanner": scanner, "available": False,
+        return {"scanner": scanner, "available": False, "status": "complete",
                 "note": f"unknown scanner '{scanner}'"}
     uni = resolve_universe(store, refresh=refresh_universe)
     symbols = uni.get("symbols") or []
+    total = len(symbols)
     seeded = None
     if refresh_bars:
-        seeded = seed_hourly(store, symbols, lookback_days)
+        _save_progress(store, scanner, "seeding", 0, total)
+        seeded = seed_hourly(store, symbols, lookback_days,
+                             progress=lambda d, t: _save_progress(store, scanner, "seeding", d, t))
 
+    _save_progress(store, scanner, "detecting", 0, total)
     hits, no_setup, no_data = [], [], []
-    for sym in symbols:
+    for i, sym in enumerate(symbols):
         try:
             s = detector(store, sym)
         except Exception as e:  # noqa: BLE001 — one symbol must not break the scan
@@ -205,15 +305,19 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
             hits.append(s)
         else:
             no_setup.append(sym)
+        if (i + 1) % 10 == 0 or i + 1 == total:
+            _save_progress(store, scanner, "detecting", i + 1, total, prev_hits=hits)
 
     hits.sort(key=lambda h: (_TIER_RANK.get(h.get("tier"), 9),
                              h.get("as_of") or ""), reverse=False)
     result = {
         "scanner": scanner,
+        "status": "complete",
         "ran_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
         "universe_source": uni.get("source"),
-        "universe_n": len(symbols),
-        "covered_n": len(symbols) - len(no_data),
+        "universe_n": total,
+        "covered_n": total - len(no_data),
+        "manual_tickers": uni.get("manual", []),
         "hits": hits,
         "no_setup": sorted(no_setup),
         "no_data": sorted(no_data),
@@ -222,6 +326,30 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
     if hasattr(store, "save_scanner_result"):
         store.save_scanner_result(scanner, result)
     return result
+
+
+def start_background_scan(store, scanner: str = "ict_htf",
+                          refresh_universe: bool = False) -> dict:
+    """Kick off a throttled full scan in a background thread and return immediately.
+    A module-level lock rejects an overlapping scan. The UI polls GET /api/scanner for
+    the running→complete status. Returns {status: started|already_running}."""
+    if not _SCAN_LOCK.acquire(blocking=False):
+        return {"status": "already_running"}
+
+    def _worker():
+        try:
+            run_scan(store, scanner, refresh_bars=True, refresh_universe=refresh_universe)
+        except Exception as e:  # noqa: BLE001
+            log.warning("background scan failed: %s", e)
+            try:
+                _save_progress(store, scanner, "error", 0, 0)
+            except Exception:  # noqa: BLE001
+                pass
+        finally:
+            _SCAN_LOCK.release()
+
+    threading.Thread(target=_worker, name=f"scan-{scanner}", daemon=True).start()
+    return {"status": "started"}
 
 
 def scan_alerts(prev: dict | None, curr: dict) -> list[str]:

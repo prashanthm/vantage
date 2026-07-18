@@ -1023,11 +1023,16 @@ export const refreshSpx = (symbol) =>
 export const getScanner = (scanner = "ict_htf") =>
   getJson(`${backendBase()}/api/scanner?scanner=${encodeURIComponent(scanner)}`,
     { timeoutMs: 20000 });
-// Seed fresh 60m bars for the universe + run the scan (fetches ~24 tickers → long
-// timeout). `refreshUniverse` re-pulls the ETF holdings too.
+// Kick off a THROTTLED BACKGROUND scan (returns immediately; poll getScanner for
+// running→complete). `refreshUniverse` re-resolves the constituent lists.
 export const refreshScanner = (scanner = "ict_htf", refreshUniverse = false) =>
   postJson(`${backendBase()}/api/scanner/refresh`,
-    { scanner, refresh_universe: refreshUniverse }, { timeoutMs: 120000 });
+    { scanner, refresh_universe: refreshUniverse }, { timeoutMs: 20000 });
+// Add / remove a manual ad-hoc ticker the scanner always includes.
+export const addScannerTicker = (sym) =>
+  postJson(`${backendBase()}/api/scanner/tickers`, { add: sym }, { timeoutMs: 30000 });
+export const removeScannerTicker = (sym) =>
+  postJson(`${backendBase()}/api/scanner/tickers`, { remove: sym }, { timeoutMs: 30000 });
 
 // ── Replay Forecast (ticker-neutral) ─────────────────────────────────────────
 // Plan a run: primes the day's 1m bars if missing (may fetch → longer timeout),

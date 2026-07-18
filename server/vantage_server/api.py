@@ -704,36 +704,56 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     @app.get("/api/scanner")
     def scanner_get(scanner: str = Query("ict_htf")):
         """The latest stored scan result for a scanner type (+ its ran_at). Read-only.
-        Empty (available=False) until the first refresh has run."""
+        Empty (available=False) until the first refresh has run. The CURRENT manual
+        ticker list is always merged in (it lives in its own row, so it stays live
+        even if the last scan predates a manual edit)."""
+        from . import scanner as _sc
         snap = state.snapshot()
-        row = store.load_scanner_result(scanner) if getattr(store, "uses_sqlite", False) else None
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="scanner needs the SQLite backend")
+        manual = _sc.manual_tickers(store)
+        row = store.load_scanner_result(scanner)
         if not row:
             return envelope(snap, available=False, scanner=scanner,
-                            note="no scan yet — run a refresh")
-        # the stored result already carries `scanner`/`ran_at`; spread it as-is.
-        return envelope(snap, available=True, **(row.get("result") or {}))
+                            manual_tickers=manual, note="no scan yet — run a refresh")
+        result = {**(row.get("result") or {}), "manual_tickers": manual}
+        return envelope(snap, available=True, **result)
 
     @app.post("/api/scanner/refresh")
     def scanner_refresh(body: dict = Body(default={})):
-        """Seed fresh 60m bars for the universe + run the scan + persist. Body:
-        {scanner?, refresh_universe?}. Writes only our own store (universe row + 60m
-        bars + scanner_result); no broker/order path (ADR-010). Longer-running —
-        fetches ~24 tickers."""
+        """Kick off a THROTTLED BACKGROUND scan (seed 60m bars for the ~160-ticker
+        universe + run the detector) and return immediately. The UI polls GET
+        /api/scanner for the running→complete status. Body: {scanner?,
+        refresh_universe?}. Writes only our own store (universe + 60m bars +
+        scanner_result); no broker/order path (ADR-010)."""
         from . import scanner as _sc
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="scanner needs the SQLite backend")
         scanner = str(body.get("scanner") or "ict_htf")
-        try:
-            result = _sc.run_scan(store, scanner, refresh_bars=True,
-                                  refresh_universe=bool(body.get("refresh_universe")))
-        except Exception as e:  # noqa: BLE001
-            return envelope(snap, available=False, note=f"scan failed: {e}")
-        if not result.get("universe_n"):
-            return envelope(snap, available=False, scanner=scanner,
-                            note="could not resolve a universe (holdings fetch failed)")
-        # `result` already carries `scanner`/`ran_at`; spread it as-is.
-        return envelope(snap, available=True, **result)
+        started = _sc.start_background_scan(
+            store, scanner, refresh_universe=bool(body.get("refresh_universe")))
+        return envelope(snap, available=True, scanner=scanner, **started)
+
+    @app.post("/api/scanner/tickers")
+    def scanner_tickers(body: dict = Body(default={})):
+        """Edit the manual ad-hoc ticker list the scanner always includes. Body:
+        {add?: sym} or {remove?: sym}. Writes only our own store; no broker/order
+        path (ADR-010). Returns the updated manual list."""
+        from . import scanner as _sc
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="scanner needs the SQLite backend")
+        add, rem = body.get("add"), body.get("remove")
+        if add:
+            manual = _sc.add_manual_ticker(store, str(add))
+        elif rem:
+            manual = _sc.remove_manual_ticker(store, str(rem))
+        else:
+            manual = _sc.manual_tickers(store)
+        # re-resolve so the manual name is folded into the universe for the next scan
+        _sc.resolve_universe(store, refresh=True)
+        return envelope(snap, available=True, manual_tickers=manual)
 
     def _stage_reclaim_ticket(symbol: str, side: str, level: float,
                               risk: float, date: str | None,
