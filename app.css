@@ -1047,6 +1047,10 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-ic-head { display: flex; align-items: center; gap: 12px; padding: 9px 13px;
   border-bottom: 1px solid var(--vg-hairline); flex-wrap: wrap; }
 .vg-ic-sym { font-family: var(--vg-font-data); font-weight: 700; font-size: 15px; }
+.vg-ic-syminput { font-family: var(--vg-font-data); font-size: 12px; width: 68px;
+  border: 1px solid var(--vg-hairline); background: var(--vg-card); color: var(--vg-ink);
+  border-radius: 5px; padding: 3px 7px; text-transform: uppercase; }
+.vg-ic-syminput:focus { border-color: var(--vg-accent); outline: none; }
 .vg-ic-px { font-family: var(--vg-font-data); font-size: 14px; font-variant-numeric: tabular-nums; }
 .vg-ic-ohlc { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim);
   font-variant-numeric: tabular-nums; }
@@ -1146,8 +1150,8 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 /* when the replay table is present, hold the chart body at a firm minimum so the
    layout overflows .vg-ic (which scrolls) instead of the flexbox crushing the chart
    and clipping the table against the pane bottom. */
-.vg-ic-empty { position: absolute; inset: 0; display: flex; align-items: center;
-  justify-content: center; }
+.vg-ic-empty { position: absolute; inset: 0; display: flex; flex-direction: column;
+  gap: 10px; align-items: center; justify-content: center; }
 
 /* ── Replay Forecast (spx_forecast.jsx SpxReplayView) ─────────────────────── */
 .vg-fc-progress { height: 6px; border-radius: 3px; background: var(--vg-raised);

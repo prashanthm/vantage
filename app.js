@@ -4342,9 +4342,11 @@ ${ref}`;
     replayActive,
     onReplayToggle,
     activeCallId,
-    setActiveCallId
+    setActiveCallId,
+    onOpenSymbol
   }) {
     const elRef = useRef3(null);
+    const [symInput, setSymInput] = useState7("");
     const chartRef = useRef3(null);
     const candleRef = useRef3(null);
     const fittedKey = useRef3(null);
@@ -4830,7 +4832,23 @@ ${ref}`;
       }
     }, [replayData, replayShown, candles]);
     const last = candles.length ? candles[candles.length - 1].close : null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), onOpenSymbol && /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "vg-ic-syminput",
+        placeholder: "symbol\u2026",
+        value: symInput,
+        onChange: (e) => setSymInput(e.target.value.toUpperCase()),
+        onKeyDown: (e) => {
+          if (e.key === "Enter") {
+            const s = symInput.trim().toUpperCase();
+            if (s && s !== symbol) onOpenSymbol(s);
+            setSymInput("");
+          }
+        },
+        "aria-label": "Change chart symbol"
+      }
+    ), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t,
@@ -4916,7 +4934,7 @@ ${ref}`;
         },
         ly.label
       );
-    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
+    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: doRefresh, disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
       ReplayCompareTable,
       {
         forecasts: replayData.forecasts,
@@ -4957,7 +4975,8 @@ ${ref}`;
     replayRunId,
     onReplayToggle,
     activeCallId,
-    setActiveCallId
+    setActiveCallId,
+    onOpenSymbol
   }) {
     const [tf, setTf] = useState7(defaultTf);
     return /* @__PURE__ */ React.createElement(
@@ -4972,7 +4991,8 @@ ${ref}`;
         replayRunId,
         onReplayToggle,
         activeCallId,
-        setActiveCallId
+        setActiveCallId,
+        onOpenSymbol
       }
     );
   }
@@ -7302,6 +7322,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         replayRunId,
         activeCallId,
         setActiveCallId,
+        onOpenSymbol: (s) => go("ic", s),
         onReplayToggle: () => {
           const next = !replayOn;
           setReplayOn(next);

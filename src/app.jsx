@@ -476,6 +476,7 @@ function App() {
               <InstrumentChartCard symbol={icSymbol} height="100%"
                 replayActive={replayOn} replayRunId={replayRunId}
                 activeCallId={activeCallId} setActiveCallId={setActiveCallId}
+                onOpenSymbol={(s) => go("ic", s)}
                 onReplayToggle={() => {
                   const next = !replayOn;
                   setReplayOn(next);

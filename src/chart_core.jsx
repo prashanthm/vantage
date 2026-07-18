@@ -113,8 +113,9 @@ function setInd(drawn, key, candles, th) {
 }
 
 export function InstrumentChart({ symbol, tf, setTf, overlays, height,
-    replayRunId, replayActive, onReplayToggle, activeCallId, setActiveCallId }) {
+    replayRunId, replayActive, onReplayToggle, activeCallId, setActiveCallId, onOpenSymbol }) {
   const elRef = useRef(null);
+  const [symInput, setSymInput] = useState("");   // the ticker being typed in the header
   const chartRef = useRef(null);
   const candleRef = useRef(null);
   const fittedKey = useRef(null);
@@ -521,6 +522,17 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     <div className="vg-ic">
       <div className="vg-ic-head">
         <span className="vg-ic-sym">{symbol}</span>
+        {onOpenSymbol && (
+          <input className="vg-ic-syminput" placeholder="symbol…" value={symInput}
+            onChange={(e) => setSymInput(e.target.value.toUpperCase())}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const s = symInput.trim().toUpperCase();
+                if (s && s !== symbol) onOpenSymbol(s);
+                setSymInput("");
+              }
+            }}
+            aria-label="Change chart symbol" />)}
         {last != null && <span className="vg-ic-px">{last}</span>}
         {hover && (
           <span className={cls("vg-ic-ohlc", hover.up ? "up" : "down")}>
@@ -599,6 +611,9 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         {!q.loading && !data && (
           <div className="vg-ic-empty">
             <p className="vg-note">{(q.data && q.data.note) || `No chart data for ${symbol}.`}</p>
+            <button className="vg-btn-sm" onClick={doRefresh} disabled={refreshing}>
+              {refreshing ? `Loading ${symbol}…` : `Load ${symbol} data`}
+            </button>
           </div>)}
       </div>
       {replayShown && replayData && replayData.forecasts.length > 0 && (
@@ -654,9 +669,9 @@ function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
 
 // A self-contained wrapper that owns the timeframe state — for quick drop-in use.
 export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height,
-    replayActive, replayRunId, onReplayToggle, activeCallId, setActiveCallId }) {
+    replayActive, replayRunId, onReplayToggle, activeCallId, setActiveCallId, onOpenSymbol }) {
   const [tf, setTf] = useState(defaultTf);
   return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height}
     replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle}
-    activeCallId={activeCallId} setActiveCallId={setActiveCallId} />;
+    activeCallId={activeCallId} setActiveCallId={setActiveCallId} onOpenSymbol={onOpenSymbol} />;
 }
