@@ -10,7 +10,6 @@ import {
   useTheme, THEME_ICON, LoadBar,
 } from "./util.jsx";
 import { MiraRender } from "./mira-render.jsx";
-import { ChartsView, ChartsRail } from "./charts.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
@@ -66,7 +65,7 @@ const NAV = [
 //   activity — per-position transactions, reached from a holding
 //   recs     — the full decision journal, reached from the Dashboard Actions "All →"
 //   markets  — live pattern signals, reached from Market read links
-const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets"];
+const DRILLDOWN_ROUTES = ["activity", "recs", "markets"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 // Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
@@ -283,7 +282,6 @@ function App() {
   // refresh handlers so "how is each account doing" is answered in the brief,
   // not only in the scope selector.
   const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
-  const hasChartRail = route === "charts";
   // the 0DTE Playbook's chart sub-tab renders its forecast RAIL in the right pane
   const isPlaybookChart = route === "playbook" && playbookTab === "chart";
   // Replay (chart-first): the run selection + which call is highlighted are shared
@@ -470,7 +468,6 @@ function App() {
           {route === "journal" && <JournalView refreshNonce={refreshNonce} />}
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
-          {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
           {route === "ic" && (
             <div className="vg-ic-route">
               <InstrumentChartCard symbol={icSymbol} height="100%"
@@ -502,7 +499,7 @@ function App() {
             </button>
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
-                {showReplayPanel ? "⟲ Replay" : isPlaybookChart ? "🔮 Forecast" : hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"}
+                {showReplayPanel ? "⟲ Replay" : isPlaybookChart ? "🔮 Forecast" : symbol ? "Notebook" : "Vantage AI"}
               </span>
             )}
             {rightOpen && showReplayPanel && (
@@ -511,11 +508,6 @@ function App() {
                 onClick={() => { setReplayOn(false); setReplayRunId(null); setActiveCallId(null); }}>
                 notebook →</button>
             )}
-            {rightOpen && !hasChartRail && !showReplayPanel && symbol && (
-              <button className="vg-linkbtn" style={{ marginLeft: "auto" }}
-                title={`Open ${underlyingOf(symbol)} on AI Charts`}
-                onClick={() => go("charts")}>chart →</button>
-            )}
           </div>
           {!rightOpen && <span className="vg-sparkle" aria-hidden="true">✦</span>}
           {rightOpen && (showReplayPanel
@@ -523,11 +515,9 @@ function App() {
                 activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
             : isPlaybookChart
             ? <SpxPlaybookRail />
-            : hasChartRail
-              ? <div className="vg-pane-body vg-rail"><ChartsRail symbol={symbol} /></div>
-              : symbol
-                ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
-                : <ChatPanel docked settings={settings} />)}
+            : symbol
+              ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
+              : <ChatPanel docked settings={settings} />)}
         </aside>
       </div>
       {/* mobile-only drawer handles (CSS hides them >820px). Each opens its drawer
@@ -550,7 +540,7 @@ function App() {
         <button className="vg-fab" aria-label="Notifications" onClick={() => setNotifOpen(true)}>
           🔔{unread > 0 && <span className="cnt">{unread}</span>}
         </button>
-        {(hasChartRail || !rightOpen) && (
+        {!rightOpen && (
           <button className="vg-fab" aria-label="Vantage AI chat" onClick={() => setChatOpen(true)}>💬</button>
         )}
       </div>
@@ -621,7 +611,7 @@ function LiveStatusDots({ settings }) {
 // MONITOR/below-threshold/na items are NOT actions and never appear here.
 // Each action carries an urgency weight (lower = more urgent) and a jump target.
 function buildActionQueue({ decisions, tlh, alloc, totalValue, accountId, settings, go, setSymbol }) {
-  const jumpChart = (sym) => { setSymbol(sym); go("charts"); };
+  const jumpChart = (sym) => { const u = underlyingOf(sym); setSymbol(u); go("ic", u); };
   const out = [];
 
   for (const d of decisions) {
@@ -1031,7 +1021,7 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
     });
   }, [pos, byUnderlying, query, kindFilter, recFilter, sortKey]);
 
-  const openChart = (sym) => { if (setSymbol) setSymbol(underlyingOf(sym)); if (go) go("charts"); };
+  const openChart = (sym) => { const u = underlyingOf(sym); if (setSymbol) setSymbol(u); if (go) go("ic", u); };
   const actionable = groups.filter((g) => (REC_ORDER[g._rec?.recommendation] ?? 9) <= 1).length;
 
   return (
@@ -1462,7 +1452,7 @@ function RecsView({ settings, setSymbol, go }) {
     if (wa !== wb) return wa - wb;
     return a.symbol.localeCompare(b.symbol);
   });
-  const jump = (sym) => { setSymbol(sym); go("charts"); };
+  const jump = (sym) => { const u = underlyingOf(sym); setSymbol(u); go("ic", u); };
 
   return (
     <div>

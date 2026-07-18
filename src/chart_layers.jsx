@@ -112,6 +112,25 @@ export const LAYER_DRAWERS = {
     return out;
   },
 
+  // the investor's OWN context: cost-basis line (dotted violet) + the ticker-plan
+  // target/stop. The "where am I on this holding" read. Reads ctx.position; the
+  // cost-line style is the same one the old AI Charts view used (charts.jsx).
+  position(ctx) {
+    const p = ctx.position;
+    if (!p) return [];
+    const out = [];
+    if (p.cost_basis != null) out.push({ kind: "line", handle: ctx.candle.createPriceLine({
+      price: p.cost_basis, color: "rgba(168,85,247,0.9)", lineWidth: 1,
+      lineStyle: ctx.LW.LineStyle.Dotted, axisLabelVisible: true,
+      title: `cost ${p.cost_basis}` }) });
+    const plan = p.plan || {};
+    if (plan.target != null) out.push(line(ctx, plan.target, "31,157,107", 0.9,
+      ctx.LW.LineStyle.Dashed, `plan target ${plan.target}`, 1));
+    if (plan.stop != null) out.push(line(ctx, plan.stop, "217,59,78", 0.9,
+      ctx.LW.LineStyle.Dashed, `plan stop ${plan.stop}`, 1));
+    return out;
+  },
+
   // the analyst's latest forecast: TARGET (green) / INVALIDATION (red) as reference
   // lines, and the numbered predicted PATH projected forward from the last candle
   // into the empty right space (so it reads "from here, price goes 1→2→3…").
@@ -226,6 +245,7 @@ export const LAYERS = [
   { key: "draw", label: "Draw", needsLevels: false },
   { key: "prior", label: "PD H/L/C", needsLevels: false },
   { key: "gex", label: "GEX", needsLevels: true },
+  { key: "position", label: "Position", needsLevels: false, needsPosition: true },
   { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true },
   { key: "replay", label: "Replay", needsLevels: false, needsReplay: true },
 ];

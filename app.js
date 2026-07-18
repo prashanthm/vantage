@@ -319,6 +319,7 @@
     getPaper: () => getPaper,
     getPlaybook: () => getPlaybook,
     getPlaybookPine: () => getPlaybookPine,
+    getPosition: () => getPosition,
     getReclaimPine: () => getReclaimPine,
     getReplay: () => getReplay,
     getReplayRun: () => getReplayRun,
@@ -1146,6 +1147,7 @@
   var saveDrawing = (symbol, drawing) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, drawing);
   var deleteDrawing = (symbol, id) => postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, { delete: id });
   var getLayers = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/layers`, { timeoutMs: 2e4 });
+  var getPosition = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/position`, { timeoutMs: 15e3 });
   var getChartForecast = (symbol) => getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/forecast`, { timeoutMs: 2e4 });
   var getReplayRuns = (limit = 40) => getJson(`${backendBase()}/api/replay/runs?limit=${limit}`, { timeoutMs: 2e4 });
   var getReplayRun = (runId) => getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 2e4 });
@@ -1400,12 +1402,6 @@
   // src/charts.jsx
   var { useState, useMemo: useMemo2, useRef, useEffect } = React;
   var { FAQItem } = window.LookeyDS;
-  var TF_LIVE = [
-    { key: "daily", label: "Daily" },
-    { key: "weekly", label: "Weekly" },
-    { key: "monthly", label: "Monthly" }
-  ];
-  var MAX_LEVELS_PER_SIDE = 6;
   var cssVar = (name, fallback) => {
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     return v || fallback;
@@ -1436,7 +1432,6 @@
       cost: "#a855f7"
     };
   }
-  var hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   var CONVICTION = {
     strong: { text: "STRONG", cls: "good" },
     neutral: { text: "NEUTRAL", cls: "plain" },
@@ -1454,236 +1449,6 @@
     const c = CONVICTION[analysis.conviction.label] || CONVICTION.neutral;
     const rec = REC_LABEL[analysis.recommendation] || analysis.recommendation;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", c.cls) }, c.text), /* @__PURE__ */ React.createElement("span", { className: "vg-badge info" }, rec));
-  }
-  function badgeRationale(analysis) {
-    if (!analysis) return null;
-    return analysis.rationale || null;
-  }
-  function strikeLabel(action) {
-    if (!action || action.kind !== "sell_call" || action.suggestedStrike == null) return null;
-    const strike = Number(action.suggestedStrike).toFixed(2);
-    const credit = action.estCredit != null ? ` ~$${Math.round(action.estCredit)}` : "";
-    return `sell ${strike}C${credit}`;
-  }
-  function levelLine(level, isSupport, th) {
-    const strength = Math.max(1, Math.min(5, Number(level.strength) || 1));
-    const width = Math.max(1, Math.round(strength / 1.5));
-    const base = isSupport ? th.upRgb : th.downRgb;
-    const opacity = 0.35 + strength / 5 * 0.5;
-    const price = Number(level.price);
-    return {
-      price,
-      color: `rgba(${base[0]},${base[1]},${base[2]},${opacity.toFixed(2)})`,
-      lineWidth: width,
-      lineStyle: window.LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible: true,
-      title: `${isSupport ? "S" : "R"} ${price.toFixed(2)}`
-    };
-  }
-  function LiveCandleChart({ symbol, setSymbol }) {
-    const [tf, setTf] = useState("daily");
-    const containerRef = useRef(null);
-    const chartRef = useRef(null);
-    const candleRef = useRef(null);
-    const volumeRef = useRef(null);
-    const priceLinesRef = useRef([]);
-    const [bars, setBars] = useState(null);
-    const [overlay, setOverlay] = useState(null);
-    const [loading, setLoading] = useState(true);
-    const [noData, setNoData] = useState(false);
-    useEffect(() => {
-      let alive = true;
-      setLoading(true);
-      setNoData(false);
-      getBars(symbol, tf).then((raw) => {
-        if (!alive) return;
-        const mapped = mapBars(raw);
-        setBars(mapped);
-        setLoading(false);
-        if (!mapped || !mapped.bars.length) setNoData(true);
-      });
-      return () => {
-        alive = false;
-      };
-    }, [symbol, tf]);
-    useEffect(() => {
-      let alive = true;
-      getBarsOverlay(symbol).then((raw) => {
-        if (alive) setOverlay(mapBarsOverlay(raw));
-      });
-      return () => {
-        alive = false;
-      };
-    }, [symbol]);
-    useEffect(() => {
-      const el = containerRef.current;
-      if (!el || !hasLW()) return void 0;
-      const LW = window.LightweightCharts;
-      const th = chartTheme();
-      const chart = LW.createChart(el, {
-        autoSize: true,
-        layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
-        grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
-        rightPriceScale: { borderColor: th.border },
-        timeScale: { borderColor: th.border, timeVisible: false },
-        crosshair: { mode: LW.CrosshairMode.Normal }
-      });
-      const candle = chart.addCandlestickSeries({
-        upColor: th.up,
-        downColor: th.down,
-        wickUpColor: th.up,
-        wickDownColor: th.down,
-        borderUpColor: th.up,
-        borderDownColor: th.down
-      });
-      const volume = chart.addHistogramSeries({
-        priceFormat: { type: "volume" },
-        priceScaleId: "vol",
-        color: `rgba(${th.faintRgb.join(",")},0.4)`
-      });
-      chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
-      chartRef.current = chart;
-      candleRef.current = candle;
-      volumeRef.current = volume;
-      return () => {
-        chart.remove();
-        chartRef.current = candleRef.current = volumeRef.current = null;
-        priceLinesRef.current = [];
-      };
-    }, []);
-    useEffect(() => {
-      const candle = candleRef.current, volume = volumeRef.current;
-      if (!candle || !volume || !bars || !bars.bars.length) return;
-      candle.setData(bars.bars.map((b) => ({
-        time: b.time,
-        open: b.open,
-        high: b.high,
-        low: b.low,
-        close: b.close
-      })));
-      const th = chartTheme();
-      volume.setData(bars.bars.map((b) => ({
-        time: b.time,
-        value: b.volume,
-        color: b.close >= b.open ? `rgba(${th.upRgb.join(",")},0.35)` : `rgba(${th.downRgb.join(",")},0.35)`
-      })));
-      if (chartRef.current) chartRef.current.timeScale().fitContent();
-    }, [bars]);
-    useEffect(() => {
-      const candle = candleRef.current;
-      if (!candle) return;
-      for (const pl of priceLinesRef.current) {
-        try {
-          candle.removePriceLine(pl);
-        } catch (e) {
-        }
-      }
-      priceLinesRef.current = [];
-      if (!overlay) return;
-      const th = chartTheme();
-      const add = (opts) => {
-        priceLinesRef.current.push(candle.createPriceLine(opts));
-      };
-      const levels = bars && bars.levels || overlay.levels && overlay.levels[tf] || { support: [], resistance: [] };
-      const topBy = (arr) => [...arr || []].sort((a, b) => (b.strength || 0) - (a.strength || 0)).slice(0, MAX_LEVELS_PER_SIDE);
-      topBy(levels.support).forEach((lv) => add(levelLine(lv, true, th)));
-      topBy(levels.resistance).forEach((lv) => add(levelLine(lv, false, th)));
-      const label = strikeLabel(overlay.analysis && overlay.analysis.action);
-      if (label && overlay.analysis.action.suggestedStrike != null) {
-        add({
-          price: Number(overlay.analysis.action.suggestedStrike),
-          color: th.strike,
-          lineWidth: 2,
-          lineStyle: window.LightweightCharts.LineStyle.Solid,
-          axisLabelVisible: true,
-          title: label
-        });
-      }
-      const cb = overlay.costBasis;
-      const cost = cb && (cb.equity ? cb.equity.avgCost : cb.options ? cb.options.avgCost : null);
-      if (cost != null) {
-        add({
-          price: Number(cost),
-          color: th.cost,
-          lineWidth: 1,
-          lineStyle: window.LightweightCharts.LineStyle.Dotted,
-          axisLabelVisible: true,
-          title: `cost ${Number(cost).toFixed(2)}`
-        });
-      }
-      if (overlay.currentPrice != null) {
-        add({
-          price: Number(overlay.currentPrice),
-          color: th.ink,
-          lineWidth: 1,
-          lineStyle: window.LightweightCharts.LineStyle.Solid,
-          axisLabelVisible: true,
-          title: "price"
-        });
-      }
-    }, [overlay, bars, tf]);
-    const analysis = overlay && overlay.analysis;
-    const rationale = badgeRationale(analysis);
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "AI Charts"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "Live candles from your bars snapshot \xB7 S/R, strike & cost overlays \xB7 educational only")), /* @__PURE__ */ React.createElement(SymbolPills, { symbol, setSymbol })), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 8, alignItems: "flex-start" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("strong", { style: { fontSize: 17 } }, symbol), overlay && overlay.currentPrice != null && /* @__PURE__ */ React.createElement("b", { style: { fontSize: 16 } }, usd(overlay.currentPrice, 2)), /* @__PURE__ */ React.createElement(ConvictionBadge, { analysis })), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, TF_LIVE.map((t) => /* @__PURE__ */ React.createElement("button", { key: t.key, className: cls("vg-pill", tf === t.key && "sel"), onClick: () => setTf(t.key) }, t.label)))), rationale && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "0 0 10px", lineHeight: 1.5 } }, rationale), /* @__PURE__ */ React.createElement("div", { className: "vg-chartwrap", style: { position: "relative" } }, /* @__PURE__ */ React.createElement("div", { ref: containerRef, style: { width: "100%", height: "100%" } }), loading && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { position: "absolute", top: 8, left: 8 } }, "loading\u2026")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { marginTop: 10, fontSize: 12, color: "var(--color-grey)", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "var(--vg-up)" } }), " support (by strength)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "var(--vg-down)" } }), " resistance (by strength)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#8b5cf6" } }), " suggested call strike"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("span", { className: "vg-mk-swatch", style: { background: "#a855f7" } }), " your cost basis"))));
-  }
-  var NON_TICKER = /* @__PURE__ */ new Set(["CASH", "CRYPTO", "FUTURES", "SWEEP"]);
-  var underlyingOf2 = (sym) => String(sym).split(" ")[0].toUpperCase();
-  function useSymbolChoices() {
-    const live_ = useLive(() => positions().then((p) => mapPositions(p)), null, []);
-    const rawHeld = (live_.data || []).map((p) => p.symbol);
-    const seen = /* @__PURE__ */ new Set();
-    const out = [];
-    for (const s of rawHeld) {
-      const u = underlyingOf2(s);
-      if (NON_TICKER.has(u) || seen.has(u)) continue;
-      seen.add(u);
-      out.push(u);
-    }
-    return out;
-  }
-  function SymbolPills({ symbol, setSymbol }) {
-    const choices = useSymbolChoices();
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, choices.map((s) => /* @__PURE__ */ React.createElement("button", { key: s, className: cls("vg-pill", symbol === s && "sel"), onClick: () => setSymbol(s) }, s)));
-  }
-  function ChartsView({ symbol, setSymbol }) {
-    const [mode, setMode] = useState(hasLW() ? "probing" : "svg");
-    useEffect(() => {
-      if (!hasLW()) {
-        setMode("svg");
-        return void 0;
-      }
-      let alive = true;
-      setMode("probing");
-      getBars(symbol, "daily").then((raw) => {
-        if (!alive) return;
-        const mapped = mapBars(raw);
-        setMode(mapped && mapped.bars.length ? "live" : "svg");
-      });
-      return () => {
-        alive = false;
-      };
-    }, [symbol]);
-    if (mode === "live") return /* @__PURE__ */ React.createElement(LiveCandleChart, { key: symbol, symbol, setSymbol });
-    const loading = mode === "probing";
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 14 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "AI Charts \u2014 ", symbol), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, loading ? "loading live candles\u2026" : "live candlestick, support/resistance, and the covered-call overlay"))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 16 } }, loading ? /* @__PURE__ */ React.createElement("div", { className: "vg-chartwrap" }) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No bar data for ", symbol, ". Run the nightly bar snapshot (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.snapshot_bars --from-lots"), ") or confirm the backend URL in Settings.")));
-  }
-  function ChartsRail({ symbol }) {
-    const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, []).data;
-    const decision = useMemo2(() => {
-      const u2 = underlyingOf2(symbol);
-      return (analysis?.decisions || []).find((d) => underlyingOf2(d.symbol) === u2) || null;
-    }, [analysis, symbol]);
-    const positions2 = useLive(() => positions("all").then(mapPositions), [], []).data;
-    const u = underlyingOf2(symbol);
-    const held = (positions2 || []).filter((p) => underlyingOf2(p.symbol) === u);
-    const heldShares = held.reduce((s, p) => s + (p.shares || 0), 0);
-    const heldValue = held.reduce((s, p) => s + (p.value || 0), 0);
-    const heldUnrl = held.reduce((s, p) => s + (p.unrl || 0), 0);
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "AI read"), decision ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ConvictionBadge, { analysis: decision }), decision.rationale && /* @__PURE__ */ React.createElement("p", { style: { fontSize: 13.5, lineHeight: 1.5, margin: "10px 0 0" } }, decision.rationale)) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No decision journal entry for ", symbol, ". Run the nightly analysis, or confirm the backend URL in Settings.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Your position"), held.length > 0 ? /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { fontSize: 14 } }, /* @__PURE__ */ React.createElement("b", null, heldShares.toLocaleString("en-US", { maximumFractionDigits: 2 }), " sh \xB7 ", usd(heldValue)), /* @__PURE__ */ React.createElement("span", { className: dirCls(heldUnrl), style: { color: heldUnrl >= 0 ? "var(--vg-up)" : "var(--vg-down)", fontWeight: 600 } }, signUsd(heldUnrl))), held.flatMap((p) => (p.accounts || []).map((acc, i) => /* @__PURE__ */ React.createElement("div", { key: `${p.symbol}-${i}`, className: "vg-note", style: { marginTop: 6 } }, acctOf(acc).short, ": ", p.symbol)))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "Not held in any linked account.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(ChartFaq, null)));
-  }
-  function ChartFaq() {
-    const [open, setOpen] = useState(false);
-    return /* @__PURE__ */ React.createElement(FAQItem, { question: "What are the AI markers?", open, onToggle: () => setOpen(!open) }, "Blue triangles mark AI-detected accumulation/entry zones, red triangles distribution/exit pressure, and gold dots contextual notes (bias flips, TLH windows on lots you own). In this prototype both the candles and the markers are simulated \u2014 educational only, never trading advice.");
   }
 
   // src/notebook.jsx
@@ -2579,7 +2344,7 @@
   // src/spx_forecast.jsx
   var { useState: useState5, useRef: useRef2, useEffect: useEffect4 } = React;
   var PLAYBOOK_SYMBOLS = ["SPX", "QQQ", "IWM"];
-  var hasLW2 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+  var hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   function forecastFields(data) {
     if (!data) return {};
     const num2 = (v) => {
@@ -2622,7 +2387,7 @@
     const pathSeriesRef = useRef2(null);
     useEffect4(() => {
       const el = elRef.current;
-      if (!el || !hasLW2()) return void 0;
+      if (!el || !hasLW()) return void 0;
       const LW = window.LightweightCharts;
       const th = chartTheme();
       const chart = LW.createChart(el, {
@@ -2869,7 +2634,7 @@
         markedRef.current = false;
       }
     }, [snap, forecast]);
-    if (!hasLW2()) {
+    if (!hasLW()) {
       return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
     }
     return /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-fc-chart" });
@@ -3162,7 +2927,7 @@ ${ref}`;
     const predSeriesRefs = useRef2([]);
     useEffect4(() => {
       const el = elRef.current;
-      if (!el || !hasLW2()) return void 0;
+      if (!el || !hasLW()) return void 0;
       const LW = window.LightweightCharts;
       const th = chartTheme();
       const chart = LW.createChart(el, {
@@ -3281,7 +3046,7 @@ ${ref}`;
       } catch (e) {
       }
     }, [snap, forecasts, activeId, etShiftSec]);
-    if (!hasLW2()) {
+    if (!hasLW()) {
       return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
     }
     return /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-fc-chart" });
@@ -4054,6 +3819,42 @@ ${ref}`;
       mk(g.max_pain, "max pain", "120,120,130");
       return out;
     },
+    // the investor's OWN context: cost-basis line (dotted violet) + the ticker-plan
+    // target/stop. The "where am I on this holding" read. Reads ctx.position; the
+    // cost-line style is the same one the old AI Charts view used (charts.jsx).
+    position(ctx) {
+      const p = ctx.position;
+      if (!p) return [];
+      const out = [];
+      if (p.cost_basis != null) out.push({ kind: "line", handle: ctx.candle.createPriceLine({
+        price: p.cost_basis,
+        color: "rgba(168,85,247,0.9)",
+        lineWidth: 1,
+        lineStyle: ctx.LW.LineStyle.Dotted,
+        axisLabelVisible: true,
+        title: `cost ${p.cost_basis}`
+      }) });
+      const plan = p.plan || {};
+      if (plan.target != null) out.push(line(
+        ctx,
+        plan.target,
+        "31,157,107",
+        0.9,
+        ctx.LW.LineStyle.Dashed,
+        `plan target ${plan.target}`,
+        1
+      ));
+      if (plan.stop != null) out.push(line(
+        ctx,
+        plan.stop,
+        "217,59,78",
+        0.9,
+        ctx.LW.LineStyle.Dashed,
+        `plan stop ${plan.stop}`,
+        1
+      ));
+      return out;
+    },
     // the analyst's latest forecast: TARGET (green) / INVALIDATION (red) as reference
     // lines, and the numbered predicted PATH projected forward from the last candle
     // into the empty right space (so it reads "from here, price goes 1→2→3…").
@@ -4186,6 +3987,7 @@ ${ref}`;
     { key: "draw", label: "Draw", needsLevels: false },
     { key: "prior", label: "PD H/L/C", needsLevels: false },
     { key: "gex", label: "GEX", needsLevels: true },
+    { key: "position", label: "Position", needsLevels: false, needsPosition: true },
     { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true },
     { key: "replay", label: "Replay", needsLevels: false, needsReplay: true }
   ];
@@ -4247,7 +4049,7 @@ ${ref}`;
   var _didSeq = 0;
   var newDrawingId = () => `d${(_didSeq++).toString(36)}${performance.now().toString(36).replace(".", "")}`;
   var TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
-  var hasLW3 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+  var hasLW2 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   var _etTime = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     hour: "2-digit",
@@ -4384,6 +4186,12 @@ ${ref}`;
       [symbol]
     );
     const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
+    const posQ = useLive(
+      () => symbol ? getPosition(symbol) : Promise.resolve(null),
+      null,
+      [symbol]
+    );
+    const positionData = posQ.data && posQ.data.available ? posQ.data : null;
     const replayShown = replayActive && !!replayRunId;
     const runDetailQ = useLive(
       () => replayShown ? getReplayRun(replayRunId) : Promise.resolve(null),
@@ -4526,7 +4334,7 @@ ${ref}`;
     levelClickRef.current = frameToLevel;
     useEffect6(() => {
       const el = elRef.current;
-      if (!el || !hasLW3()) return void 0;
+      if (!el || !hasLW2()) return void 0;
       const LW = window.LightweightCharts;
       const th = chartTheme();
       const chart = LW.createChart(el, {
@@ -4795,6 +4603,7 @@ ${ref}`;
         layers: layerData && layerData.layers || {},
         forecast: forecastData,
         replay: replayData,
+        position: positionData,
         selectedLevel,
         price: layerData && layerData.layers && layerData.layers.price || candles[candles.length - 1].close
       };
@@ -4802,7 +4611,7 @@ ${ref}`;
       if (!replayShown) keysToDraw.delete("replay");
       else keysToDraw.add("replay");
       for (const key of keysToDraw) {
-        if (key !== "forecast" && key !== "replay" && !layerData) continue;
+        if (key !== "forecast" && key !== "replay" && key !== "position" && !layerData) continue;
         const drawer = LAYER_DRAWERS[key];
         if (!drawer) continue;
         try {
@@ -4812,7 +4621,7 @@ ${ref}`;
         }
       }
       return void 0;
-    }, [activeLayers, layerData, forecastData, replayData, replayShown, selectedLevel, candles]);
+    }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, selectedLevel, candles]);
     useEffect6(() => {
       const chart = chartRef.current;
       if (!chart || !replayShown || !replayData || !candles.length) return;
@@ -4917,9 +4726,10 @@ ${ref}`;
     ))), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-layers" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-tag" }, "DNA"), LAYERS.map((ly) => {
       const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
       const gatedFc = ly.needsForecast && !fcQ.loading && !forecastData;
-      const gated = gatedLevels || gatedFc;
+      const gatedPos = ly.needsPosition && !posQ.loading && !positionData;
+      const gated = gatedLevels || gatedFc || gatedPos;
       const on = (ly.needsReplay ? replayActive : activeLayers.has(ly.key)) && !gated;
-      const why = gatedFc ? `No stored forecast for this symbol yet` : ly.needsReplay ? `Replay \u2014 pick a run in the right panel` : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`;
+      const why = gatedFc ? `No stored forecast for this symbol yet` : gatedPos ? `Not held and no plan for this symbol` : ly.needsReplay ? `Replay \u2014 pick a run in the right panel` : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`;
       const onClick = ly.needsReplay ? () => {
         onReplayToggle && onReplayToggle();
       } : () => !gated && toggleLayer(ly.key);
@@ -4934,7 +4744,7 @@ ${ref}`;
         },
         ly.label
       );
-    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => doRefresh(30), disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
+    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW2() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => doRefresh(30), disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
       ReplayCompareTable,
       {
         forecasts: replayData.forecasts,
@@ -6985,7 +6795,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       { id: "trades", label: "Performance", icon: "\u{1F9EE}" }
     ] }
   ];
-  var DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets"];
+  var DRILLDOWN_ROUTES = ["activity", "recs", "markets"];
   var ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
   function useHashRoute() {
     const parse = () => {
@@ -7201,7 +7011,6 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     };
     const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh: tlh2, go, setNotifOpen, refreshNonce };
     const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
-    const hasChartRail = route === "charts";
     const isPlaybookChart = route === "playbook" && playbookTab === "chart";
     const [replayOn, setReplayOn] = useState15(false);
     const [replayRunId, setReplayRunId] = useState15(null);
@@ -7313,7 +7122,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookRoute, { refreshNonce, tab: playbookTab, setTab: setPlaybookTab }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
       setSymbol(sym);
       go("ic", sym);
-    } }), route === "signalbot" && /* @__PURE__ */ React.createElement(SignalBotView, { refreshNonce }), route === "exits" && /* @__PURE__ */ React.createElement(ExitsView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol }), route === "ic" && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-route" }, /* @__PURE__ */ React.createElement(
+    } }), route === "signalbot" && /* @__PURE__ */ React.createElement(SignalBotView, { refreshNonce }), route === "exits" && /* @__PURE__ */ React.createElement(ExitsView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "ic" && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-route" }, /* @__PURE__ */ React.createElement(
       InstrumentChartCard,
       {
         symbol: icSymbol,
@@ -7359,7 +7168,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           onClick: () => setRightOpen(!rightOpen)
         },
         rightOpen ? "\xBB" : "\xAB"
-      ), rightOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, showReplayPanel ? "\u27F2 Replay" : isPlaybookChart ? "\u{1F52E} Forecast" : hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"), rightOpen && showReplayPanel && /* @__PURE__ */ React.createElement(
+      ), rightOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, showReplayPanel ? "\u27F2 Replay" : isPlaybookChart ? "\u{1F52E} Forecast" : symbol ? "Notebook" : "Vantage AI"), rightOpen && showReplayPanel && /* @__PURE__ */ React.createElement(
         "button",
         {
           className: "vg-linkbtn",
@@ -7372,15 +7181,6 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           }
         },
         "notebook \u2192"
-      ), rightOpen && !hasChartRail && !showReplayPanel && symbol && /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          className: "vg-linkbtn",
-          style: { marginLeft: "auto" },
-          title: `Open ${underlyingOf(symbol)} on AI Charts`,
-          onClick: () => go("charts")
-        },
-        "chart \u2192"
       )),
       !rightOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-sparkle", "aria-hidden": "true" }, "\u2726"),
       rightOpen && (showReplayPanel ? /* @__PURE__ */ React.createElement(
@@ -7392,7 +7192,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           activeCallId,
           setActiveCallId
         }
-      ) : isPlaybookChart ? /* @__PURE__ */ React.createElement(SpxPlaybookRail, null) : hasChartRail ? /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-rail" }, /* @__PURE__ */ React.createElement(ChartsRail, { symbol })) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
+      ) : isPlaybookChart ? /* @__PURE__ */ React.createElement(SpxPlaybookRail, null) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
     )), !focus && /* @__PURE__ */ React.createElement("div", { className: "vg-mob-handles" }, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -7413,7 +7213,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         }
       },
       "\u2726 Mira"
-    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-fabs" }, /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Notifications", onClick: () => setNotifOpen(true) }, "\u{1F514}", unread > 0 && /* @__PURE__ */ React.createElement("span", { className: "cnt" }, unread)), (hasChartRail || !rightOpen) && /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Vantage AI chat", onClick: () => setChatOpen(true) }, "\u{1F4AC}")), notifOpen && /* @__PURE__ */ React.createElement(
+    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-fabs" }, /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Notifications", onClick: () => setNotifOpen(true) }, "\u{1F514}", unread > 0 && /* @__PURE__ */ React.createElement("span", { className: "cnt" }, unread)), !rightOpen && /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Vantage AI chat", onClick: () => setChatOpen(true) }, "\u{1F4AC}")), notifOpen && /* @__PURE__ */ React.createElement(
       NotifPanel,
       {
         notifs,
@@ -7480,8 +7280,9 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function buildActionQueue({ decisions, tlh: tlh2, alloc, totalValue, accountId, settings, go, setSymbol }) {
     const jumpChart = (sym) => {
-      setSymbol(sym);
-      go("charts");
+      const u = underlyingOf(sym);
+      setSymbol(u);
+      go("ic", u);
     };
     const out = [];
     for (const d of decisions) {
@@ -7788,8 +7589,9 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       });
     }, [pos, byUnderlying, query, kindFilter, recFilter, sortKey]);
     const openChart = (sym) => {
-      if (setSymbol) setSymbol(underlyingOf(sym));
-      if (go) go("charts");
+      const u = underlyingOf(sym);
+      if (setSymbol) setSymbol(u);
+      if (go) go("ic", u);
     };
     const actionable = groups.filter((g) => (REC_ORDER[g._rec?.recommendation] ?? 9) <= 1).length;
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Holdings"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, acctLabel, " \xB7 ", groups.length, " ticker", groups.length === 1 ? "" : "s", analysis ? ` \xB7 ${actionable} actionable` : "", " \xB7 grouped by symbol \xB7 click to expand"), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { gap: 8, flexWrap: "wrap", marginBottom: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, [["all", "All"], ["equity", "Has equity"], ["option", "Has options"], ["losers", "Losers"]].map(([k, l]) => /* @__PURE__ */ React.createElement("button", { key: k, className: cls("vg-pill", kindFilter === k && "sel"), onClick: () => setKindFilter(k) }, l))), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("select", { className: "vg-select", value: recFilter, onChange: (e) => setRecFilter(e.target.value), title: "Filter by recommendation" }, /* @__PURE__ */ React.createElement("option", { value: "all" }, "Any recommendation"), /* @__PURE__ */ React.createElement("option", { value: "actionable" }, "Actionable only"), /* @__PURE__ */ React.createElement("option", { value: "HOLD_AND_SELL_CALL" }, "Hold & sell call"), /* @__PURE__ */ React.createElement("option", { value: "CLOSE_AND_BOOK_LOSS" }, "Close & book loss"), /* @__PURE__ */ React.createElement("option", { value: "MONITOR" }, "Monitor")), /* @__PURE__ */ React.createElement("select", { className: "vg-select", value: sortKey, onChange: (e) => setSortKey(e.target.value), title: "Sort by" }, Object.entries(HOLD_SORTS).map(([k, s]) => /* @__PURE__ */ React.createElement("option", { key: k, value: k }, "Sort: ", s.label))), /* @__PURE__ */ React.createElement("input", { className: "vg-input", placeholder: "Search symbol\u2026", value: query, onChange: (e) => setQuery(e.target.value), style: { width: 130 } }))), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Symbol"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Value"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Day"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Weight"), /* @__PURE__ */ React.createElement("th", null, "Recommendation"))), /* @__PURE__ */ React.createElement("tbody", null, groups.map((g) => {
@@ -7941,8 +7743,9 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       return a.symbol.localeCompare(b.symbol);
     });
     const jump = (sym) => {
-      setSymbol(sym);
-      go("charts");
+      const u = underlyingOf(sym);
+      setSymbol(u);
+      go("ic", u);
     };
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Persisted decision journal", data && data.asOf ? ` \xB7 as of ${data.asOf}` : "", " \xB7 actionable first \xB7 educational only, not advice"), sorted.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "The decision journal is empty or the backend is unreachable. Run the nightly analysis (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.analyze"), ") and confirm the backend URL in Settings.")) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 0, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Conviction"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Recommendation"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Detail"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px", textAlign: "right" } }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(RecRow2, { key: d.symbol, d, onJump: jump }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Executable covered-call ideas on your book \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
   }

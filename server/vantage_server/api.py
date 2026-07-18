@@ -588,6 +588,34 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, symbol=sym, day=day,
                         has_levels=(sym in playbook_syms), layers=layers)
 
+    @app.get("/api/chart/{symbol}/position")
+    def chart_position(symbol: str):
+        """The investor's own context for a symbol, drawn as the Position chart layer:
+        cost_basis (weighted avg of held lots) + the ticker-plan target/stop. Read-only.
+        Empty (available fields null) when the symbol isn't held / has no plan."""
+        snap = state.snapshot()
+        sym = (symbol or "").upper()
+        # weighted-avg cost basis across every lot of this symbol (any account).
+        cost_basis = None
+        try:
+            lots = [l for l in store.load_lots() if (l.symbol or "").upper() == sym]
+            tot_sh = sum(l.shares for l in lots)
+            if tot_sh > 0:
+                cost_basis = round(sum(l.shares * l.cost_per_share for l in lots) / tot_sh, 2)
+        except Exception:  # noqa: BLE001
+            cost_basis = None
+        plan = None
+        if getattr(store, "uses_sqlite", False):
+            try:
+                p = store.load_ticker_plan(sym) or {}
+                plan = {"target": _num(p.get("target")), "stop": _num(p.get("stop")),
+                        "thesis": p.get("thesis") or None}
+            except Exception:  # noqa: BLE001
+                plan = None
+        held = cost_basis is not None
+        return envelope(snap, available=(held or bool(plan)), symbol=sym,
+                        cost_basis=cost_basis, plan=plan, held=held)
+
     @app.get("/api/chart/{symbol}/forecast")
     def chart_forecast(symbol: str):
         """The latest stored forecast for a symbol, parsed into chart-ready fields:

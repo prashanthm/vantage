@@ -1014,6 +1014,9 @@ export const deleteDrawing = (symbol, id) =>
 // Vantage-DNA layers (coach levels / ICT / liquidity / draw / prior / GEX) for a symbol.
 export const getLayers = (symbol) =>
   getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/layers`, { timeoutMs: 20000 });
+// The investor's own context for a symbol: cost basis + plan target/stop (Position layer).
+export const getPosition = (symbol) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/position`, { timeoutMs: 15000 });
 // The latest stored forecast for a symbol (target/invalidation/path), chart-ready.
 export const getChartForecast = (symbol) =>
   getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/forecast`, { timeoutMs: 20000 });

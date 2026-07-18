@@ -10,7 +10,7 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar, dirCls } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
-import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRun } from "./live.js";
+import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRun, getPosition } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
 import { drawOne, removeOne } from "./chart_drawings.jsx";
 import { LAYERS, LAYER_DRAWERS, removeLayerHandle } from "./chart_layers.jsx";
@@ -149,6 +149,10 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const fcQ = useLive(() => (symbol ? getChartForecast(symbol) : Promise.resolve(null)),
     null, [symbol]);
   const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
+  // the investor's own context (cost basis + plan target/stop) for the Position layer.
+  const posQ = useLive(() => (symbol ? getPosition(symbol) : Promise.resolve(null)),
+    null, [symbol]);
+  const positionData = posQ.data && posQ.data.available ? posQ.data : null;
 
   // Replay: the OVERLAY only. Run selection + the rich detail (descriptions, scores)
   // live in the right-pane ReplayPanel; the chart just draws the selected run's
@@ -478,7 +482,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     if (!candles.length) return undefined;
     const ctx = { chart, candle, LW: window.LightweightCharts, candles,
                   layers: (layerData && layerData.layers) || {}, forecast: forecastData,
-                  replay: replayData, selectedLevel,
+                  replay: replayData, position: positionData, selectedLevel,
                   price: (layerData && layerData.layers && layerData.layers.price)
                     || candles[candles.length - 1].close };
     // draw each active layer. replay is special: it draws only when a run is
@@ -487,14 +491,14 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     if (!replayShown) keysToDraw.delete("replay");
     else keysToDraw.add("replay");
     for (const key of keysToDraw) {
-      // forecast/replay draw from their own data; the rest need layerData.
-      if (key !== "forecast" && key !== "replay" && !layerData) continue;
+      // forecast/replay/position draw from their own data; the rest need layerData.
+      if (key !== "forecast" && key !== "replay" && key !== "position" && !layerData) continue;
       const drawer = LAYER_DRAWERS[key];
       if (!drawer) continue;
       try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
     }
     return undefined;
-  }, [activeLayers, layerData, forecastData, replayData, replayShown, selectedLevel, candles]);
+  }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, selectedLevel, candles]);
 
   // scroll the chart to the selected replay run's day so its markers are in view
   // (a run is day-specific; without this, picking an older day draws markers
@@ -579,9 +583,11 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         {LAYERS.map((ly) => {
           const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
           const gatedFc = ly.needsForecast && !fcQ.loading && !forecastData;
-          const gated = gatedLevels || gatedFc;
+          const gatedPos = ly.needsPosition && !posQ.loading && !positionData;
+          const gated = gatedLevels || gatedFc || gatedPos;
           const on = (ly.needsReplay ? replayActive : activeLayers.has(ly.key)) && !gated;
           const why = gatedFc ? `No stored forecast for this symbol yet`
+            : gatedPos ? `Not held and no plan for this symbol`
             : ly.needsReplay ? `Replay — pick a run in the right panel`
             : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)`
             : `Toggle ${ly.label}`;
