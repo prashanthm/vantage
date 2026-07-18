@@ -179,11 +179,118 @@ def _rate(rows: list[dict]) -> dict:
     return {"n": n, "wins": wins, "hit_rate": round(wins / n, 3)}
 
 
-def calibration_scores(rows: list[dict]) -> dict:
+# ── continuous accuracy: how far the predicted target/path was from reality ──
+# The verdict scorer is binary (hit/miss). These metrics measure the DISTANCE
+# between the prediction and where price actually went — "how close to reality",
+# the thing the Replay chart shows and the forecast-accuracy goal optimizes.
+# Deterministic and offline: computed from the persisted forecast + score fields
+# (target/price_at/post_high/post_low), no LLM.
+
+def _plot(row: dict) -> dict:
+    fc = row.get("forecast") or {}
+    p = fc.get("plot") if isinstance(fc, dict) else None
+    return p if isinstance(p, dict) else {}
+
+
+def target_error(row: dict) -> float | None:
+    """Direction-aware absolute distance (points) between the predicted target and
+    the realized tape's best excursion toward it — matching the scorer's
+    ``_reached`` logic. For an up-call the tape's high is the relevant excursion;
+    for a down-call, its low. None when the forecast can't be measured yet (no
+    target, no price_at, or unscored → no post_high/post_low).
+
+    A target that sits exactly at the realized excursion has zero error. A call
+    that fell short (or overshot) is penalised by the gap either way."""
+    plot = _plot(row)
+    fc = row.get("forecast") or {}
+    target = _snap._first_price(plot.get("target") if plot.get("target") is not None
+                                else (fc.get("target") if isinstance(fc, dict) else None))
+    price_at = _snap._num(row.get("price_at"))
+    sc = row.get("score") or {}
+    post_high = _snap._num(sc.get("post_high"))
+    post_low = _snap._num(sc.get("post_low"))
+    if target is None or price_at is None or post_high is None or post_low is None:
+        return None
+    # which side is the target on? (same rule the scorer uses)
+    excursion = post_high if target >= price_at else post_low
+    return round(abs(target - excursion), 2)
+
+
+def path_mae(row: dict, store) -> float | None:
+    """Mean absolute distance (points) between the predicted PATH steps and the
+    realized close at each step's projected time — the "does the shape track"
+    metric. Recomputes from 1m bars: the path steps are evenly projected forward
+    from ``as_of`` over the session, and each step price is compared to the actual
+    close nearest that projected time. None when there's no path or no bars.
+
+    Cheap and deterministic (reads stored 1m bars, no LLM). Complements
+    ``target_error`` (endpoint) with a shape read."""
+    plot = _plot(row)
+    path = plot.get("path") if isinstance(plot.get("path"), list) else None
+    as_of = row.get("as_of")
+    day = row.get("day")
+    sym = (row.get("symbol") or "SPX").upper()
+    if not path or not as_of or not day:
+        return None
+    steps = [_snap._num(s.get("price")) for s in path if isinstance(s, dict)]
+    steps = [s for s in steps if s is not None]
+    if not steps:
+        return None
+    bar_sym = bar_sym_for(sym)
+    ohlc = (store.load_intraday_bars_since(bar_sym, day, "1m")
+            or store.load_intraday_bars(bar_sym, day, "1m"))
+    if not ohlc or not ohlc.get("ts"):
+        return None
+    ts, cl = ohlc["ts"], ohlc["close"]
+    fut = [k for k, t in enumerate(ts) if t > as_of]
+    if not fut:
+        return None
+    # project the N path steps evenly across the remaining future bars, and compare
+    # each step price to the actual close at that projected bar.
+    errs = []
+    n = len(steps)
+    for i, sp in enumerate(steps):
+        frac = (i + 1) / n
+        idx = fut[min(len(fut) - 1, int(round(frac * (len(fut) - 1))))]
+        errs.append(abs(sp - cl[idx]))
+    return round(sum(errs) / len(errs), 2) if errs else None
+
+
+def _median(vals: list[float]) -> float | None:
+    xs = sorted(v for v in vals if v is not None)
+    if not xs:
+        return None
+    m = len(xs) // 2
+    return round((xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2), 2)
+
+
+def error_stats(rows: list[dict], store=None) -> dict:
+    """Aggregate continuous-error stats over resolved forecasts: median + mean abs
+    target-error (the headline), and (when a store is given) median path-MAE. Only
+    forecasts that HAVE a score are counted (same universe as the hit-rate), so
+    the two metrics are comparable. Median is the headline (robust to a single
+    wild day); mean is reported alongside so outlier-domination is visible."""
+    te = [target_error(r) for r in rows if r.get("score")]
+    te = [x for x in te if x is not None]
+    out = {
+        "n": len(te),
+        "median_abs_target_error_pts": _median(te),
+        "mean_abs_target_error_pts": round(sum(te) / len(te), 2) if te else None,
+    }
+    if store is not None:
+        pm = [path_mae(r, store) for r in rows if r.get("score")]
+        pm = [x for x in pm if x is not None]
+        out["median_path_mae_pts"] = _median(pm)
+        out["n_path"] = len(pm)
+    return out
+
+
+def calibration_scores(rows: list[dict], store=None) -> dict:
     """The DETERMINISTIC, code-computed calibration for a graded run — overall
-    hit-rate plus hit-rate bucketed by time-of-day, called bias, and hourly tier.
-    Every number here is computed from the persisted ``score`` fields; the LLM
-    grader only reads and narrates these, never recomputes them."""
+    hit-rate plus hit-rate bucketed by time-of-day, called bias, and hourly tier,
+    PLUS the continuous target-error stats (``error``). Every number here is
+    computed from the persisted ``score`` fields; the LLM grader only reads and
+    narrates these, never recomputes them. ``store`` (optional) enables path-MAE."""
     def _by(keyfn) -> dict:
         groups: dict[str, list[dict]] = {}
         for r in rows:
@@ -196,6 +303,7 @@ def calibration_scores(rows: list[dict]) -> dict:
                                               if r.get("as_of") else None)),
         "by_bias": _by(_forecast_bias),
         "by_tier": _by(_forecast_tier),
+        "error": error_stats(rows, store),   # continuous accuracy (target-error/path-MAE)
     }
 
 
