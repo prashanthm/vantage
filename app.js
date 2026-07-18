@@ -6295,7 +6295,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState14, useMemo: useMemo7, useEffect: useEffect11, useRef: useRef5 } = React;
+  var { useState: useState14, useMemo: useMemo7, useEffect: useEffect11, useRef: useRef5, useCallback: useCallback2 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -6305,6 +6305,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       { id: "tax", label: "Tax", icon: "\u{1F33E}" }
     ] },
     { group: "Intelligence", items: [
+      // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
+      { id: "ic", label: "Chart", icon: "\u{1F4C8}" },
       // Today is the trading half's front door: signals + why + honest record +
       // machine health, one screen (see claudedocs/goals/ux-feature-value).
       { id: "today", label: "Today", icon: "\u{1F3AF}" },
@@ -6319,7 +6321,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       { id: "trades", label: "Performance", icon: "\u{1F9EE}" }
     ] }
   ];
-  var DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets", "ic"];
+  var DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets"];
   var ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
   function useHashRoute() {
     const parse = () => {
@@ -6381,6 +6383,38 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [settingsOpen, setSettingsOpen] = useState14(false);
     const [leftOpen, setLeftOpen] = useState14(() => window.innerWidth >= 860);
     const [rightOpen, setRightOpen] = useState14(() => window.innerWidth >= 1100);
+    const [focus, setFocus] = useState14(false);
+    const focusPrev = useRef5({ left: true, right: true });
+    const enterFocus = useCallback2(() => {
+      focusPrev.current = { left: leftOpen, right: rightOpen };
+      setLeftOpen(false);
+      setRightOpen(false);
+      setFocus(true);
+    }, [leftOpen, rightOpen]);
+    const exitFocus = useCallback2(() => {
+      setLeftOpen(focusPrev.current.left);
+      setRightOpen(focusPrev.current.right);
+      setFocus(false);
+    }, []);
+    const toggleFocus = useCallback2(() => {
+      focus ? exitFocus() : enterFocus();
+    }, [focus, enterFocus, exitFocus]);
+    useEffect11(() => {
+      const onKey = (e) => {
+        const el = e.target;
+        const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+        if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === "f" || e.key === "F") {
+          e.preventDefault();
+          toggleFocus();
+        } else if (e.key === "Escape" && focus) {
+          e.preventDefault();
+          exitFocus();
+        }
+      };
+      window.addEventListener("keydown", onKey);
+      return () => window.removeEventListener("keydown", onKey);
+    }, [toggleFocus, exitFocus, focus]);
     const RIGHT_MIN = 300, RIGHT_MAX = 720;
     const [rightWidth, setRightWidth] = useState14(() => {
       const saved = Number(localStorage.getItem("vantage.rightWidth"));
@@ -6504,7 +6538,20 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
     const hasChartRail = route === "charts";
     const isPlaybookChart = route === "playbook" && playbookTab === "chart";
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-app" }, /* @__PURE__ */ React.createElement("div", { className: "vg-compliance" }, "AI-generated analysis \xB7 Educational purposes only \u2014 not financial, investment, or tax advice"), /* @__PURE__ */ React.createElement("div", { className: "vg-topbar" }, /* @__PURE__ */ React.createElement("div", { className: "brand" }, "Vantage"), /* @__PURE__ */ React.createElement("div", { className: "vg-ticker", style: { flex: 1, borderBottom: "none" } }, marketBand && marketBand.indexes.map((t) => /* @__PURE__ */ React.createElement("span", { className: "vg-tick", key: t.sym }, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 } }, t.label), /* @__PURE__ */ React.createElement("b", null, t.price != null ? t.price.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("span", { className: dirCls(t.dayPct) }, signPct(t.dayPct))))), /* @__PURE__ */ React.createElement("span", { style: { padding: "0 14px" } }, /* @__PURE__ */ React.createElement(LiveStatusDots, { settings })), /* @__PURE__ */ React.createElement("div", { className: "tools" }, /* @__PURE__ */ React.createElement(ThemeButton, null), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => setSettingsOpen(true) }, "Settings"))), /* @__PURE__ */ React.createElement(MaybePlaybookProvider, { active: route === "playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-studio" }, /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-left", !leftOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, leftOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, "Workspace"), /* @__PURE__ */ React.createElement(
+    const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
+    useEffect11(() => {
+      if (icSymbol) setSymbol(icSymbol);
+    }, [icSymbol]);
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-app" }, /* @__PURE__ */ React.createElement("div", { className: "vg-compliance" }, "AI-generated analysis \xB7 Educational purposes only \u2014 not financial, investment, or tax advice"), /* @__PURE__ */ React.createElement("div", { className: "vg-topbar" }, /* @__PURE__ */ React.createElement("div", { className: "brand" }, "Vantage"), /* @__PURE__ */ React.createElement("div", { className: "vg-ticker", style: { flex: 1, borderBottom: "none" } }, marketBand && marketBand.indexes.map((t) => /* @__PURE__ */ React.createElement("span", { className: "vg-tick", key: t.sym }, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 } }, t.label), /* @__PURE__ */ React.createElement("b", null, t.price != null ? t.price.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("span", { className: dirCls(t.dayPct) }, signPct(t.dayPct))))), /* @__PURE__ */ React.createElement("span", { style: { padding: "0 14px" } }, /* @__PURE__ */ React.createElement(LiveStatusDots, { settings })), /* @__PURE__ */ React.createElement("div", { className: "tools" }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: cls("tbtn", focus && "on"),
+        onClick: toggleFocus,
+        title: focus ? "Exit focus (Esc)" : "Focus chart \u2014 hide panels (F)",
+        "aria-label": "Toggle focus mode"
+      },
+      focus ? "\u2922 Exit" : "\u2922 Focus"
+    ), /* @__PURE__ */ React.createElement(ThemeButton, null), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => setSettingsOpen(true) }, "Settings"))), /* @__PURE__ */ React.createElement(MaybePlaybookProvider, { active: route === "playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-studio" }, /* @__PURE__ */ React.createElement("aside", { className: cls("vg-pane", "vg-pane-left", !leftOpen && "clps") }, /* @__PURE__ */ React.createElement("div", { className: "vg-pane-top" }, leftOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, "Workspace"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-collapse",
@@ -6567,7 +6614,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookRoute, { refreshNonce, tab: playbookTab, setTab: setPlaybookTab }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
       setSymbol(sym);
       go("ic", sym);
-    } }), route === "signalbot" && /* @__PURE__ */ React.createElement(SignalBotView, { refreshNonce }), route === "exits" && /* @__PURE__ */ React.createElement(ExitsView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol }), route === "ic" && /* @__PURE__ */ React.createElement("div", { style: { height: "82vh" } }, /* @__PURE__ */ React.createElement(InstrumentChartCard, { symbol: (routeParam || "SPX").toUpperCase() }))), /* @__PURE__ */ React.createElement(
+    } }), route === "signalbot" && /* @__PURE__ */ React.createElement(SignalBotView, { refreshNonce }), route === "exits" && /* @__PURE__ */ React.createElement(ExitsView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "charts" && /* @__PURE__ */ React.createElement(ChartsView, { symbol, setSymbol }), route === "ic" && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-route" }, /* @__PURE__ */ React.createElement(InstrumentChartCard, { symbol: icSymbol, height: "100%" }))), /* @__PURE__ */ React.createElement(
       "aside",
       {
         className: cls("vg-pane", "vg-pane-right", !rightOpen && "clps", resizing && "resizing"),

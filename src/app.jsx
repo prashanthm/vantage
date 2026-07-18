@@ -27,7 +27,7 @@ import { TradeAnalyticsView } from "./trades.jsx";
 import * as live from "./live.js";
 import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, mapAnalysis } from "./live.js";
 
-const { useState, useMemo, useEffect, useRef } = React;
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
 
 // Empty allocation shape (matches mapAllocation) — the no-demo fallback for the
@@ -42,6 +42,8 @@ const NAV = [
     { id: "tax", label: "Tax", icon: "🌾" },
   ]},
   { group: "Intelligence", items: [
+    // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
+    { id: "ic", label: "Chart", icon: "📈" },
     // Today is the trading half's front door: signals + why + honest record +
     // machine health, one screen (see claudedocs/goals/ux-feature-value).
     { id: "today", label: "Today", icon: "🎯" },
@@ -63,7 +65,7 @@ const NAV = [
 //   activity — per-position transactions, reached from a holding
 //   recs     — the full decision journal, reached from the Dashboard Actions "All →"
 //   markets  — live pattern signals, reached from Market read links
-const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets", "ic"];
+const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 // Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
@@ -136,6 +138,30 @@ function App() {
   // NotebookLM-style collapsible side panels (component state; default from viewport).
   const [leftOpen, setLeftOpen] = useState(() => window.innerWidth >= 860);
   const [rightOpen, setRightOpen] = useState(() => window.innerWidth >= 1100);
+  // Focus mode: collapse BOTH panes so the chart owns the whole viewport. Remembers
+  // the panes' prior open-state to restore on exit. Toggled by a button + the F key.
+  const [focus, setFocus] = useState(false);
+  const focusPrev = useRef({ left: true, right: true });
+  const enterFocus = useCallback(() => {
+    focusPrev.current = { left: leftOpen, right: rightOpen };
+    setLeftOpen(false); setRightOpen(false); setFocus(true);
+  }, [leftOpen, rightOpen]);
+  const exitFocus = useCallback(() => {
+    setLeftOpen(focusPrev.current.left); setRightOpen(focusPrev.current.right); setFocus(false);
+  }, []);
+  const toggleFocus = useCallback(() => { focus ? exitFocus() : enterFocus(); }, [focus, enterFocus, exitFocus]);
+  // keyboard: F toggles focus mode, Esc exits it — but never while typing in a field.
+  useEffect(() => {
+    const onKey = (e) => {
+      const el = e.target;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "f" || e.key === "F") { e.preventDefault(); toggleFocus(); }
+      else if (e.key === "Escape" && focus) { e.preventDefault(); exitFocus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleFocus, exitFocus, focus]);
   // Resizable right pane: user-dragged width persisted to localStorage. Clamped
   // to a sane range; the .clps collapse rule (48px) still wins when collapsed.
   const RIGHT_MIN = 300, RIGHT_MAX = 720;
@@ -257,6 +283,11 @@ function App() {
   const hasChartRail = route === "charts";
   // the 0DTE Playbook's chart sub-tab renders its forecast RAIL in the right pane
   const isPlaybookChart = route === "playbook" && playbookTab === "chart";
+  // the chart-first route: the instrument the chart is showing (URL param → SPX).
+  const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
+  // keep the shared `symbol` in sync with the chart route so the right-pane
+  // Notebook reads THIS chart's instrument (Mira reading the chart in front of you).
+  useEffect(() => { if (icSymbol) setSymbol(icSymbol); }, [icSymbol]);
 
   return (
     <div className="vg-app">
@@ -278,6 +309,9 @@ function App() {
         </div>
         <span style={{ padding: "0 14px" }}><LiveStatusDots settings={settings} /></span>
         <div className="tools">
+          <button className={cls("tbtn", focus && "on")} onClick={toggleFocus}
+            title={focus ? "Exit focus (Esc)" : "Focus chart — hide panels (F)"}
+            aria-label="Toggle focus mode">{focus ? "⤢ Exit" : "⤢ Focus"}</button>
           <ThemeButton />
           <button className="tbtn" onClick={() => setSettingsOpen(true)}>Settings</button>
         </div>
@@ -413,7 +447,10 @@ function App() {
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
-          {route === "ic" && <div style={{ height: "82vh" }}><InstrumentChartCard symbol={(routeParam || "SPX").toUpperCase()} /></div>}
+          {route === "ic" && (
+            <div className="vg-ic-route">
+              <InstrumentChartCard symbol={icSymbol} height="100%" />
+            </div>)}
         </main>
 
         {/* -------- right pane: per-ticker Notebook (default) / chart rail / chat -------- */}

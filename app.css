@@ -159,6 +159,7 @@ body {
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
 }
 .vg-topbar .tbtn:hover { color: var(--vg-ink); }
+.vg-topbar .tbtn.on { color: var(--vg-accent); }
 .vg-live { gap: 6px; font-size: var(--vg-text-xs); color: var(--vg-faint); padding: 0 var(--vg-sp-4); white-space: nowrap; }
 .vg-live::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--vg-up); }
 
@@ -217,6 +218,11 @@ body {
 .vg-resize-handle:hover::before,
 .vg-pane-right.resizing .vg-resize-handle::before { background: var(--vg-accent); }
 .vg-pane-center { display: block; overflow-y: auto; padding: var(--vg-sp-5) var(--vg-sp-6) var(--vg-sp-8); }
+/* the chart-first route fills the whole center pane (no page padding/scroll) so
+   the chart owns the canvas; the InstrumentChart itself handles its own layout. */
+.vg-pane-center:has(.vg-ic-route) { padding: 0; overflow: hidden; }
+.vg-ic-route { height: 100%; display: flex; flex-direction: column; }
+.vg-ic-route .vg-ic { flex: 1; min-height: 0; border: none; border-radius: 0; }
 
 .vg-pane-top {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
