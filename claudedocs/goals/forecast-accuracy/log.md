@@ -211,3 +211,37 @@ hourly edge is for SWING context, not minute-by-minute bias) and reinforces C1
 (reachable targets) as the real lever. C2 is still above E0 (0.436) only because it
 keeps C1s target discipline.
 kept: reverted (C2 prompt line removed; C1 stays).
+
+## C3 conviction gating — call 'range' when not confident (prompt, on C1)
+baseline: C1 (hit 0.593). Metric: hit-rate.
+prediction: HELPS — hit-rate counts direction-correct; a WRONG directional call on a
+choppy day is a loss, but a 'range' call is excluded from the rate (not a loss). On
+the 2 days C1 was weak, forcing a direction when the tape is rangebound produces wrong
+calls. Instructing 'only commit up/down when the setup is clear; else bias=range'
+should raise hit-rate by removing low-conviction wrong calls. Predict hit ↑ vs C1.
+Risk: too many 'range' calls shrinks n (fewer resolved), which is honest but reduces
+coverage — watch n.
+experiment: one prompt line (on C1): 'Only call bias up or down when the draw +
+technicals + structure AGREE on a clear directional read; if they conflict or price
+is rangebound, set bias=range and give a range, not a directional target.' Re-forecast 8 days `--run-tag c3` vs c1.
+result: C1 hit 0.593 (resolved 54). C3 hit **0.630 (+0.037)**, resolved 54 (only 1
+range call — coverage NOT shrunk). Per-day: C3 better 4 / C1 better 2 / tie 2, BUT
+the 2 C1-better days are real drops (07-15 0.71→0.43, 07-07 0.57→0.33) while C3 gains
+are spread.
+verdict: **MARGINAL / INCONCLUSIVE on 8 days.** Aggregate +0.037 but two notable
+per-day regressions → not a confident, robust win. Conviction gating barely triggered
+(1 range call), so the effect is mostly framing noise. NOT shipped (would need a wider
+eval set to confirm); C1 remains the shipped state. Flagged for re-test if the eval
+set widens.
+kept: reverted (C1 stays shipped).
+
+## C4 reasoning budget max_steps 4 → 8 (on C1)
+baseline: C1 (hit 0.593). Metric: hit-rate.
+prediction: NEUTRAL / small — the spx_analyst is a single reasoning loop over a
+fixed snapshot; more steps mostly re-examine the same numbers. Predict hit ≈flat
+(±0.03). Running to rule out 'the model needs more thinking' as a lever and to check
+the cost/quality tradeoff.
+experiment: ReasoningBudget max_steps 4→8 in build_spx_analyst_specialist (only var).
+Re-forecast 8 days `--run-tag c4` vs c1.
+result: _running_
+verdict: _pending_
