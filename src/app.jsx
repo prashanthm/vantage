@@ -17,6 +17,7 @@ import { PlaybookView } from "./playbook.jsx";
 import { SpxPlaybookView, SpxPlaybookRail, SpxReplayView, PlaybookProvider } from "./spx_forecast.jsx";
 import { ScannerView } from "./scanner.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
+import { ReplayPanel } from "./chart_replay_panel.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
 import { TodayView } from "./today.jsx";
@@ -283,11 +284,25 @@ function App() {
   const hasChartRail = route === "charts";
   // the 0DTE Playbook's chart sub-tab renders its forecast RAIL in the right pane
   const isPlaybookChart = route === "playbook" && playbookTab === "chart";
+  // Replay (chart-first): the run selection + which call is highlighted are shared
+  // between the chart overlay (center) and the ReplayPanel (right pane). `replayOn`
+  // makes the right pane show the panel and the chart draw the run's markers.
+  const [replayOn, setReplayOn] = useState(false);
+  const [replayRunId, setReplayRunId] = useState(null);
+  const [activeCallId, setActiveCallId] = useState(null);
+  // the Replay panel takes over the right pane on the chart route when active.
+  const showReplayPanel = route === "ic" && replayOn;
   // the chart-first route: the instrument the chart is showing (URL param → SPX).
   const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
   // keep the shared `symbol` in sync with the chart route so the right-pane
   // Notebook reads THIS chart's instrument (Mira reading the chart in front of you).
   useEffect(() => { if (icSymbol) setSymbol(icSymbol); }, [icSymbol]);
+  // reset the replay selection when leaving the chart route or changing instrument —
+  // a run is symbol+day specific, so it shouldn't linger onto another chart.
+  useEffect(() => {
+    if (route !== "ic") { setReplayOn(false); setReplayRunId(null); setActiveCallId(null); }
+  }, [route]);
+  useEffect(() => { setReplayRunId(null); setActiveCallId(null); }, [icSymbol]);
 
   return (
     <div className="vg-app">
@@ -456,7 +471,14 @@ function App() {
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
           {route === "ic" && (
             <div className="vg-ic-route">
-              <InstrumentChartCard symbol={icSymbol} height="100%" />
+              <InstrumentChartCard symbol={icSymbol} height="100%"
+                replayActive={replayOn} replayRunId={replayRunId} activeCallId={activeCallId}
+                onReplayToggle={() => {
+                  const next = !replayOn;
+                  setReplayOn(next);
+                  if (next) setRightOpen(true);          // reveal the panel
+                  else { setReplayRunId(null); setActiveCallId(null); }
+                }} />
             </div>)}
         </main>
 
@@ -476,17 +498,26 @@ function App() {
             </button>
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
-                {isPlaybookChart ? "🔮 Forecast" : hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"}
+                {showReplayPanel ? "⟲ Replay" : isPlaybookChart ? "🔮 Forecast" : hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"}
               </span>
             )}
-            {rightOpen && !hasChartRail && symbol && (
+            {rightOpen && showReplayPanel && (
+              <button className="vg-linkbtn" style={{ marginLeft: "auto" }}
+                title="Back to the Notebook"
+                onClick={() => { setReplayOn(false); setReplayRunId(null); setActiveCallId(null); }}>
+                notebook →</button>
+            )}
+            {rightOpen && !hasChartRail && !showReplayPanel && symbol && (
               <button className="vg-linkbtn" style={{ marginLeft: "auto" }}
                 title={`Open ${underlyingOf(symbol)} on AI Charts`}
                 onClick={() => go("charts")}>chart →</button>
             )}
           </div>
           {!rightOpen && <span className="vg-sparkle" aria-hidden="true">✦</span>}
-          {rightOpen && (isPlaybookChart
+          {rightOpen && (showReplayPanel
+            ? <ReplayPanel symbol={icSymbol} runId={replayRunId} setRunId={setReplayRunId}
+                activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
+            : isPlaybookChart
             ? <SpxPlaybookRail />
             : hasChartRail
               ? <div className="vg-pane-body vg-rail"><ChartsRail symbol={symbol} /></div>

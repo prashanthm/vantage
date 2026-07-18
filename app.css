@@ -1092,9 +1092,29 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   color: var(--vg-dim); padding-right: 4px; }
 .vg-ic-layers-note { font-family: var(--vg-font-ui); font-size: 10px; color: var(--vg-dim);
   font-style: italic; margin-left: 4px; }
-.vg-ic-runpick { font-family: var(--vg-font-data); font-size: 10.5px; color: var(--vg-ink);
-  border: 1px solid var(--vg-accent); background: var(--vg-accent-soft); border-radius: 4px;
-  padding: 2px 6px; cursor: pointer; max-width: 220px; }
+/* ── Replay panel (right pane, chart-first) ──────────────────────────────────── */
+.vg-rp { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; }
+.vg-rp-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px;
+  flex-wrap: wrap; }
+.vg-rp-title { font: 600 var(--vg-text-md) var(--vg-font-ui); color: var(--vg-ink); }
+.vg-rp-runpick { font-family: var(--vg-font-data); font-size: 12px; color: var(--vg-ink);
+  border: 1px solid var(--vg-accent); background: var(--vg-accent-soft); border-radius: 5px;
+  padding: 4px 8px; cursor: pointer; flex: 1; min-width: 0; }
+.vg-rp-summary { display: flex; align-items: center; gap: 8px; padding: 4px 14px 10px;
+  border-bottom: 1px solid var(--vg-hairline); flex-wrap: wrap; }
+.vg-rp-day { font-family: var(--vg-font-data); font-size: 12px; color: var(--vg-ink); font-weight: 600; }
+.vg-rp-stat { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim); }
+.vg-rp-grade { padding: 8px 14px; border-bottom: 1px solid var(--vg-hairline);
+  font-size: var(--vg-text-sm); color: var(--vg-dim); }
+.vg-rp-calls { display: flex; flex-direction: column; }
+.vg-rp-call { border-bottom: 1px solid var(--vg-hairline); }
+.vg-rp-call.on { background: var(--vg-accent-soft); }
+.vg-rp-callhead { display: flex; align-items: center; gap: 8px; padding: 9px 14px; cursor: pointer; }
+.vg-rp-callhead:hover { background: var(--vg-raised); }
+.vg-rp-time { font-family: var(--vg-font-data); font-size: 12px; color: var(--vg-ink); font-weight: 600; }
+.vg-rp-px { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim); }
+.vg-rp-caret { margin-left: auto; color: var(--vg-dim); font-size: 11px; }
+.vg-rp-callbody { padding: 4px 14px 12px; }
 .vg-ic-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .vg-ic-canvas { flex: 1; width: 100%; min-height: 340px; }
 .vg-ic-empty { position: absolute; inset: 0; display: flex; align-items: center;

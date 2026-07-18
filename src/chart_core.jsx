@@ -10,7 +10,7 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
-import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRuns, getReplayRun } from "./live.js";
+import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRun } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
 import { drawOne, removeOne } from "./chart_drawings.jsx";
 import { LAYERS, LAYER_DRAWERS, removeLayerHandle } from "./chart_layers.jsx";
@@ -87,7 +87,8 @@ function setInd(drawn, key, candles, th) {
   }
 }
 
-export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
+export function InstrumentChart({ symbol, tf, setTf, overlays, height,
+    replayRunId, replayActive, onReplayToggle, activeCallId }) {
   const elRef = useRef(null);
   const chartRef = useRef(null);
   const candleRef = useRef(null);
@@ -119,15 +120,13 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     null, [symbol]);
   const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
 
-  // Replay: saved runs for this symbol (read-only, no Mira), a selected run id, and
-  // that run's forecasts+scores parsed for the overlay.
-  const [replayRun, setReplayRun] = useState(null);   // selected run_id
-  const runsQ = useLive(() => getReplayRuns(40), null, []);
-  const symbolRuns = ((runsQ.data && runsQ.data.runs) || [])
-    .filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
-  const runDetailQ = useLive(() => (replayRun ? getReplayRun(replayRun) : Promise.resolve(null)),
-    null, [replayRun]);
-  // parse the selected run's forecasts into overlay-ready {as_of_ts, price_at, target, verdict}.
+  // Replay: the OVERLAY only. Run selection + the rich detail (descriptions, scores)
+  // live in the right-pane ReplayPanel; the chart just draws the selected run's
+  // calls as markers. `replayRunId` is the shared selection (from App); the layer is
+  // active when replayActive AND the layer chip is on.
+  const replayShown = replayActive && activeLayers.has("replay") && !!replayRunId;
+  const runDetailQ = useLive(() => (replayShown ? getReplayRun(replayRunId) : Promise.resolve(null)),
+    null, [replayShown, replayRunId]);
   const replayData = React.useMemo(() => {
     const d = runDetailQ.data;
     if (!d || !d.available || !Array.isArray(d.forecasts)) return null;
@@ -135,21 +134,12 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
       const fc = f.forecast || {};
       const plot = (fc && typeof fc === "object") ? fc.plot : null;
       const t = f.as_of ? Math.floor(new Date(f.as_of).getTime() / 1000) : null;
-      return { as_of_ts: t, price_at: f.price_at,
+      return { id: f.id, as_of_ts: t, price_at: f.price_at,
                target: plot && plot.target != null ? plot.target : null,
                verdict: (f.score && f.score.verdict) || null };
     }).filter((f) => f.as_of_ts != null);
-    return { run_id: d.run_id, forecasts };
-  }, [runDetailQ.data]);
-
-  // when Replay is on, default the selected run to this symbol's newest run; clear
-  // the selection when switching to a symbol that has no runs (or none matching).
-  useEffect(() => {
-    if (!activeLayers.has("replay")) return;
-    const ids = symbolRuns.map((r) => r.run_id);
-    if (!ids.length) { if (replayRun) setReplayRun(null); return; }
-    if (!replayRun || !ids.includes(replayRun)) setReplayRun(ids[0]);  // runs are newest-first
-  }, [activeLayers, symbolRuns, replayRun]);
+    return { run_id: d.run_id, forecasts, activeCallId };
+  }, [runDetailQ.data, activeCallId]);
 
   const toggleLayer = useCallback((key) => {
     setActiveLayers((prev) => {
@@ -408,7 +398,12 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
                   replay: replayData,
                   price: (layerData && layerData.layers && layerData.layers.price)
                     || candles[candles.length - 1].close };
-    for (const key of activeLayers) {
+    // draw each active layer. replay is special: it draws only when a run is
+    // actually selected+active (replayShown), driven from the right-pane panel.
+    const keysToDraw = new Set(activeLayers);
+    if (!replayShown) keysToDraw.delete("replay");
+    else keysToDraw.add("replay");
+    for (const key of keysToDraw) {
       // forecast/replay draw from their own data; the rest need layerData.
       if (key !== "forecast" && key !== "replay" && !layerData) continue;
       const drawer = LAYER_DRAWERS[key];
@@ -416,7 +411,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
       try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
     }
     return undefined;
-  }, [activeLayers, layerData, forecastData, replayData, candles]);
+  }, [activeLayers, layerData, forecastData, replayData, replayShown, candles]);
 
   // scroll the chart to the selected replay run's day so its markers are in view
   // (a run is day-specific; without this, picking an older day draws markers
@@ -424,7 +419,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
   // clamped to the candles we actually have. Only when Replay is active.
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart || !activeLayers.has("replay") || !replayData || !candles.length) return;
+    if (!chart || !replayShown || !replayData || !candles.length) return;
     const ts = replayData.forecasts.map((f) => f.as_of_ts).filter((t) => t != null);
     if (!ts.length) return;
     const first = Math.min(...ts), lastT = Math.max(...ts);
@@ -437,7 +432,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
         try { chart.timeScale().setVisibleRange({ from, to }); } catch (e) { /* */ }
       });
     }
-  }, [replayData, activeLayers, candles]);
+  }, [replayData, replayShown, candles]);
 
   const last = candles.length ? candles[candles.length - 1].close : null;
 
@@ -490,28 +485,21 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
         {LAYERS.map((ly) => {
           const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
           const gatedFc = ly.needsForecast && !fcQ.loading && !forecastData;
-          const gatedRp = ly.needsReplay && !runsQ.loading && !symbolRuns.length;
-          const gated = gatedLevels || gatedFc || gatedRp;
-          const on = activeLayers.has(ly.key) && !gated;
+          const gated = gatedLevels || gatedFc;
+          const on = (ly.needsReplay ? replayActive : activeLayers.has(ly.key)) && !gated;
           const why = gatedFc ? `No stored forecast for this symbol yet`
-            : gatedRp ? `No saved replay runs for this symbol`
+            : ly.needsReplay ? `Replay — pick a run in the right panel`
             : gatedLevels ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)`
             : `Toggle ${ly.label}`;
+          const onClick = ly.needsReplay
+            ? () => { toggleLayer("replay"); onReplayToggle && onReplayToggle(); }
+            : () => !gated && toggleLayer(ly.key);
           return (
             <button key={ly.key} className={cls("vg-ic-chip", on && "on", gated && "off")}
-              onClick={() => !gated && toggleLayer(ly.key)} disabled={gated} title={why}>
+              onClick={onClick} disabled={gated} title={why}>
               {ly.label}
             </button>);
         })}
-        {activeLayers.has("replay") && symbolRuns.length > 0 && (
-          <select className="vg-ic-runpick" value={replayRun || ""}
-            onChange={(e) => setReplayRun(e.target.value || null)}
-            title="Pick a saved replay run">
-            {symbolRuns.map((r) => (
-              <option key={r.run_id} value={r.run_id}>
-                {r.day} · {r.n} calls{r.n_scored ? ` · ${r.n_scored} scored` : ""}
-              </option>))}
-          </select>)}
         {layerQ.loading && <span className="vg-ic-hint">…</span>}
         {layerData && !layerData.has_levels && (
           <span className="vg-ic-layers-note">bars-derived only (no coach chain)</span>)}
@@ -531,7 +519,10 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
 }
 
 // A self-contained wrapper that owns the timeframe state — for quick drop-in use.
-export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height }) {
+export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height,
+    replayActive, replayRunId, onReplayToggle, activeCallId }) {
   const [tf, setTf] = useState(defaultTf);
-  return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height} />;
+  return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height}
+    replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle}
+    activeCallId={activeCallId} />;
 }

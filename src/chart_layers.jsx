@@ -175,7 +175,10 @@ export const LAYER_DRAWERS = {
       const bad = f.verdict === "invalidated";
       const color = hit ? `rgb(${th.upRgb.join(",")})`
         : bad ? `rgb(${th.downRgb.join(",")})` : "rgb(176,106,0)";
-      markers.push({ time: f.as_of_ts, position: "aboveBar", shape: "circle", color,
+      const isActive = rp.activeCallId != null && f.id === rp.activeCallId;
+      markers.push({ time: f.as_of_ts,
+        position: isActive ? "belowBar" : "aboveBar",
+        shape: isActive ? "arrowUp" : "circle", color,
         text: `${f.target != null ? "→" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 22) });
     }
     if (markers.length) {
