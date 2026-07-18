@@ -445,6 +445,18 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         session=row["session"], symbol=sym, script=script,
                         webhook_configured=bool(secret))
 
+    @app.get("/api/chart/{symbol}")
+    def chart_view(symbol: str, tf: str = Query("5m"), days: int = Query(15)):
+        """Multi-timeframe candles for ANY symbol — the data behind the chart-first
+        UI. tf ∈ {1m,5m,15m,1H,1D}. Read-only; sourced from stored bars (1m/60m
+        intraday + the daily table). available=False when the tf has no stored bars."""
+        from . import chart_data as _cd
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="chart needs the SQLite backend")
+        out = _cd.chart_candles(store, (symbol or "SPX").upper(), tf, days)
+        return envelope(snap, **out)
+
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),
