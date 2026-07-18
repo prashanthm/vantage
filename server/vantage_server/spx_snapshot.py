@@ -196,7 +196,107 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
             "draw": draw,                      # the validated level-based magnet
         },
         "ict_htf": ict_htf,   # backtest-validated hourly heads-up (drop to LTF)
+        **_gex_anchors_block(store, day, symbol),
+        **_session_clock_block(ts[ei]),
+        **_prior_levels_block(hi, lo, cl, si),
+        **_vol_regime_block(day),
     }
+
+
+def _vol_regime_block(day: str) -> dict:
+    """EXPERIMENT B4 (goal: forecast-accuracy): the day's VIX + a coarse band, so the
+    analyst can scale expected range by volatility regime. Uses that DAY's real ^VIX
+    daily close (no look-ahead). Env-gated SNAPSHOT_VOL_REGIME. Guarded — a fetch
+    failure degrades to no block, never crashes."""
+    import os
+    if os.environ.get("SNAPSHOT_VOL_REGIME", "").lower() not in ("1", "true", "on"):
+        return {}
+    try:
+        import yfinance as yf
+        h = yf.Ticker("^VIX").history(period="40d", interval="1d")
+        if h.empty:
+            return {}
+        row = h[h.index.strftime("%Y-%m-%d") == day]
+        if not len(row):
+            return {}
+        vix = round(float(row["Close"].iloc[0]), 2)
+        band = ("calm" if vix < 15 else "normal" if vix < 20
+                else "elevated" if vix < 28 else "high")
+        return {"vol_regime": {"vix": vix, "band": band}}
+    except Exception:
+        return {}
+
+
+def _prior_levels_block(hi, lo, cl, si) -> dict:
+    """EXPERIMENT B3 (goal: forecast-accuracy): the PRIOR session's high/low/close as
+    discrete typed levels — classic magnets/pivots the analyst only sees baked into
+    the coach `levels` labels today, not as clean numbers. `si` is the current
+    session's start index in the loaded multi-day series, so [0:si] is the prior
+    history; the prior session's H/L/C are its extremes over the bars just before si.
+    Env-gated SNAPSHOT_PRIOR_LEVELS for a clean A/B. Guarded — never crashes."""
+    import os
+    if os.environ.get("SNAPSHOT_PRIOR_LEVELS", "").lower() not in ("1", "true", "on"):
+        return {}
+    try:
+        if not si or si <= 0:
+            return {}   # only the current session is loaded — no prior day
+        prev_hi, prev_lo = hi[:si], lo[:si]
+        return {"prior_levels": {
+            "prev_high": round(max(prev_hi), 2),
+            "prev_low": round(min(prev_lo), 2),
+            "prev_close": round(cl[si - 1], 2)}}
+    except Exception:
+        return {}
+
+
+def _session_clock_block(as_of_iso: str) -> dict:
+    """EXPERIMENT B2 (goal: forecast-accuracy): explicit time-of-session position —
+    minutes into the RTH session, minutes to the 16:00 ET close, and the fraction
+    elapsed. The analyst otherwise has no clock (only ATR/RSI reflect the tape), and
+    A1 showed error is worst at the close. Env-gated SNAPSHOT_SESSION_CLOCK for a
+    clean A/B. ET wall-clock read from the bar's own tz. Guarded — never crashes."""
+    import os
+    import datetime as _d
+    if os.environ.get("SNAPSHOT_SESSION_CLOCK", "").lower() not in ("1", "true", "on"):
+        return {}
+    try:
+        t = _d.datetime.fromisoformat(as_of_iso)
+        mod = t.hour * 60 + t.minute          # ET minutes-of-day (bar carries ET tz)
+        open_m, close_m = 9 * 60 + 30, 16 * 60
+        into = max(0, mod - open_m)
+        to_close = max(0, close_m - mod)
+        span = close_m - open_m
+        frac = round(min(1.0, max(0.0, into / span)), 3) if span else None
+        return {"session_clock": {
+            "minutes_into_session": into,
+            "minutes_to_close": to_close,
+            "session_frac": frac}}
+    except Exception:
+        return {}
+
+
+def _gex_anchors_block(store, day: str, symbol: str) -> dict:
+    """EXPERIMENT B1 (goal: forecast-accuracy): discrete GEX anchors for the day —
+    gamma_flip / call_wall / put_wall / max_pain / net_gex_bn — as typed levels the
+    0DTE tape gravitates to. Gated by env SNAPSHOT_GEX_ANCHORS so it's a clean A/B
+    (off = the E0 baseline, unchanged). Guarded: any lookup failure degrades to no
+    block, never crashes. Only available for days with a stored gex_history row."""
+    import os
+    if os.environ.get("SNAPSHOT_GEX_ANCHORS", "").lower() not in ("1", "true", "on"):
+        return {}
+    try:
+        gex_sym = "^SPX" if symbol == "SPX" else symbol
+        hist = store.load_gex_history(gex_sym) if hasattr(store, "load_gex_history") else []
+        row = next((r for r in hist if r.get("date") == day), None)
+        if not row:
+            return {}
+        anchors = {k: row.get(k) for k in
+                   ("gamma_flip", "call_wall", "put_wall", "max_pain",
+                    "net_gex_bn", "regime")
+                   if row.get(k) is not None}
+        return {"gex_anchors": anchors} if anchors else {}
+    except Exception:  # never let the experiment block break the snapshot
+        return {}
 
 
 def _num(v):

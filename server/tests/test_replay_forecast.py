@@ -163,6 +163,88 @@ def test_calibration_excludes_inconclusive_from_rate(tmp_path):
     assert cal["overall"]["n"] == 3               # inconclusive not counted
 
 
+# ── continuous accuracy: target-error + path-MAE ─────────────────────────────
+
+def _fc(target, price_at, post_high, post_low, bias="up", verdict="hit target"):
+    return {"as_of": "2026-07-16T10:00:00-04:00", "day": "2026-07-16", "symbol": "SPX",
+            "price_at": price_at,
+            "forecast": {"plot": {"bias": bias, "target": target}},
+            "score": {"verdict": verdict, "post_high": post_high, "post_low": post_low}}
+
+
+def test_target_error_zero_when_target_hits_the_excursion():
+    # up-call, target exactly at the realized high → zero error (reached)
+    r = _fc(target=7550, price_at=7500, post_high=7550, post_low=7490)
+    assert rf.target_error(r) == 0.0
+
+
+def test_target_error_zero_on_overshoot():
+    # ONE-SIDED: target reached AND price ran past it → the call was right → 0 error.
+    # up-call target 7550, high ran to 7570 (20pt overshoot) → NOT penalized.
+    r = _fc(target=7550, price_at=7500, post_high=7570, post_low=7490)
+    assert rf.target_error(r) == 0.0
+    # down-call target 7470, low ran to 7450 (overshoot) → 0.
+    r2 = _fc(target=7470, price_at=7500, post_high=7505, post_low=7450, bias="down")
+    assert rf.target_error(r2) == 0.0
+
+
+def test_target_error_up_call_penalizes_only_undershoot():
+    # up-call fell 10pt short of target (high only reached 7540, target 7550) → 10.
+    r = _fc(target=7550, price_at=7500, post_high=7540, post_low=7490)
+    assert rf.target_error(r) == 10.0
+
+
+def test_target_error_down_call_uses_the_low():
+    # down-call: target 7470 below price_at, compared to post_low. Low reached only
+    # 7480 (stopped 10pt SHORT of the 7470 target) → 10 undershoot.
+    r = _fc(target=7470, price_at=7500, post_high=7505, post_low=7480, bias="down")
+    assert rf.target_error(r) == 10.0
+
+
+def test_target_error_none_without_score_fields():
+    r = _fc(target=7550, price_at=7500, post_high=None, post_low=None)
+    assert rf.target_error(r) is None
+    r2 = {"forecast": {"plot": {}}, "price_at": 7500, "score": {"post_high": 7550, "post_low": 7490}}
+    assert rf.target_error(r2) is None            # no target
+
+
+def test_error_stats_median_and_mean():
+    rows = [
+        _fc(7550, 7500, 7540, 7490),   # 10
+        _fc(7550, 7500, 7530, 7490),   # 20
+        _fc(7550, 7500, 7520, 7490),   # 30
+    ]
+    st = rf.error_stats(rows)
+    assert st["n"] == 3
+    assert st["median_abs_target_error_pts"] == 20.0
+    assert st["mean_abs_target_error_pts"] == 20.0
+
+
+def test_calibration_carries_error_block():
+    rows = [_fc(7550, 7500, 7540, 7490)]
+    cal = rf.calibration_scores(rows)
+    assert "error" in cal
+    assert cal["error"]["median_abs_target_error_pts"] == 10.0
+
+
+def test_path_mae_measures_shape_against_actual(tmp_path):
+    store = _sqlite_store(tmp_path)
+    _seed_day(store, "2026-07-16")   # up to 200 then down; close at index k = base+..
+    _seed_day(store, "2026-07-17")
+    d1 = store.load_intraday_bars("^GSPC", "2026-07-16", "1m")
+    as_of = d1["ts"][10]
+    # a path whose step prices roughly track the actual later closes → low MAE;
+    # here just assert it computes a finite number and is >= 0.
+    row = {"as_of": as_of, "day": "2026-07-16", "symbol": "SPX",
+           "price_at": d1["close"][10],
+           "forecast": {"plot": {"bias": "up", "target": d1["close"][10] + 20,
+                                 "path": [{"seq": 1, "price": d1["close"][100]},
+                                          {"seq": 2, "price": d1["close"][300]}]}},
+           "score": {"verdict": "hit target"}}
+    mae = rf.path_mae(row, store)
+    assert mae is not None and mae >= 0.0
+
+
 def test_grade_bundle_carries_code_scores(tmp_path):
     store = _sqlite_store(tmp_path)
     _seed_day(store, "2026-07-16")
