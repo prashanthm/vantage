@@ -454,7 +454,11 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="chart needs the SQLite backend")
-        out = _cd.chart_candles(store, (symbol or "SPX").upper(), tf, days)
+        try:
+            out = _cd.chart_candles(store, (symbol or "SPX").upper(), tf, days)
+        except Exception as e:  # noqa: BLE001 — a bad bar row must never 500 the chart
+            return envelope(snap, available=False, symbol=symbol, tf=tf,
+                            note=f"chart build failed: {e}")
         return envelope(snap, **out)
 
     @app.get("/api/spx/snapshot")

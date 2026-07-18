@@ -83,8 +83,10 @@ def chart_candles(store, symbol: str, tf: str = "5m", days: int = 15) -> dict:
     if tf == "1D":
         b = store.load_bars(sym) if hasattr(store, "load_bars") else None
         daily = (b or {}).get("daily") or []
-        candles = [_to_candle(f"{d['date']}T00:00:00+00:00", d["open"], d["high"],
-                              d["low"], d["close"]) for d in daily if d.get("date")]
+        # `date` may be a bare 'YYYY-MM-DD' or a full ISO ts — normalize to the day.
+        candles = [_to_candle(f"{str(d['date'])[:10]}T00:00:00+00:00", d["open"],
+                              d["high"], d["low"], d["close"])
+                   for d in daily if d.get("date")]
         if not candles:
             return {"symbol": symbol, "tf": tf, "available": False, "candles": [],
                     "note": f"no daily bars for {symbol}"}

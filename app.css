@@ -981,6 +981,27 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-fc-caret { margin-left: auto; color: var(--vg-dim); font-size: 11px; }
 .vg-fc-rowbody { padding: 6px 2px 12px; }
 
+/* ── InstrumentChart (chart_core.jsx — the chart-first canvas) ────────────── */
+.vg-ic { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.vg-ic-head { display: flex; align-items: center; gap: 12px; padding: 9px 13px;
+  border-bottom: 1px solid var(--vg-hairline); flex-wrap: wrap; }
+.vg-ic-sym { font-family: var(--vg-font-data); font-weight: 700; font-size: 15px; }
+.vg-ic-px { font-family: var(--vg-font-data); font-size: 14px; font-variant-numeric: tabular-nums; }
+.vg-ic-ohlc { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim);
+  font-variant-numeric: tabular-nums; }
+.vg-ic-ohlc.up { color: var(--vg-up); } .vg-ic-ohlc.down { color: var(--vg-down); }
+.vg-ic-tf { display: flex; gap: 2px; margin-left: auto; }
+.vg-ic-tfb { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim);
+  border: 1px solid var(--vg-hairline); background: transparent; padding: 3px 9px;
+  border-radius: 5px; cursor: pointer; }
+.vg-ic-tfb:hover { color: var(--vg-ink); }
+.vg-ic-tfb.on { color: var(--vg-accent); border-color: var(--vg-accent);
+  background: var(--vg-accent-soft); font-weight: 600; }
+.vg-ic-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.vg-ic-canvas { flex: 1; width: 100%; min-height: 340px; }
+.vg-ic-empty { position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; }
+
 /* ── Replay Forecast (spx_forecast.jsx SpxReplayView) ─────────────────────── */
 .vg-fc-progress { height: 6px; border-radius: 3px; background: var(--vg-raised);
   margin-top: 6px; overflow: hidden; }

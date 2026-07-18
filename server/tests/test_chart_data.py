@@ -77,6 +77,16 @@ def test_1d_reads_daily_bars_table(tmp_path):
     assert out["candles"][-1]["close"] == 104
 
 
+def test_1d_handles_iso_timestamp_dates(tmp_path):
+    # some symbols store daily `date` as a full ISO ts, not a bare day — must not crash
+    store = _sqlite_store(tmp_path)
+    store.put_bars("NVDA", {"daily": [
+        {"date": "2015-01-02T00:00:00Z", "open": 10, "high": 11, "low": 9, "close": 10.5},
+    ]}, as_of="2015-01-02T20:00:00Z")
+    out = cd.chart_candles(store, "NVDA", "1D")
+    assert out["available"] and out["candles"][0]["close"] == 10.5
+
+
 def test_spx_maps_to_gspc(tmp_path):
     store = _sqlite_store(tmp_path)
     _seed_1m(store, "^GSPC", "2026-07-16", n=10)

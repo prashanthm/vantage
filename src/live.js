@@ -994,6 +994,11 @@ export const saveJournalAnalysis = (body) =>
 export const getJournalAnalyses = (underlying = "SPX") =>
   getJson(`${backendBase()}/api/journal/analysis?underlying=${encodeURIComponent(underlying)}`);
 
+// ── chart-first: multi-timeframe candles for any symbol ──────────────────────
+export const getChart = (symbol, tf = "5m", days = 15) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&days=${days}`,
+    { timeoutMs: 20000 });
+
 // ── SPX-analyst forecast loop ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).
 export const getSpxSnapshot = (day, asOf, symbol = "SPX") =>

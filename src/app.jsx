@@ -16,6 +16,7 @@ import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
 import { SpxPlaybookView, SpxPlaybookRail, SpxReplayView, PlaybookProvider } from "./spx_forecast.jsx";
 import { ScannerView } from "./scanner.jsx";
+import { InstrumentChartCard } from "./chart_core.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
 import { TodayView } from "./today.jsx";
@@ -62,7 +63,7 @@ const NAV = [
 //   activity — per-position transactions, reached from a holding
 //   recs     — the full decision journal, reached from the Dashboard Actions "All →"
 //   markets  — live pattern signals, reached from Market read links
-const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets"];
+const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets", "ic"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 function useHashRoute() {
@@ -406,6 +407,7 @@ function App() {
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
           {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
+          {route === "ic" && <div style={{ height: "82vh" }}><InstrumentChartCard symbol="SPX" /></div>}
         </main>
 
         {/* -------- right pane: per-ticker Notebook (default) / chart rail / chat -------- */}
