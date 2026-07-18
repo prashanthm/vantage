@@ -193,14 +193,18 @@ def _plot(row: dict) -> dict:
 
 
 def target_error(row: dict) -> float | None:
-    """Direction-aware absolute distance (points) between the predicted target and
-    the realized tape's best excursion toward it — matching the scorer's
-    ``_reached`` logic. For an up-call the tape's high is the relevant excursion;
-    for a down-call, its low. None when the forecast can't be measured yet (no
-    target, no price_at, or unscored → no post_high/post_low).
+    """ONE-SIDED direction-aware target error (points): the UNDERSHOOT only.
 
-    A target that sits exactly at the realized excursion has zero error. A call
-    that fell short (or overshot) is penalised by the gap either way."""
+    The predicted `target` sits on one side of `price_at`; the realized excursion is
+    the tape's best travel toward it (an up-call's high / a down-call's low). If the
+    excursion REACHED the target (or ran past it — overshoot), the call was right and
+    the error is **0**: a conservative target that price exceeds is not a forecasting
+    failure. Only when price fell SHORT of the target does the shortfall count.
+
+    This corrects the original two-sided |target − excursion|, which wrongly punished
+    a reached-then-exceeded target the same as one never reached — and thereby rewarded
+    over-ambitious targets (goal: forecast-accuracy, C1 finding). None when the
+    forecast can't be measured (no target/price_at, or unscored → no post_high/low)."""
     plot = _plot(row)
     fc = row.get("forecast") or {}
     target = _snap._first_price(plot.get("target") if plot.get("target") is not None
@@ -211,9 +215,11 @@ def target_error(row: dict) -> float | None:
     post_low = _snap._num(sc.get("post_low"))
     if target is None or price_at is None or post_high is None or post_low is None:
         return None
-    # which side is the target on? (same rule the scorer uses)
-    excursion = post_high if target >= price_at else post_low
-    return round(abs(target - excursion), 2)
+    if target >= price_at:
+        # up-call: reached if the high got to the target; shortfall = target − high
+        return round(max(0.0, target - post_high), 2)
+    # down-call: reached if the low got to the target; shortfall = low − target
+    return round(max(0.0, post_low - target), 2)
 
 
 def path_mae(row: dict, store) -> float | None:

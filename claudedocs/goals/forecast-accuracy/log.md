@@ -166,3 +166,28 @@ land near where price stops), which is backwards. FIX: make target_error one-sid
 zero (or small) when the target is REACHED (overshoot not penalized), the shortfall
 only when price fell short. Re-baseline E0 under the fixed metric, then re-judge C1.
 This is a metric-correctness fix, not a predicate change — surfaced to the user.
+
+## METRIC RE-BASELINE under one-sided target_error → SECOND flaw
+Fixed target_error to penalize UNDERSHOOT only (overshoot=0; committed + tested).
+Re-measured all stored runs offline. Result: **median undershoot = 0.0 for EVERY
+run** (E0/B1/B2/B3/B4/C1) — most forecasts hit-or-overshoot, so undershoot is the
+minority and the MEDIAN is 0 across the board. The one-sided fix removed the
+over-ambition reward but COLLAPSED the discriminating signal. mean-undershoot still
+varies (E0 3.08, C1 3.41, B3 6.6) but is noisy/small.
+→ **target-error (either form) is a poor primary metric here.** Two-sided rewarded
+over-ambition; one-sided has no median signal.
+
+## THE SIGNAL THAT ACTUALLY MOVES: hit-rate
+Every experiment moved HIT-RATE, target-error never discriminated:
+  E0 0.436 · B1 0.486 · B2 0.426 · B3 0.500 · B4 0.509 · **C1 0.593**
+C1 (target discipline: nearest reachable level) is the clear winner (+0.157 vs E0),
+and per-day it's consistent: C1 better 4 days / E0 better 2 / tie 2, rescuing the two
+days E0 scored 0.0 (07-15, 07-07 → 0.71/0.57). 8 days is thin (2 days do heavy
+lifting) — indicative, not conclusive.
+
+## DECISION NEEDED (surfaced to user)
+The goal's PREDICATE was median target-error ↓25%. The data shows that metric doesn't
+work for this problem; HIT-RATE is what moves. Switching the predicate needs the user.
+Recommendation: adopt hit-rate as primary (predicate: hit-rate ↑ vs E0 0.436, holds
+on held-out days), KEEP C1 (the target-discipline prompt — biggest hit-rate gain,
+consistent), and continue the C-arm optimizing hit-rate. Loop paused for this call.

@@ -173,21 +173,31 @@ def _fc(target, price_at, post_high, post_low, bias="up", verdict="hit target"):
 
 
 def test_target_error_zero_when_target_hits_the_excursion():
-    # up-call, target exactly at the realized high → zero error
+    # up-call, target exactly at the realized high → zero error (reached)
     r = _fc(target=7550, price_at=7500, post_high=7550, post_low=7490)
     assert rf.target_error(r) == 0.0
 
 
-def test_target_error_up_call_measures_gap_to_high():
-    # up-call fell 10pt short of target (high only reached 7540, target 7550)
+def test_target_error_zero_on_overshoot():
+    # ONE-SIDED: target reached AND price ran past it → the call was right → 0 error.
+    # up-call target 7550, high ran to 7570 (20pt overshoot) → NOT penalized.
+    r = _fc(target=7550, price_at=7500, post_high=7570, post_low=7490)
+    assert rf.target_error(r) == 0.0
+    # down-call target 7470, low ran to 7450 (overshoot) → 0.
+    r2 = _fc(target=7470, price_at=7500, post_high=7505, post_low=7450, bias="down")
+    assert rf.target_error(r2) == 0.0
+
+
+def test_target_error_up_call_penalizes_only_undershoot():
+    # up-call fell 10pt short of target (high only reached 7540, target 7550) → 10.
     r = _fc(target=7550, price_at=7500, post_high=7540, post_low=7490)
     assert rf.target_error(r) == 10.0
 
 
 def test_target_error_down_call_uses_the_low():
-    # down-call: target below price_at → compared to post_low. Low reached 7460,
-    # target 7470 → 10pt short.
-    r = _fc(target=7470, price_at=7500, post_high=7505, post_low=7460, bias="down")
+    # down-call: target 7470 below price_at, compared to post_low. Low reached only
+    # 7480 (stopped 10pt SHORT of the 7470 target) → 10 undershoot.
+    r = _fc(target=7470, price_at=7500, post_high=7505, post_low=7480, bias="down")
     assert rf.target_error(r) == 10.0
 
 
