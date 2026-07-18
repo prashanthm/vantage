@@ -3766,23 +3766,164 @@ ${ref}`;
     ), manual.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-chips" }, manual.map((s) => /* @__PURE__ */ React.createElement("span", { key: s, className: "vg-scan-chip" }, s, /* @__PURE__ */ React.createElement("button", { className: "vg-scan-chip-x", title: "remove", onClick: () => removeTicker(s) }, "\u2715")))), manual.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "none \u2014 add ad-hoc names to always scan them.")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { color: "var(--vg-down)", marginBottom: 10 } }, note), aplus.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "A+ setups"), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grid" }, aplus.map((h) => /* @__PURE__ */ React.createElement(SignalCard, { key: h.symbol, h, onOpen: onOpenSymbol })))), bs.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 14 } }, "B setups"), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grid" }, bs.map((h) => /* @__PURE__ */ React.createElement(SignalCard, { key: h.symbol, h, onOpen: onOpenSymbol })))), d && hits.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 18 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No hourly setups right now across ", d.covered_n, " covered tickers. A+ is a high-conviction, deliberately rare tier \u2014 a quiet scan is normal.")), d && (d.no_data || []).length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12, fontSize: 11, color: "var(--vg-dim)" } }, "no data (", d.no_data.length, "): ", d.no_data.join(", "), " \u2014 hourly bars not fetched yet; refresh to seed."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 11, color: "var(--vg-dim)" } }, "Hourly ICT setups (validated timeframe) \xB7 a heads-up to drop to a lower timeframe for entry \xB7 not advice."));
   }
 
+  // src/indicators.js
+  function sma(candles, period) {
+    if (!candles || candles.length < period || period < 1) return [];
+    const out = [];
+    let sum = 0;
+    for (let i = 0; i < candles.length; i++) {
+      sum += candles[i].close;
+      if (i >= period) sum -= candles[i - period].close;
+      if (i >= period - 1) out.push({ time: candles[i].time, value: round(sum / period) });
+    }
+    return out;
+  }
+  function vwap(candles) {
+    if (!candles || !candles.length) return [];
+    if (!candles.some((c) => (c.volume || 0) > 0)) return [];
+    const out = [];
+    let day = null, pv = 0, vol = 0;
+    for (const c of candles) {
+      const d = dayKey(c.time);
+      if (d !== day) {
+        day = d;
+        pv = 0;
+        vol = 0;
+      }
+      const tp = (c.high + c.low + c.close) / 3;
+      const v = c.volume || 0;
+      pv += tp * v;
+      vol += v;
+      if (vol > 0) out.push({ time: c.time, value: round(pv / vol) });
+    }
+    return out;
+  }
+  function rsi(candles, period = 14) {
+    if (!candles || candles.length <= period) return [];
+    let gain = 0, loss = 0;
+    for (let i = 1; i <= period; i++) {
+      const ch = candles[i].close - candles[i - 1].close;
+      if (ch >= 0) gain += ch;
+      else loss -= ch;
+    }
+    let avgG = gain / period, avgL = loss / period;
+    const out = [{ time: candles[period].time, value: rsiVal(avgG, avgL) }];
+    for (let i = period + 1; i < candles.length; i++) {
+      const ch = candles[i].close - candles[i - 1].close;
+      const g = ch > 0 ? ch : 0, l = ch < 0 ? -ch : 0;
+      avgG = (avgG * (period - 1) + g) / period;
+      avgL = (avgL * (period - 1) + l) / period;
+      out.push({ time: candles[i].time, value: rsiVal(avgG, avgL) });
+    }
+    return out;
+  }
+  function volumeProfile(candles, up, down, buckets = 60) {
+    if (!candles || !candles.length || !candles.some((c) => (c.volume || 0) > 0)) {
+      return { bars: [], poc: null };
+    }
+    const bars = candles.map((c) => ({
+      time: c.time,
+      value: c.volume || 0,
+      color: c.close >= c.open ? up : down
+    }));
+    let lo = Infinity, hi = -Infinity;
+    for (const c of candles) {
+      if (c.low < lo) lo = c.low;
+      if (c.high > hi) hi = c.high;
+    }
+    if (!(hi > lo)) return { bars, poc: null };
+    const width = (hi - lo) / buckets;
+    const acc = new Array(buckets).fill(0);
+    for (const c of candles) {
+      const tp = (c.high + c.low + c.close) / 3;
+      let b = Math.floor((tp - lo) / width);
+      if (b < 0) b = 0;
+      else if (b >= buckets) b = buckets - 1;
+      acc[b] += c.volume || 0;
+    }
+    let best = 0;
+    for (let i = 1; i < buckets; i++) if (acc[i] > acc[best]) best = i;
+    const poc = round(lo + (best + 0.5) * width);
+    return { bars, poc };
+  }
+  function rsiVal(avgG, avgL) {
+    if (avgL === 0) return avgG === 0 ? 50 : 100;
+    const rs = avgG / avgL;
+    return round(100 - 100 / (1 + rs));
+  }
+  function dayKey(t) {
+    return Math.floor(t / 86400);
+  }
+  function round(x) {
+    return Math.round(x * 100) / 100;
+  }
+
   // src/chart_core.jsx
   var { useState: useState7, useRef: useRef3, useEffect: useEffect6, useCallback } = React;
   var TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
   var hasLW3 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+  var INDICATORS = [
+    { key: "ma20", label: "MA20", needsVol: false },
+    { key: "ma50", label: "MA50", needsVol: false },
+    { key: "vwap", label: "VWAP", needsVol: true },
+    { key: "vol", label: "Vol", needsVol: true },
+    { key: "rsi", label: "RSI", needsVol: false }
+  ];
+  var IND_PREF_KEY = "vg.ic.indicators";
+  var loadPref = () => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem(IND_PREF_KEY) || "[]"));
+    } catch (e) {
+      return /* @__PURE__ */ new Set();
+    }
+  };
+  var savePref = (set) => {
+    try {
+      localStorage.setItem(IND_PREF_KEY, JSON.stringify([...set]));
+    } catch (e) {
+    }
+  };
+  var TF_HAS_VOLUME = (tf) => ["1m", "5m", "15m", "1H", "4H"].includes(tf);
   function ohlcText(bar) {
     if (!bar) return null;
     const d = bar.close >= bar.open;
     return { o: bar.open, h: bar.high, l: bar.low, c: bar.close, up: d };
+  }
+  function setInd(drawn, key, candles, th) {
+    const h = drawn[key];
+    if (!h) return;
+    if (key === "ma20") h.setData(sma(candles, 20));
+    else if (key === "ma50") h.setData(sma(candles, 50));
+    else if (key === "vwap") h.setData(vwap(candles));
+    else if (key === "rsi") h.setData(rsi(candles, 14));
+    else if (key === "vol") {
+      h.setData(volumeProfile(
+        candles,
+        `rgba(${th.upRgb.join(",")},0.5)`,
+        `rgba(${th.downRgb.join(",")},0.5)`
+      ).bars);
+    }
   }
   function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     const elRef = useRef3(null);
     const chartRef = useRef3(null);
     const candleRef = useRef3(null);
     const fittedKey = useRef3(null);
+    const indRef = useRef3({});
+    const pocLineRef = useRef3(null);
     const [hover, setHover] = useState7(null);
     const [nonce, setNonce] = useState7(0);
     const [refreshing, setRefreshing] = useState7(false);
+    const [active, setActive] = useState7(loadPref);
+    const toggleInd = useCallback((key) => {
+      setActive((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        savePref(next);
+        return next;
+      });
+    }, []);
     const q = useLive(
       () => symbol ? getChart(symbol, tf) : Promise.resolve(null),
       null,
@@ -3878,6 +4019,114 @@ ${ref}`;
         candles
       });
     }, [overlays, candles]);
+    useEffect6(() => {
+      const chart = chartRef.current;
+      if (!chart) return void 0;
+      const th = chartTheme();
+      const drawn = indRef.current;
+      const volOk = TF_HAS_VOLUME(tf);
+      const want = new Set([...active].filter((k) => {
+        const spec = INDICATORS.find((i) => i.key === k);
+        return spec && (!spec.needsVol || volOk);
+      }));
+      const remove = (key) => {
+        const h = drawn[key];
+        if (!h) return;
+        if (key === "vol" && pocLineRef.current) {
+          try {
+            candleRef.current?.removePriceLine(pocLineRef.current);
+          } catch (e) {
+          }
+          pocLineRef.current = null;
+        }
+        try {
+          chart.removeSeries(h);
+        } catch (e) {
+        }
+        delete drawn[key];
+      };
+      for (const key of Object.keys(drawn)) if (!want.has(key)) remove(key);
+      if (!candles.length) return void 0;
+      const line = (color, opts = {}) => chart.addLineSeries({
+        color,
+        lineWidth: 1.5,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: false,
+        ...opts
+      });
+      for (const key of want) {
+        if (drawn[key] && key === "vol") remove(key);
+        else if (drawn[key]) {
+          setInd(drawn, key, candles, th);
+          continue;
+        }
+        if (key === "ma20") {
+          drawn[key] = line(th.accent);
+          drawn[key].setData(sma(candles, 20));
+        } else if (key === "ma50") {
+          drawn[key] = line(th.text);
+          drawn[key].setData(sma(candles, 50));
+        } else if (key === "vwap") {
+          drawn[key] = line(th.strike || "#7b61ff", { lineStyle: 2 });
+          drawn[key].setData(vwap(candles));
+        } else if (key === "rsi") {
+          const s = chart.addLineSeries({
+            color: th.accent,
+            lineWidth: 1.5,
+            priceScaleId: "rsi",
+            priceLineVisible: false,
+            lastValueVisible: true,
+            crosshairMarkerVisible: false
+          });
+          try {
+            chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+          } catch (e) {
+          }
+          s.setData(rsi(candles, 14));
+          drawn[key] = s;
+        } else if (key === "vol") {
+          const { bars, poc } = volumeProfile(
+            candles,
+            `rgba(${th.upRgb.join(",")},0.5)`,
+            `rgba(${th.downRgb.join(",")},0.5)`
+          );
+          const s = chart.addHistogramSeries({
+            priceScaleId: "vol",
+            priceFormat: { type: "volume" },
+            priceLineVisible: false,
+            lastValueVisible: false
+          });
+          try {
+            chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } });
+          } catch (e) {
+          }
+          s.setData(bars);
+          drawn[key] = s;
+          if (pocLineRef.current) {
+            try {
+              candleRef.current.removePriceLine(pocLineRef.current);
+            } catch (e) {
+            }
+            pocLineRef.current = null;
+          }
+          if (poc != null) {
+            try {
+              pocLineRef.current = candleRef.current.createPriceLine({
+                price: poc,
+                color: th.accent,
+                lineWidth: 1,
+                lineStyle: 3,
+                axisLabelVisible: true,
+                title: "POC"
+              });
+            } catch (e) {
+            }
+          }
+        }
+      }
+      return void 0;
+    }, [candles, active, tf]);
     const last = candles.length ? candles[candles.length - 1].close : null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
       "button",
@@ -3897,7 +4146,21 @@ ${ref}`;
         "aria-label": `Refresh ${symbol} bars`
       },
       "\u21BB"
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-inds" }, INDICATORS.map((ind) => {
+      const disabled = ind.needsVol && !TF_HAS_VOLUME(tf);
+      const on = active.has(ind.key) && !disabled;
+      return /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          key: ind.key,
+          className: cls("vg-ic-chip", on && "on", disabled && "off"),
+          onClick: () => !disabled && toggleInd(ind.key),
+          disabled,
+          title: disabled ? `${ind.label} needs intraday volume (1m\u20134H)` : `Toggle ${ind.label}`
+        },
+        ind.label
+      );
+    })), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
   }
   function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height }) {
     const [tf, setTf] = useState7(defaultTf);

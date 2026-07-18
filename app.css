@@ -1005,6 +1005,15 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-ic-refresh:disabled { cursor: default; opacity: 0.7; }
 .vg-ic-refresh.spin { animation: vg-ic-spin 0.8s linear infinite; }
 @keyframes vg-ic-spin { to { transform: rotate(360deg); } }
+.vg-ic-inds { display: flex; gap: 4px; padding: 4px 13px 6px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--vg-hairline); }
+.vg-ic-chip { font-family: var(--vg-font-data); font-size: 10.5px; letter-spacing: 0.02em;
+  color: var(--vg-dim); border: 1px solid var(--vg-hairline); background: transparent;
+  padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+.vg-ic-chip:hover:not(:disabled) { color: var(--vg-ink); }
+.vg-ic-chip.on { color: var(--vg-accent); border-color: var(--vg-accent);
+  background: var(--vg-accent-soft); font-weight: 600; }
+.vg-ic-chip.off { opacity: 0.4; cursor: not-allowed; }
 .vg-ic-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .vg-ic-canvas { flex: 1; width: 100%; min-height: 340px; }
 .vg-ic-empty { position: absolute; inset: 0; display: flex; align-items: center;

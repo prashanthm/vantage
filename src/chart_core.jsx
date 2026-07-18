@@ -11,12 +11,34 @@
 import { cls, LoadBar } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
 import { useLive, getChart, refreshChart } from "./live.js";
+import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
 
 const { useState, useRef, useEffect, useCallback } = React;
 
 const TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
 const hasLW = () => typeof window !== "undefined"
   && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+
+// The indicator chips. `vol` marks the ones that need per-bar volume (absent on
+// daily+ bars, where they're disabled). `pane` indicators (rsi/volume) draw on a
+// pinned overlay price scale; the rest overlay the main price scale.
+const INDICATORS = [
+  { key: "ma20",  label: "MA20",  needsVol: false },
+  { key: "ma50",  label: "MA50",  needsVol: false },
+  { key: "vwap",  label: "VWAP",  needsVol: true },
+  { key: "vol",   label: "Vol",   needsVol: true },
+  { key: "rsi",   label: "RSI",   needsVol: false },
+];
+const IND_PREF_KEY = "vg.ic.indicators";
+const loadPref = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(IND_PREF_KEY) || "[]")); }
+  catch (e) { return new Set(); }
+};
+const savePref = (set) => {
+  try { localStorage.setItem(IND_PREF_KEY, JSON.stringify([...set])); } catch (e) { /* */ }
+};
+// timeframes that carry per-bar volume (intraday); daily+ store volume=0.
+const TF_HAS_VOLUME = (tf) => ["1m", "5m", "15m", "1H", "4H"].includes(tf);
 
 // a compact OHLC readout that tracks the crosshair.
 function ohlcText(bar) {
@@ -25,14 +47,42 @@ function ohlcText(bar) {
   return { o: bar.open, h: bar.high, l: bar.low, c: bar.close, up: d };
 }
 
+// refresh an already-drawn indicator's data when the candles change (new tf/refresh),
+// reusing the existing series so we don't churn LWC handles. POC line is rebuilt by
+// the draw effect's remove/add path, so `vol` only updates its histogram here.
+function setInd(drawn, key, candles, th) {
+  const h = drawn[key];
+  if (!h) return;
+  if (key === "ma20") h.setData(sma(candles, 20));
+  else if (key === "ma50") h.setData(sma(candles, 50));
+  else if (key === "vwap") h.setData(vwap(candles));
+  else if (key === "rsi") h.setData(rsi(candles, 14));
+  else if (key === "vol") {
+    h.setData(volumeProfile(candles, `rgba(${th.upRgb.join(",")},0.5)`,
+      `rgba(${th.downRgb.join(",")},0.5)`).bars);
+  }
+}
+
 export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
   const elRef = useRef(null);
   const chartRef = useRef(null);
   const candleRef = useRef(null);
   const fittedKey = useRef(null);
+  const indRef = useRef({});                   // key → LWC series handle(s)
+  const pocLineRef = useRef(null);             // POC price-line handle
   const [hover, setHover] = useState(null);   // crosshair OHLC
   const [nonce, setNonce] = useState(0);      // manual-refresh cache bust
   const [refreshing, setRefreshing] = useState(false);
+  const [active, setActive] = useState(loadPref);   // active indicator keys
+
+  const toggleInd = useCallback((key) => {
+    setActive((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      savePref(next);
+      return next;
+    });
+  }, []);
 
   const q = useLive(() => (symbol ? getChart(symbol, tf) : Promise.resolve(null)),
     null, [symbol, tf, nonce]);
@@ -103,6 +153,80 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
                       LW: window.LightweightCharts, candles });
   }, [overlays, candles]);
 
+  // indicators — reconcile the active set against drawn series each time candles
+  // or the active set change. Client-side math (indicators.js); no server call.
+  // Pane indicators (rsi/vol) draw on pinned overlay price scales so they don't
+  // squash the candles.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart) return undefined;
+    const th = chartTheme();
+    const drawn = indRef.current;
+    const volOk = TF_HAS_VOLUME(tf);
+    // effective set: drop volume-dependent indicators on volume-less timeframes.
+    const want = new Set([...active].filter((k) => {
+      const spec = INDICATORS.find((i) => i.key === k);
+      return spec && (!spec.needsVol || volOk);
+    }));
+
+    const remove = (key) => {
+      const h = drawn[key];
+      if (!h) return;
+      // POC line lives on the candle series, not the histogram — remove it there.
+      if (key === "vol" && pocLineRef.current) {
+        try { candleRef.current?.removePriceLine(pocLineRef.current); } catch (e) { /* */ }
+        pocLineRef.current = null;
+      }
+      try { chart.removeSeries(h); } catch (e) { /* */ }
+      delete drawn[key];
+    };
+    // tear down anything no longer wanted
+    for (const key of Object.keys(drawn)) if (!want.has(key)) remove(key);
+    if (!candles.length) return undefined;
+
+    const line = (color, opts = {}) => chart.addLineSeries({
+      color, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false,
+      crosshairMarkerVisible: false, ...opts });
+
+    for (const key of want) {
+      // vol carries a POC price-line that must track the window; rebuild it fresh
+      // rather than trying to move the line. Others reuse their series in place.
+      if (drawn[key] && key === "vol") remove(key);
+      else if (drawn[key]) { setInd(drawn, key, candles, th); continue; }
+      if (key === "ma20") { drawn[key] = line(th.accent); drawn[key].setData(sma(candles, 20)); }
+      else if (key === "ma50") { drawn[key] = line(th.text); drawn[key].setData(sma(candles, 50)); }
+      else if (key === "vwap") { drawn[key] = line(th.strike || "#7b61ff", { lineStyle: 2 }); drawn[key].setData(vwap(candles)); }
+      else if (key === "rsi") {
+        const s = chart.addLineSeries({ color: th.accent, lineWidth: 1.5,
+          priceScaleId: "rsi", priceLineVisible: false, lastValueVisible: true,
+          crosshairMarkerVisible: false });
+        try { chart.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } }); } catch (e) { /* */ }
+        s.setData(rsi(candles, 14));
+        drawn[key] = s;
+      } else if (key === "vol") {
+        const { bars, poc } = volumeProfile(candles, `rgba(${th.upRgb.join(",")},0.5)`,
+          `rgba(${th.downRgb.join(",")},0.5)`);
+        const s = chart.addHistogramSeries({ priceScaleId: "vol",
+          priceFormat: { type: "volume" }, priceLineVisible: false, lastValueVisible: false });
+        try { chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.88, bottom: 0 } }); } catch (e) { /* */ }
+        s.setData(bars);
+        drawn[key] = s;
+        // clear any orphaned POC line before drawing a fresh one.
+        if (pocLineRef.current) {
+          try { candleRef.current.removePriceLine(pocLineRef.current); } catch (e) { /* */ }
+          pocLineRef.current = null;
+        }
+        if (poc != null) {
+          try {
+            pocLineRef.current = candleRef.current.createPriceLine({ price: poc,
+              color: th.accent, lineWidth: 1, lineStyle: 3, axisLabelVisible: true, title: "POC" });
+          } catch (e) { /* */ }
+        }
+      }
+    }
+    return undefined;
+  }, [candles, active, tf]);
+
   const last = candles.length ? candles[candles.length - 1].close : null;
 
   return (
@@ -123,6 +247,18 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
         <button className={cls("vg-ic-refresh", refreshing && "spin")}
           onClick={doRefresh} disabled={refreshing} title={`Refresh ${symbol} bars`}
           aria-label={`Refresh ${symbol} bars`}>↻</button>
+      </div>
+      <div className="vg-ic-inds">
+        {INDICATORS.map((ind) => {
+          const disabled = ind.needsVol && !TF_HAS_VOLUME(tf);
+          const on = active.has(ind.key) && !disabled;
+          return (
+            <button key={ind.key} className={cls("vg-ic-chip", on && "on", disabled && "off")}
+              onClick={() => !disabled && toggleInd(ind.key)} disabled={disabled}
+              title={disabled ? `${ind.label} needs intraday volume (1m–4H)` : `Toggle ${ind.label}`}>
+              {ind.label}
+            </button>);
+        })}
       </div>
       <div className="vg-ic-body">
         {(q.loading) && <LoadBar />}
