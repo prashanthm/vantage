@@ -522,6 +522,10 @@ ALLOWED_WRITE_ROUTES = {
     # 60m bars, scanner_result); no broker/order path (ADR-010 holds).
     "/api/scanner/refresh",
     "/api/scanner/tickers",
+    # Manual chart refresh: force-refetch the source bars (1m/60m) for a symbol so
+    # new candles appear. Writes only our own SQLite (intraday bars); no broker/order
+    # path (ADR-010 holds).
+    "/api/chart/{symbol}/refresh",
 }
 
 

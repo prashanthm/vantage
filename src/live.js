@@ -998,6 +998,11 @@ export const getJournalAnalyses = (underlying = "SPX") =>
 export const getChart = (symbol, tf = "5m", days = 15) =>
   getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&days=${days}`,
     { timeoutMs: 20000 });
+// Manual refresh — force-refetch the source bars for this symbol+tf so new candles
+// appear, then the caller re-pulls getChart.
+export const refreshChart = (symbol, tf = "5m") =>
+  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/refresh`, { tf },
+    { timeoutMs: 30000 });
 
 // ── SPX-analyst forecast loop ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).

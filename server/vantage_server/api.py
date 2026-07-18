@@ -461,6 +461,34 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note=f"chart build failed: {e}")
         return envelope(snap, **out)
 
+    @app.post("/api/chart/{symbol}/refresh")
+    def chart_refresh(symbol: str, body: dict = Body(default={})):
+        """Manual chart refresh: force-refetch the bars backing the given timeframe
+        for THIS symbol, so new candles appear. Intraday tfs refetch 1m (today);
+        1H/4H refetch 60m; 1D+ note that daily updates nightly. Writes only our own
+        store (intraday bars); no broker/order path (ADR-010)."""
+        from . import chart_data as _cd
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="chart needs the SQLite backend")
+        sym = (symbol or "SPX").upper()
+        bar_sym = _cd._bar_sym(sym)
+        tf = str(body.get("tf") or "5m")
+        src = _cd._TF.get(tf, ("1m", ""))[0]
+        note = None
+        try:
+            if src == "1m":
+                from . import seed_intraday as _seed
+                _seed.seed(store, symbol=bar_sym, days=1, force=True)
+            elif src == "60m":
+                from . import scanner as _sc
+                _sc.seed_hourly(store, [bar_sym], lookback_days=5)
+            else:
+                note = "daily/weekly/monthly bars update on the nightly job."
+        except Exception as e:  # noqa: BLE001
+            return envelope(snap, available=False, note=f"refresh failed: {e}")
+        return envelope(snap, available=True, symbol=sym, tf=tf, note=note)
+
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),

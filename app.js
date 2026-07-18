@@ -365,6 +365,7 @@
     recomputePlaybook: () => recomputePlaybook,
     refreshAccount: () => refreshAccount,
     refreshAll: () => refreshAll,
+    refreshChart: () => refreshChart,
     refreshScanner: () => refreshScanner,
     refreshSpx: () => refreshSpx,
     removeScannerTicker: () => removeScannerTicker,
@@ -1128,6 +1129,11 @@
   var getChart = (symbol, tf = "5m", days = 15) => getJson(
     `${backendBase()}/api/chart/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&days=${days}`,
     { timeoutMs: 2e4 }
+  );
+  var refreshChart = (symbol, tf = "5m") => postJson(
+    `${backendBase()}/api/chart/${encodeURIComponent(symbol)}/refresh`,
+    { tf },
+    { timeoutMs: 3e4 }
   );
   var getSpxSnapshot = (day, asOf, symbol = "SPX") => getJson(`${backendBase()}/api/spx/snapshot?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : "") + (asOf ? `&as_of=${encodeURIComponent(asOf)}` : ""));
   var saveSpxForecast = (body) => postJson(`${backendBase()}/api/spx/forecast`, body);
@@ -3775,11 +3781,24 @@ ${ref}`;
     const candleRef = useRef3(null);
     const fittedKey = useRef3(null);
     const [hover, setHover] = useState7(null);
+    const [nonce, setNonce] = useState7(0);
+    const [refreshing, setRefreshing] = useState7(false);
     const q = useLive(
       () => symbol ? getChart(symbol, tf) : Promise.resolve(null),
       null,
-      [symbol, tf]
+      [symbol, tf, nonce]
     );
+    const doRefresh = useCallback(async () => {
+      if (!symbol || refreshing) return;
+      setRefreshing(true);
+      try {
+        await refreshChart(symbol, tf);
+      } catch (e) {
+      } finally {
+        setRefreshing(false);
+        setNonce((n) => n + 1);
+      }
+    }, [symbol, tf, refreshing]);
     const data = q.data && q.data.available ? q.data : null;
     const candles = data && data.candles || [];
     useEffect6(() => {
@@ -3868,7 +3887,17 @@ ${ref}`;
         onClick: () => setTf(t)
       },
       t
-    )))), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
+    ))), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: cls("vg-ic-refresh", refreshing && "spin"),
+        onClick: doRefresh,
+        disabled: refreshing,
+        title: `Refresh ${symbol} bars`,
+        "aria-label": `Refresh ${symbol} bars`
+      },
+      "\u21BB"
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW3() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`))));
   }
   function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height }) {
     const [tf, setTf] = useState7(defaultTf);

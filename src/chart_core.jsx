@@ -10,7 +10,7 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
-import { useLive, getChart } from "./live.js";
+import { useLive, getChart, refreshChart } from "./live.js";
 
 const { useState, useRef, useEffect, useCallback } = React;
 
@@ -31,9 +31,19 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
   const candleRef = useRef(null);
   const fittedKey = useRef(null);
   const [hover, setHover] = useState(null);   // crosshair OHLC
+  const [nonce, setNonce] = useState(0);      // manual-refresh cache bust
+  const [refreshing, setRefreshing] = useState(false);
 
   const q = useLive(() => (symbol ? getChart(symbol, tf) : Promise.resolve(null)),
-    null, [symbol, tf]);
+    null, [symbol, tf, nonce]);
+
+  const doRefresh = useCallback(async () => {
+    if (!symbol || refreshing) return;
+    setRefreshing(true);
+    try { await refreshChart(symbol, tf); }
+    catch (e) { /* surfaced by the chart note on re-pull */ }
+    finally { setRefreshing(false); setNonce((n) => n + 1); }
+  }, [symbol, tf, refreshing]);
   const data = q.data && q.data.available ? q.data : null;
   const candles = (data && data.candles) || [];
 
@@ -110,6 +120,9 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
               onClick={() => setTf(t)}>{t}</button>
           ))}
         </div>
+        <button className={cls("vg-ic-refresh", refreshing && "spin")}
+          onClick={doRefresh} disabled={refreshing} title={`Refresh ${symbol} bars`}
+          aria-label={`Refresh ${symbol} bars`}>↻</button>
       </div>
       <div className="vg-ic-body">
         {(q.loading) && <LoadBar />}
