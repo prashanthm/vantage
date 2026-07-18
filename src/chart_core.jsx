@@ -34,6 +34,31 @@ const TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
 const hasLW = () => typeof window !== "undefined"
   && !!(window.LightweightCharts && window.LightweightCharts.createChart);
 
+// Candle times are unix seconds (UTC). US market data is read in EASTERN time, but
+// Lightweight Charts renders in the VIEWER's timezone by default — so a UTC browser
+// shows 19:45 instead of 15:45 ET. Force ET on the axis + crosshair via Intl
+// (handles EST/EDT). `time` from LWC is unix seconds for intraday, or a
+// {year,month,day} business-day object for daily+ series.
+const _etTime = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York",
+  hour: "2-digit", minute: "2-digit", hour12: false });
+const _etDate = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York",
+  month: "short", day: "numeric" });
+const _etDateTime = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York",
+  month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+const _toDate = (t) => (typeof t === "object" && t !== null)
+  ? new Date(Date.UTC(t.year, (t.month || 1) - 1, t.day || 1)) : new Date(t * 1000);
+// axis tick labels: time for intraday ticks, date for daily+/day-boundary ticks.
+function etTickFormatter(time, tickType) {
+  const d = _toDate(time);
+  // LWC tickMarkType: 0=Year 1=Month 2=DayOfMonth 3=Time 4=TimeWithSeconds
+  return (tickType >= 3) ? _etTime.format(d) : _etDate.format(d);
+}
+// crosshair readout: full date+time in ET.
+function etTimeFormatter(time) {
+  const d = _toDate(time);
+  return (typeof time === "object") ? _etDate.format(d) : _etDateTime.format(d);
+}
+
 // The indicator chips. `vol` marks the ones that need per-bar volume (absent on
 // daily+ bars, where they're disabled). `pane` indicators (rsi/volume) draw on a
 // pinned overlay price scale; the rest overlay the main price scale.
@@ -205,11 +230,14 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       autoSize: true,
       layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
       grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
+      // render all times in Eastern (US market time), not the viewer's timezone.
+      localization: { timeFormatter: etTimeFormatter },
       rightPriceScale: { borderColor: th.border, minimumWidth: 72,
         scaleMargins: { top: 0.08, bottom: 0.08 }, autoScale: true },
       // rightOffset leaves blank chart space on the right so price-line TITLE labels
       // (coach levels, PDH/PDL, DRAW…) land in the gutter instead of over the candles.
-      timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false, rightOffset: 18 },
+      timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false, rightOffset: 18,
+        tickMarkFormatter: etTickFormatter },
       crosshair: { mode: LW.CrosshairMode.Normal },
       handleScale: { mouseWheel: true, pinch: true,
         axisPressedMouseMove: { time: true, price: true },

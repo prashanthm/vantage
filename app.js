@@ -4221,6 +4221,34 @@ ${ref}`;
   var newDrawingId = () => `d${(_didSeq++).toString(36)}${performance.now().toString(36).replace(".", "")}`;
   var TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
   var hasLW3 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+  var _etTime = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  var _etDate = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric"
+  });
+  var _etDateTime = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  });
+  var _toDate = (t) => typeof t === "object" && t !== null ? new Date(Date.UTC(t.year, (t.month || 1) - 1, t.day || 1)) : new Date(t * 1e3);
+  function etTickFormatter(time, tickType) {
+    const d = _toDate(time);
+    return tickType >= 3 ? _etTime.format(d) : _etDate.format(d);
+  }
+  function etTimeFormatter(time) {
+    const d = _toDate(time);
+    return typeof time === "object" ? _etDate.format(d) : _etDateTime.format(d);
+  }
   var INDICATORS = [
     { key: "ma20", label: "MA20", needsVol: false },
     { key: "ma50", label: "MA50", needsVol: false },
@@ -4418,6 +4446,8 @@ ${ref}`;
         autoSize: true,
         layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
         grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
+        // render all times in Eastern (US market time), not the viewer's timezone.
+        localization: { timeFormatter: etTimeFormatter },
         rightPriceScale: {
           borderColor: th.border,
           minimumWidth: 72,
@@ -4426,7 +4456,13 @@ ${ref}`;
         },
         // rightOffset leaves blank chart space on the right so price-line TITLE labels
         // (coach levels, PDH/PDL, DRAW…) land in the gutter instead of over the candles.
-        timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false, rightOffset: 18 },
+        timeScale: {
+          borderColor: th.border,
+          timeVisible: true,
+          secondsVisible: false,
+          rightOffset: 18,
+          tickMarkFormatter: etTickFormatter
+        },
         crosshair: { mode: LW.CrosshairMode.Normal },
         handleScale: {
           mouseWheel: true,
