@@ -243,5 +243,14 @@ fixed snapshot; more steps mostly re-examine the same numbers. Predict hit ≈fl
 the cost/quality tradeoff.
 experiment: ReasoningBudget max_steps 4→8 in build_spx_analyst_specialist (only var).
 Re-forecast 8 days `--run-tag c4` vs c1.
-result: _running_
-verdict: _pending_
+result: C1 hit 0.593 (resolved 54). C4 hit **0.661 (+0.068)**, resolved 54→56 (more
+clean scoreable plots too). Per-day: C4 better 4 / C1 better 1 / tie 3 — cleanly
+positive, only one regression (07-09 0.71→0.43), and C4 RESCUED the worst C1 day
+(07-10 0.29→0.71).
+verdict: **CONFIRMED WIN — KEPT.** More reasoning (max_steps 4→8) genuinely improved
+directional accuracy, not just re-examination. The 2nd robust lever after C1.
+Cost: ~2x reasoning per forecast — accuracy gain justifies it. Now baseline for C5+.
+kept: **YES — max_steps=8 shipped** in build_spx_analyst_specialist.
+
+Running hit-rate ladder: E0 0.436 → C1 0.593 (target discipline) → C4 0.661 (2x
+reasoning). +0.225 total over baseline. C1+C4 are the shipped wins.
