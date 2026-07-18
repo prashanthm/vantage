@@ -1268,11 +1268,37 @@ function ActivityView({ accountId, settings, refreshNonce }) {
 }
 
 /* ================= Tax Center ================= */
-function TaxView({ settings, tlh }) {
+// Realized capital gains for the year (FIFO lot-matched equity history): ST/LT split,
+// estimated tax, and an honest "cost basis unknown" bucket for pre-import sells.
+function RealizedGainsCard({ accountId }) {
+  const g = useLive(() => live.taxGains(accountId || "all"), null, [accountId]).data;
+  if (!g) return null;
+  const st = g.short_term || {}, lt = g.long_term || {}, cu = g.cost_unknown || {};
+  return (
+    <div className="vg-card vg-pf-card" style={{ marginBottom: 16 }}>
+      <div className="vg-pf-head">
+        <span className="vg-pf-title">Realized gains · {g.year}</span>
+        <span className={cls("vg-badge", g.total_gain >= 0 ? "good" : "bad")}>{signUsd(g.total_gain)}</span>
+      </div>
+      <div className="vg-pf-stats">
+        <StatTile label="Short-term" value={signUsd(st.gain)} deltaDir={dirCls(st.gain)} note={`${st.n || 0} lots · taxed as income`} />
+        <StatTile label="Long-term" value={signUsd(lt.gain)} deltaDir={dirCls(lt.gain)} note={`${lt.n || 0} lots · held >1yr`} />
+        <StatTile label="Est. tax owed" value={usd(g.estimated_tax)} note={`${Math.round((g.st_rate || 0) * 100)}% ST / ${Math.round((g.lt_rate || 0) * 100)}% LT`} />
+      </div>
+      {cu.proceeds > 0 && (
+        <p className="vg-note vg-pf-note">
+          {usd(cu.proceeds)} of sells have no imported buy history — cost basis unknown, gain not computed
+          ({(cu.rows || []).map((r) => r.symbol).slice(0, 6).join(", ")}).
+        </p>)}
+    </div>);
+}
+
+function TaxView({ settings, tlh, accountId }) {
   const [washFaqOpen, setWashFaqOpen] = useState(false);
   return (
     <div>
-      <h2 style={{ margin: 0, fontSize: 19 }}>Tax Center — loss harvesting</h2>
+      <h2 style={{ margin: 0, fontSize: 19 }}>Tax Center — realized gains & loss harvesting</h2>
+      <RealizedGainsCard accountId={accountId} />
       <p className="vg-sub">
         Every lot marked to last close · wash-sale window checked across <b>all linked accounts</b> ·
         threshold {usd(settings.thresholdUsd)} or {settings.thresholdPct}% · decision-support only, no orders placed

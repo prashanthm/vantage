@@ -137,6 +137,99 @@ def character(positions: Sequence[Any], fund_of: Callable[[str], dict | None]) -
             ) / total * 100, 1) if total else 0.0}
 
 
+def realized_gains(history: Sequence[dict], year: int | None = None,
+                   st_rate: float = 0.0, lt_rate: float = 0.0) -> dict:
+    """Realized capital gains from imported EQUITY history via FIFO lot-matching.
+    Each sell consumes the oldest buy lots of that symbol; gain = proceeds - matched
+    cost; a matched lot held >365 days is long-term. Sells whose symbol has no prior
+    buy in the history (bought before the import window) go to a `cost_unknown` bucket
+    with proceeds only. `st_rate`/`lt_rate` are decimals (0.24 = 24%) for an estimate.
+    Filter to `year` (by sell date) when given. Options are excluded (trading side)."""
+    import datetime as _dt
+
+    def _d(s):  # parse an ISO date (date or datetime) to a date, or None
+        try:
+            return _dt.date.fromisoformat(str(s)[:10])
+        except (TypeError, ValueError):
+            return None
+
+    # per-symbol FIFO queues of buy lots: [remaining_shares, cost_per_share, buy_date]
+    buys: dict[str, list[list]] = {}
+    # process chronologically so FIFO is correct
+    eq = [r for r in history if str(r.get("kind", "")).lower() == "equity"]
+    eq.sort(key=lambda r: str(r.get("date") or ""))
+    st_gain = lt_gain = unknown_proceeds = 0.0
+    st_lots: list[dict] = []
+    lt_lots: list[dict] = []
+    unknown: list[dict] = []
+
+    for r in eq:
+        sym = str(r.get("symbol") or "").upper()
+        side = str(r.get("side") or "").lower()
+        qty = _num(r.get("quantity")) or 0.0
+        price = _num(r.get("price")) or 0.0
+        d = _d(r.get("date"))
+        if side == "buy" and qty > 0:
+            buys.setdefault(sym, []).append([qty, price, d])
+        elif side == "sell" and qty > 0:
+            if year is not None and (d is None or d.year != year):
+                # still consume lots so later same-year sells match correctly,
+                # but don't count this sell's gain toward the requested year.
+                _consume(buys.get(sym, []), qty)
+                continue
+            remaining = qty
+            q = buys.get(sym, [])
+            while remaining > 1e-9 and q:
+                lot = q[0]
+                take = min(remaining, lot[0])
+                cost = take * lot[1]
+                proceeds = take * price
+                gain = proceeds - cost
+                held_days = (d - lot[2]).days if (d and lot[2]) else None
+                is_lt = held_days is not None and held_days > 365
+                rec = {"symbol": sym, "date": str(r.get("date"))[:10], "shares": round(take, 4),
+                       "proceeds": round(proceeds, 2), "cost": round(cost, 2),
+                       "gain": round(gain, 2), "held_days": held_days,
+                       "term": "long" if is_lt else "short"}
+                if is_lt:
+                    lt_gain += gain; lt_lots.append(rec)
+                else:
+                    st_gain += gain; st_lots.append(rec)
+                lot[0] -= take
+                remaining -= take
+                if lot[0] <= 1e-9:
+                    q.pop(0)
+            if remaining > 1e-9:  # no matching buy lots left → cost basis unknown
+                p = remaining * price
+                unknown_proceeds += p
+                unknown.append({"symbol": sym, "date": str(r.get("date"))[:10],
+                                "shares": round(remaining, 4), "proceeds": round(p, 2)})
+
+    total = st_gain + lt_gain
+    est_tax = st_gain * st_rate * (st_gain > 0) + lt_gain * lt_rate * (lt_gain > 0)
+    return {
+        "year": year, "total_gain": round(total, 2),
+        "short_term": {"gain": round(st_gain, 2), "n": len(st_lots)},
+        "long_term": {"gain": round(lt_gain, 2), "n": len(lt_lots)},
+        "estimated_tax": round(est_tax, 2),
+        "cost_unknown": {"proceeds": round(unknown_proceeds, 2), "rows": unknown},
+        "lots": sorted(st_lots + lt_lots, key=lambda x: x["date"], reverse=True),
+    }
+
+
+def _consume(q: list[list], qty: float) -> None:
+    """FIFO-consume `qty` shares from a buy-lot queue in place (used for out-of-year
+    sells so later same-year matching stays correct)."""
+    remaining = qty
+    while remaining > 1e-9 and q:
+        lot = q[0]
+        take = min(remaining, lot[0])
+        lot[0] -= take
+        remaining -= take
+        if lot[0] <= 1e-9:
+            q.pop(0)
+
+
 def rebalance(alloc_by_class: dict[str, dict], targets: dict[str, float], total: float) -> dict:
     """Drift vs target per asset class + cash-neutral trade suggestions to close the
     largest drifts. `alloc_by_class` = {cls: {value, pct}}; `targets` = {cls: pct}."""
@@ -180,6 +273,25 @@ def _demo() -> None:
     over = next(r for r in rb["rows"] if r["asset_class"] == "usEquity")
     assert over["drift_pct"] == 20.0 and over["trade_usd"] == -2000.0, over   # trim $2000
     assert not rb["in_band"]
+
+    # realized gains — FIFO + ST/LT split + unmatched sell
+    hist = [
+        {"kind": "equity", "symbol": "X", "side": "buy",  "date": "2024-01-10", "quantity": 10, "price": 100},
+        {"kind": "equity", "symbol": "X", "side": "buy",  "date": "2026-06-01", "quantity": 10, "price": 120},
+        # sell 15 @ 130 on 2026-07-01: 10 from the 2024 lot (LT, held ~2.5y, gain 10*30=300),
+        # 5 from the 2026 lot (ST, held ~1mo, gain 5*10=50)
+        {"kind": "equity", "symbol": "X", "side": "sell", "date": "2026-07-01", "quantity": 15, "price": 130},
+        # a sell with no prior buy → cost unknown, proceeds only
+        {"kind": "equity", "symbol": "Y", "side": "sell", "date": "2026-07-02", "quantity": 4, "price": 50},
+        {"kind": "option", "symbol": "SPXW C", "side": "sell", "date": "2026-07-02", "quantity": 1, "price": 5},  # excluded
+    ]
+    rg = realized_gains(hist, year=2026, st_rate=0.24, lt_rate=0.15)
+    assert rg["long_term"]["gain"] == 300.0, rg["long_term"]
+    assert rg["short_term"]["gain"] == 50.0, rg["short_term"]
+    assert rg["total_gain"] == 350.0
+    assert rg["cost_unknown"]["proceeds"] == 200.0, rg["cost_unknown"]   # 4*50
+    # tax: 300*.15 + 50*.24 = 45 + 12 = 57
+    assert rg["estimated_tax"] == 57.0, rg["estimated_tax"]
     print("ok — portfolio analyzer self-check passed")
 
 

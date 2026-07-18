@@ -91,6 +91,12 @@ export const portfolioPerformance = (account = "all") =>
 export const lots = (account = "all") =>
   getJson(`${backendBase()}/api/lots?account=${encodeURIComponent(account)}`);
 export const wash = () => getJson(`${backendBase()}/api/tax/wash`);
+// Realized capital gains (FIFO lot-matched equity history): ST/LT split + est. tax.
+export const taxGains = (account = "all", year) => {
+  const q = new URLSearchParams({ account });
+  if (year) q.set("year", year);
+  return getJson(`${backendBase()}/api/tax/gains?${q}`, { timeoutMs: 20000 });
+};
 export const tlh = ({ thresholdUsd, thresholdPct } = {}) => {
   const q = new URLSearchParams();
   if (thresholdUsd != null) q.set("thresholdUsd", String(thresholdUsd));

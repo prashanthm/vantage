@@ -343,6 +343,25 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, threshold_usd=threshold_usd, threshold_pct=threshold_pct,
                         candidates=to_jsonable(cands))
 
+    @app.get("/api/tax/gains")
+    def tax_gains(account: str = Query("all"),
+                  year: int | None = Query(None),
+                  st_rate: float = Query(0.24, alias="stRate", ge=0, le=1),
+                  lt_rate: float = Query(0.15, alias="ltRate", ge=0, le=1)):
+        """Realized capital gains for the year via FIFO lot-matching of the imported
+        EQUITY history (short-vs-long-term split + an estimated tax). Sells whose buy
+        history predates the import land in cost_unknown (proceeds only — no fabricated
+        gain). Options are excluded (that's the trading round-trips surface)."""
+        from . import portfolio as _pf
+        check_account(account)
+        snap = state.snapshot()
+        y = year if year is not None else engine.parse_as_of(snap.as_of).year
+        rows = store.load_history()
+        if account != "all":
+            rows = [r for r in rows if r.get("account") == account]
+        gains = _pf.realized_gains(rows, year=y, st_rate=st_rate, lt_rate=lt_rate)
+        return envelope(snap, account=account, st_rate=st_rate, lt_rate=lt_rate, **gains)
+
     @app.get("/api/history")
     def history(account: str = Query("all"),
                 limit: int = Query(200, ge=1, le=1000)):
