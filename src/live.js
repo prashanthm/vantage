@@ -83,6 +83,11 @@ export const positions = (account = "all") =>
   getJson(`${backendBase()}/api/positions?account=${encodeURIComponent(account)}`);
 export const allocation = (account = "all") =>
   getJson(`${backendBase()}/api/allocation?account=${encodeURIComponent(account)}`);
+// Portfolio Analyzer roll-up: diversification + income + character + rebalance.
+export const portfolioAnalyze = (account = "all") =>
+  getJson(`${backendBase()}/api/portfolio/analyze?account=${encodeURIComponent(account)}`, { timeoutMs: 60000 });
+export const portfolioPerformance = (account = "all") =>
+  getJson(`${backendBase()}/api/portfolio/performance?account=${encodeURIComponent(account)}`);
 export const lots = (account = "all") =>
   getJson(`${backendBase()}/api/lots?account=${encodeURIComponent(account)}`);
 export const wash = () => getJson(`${backendBase()}/api/tax/wash`);

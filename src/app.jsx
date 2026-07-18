@@ -11,6 +11,7 @@ import {
 } from "./util.jsx";
 import { MiraRender } from "./mira-render.jsx";
 import { NotebookPanel } from "./notebook.jsx";
+import { PortfolioView } from "./portfolio_view.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
 import { SpxPlaybookView, SpxPlaybookRail, SpxReplayView, PlaybookProvider } from "./spx_forecast.jsx";
@@ -37,6 +38,7 @@ const EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }
 /* ---------------- navigation ---------------- */
 const NAV = [
   { group: "Portfolio", items: [
+    { id: "portfolio", label: "Portfolio", icon: "🧭" },
     { id: "dashboard", label: "Dashboard", icon: "◫" },
     { id: "holdings", label: "Positions", icon: "▤" },
     { id: "tax", label: "Tax", icon: "🌾" },
@@ -452,6 +454,7 @@ function App() {
 
         {/* -------- center pane: routed view -------- */}
         <main id="vg-center" className="vg-pane vg-pane-center">
+          {route === "portfolio" && <PortfolioView accountId={accountId} />}
           {route === "dashboard" && <DashboardView {...viewProps} {...dashProps} notifs={notifs} />}
           {route === "holdings" && <HoldingsView {...viewProps} />}
           {route === "activity" && <ActivityView {...viewProps} />}

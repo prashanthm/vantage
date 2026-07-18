@@ -243,6 +243,58 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         by_currency=alloc.by_currency or {"USD": alloc.total},
                         currency=alloc.currency)
 
+    # default model allocation (mirrors the SPA's ALLOCATION_TARGETS); server-side so
+    # rebalance math has one source. Per-account targets are future work.
+    _ALLOC_TARGETS = {"usEquity": 70.0, "intlEquity": 10.0, "bonds": 15.0, "cash": 5.0}
+
+    @app.get("/api/portfolio/analyze")
+    def portfolio_analyze(account: str = Query("all")):
+        """The Portfolio Analyzer roll-up: diversification (sector + concentration/HHI),
+        income (projected dividends + yield), character (weighted beta/PE), and rebalance
+        drift vs the model targets. One call for the whole section. Point-in-time from
+        holdings; returns/equity-curve are the separate /performance endpoint."""
+        from . import portfolio as _pf
+        from . import fundamentals as _fund
+        check_account(account)
+        snap = state.snapshot()
+        rows = engine.positions(ds.lots, snap.quotes, account, accounts=ds.accounts)
+        positions = to_jsonable(rows)
+        # per-ticker fundamentals, disk-cached (loops read cache; only stale ones fetch).
+        _fcache: dict[str, dict | None] = {}
+
+        def fund_of(sym: str):
+            s = (sym or "").upper()
+            if s not in _fcache:
+                try:
+                    _fcache[s] = _fund.fundamentals(s, store.data_dir)
+                except Exception:  # noqa: BLE001
+                    _fcache[s] = None
+            return _fcache[s]
+
+        alloc = engine.allocation(ds.lots, snap.quotes, account, accounts=ds.accounts)
+        by_class = {cls: {"value": v, "pct": (v / alloc.total * 100) if alloc.total else 0.0}
+                    for cls, v in alloc.by_class.items()}
+        return envelope(snap, account=account,
+                        diversification=_pf.diversification(positions, fund_of),
+                        income=_pf.income(positions, fund_of),
+                        character=_pf.character(positions, fund_of),
+                        rebalance=_pf.rebalance(by_class, _ALLOC_TARGETS, alloc.total),
+                        targets=_ALLOC_TARGETS)
+
+    @app.get("/api/portfolio/performance")
+    def portfolio_performance(account: str = Query("all")):
+        """Portfolio return vs benchmark over time. Needs a valued time series that
+        accrues from a nightly snapshot — until that history exists this reports an
+        honest 'accruing' state rather than a fabricated number."""
+        check_account(account)
+        snap = state.snapshot()
+        # No portfolio_value_history table yet — returns accrue once the nightly job
+        # starts snapshotting. Report the honest empty state (ADR: never fabricate a return).
+        return envelope(snap, account=account, available=False,
+                        note="Portfolio return accrues from a nightly value snapshot — "
+                             "no history yet. Once daily snapshots begin, TWR + benchmark appear here.",
+                        series=[], twr=None, benchmark=None)
+
     @app.get("/api/lots")
     def lots(account: str = Query("all")):
         check_account(account)
