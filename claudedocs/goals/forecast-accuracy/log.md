@@ -89,3 +89,36 @@ range sizing; if anything it over-shrinks or distracts from the levels. Ranks wi
 B1 (GEX) as a no-help feature-add: the target-error bottleneck is not missing
 context fields.
 kept: reverted (env flag OFF = baseline; prompt line reverted).
+
+## B3 prior-day H/L/C as discrete levels → snapshot
+prediction: HELPS modestly — prior-day high/low/close are classic magnets/pivots
+the analyst currently only sees baked into the coach `levels` labels, not as clean
+typed numbers. Explicit prev_high/prev_low/prev_close should tighten targets,
+especially the weak DOWN-calls (prior-day low is a natural downside target). Predict
+median error down ≥3pt, hit not regressed. (Contrast with B1/B2 which added context
+that didn't help — this is a LEVEL, which is what a target IS, so more likely to move
+the number.)
+experiment: guarded `prior_levels` block (prev_high/low/close from the day before,
+env SNAPSHOT_PRIOR_LEVELS) + one prompt line to use them as target/pivot references.
+Re-forecast the 8 E0 days `--run-tag b3` vs E0 same days.
+result: E0 (n=56) median_err 30.2 / mean 37.5 / hit 0.436. B3 (n=56) median_err
+**30.2 (UNCHANGED)** / mean 40.0 / **hit 0.500 (+0.064)**. by_bias: up 0.63, down 0.41.
+verdict: **INCONCLUSIVE on the predicate** (median error flat — the metric the goal
+optimizes). BUT prior-levels gave a real directional lift (hit 0.436→0.50, up-calls
+0.63) — the first variant to move hit-rate. So it doesn't win solo on error, but it's
+a KEEP CANDIDATE for the B11 stack (it improves the guard metric). Notable: the first
+LEVEL-type add to help at all, consistent with 'error bottleneck is not context but
+the analyst's level selection'.
+kept: reverted from baseline (flag OFF) — but flagged for the B11 winners-stack.
+
+## B4 VIX / vol regime → snapshot
+prediction: LIKELY NO HELP on this eval set — VIX was flat (16.1–17.2) across all 8
+days, so it carries almost no discriminating signal here; and B1/B2/B3 show context
+fields don't move median error. Predict median error ≈flat. (Running it anyway per
+the thorough contract + to rule vol-regime out honestly; a higher-VIX eval window
+could differ.) Uses each day's REAL ^VIX daily close (no look-ahead).
+experiment: guarded `vol_regime` block {vix, band} from yfinance ^VIX for the day,
+env SNAPSHOT_VOL_REGIME + a prompt line to scale expected range by VIX band. Re-
+forecast 8 E0 days `--run-tag b4` vs E0.
+result: _running_
+verdict: _pending_
