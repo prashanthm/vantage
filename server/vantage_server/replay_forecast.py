@@ -384,7 +384,7 @@ def build_grade_prompt(bundle: dict) -> str:
     else:
         prior_line = "\nNo prior calibration — this is the baseline.\n"
     return (
-        "You are grading a REPLAY FORECAST run: the SPX-analyst was asked 'what "
+        "You are grading a REPLAY FORECAST run: the forecast-analyst was asked 'what "
         f"will price do?' at each interval step through {b['underlying']} on "
         f"{b['day']} ({b['n_forecasts']} forecasts, {b['n_scored']} resolved). "
         "Your job is to grade how the analyst's read EVOLVED as the tape "

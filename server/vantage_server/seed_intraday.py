@@ -3,7 +3,7 @@
 The DNA path already persists a session's 1m bars when it fetches them (store.
 save_intraday_bars), but that only captures sessions the operator VIEWS. This
 module proactively backfills the trailing ~30 days of 1m SPX every night — while
-yfinance still serves them — so the SPX-analyst forecast loop always has a full
+yfinance still serves them — so the forecast-analyst loop always has a full
 month of 1m history to seed the chart/technicals from, even for sessions never
 opened in the journal.
 

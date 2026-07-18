@@ -2,7 +2,7 @@
 (``liq-levels-mtf`` = pivot BSL/SSL liquidity + mitigation; ``t4t-high-prob-ob`` =
 sweep + displacement + FVG order blocks + breakers).
 
-Pure functions over OHLC lists (no I/O). The SPX-analyst snapshot uses these to
+Pure functions over OHLC lists (no I/O). The forecast-analyst snapshot uses these to
 describe the tape structurally: unswept liquidity, order blocks, fresh FVGs, and
 the "draw" — the level-based magnet the ict-coach goal validated (NOT a 1m FVG,
 which inverted in testing). Validated origins in claudedocs/goals/ict-coach.

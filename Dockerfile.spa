@@ -12,6 +12,8 @@ FROM nginx:alpine
 COPY index.html /usr/share/nginx/html/index.html
 COPY app.js     /usr/share/nginx/html/app.js
 COPY app.css    /usr/share/nginx/html/app.css
+COPY manifest.webmanifest /usr/share/nginx/html/manifest.webmanifest
+COPY icon.svg   /usr/share/nginx/html/icon.svg
 COPY ds         /usr/share/nginx/html/ds
 COPY vendor     /usr/share/nginx/html/vendor
 

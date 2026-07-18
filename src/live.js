@@ -994,13 +994,45 @@ export const saveJournalAnalysis = (body) =>
 export const getJournalAnalyses = (underlying = "SPX") =>
   getJson(`${backendBase()}/api/journal/analysis?underlying=${encodeURIComponent(underlying)}`);
 
-// ── SPX-analyst forecast loop ────────────────────────────────────────────────
+// ── chart-first: multi-timeframe candles for any symbol ──────────────────────
+export const getChart = (symbol, tf = "5m", days = 15) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&days=${days}`,
+    { timeoutMs: 20000 });
+// Manual refresh — force-refetch the source bars for this symbol+tf so new candles
+// appear, then the caller re-pulls getChart.
+// days: 1 = the ↻ quick refresh (today); ~30 = load a fresh ticker's full window.
+export const refreshChart = (symbol, tf = "5m", days = 1) =>
+  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/refresh`, { tf, days },
+    { timeoutMs: 60000 });
+// Chart drawings — persisted per-symbol annotations (Mira-readable context).
+export const getDrawings = (symbol) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`);
+export const saveDrawing = (symbol, drawing) =>
+  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, drawing);
+export const deleteDrawing = (symbol, id) =>
+  postJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/drawings`, { delete: id });
+// Vantage-DNA layers (coach levels / ICT / liquidity / draw / prior / GEX) for a symbol.
+export const getLayers = (symbol) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/layers`, { timeoutMs: 20000 });
+// The investor's own context for a symbol: cost basis + plan target/stop (Position layer).
+export const getPosition = (symbol) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/position`, { timeoutMs: 15000 });
+// The latest stored forecast for a symbol (target/invalidation/path), chart-ready.
+export const getChartForecast = (symbol) =>
+  getJson(`${backendBase()}/api/chart/${encodeURIComponent(symbol)}/forecast`, { timeoutMs: 20000 });
+// Saved replay runs (read-only — no Mira). List summaries + one run's forecasts+scores.
+export const getReplayRuns = (limit = 40) =>
+  getJson(`${backendBase()}/api/replay/runs?limit=${limit}`, { timeoutMs: 20000 });
+export const getReplayRun = (runId) =>
+  getJson(`${backendBase()}/api/replay/${encodeURIComponent(runId)}`, { timeoutMs: 20000 });
+
+// ── forecast-analyst loop (any ticker) ────────────────────────────────────────────────
 // The chart-centric snapshot (price + coach levels + technicals + ICT).
 export const getSpxSnapshot = (day, asOf, symbol = "SPX") =>
   getJson(`${backendBase()}/api/spx/snapshot?symbol=${encodeURIComponent(symbol)}`
     + (day ? `&day=${encodeURIComponent(day)}` : "")
     + (asOf ? `&as_of=${encodeURIComponent(asOf)}` : ""));
-// Persist a forecast the SPA generated via Mira's spx_analyst.
+// Persist a forecast the SPA generated via Mira's forecast_analyst.
 export const saveSpxForecast = (body) =>
   postJson(`${backendBase()}/api/spx/forecast`, body);
 // Stored forecasts (newest first), each with its score if scored.

@@ -10,12 +10,13 @@ import {
   useTheme, THEME_ICON, LoadBar,
 } from "./util.jsx";
 import { MiraRender } from "./mira-render.jsx";
-import { ChartsView, ChartsRail } from "./charts.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
 import { SpxPlaybookView, SpxPlaybookRail, SpxReplayView, PlaybookProvider } from "./spx_forecast.jsx";
 import { ScannerView } from "./scanner.jsx";
+import { InstrumentChartCard } from "./chart_core.jsx";
+import { ReplayPanel } from "./chart_replay_panel.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
 import { TodayView } from "./today.jsx";
@@ -26,7 +27,7 @@ import { TradeAnalyticsView } from "./trades.jsx";
 import * as live from "./live.js";
 import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, mapAnalysis } from "./live.js";
 
-const { useState, useMemo, useEffect, useRef } = React;
+const { useState, useMemo, useEffect, useRef, useCallback } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
 
 // Empty allocation shape (matches mapAllocation) — the no-demo fallback for the
@@ -41,6 +42,8 @@ const NAV = [
     { id: "tax", label: "Tax", icon: "🌾" },
   ]},
   { group: "Intelligence", items: [
+    // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
+    { id: "ic", label: "Chart", icon: "📈" },
     // Today is the trading half's front door: signals + why + honest record +
     // machine health, one screen (see claudedocs/goals/ux-feature-value).
     { id: "today", label: "Today", icon: "🎯" },
@@ -62,27 +65,33 @@ const NAV = [
 //   activity — per-position transactions, reached from a holding
 //   recs     — the full decision journal, reached from the Dashboard Actions "All →"
 //   markets  — live pattern signals, reached from Market read links
-const DRILLDOWN_ROUTES = ["charts", "activity", "recs", "markets"];
+const DRILLDOWN_ROUTES = ["activity", "recs", "markets"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
+// Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
+// Deep-linkable: bookmark or share a specific symbol's chart. `param` is the raw
+// second segment (uppercased for tickers); routes with no param get param=null.
 function useHashRoute() {
-  const initial = () => {
+  const parse = () => {
     const h = window.location.hash.replace(/^#\/?/, "");
-    return ROUTES.includes(h) ? h : "dashboard";
+    const [r, ...rest] = h.split("/");
+    const route = ROUTES.includes(r) ? r : "dashboard";
+    const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
+    return { route, param };
   };
-  const [route, setRoute] = useState(initial);
+  const [state, setState] = useState(parse);
   useEffect(() => {
-    const onHash = () => setRoute(initial());
+    const onHash = () => setState(parse());
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
-  const go = (r) => {
-    window.location.hash = `/${r}`;
-    // Panels scroll independently now — reset the center canvas, not the window.
+  // go("ic", "NVDA") → #/ic/NVDA ; go("holdings") → #/holdings
+  const go = (r, param) => {
+    window.location.hash = param ? `/${r}/${encodeURIComponent(param)}` : `/${r}`;
     const center = document.getElementById("vg-center");
     if (center) center.scrollTo({ top: 0 });
   };
-  return [route, go];
+  return [state.route, go, state.param];
 }
 
 // Mount the playbook state provider only on the playbook route (so its snapshot
@@ -120,7 +129,7 @@ function App() {
   const [settings, setSettings] = useState(loadSettings);
   const [accountId, setAccountId] = useState(settings.defaultAccount);
   const [symbol, setSymbol] = useState("SPY");
-  const [route, go] = useHashRoute();
+  const [route, go, routeParam] = useHashRoute();
   const [playbookTab, setPlaybookTab] = useState("chart");   // chart | replay | plan (0DTE Playbook)
   const [notifs, setNotifs] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -129,12 +138,38 @@ function App() {
   // NotebookLM-style collapsible side panels (component state; default from viewport).
   const [leftOpen, setLeftOpen] = useState(() => window.innerWidth >= 860);
   const [rightOpen, setRightOpen] = useState(() => window.innerWidth >= 1100);
+  // Focus mode: collapse BOTH panes so the chart owns the whole viewport. Remembers
+  // the panes' prior open-state to restore on exit. Toggled by a button + the F key.
+  const [focus, setFocus] = useState(false);
+  const focusPrev = useRef({ left: true, right: true });
+  const enterFocus = useCallback(() => {
+    focusPrev.current = { left: leftOpen, right: rightOpen };
+    setLeftOpen(false); setRightOpen(false); setFocus(true);
+  }, [leftOpen, rightOpen]);
+  const exitFocus = useCallback(() => {
+    setLeftOpen(focusPrev.current.left); setRightOpen(focusPrev.current.right); setFocus(false);
+  }, []);
+  const toggleFocus = useCallback(() => { focus ? exitFocus() : enterFocus(); }, [focus, enterFocus, exitFocus]);
+  // keyboard: F toggles focus mode, Esc exits it — but never while typing in a field.
+  useEffect(() => {
+    const onKey = (e) => {
+      const el = e.target;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "f" || e.key === "F") { e.preventDefault(); toggleFocus(); }
+      else if (e.key === "Escape" && focus) { e.preventDefault(); exitFocus(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleFocus, exitFocus, focus]);
   // Resizable right pane: user-dragged width persisted to localStorage. Clamped
   // to a sane range; the .clps collapse rule (48px) still wins when collapsed.
-  const RIGHT_MIN = 300, RIGHT_MAX = 720;
+  // Max is ~half the viewport (the Replay panel + comparison table want room).
+  const RIGHT_MIN = 300;
+  const rightMax = () => Math.min(1100, Math.round(window.innerWidth * 0.5));
   const [rightWidth, setRightWidth] = useState(() => {
     const saved = Number(localStorage.getItem("vantage.rightWidth"));
-    return saved >= RIGHT_MIN && saved <= RIGHT_MAX ? saved : 360;
+    return saved >= RIGHT_MIN ? Math.min(saved, rightMax()) : 360;
   });
   const [resizing, setResizing] = useState(false);
   const startResize = (e) => {
@@ -144,7 +179,7 @@ function App() {
     const startW = rightWidth;
     const onMove = (ev) => {
       // dragging left (smaller clientX) widens the right pane
-      const next = Math.min(RIGHT_MAX, Math.max(RIGHT_MIN, startW + (startX - ev.clientX)));
+      const next = Math.min(rightMax(), Math.max(RIGHT_MIN, startW + (startX - ev.clientX)));
       setRightWidth(next);
     };
     const onUp = () => {
@@ -247,9 +282,27 @@ function App() {
   // refresh handlers so "how is each account doing" is answered in the brief,
   // not only in the scope selector.
   const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
-  const hasChartRail = route === "charts";
   // the 0DTE Playbook's chart sub-tab renders its forecast RAIL in the right pane
   const isPlaybookChart = route === "playbook" && playbookTab === "chart";
+  // Replay (chart-first): the run selection + which call is highlighted are shared
+  // between the chart overlay (center) and the ReplayPanel (right pane). `replayOn`
+  // makes the right pane show the panel and the chart draw the run's markers.
+  const [replayOn, setReplayOn] = useState(false);
+  const [replayRunId, setReplayRunId] = useState(null);
+  const [activeCallId, setActiveCallId] = useState(null);
+  // the Replay panel takes over the right pane on the chart route when active.
+  const showReplayPanel = route === "ic" && replayOn;
+  // the chart-first route: the instrument the chart is showing (URL param → SPX).
+  const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
+  // keep the shared `symbol` in sync with the chart route so the right-pane
+  // Notebook reads THIS chart's instrument (Mira reading the chart in front of you).
+  useEffect(() => { if (icSymbol) setSymbol(icSymbol); }, [icSymbol]);
+  // reset the replay selection when leaving the chart route or changing instrument —
+  // a run is symbol+day specific, so it shouldn't linger onto another chart.
+  useEffect(() => {
+    if (route !== "ic") { setReplayOn(false); setReplayRunId(null); setActiveCallId(null); }
+  }, [route]);
+  useEffect(() => { setReplayRunId(null); setActiveCallId(null); }, [icSymbol]);
 
   return (
     <div className="vg-app">
@@ -271,13 +324,23 @@ function App() {
         </div>
         <span style={{ padding: "0 14px" }}><LiveStatusDots settings={settings} /></span>
         <div className="tools">
+          <button className="tbtn vg-topbar-bell" onClick={() => setNotifOpen(true)}
+            aria-label="Notifications">🔔{unread > 0 && <span className="vg-bell-cnt">{unread}</span>}</button>
+          <button className={cls("tbtn", focus && "on")} onClick={toggleFocus}
+            title={focus ? "Exit focus (Esc)" : "Focus chart — hide panels (F)"}
+            aria-label="Toggle focus mode">{focus ? "⤢ Exit" : "⤢ Focus"}</button>
           <ThemeButton />
           <button className="tbtn" onClick={() => setSettingsOpen(true)}>Settings</button>
         </div>
       </div>
 
       <MaybePlaybookProvider active={route === "playbook"}>
-      <div className="vg-studio">
+      <div className={cls("vg-studio", (leftOpen || rightOpen) && "drawer-open")}>
+        {/* mobile-only backdrop: tapping it closes whichever drawer is open. A real
+            element (not a ::after) so the tap has a reliable target. CSS hides it
+            >820px and when no drawer is open. */}
+        <div className="vg-mob-backdrop" onClick={() => { setLeftOpen(false); setRightOpen(false); }}
+          aria-hidden="true" />
         {/* -------- left pane: nav + account scope -------- */}
         <aside className={cls("vg-pane", "vg-pane-left", !leftOpen && "clps")}>
           <div className="vg-pane-top">
@@ -398,14 +461,26 @@ function App() {
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
           {route === "playbook" && <PlaybookRoute refreshNonce={refreshNonce} tab={playbookTab} setTab={setPlaybookTab} />}
-          {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("charts"); }} />}
+          {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}
           {route === "journal" && <JournalView refreshNonce={refreshNonce} />}
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
-          {route === "charts" && <ChartsView symbol={symbol} setSymbol={setSymbol} />}
+          {route === "ic" && (
+            <div className="vg-ic-route">
+              <InstrumentChartCard symbol={icSymbol} height="100%"
+                replayActive={replayOn} replayRunId={replayRunId}
+                activeCallId={activeCallId} setActiveCallId={setActiveCallId}
+                onOpenSymbol={(s) => go("ic", s)}
+                onReplayToggle={() => {
+                  const next = !replayOn;
+                  setReplayOn(next);
+                  if (next) setRightOpen(true);          // reveal the panel
+                  else { setReplayRunId(null); setActiveCallId(null); }
+                }} />
+            </div>)}
         </main>
 
         {/* -------- right pane: per-ticker Notebook (default) / chart rail / chat -------- */}
@@ -424,32 +499,48 @@ function App() {
             </button>
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
-                {isPlaybookChart ? "🔮 Forecast" : hasChartRail ? "AI insights" : symbol ? "Notebook" : "Vantage AI"}
+                {showReplayPanel ? "⟲ Replay" : isPlaybookChart ? "🔮 Forecast" : symbol ? "Notebook" : "Vantage AI"}
               </span>
             )}
-            {rightOpen && !hasChartRail && symbol && (
+            {rightOpen && showReplayPanel && (
               <button className="vg-linkbtn" style={{ marginLeft: "auto" }}
-                title={`Open ${underlyingOf(symbol)} on AI Charts`}
-                onClick={() => go("charts")}>chart →</button>
+                title="Back to the Notebook"
+                onClick={() => { setReplayOn(false); setReplayRunId(null); setActiveCallId(null); }}>
+                notebook →</button>
             )}
           </div>
           {!rightOpen && <span className="vg-sparkle" aria-hidden="true">✦</span>}
-          {rightOpen && (isPlaybookChart
+          {rightOpen && (showReplayPanel
+            ? <ReplayPanel symbol={icSymbol} runId={replayRunId} setRunId={setReplayRunId}
+                activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
+            : isPlaybookChart
             ? <SpxPlaybookRail />
-            : hasChartRail
-              ? <div className="vg-pane-body vg-rail"><ChartsRail symbol={symbol} /></div>
-              : symbol
-                ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
-                : <ChatPanel docked settings={settings} />)}
+            : symbol
+              ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
+              : <ChatPanel docked settings={settings} />)}
         </aside>
       </div>
+      {/* mobile-only drawer handles (CSS hides them >820px). Each opens its drawer
+          and closes the other, so only one overlay shows at a time. Hidden in focus. */}
+      {!focus && (
+        <div className="vg-mob-handles">
+          <button className="vg-mob-handle"
+            onClick={() => { setLeftOpen(!leftOpen); setRightOpen(false); }}>
+            ☰ Menu
+          </button>
+          <button className="vg-mob-handle"
+            onClick={() => { setRightOpen(!rightOpen); setLeftOpen(false); }}>
+            ✦ Mira
+          </button>
+        </div>
+      )}
       </MaybePlaybookProvider>
 
       <div className="vg-fabs">
         <button className="vg-fab" aria-label="Notifications" onClick={() => setNotifOpen(true)}>
           🔔{unread > 0 && <span className="cnt">{unread}</span>}
         </button>
-        {(hasChartRail || !rightOpen) && (
+        {!rightOpen && (
           <button className="vg-fab" aria-label="Vantage AI chat" onClick={() => setChatOpen(true)}>💬</button>
         )}
       </div>
@@ -520,7 +611,7 @@ function LiveStatusDots({ settings }) {
 // MONITOR/below-threshold/na items are NOT actions and never appear here.
 // Each action carries an urgency weight (lower = more urgent) and a jump target.
 function buildActionQueue({ decisions, tlh, alloc, totalValue, accountId, settings, go, setSymbol }) {
-  const jumpChart = (sym) => { setSymbol(sym); go("charts"); };
+  const jumpChart = (sym) => { const u = underlyingOf(sym); setSymbol(u); go("ic", u); };
   const out = [];
 
   for (const d of decisions) {
@@ -930,7 +1021,7 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
     });
   }, [pos, byUnderlying, query, kindFilter, recFilter, sortKey]);
 
-  const openChart = (sym) => { if (setSymbol) setSymbol(underlyingOf(sym)); if (go) go("charts"); };
+  const openChart = (sym) => { const u = underlyingOf(sym); if (setSymbol) setSymbol(u); if (go) go("ic", u); };
   const actionable = groups.filter((g) => (REC_ORDER[g._rec?.recommendation] ?? 9) <= 1).length;
 
   return (
@@ -1361,7 +1452,7 @@ function RecsView({ settings, setSymbol, go }) {
     if (wa !== wb) return wa - wb;
     return a.symbol.localeCompare(b.symbol);
   });
-  const jump = (sym) => { setSymbol(sym); go("charts"); };
+  const jump = (sym) => { const u = underlyingOf(sym); setSymbol(u); go("ic", u); };
 
   return (
     <div>

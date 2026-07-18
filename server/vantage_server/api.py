@@ -130,6 +130,25 @@ class NanSafeJSONResponse(JSONResponse):
         ).encode("utf-8")
 
 
+def _chart_prior_levels(store, bar_sym: str, day: str) -> dict:
+    """Prior session's high/low/close for the chart-layers overlay. Loads a short
+    range ending at ``day`` and reads the extremes of the session before it.
+    Empty when only one session is stored. Guarded — never raises."""
+    try:
+        ohlc = store.load_intraday_bars_range(bar_sym, day, "1m", days=3)
+        if not ohlc or not ohlc.get("ts"):
+            return {}
+        bounds = ohlc.get("day_bounds") or {}
+        si = bounds.get(day)
+        if not si or si <= 0:
+            return {}
+        hi, lo, cl = ohlc["high"][:si], ohlc["low"][:si], ohlc["close"]
+        return {"prev_high": round(max(hi), 2), "prev_low": round(min(lo), 2),
+                "prev_close": round(cl[si - 1], 2)}
+    except Exception:
+        return {}
+
+
 def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     store = Store(data_dir)
     state = AppState(store=store, dataset=store.load_dataset())
@@ -445,12 +464,209 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         session=row["session"], symbol=sym, script=script,
                         webhook_configured=bool(secret))
 
+    @app.get("/api/chart/{symbol}")
+    def chart_view(symbol: str, tf: str = Query("5m"), days: int = Query(15)):
+        """Multi-timeframe candles for ANY symbol — the data behind the chart-first
+        UI. tf ∈ {1m,5m,15m,1H,1D}. Read-only; sourced from stored bars (1m/60m
+        intraday + the daily table). available=False when the tf has no stored bars."""
+        from . import chart_data as _cd
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="chart needs the SQLite backend")
+        try:
+            out = _cd.chart_candles(store, (symbol or "SPX").upper(), tf, days)
+        except Exception as e:  # noqa: BLE001 — a bad bar row must never 500 the chart
+            return envelope(snap, available=False, symbol=symbol, tf=tf,
+                            note=f"chart build failed: {e}")
+        return envelope(snap, **out)
+
+    @app.post("/api/chart/{symbol}/refresh")
+    def chart_refresh(symbol: str, body: dict = Body(default={})):
+        """Manual chart refresh: force-refetch the bars backing the given timeframe
+        for THIS symbol, so new candles appear. Intraday tfs refetch 1m (today);
+        1H/4H refetch 60m; 1D+ note that daily updates nightly. Writes only our own
+        store (intraday bars); no broker/order path (ADR-010)."""
+        from . import chart_data as _cd
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="chart needs the SQLite backend")
+        sym = (symbol or "SPX").upper()
+        bar_sym = _cd._bar_sym(sym)
+        tf = str(body.get("tf") or "5m")
+        src = _cd._TF.get(tf, ("1m", ""))[0]
+        # days: the ↻ refresh sends 1 (force-refetch today); loading a fresh ticker
+        # sends ~30 to backfill the full window yfinance serves (idempotent — skips
+        # days already stored, so it's not a re-fetch of what's there).
+        days = max(1, min(30, int(body.get("days") or 1)))
+        note = None
+        try:
+            if src == "1m":
+                from . import seed_intraday as _seed
+                _seed.seed(store, symbol=bar_sym, days=days, force=(days == 1))
+            elif src == "60m":
+                from . import scanner as _sc
+                _sc.seed_hourly(store, [bar_sym], lookback_days=max(5, days))
+            else:
+                note = "daily/weekly/monthly bars update on the nightly job."
+        except Exception as e:  # noqa: BLE001
+            return envelope(snap, available=False, note=f"refresh failed: {e}")
+        return envelope(snap, available=True, symbol=sym, tf=tf, note=note)
+
+    @app.get("/api/chart/{symbol}/drawings")
+    def chart_drawings_list(symbol: str):
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, drawings=[], note="drawings need the SQLite backend")
+        drawings = store.load_chart_drawings((symbol or "").upper())
+        return envelope(snap, available=True, symbol=symbol.upper(), drawings=drawings)
+
+    @app.post("/api/chart/{symbol}/drawings")
+    def chart_drawings_upsert(symbol: str, body: dict = Body(...)):
+        """Create or update one drawing (client-generated id → idempotent upsert).
+        POST per the codebase's POST-only write convention (ADR-010). A body with
+        {delete: <id>} removes that drawing; otherwise it upserts. Writes only the
+        chart_drawings table; no broker/order path."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="drawings need the SQLite backend")
+        del_id = str(body.get("delete") or "").strip()
+        if del_id:
+            removed = store.delete_chart_drawing(del_id)
+            return envelope(snap, available=True, removed=removed)
+        kind = str(body.get("kind") or "")
+        if kind not in ("hline", "trendline", "ray", "rect"):
+            raise HTTPException(status_code=422, detail=f"unknown drawing kind: {kind!r}")
+        did = str(body.get("id") or "").strip()
+        if not did:
+            raise HTTPException(status_code=422, detail="drawing id required")
+        import datetime as _dt
+        now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+        row = store.upsert_chart_drawing(
+            {"id": did, "symbol": (symbol or "").upper(), "kind": kind,
+             "points": body.get("points") or [], "style": body.get("style") or {}},
+            now=now)
+        return envelope(snap, available=True, drawing=row)
+
+    @app.get("/api/chart/{symbol}/layers")
+    def chart_layers(symbol: str):
+        """The Vantage-DNA layers for a symbol, as price-level annotations the chart
+        draws as toggleable overlays: coach levels (playbook symbols only), ICT order
+        blocks / FVGs / unswept liquidity / the DRAW (any symbol, from bars), prior-day
+        H/L/C, and GEX anchors (playbook symbols with a chain). Read-only; derived from
+        the same build_snapshot the Playbook uses. Non-playbook symbols get the
+        bars-derived layers only — surfaced honestly via `has_levels`."""
+        from . import spx_snapshot as _snap
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="layers need the SQLite backend")
+        sym = (symbol or "SPX").upper()
+        bar_sym = "^GSPC" if sym == "SPX" else sym
+        day = store.latest_intraday_day(bar_sym, "1m")
+        if not day:
+            return envelope(snap, available=False, symbol=sym,
+                            note=f"no intraday bars stored for {sym} yet")
+        try:
+            built = _snap.build_snapshot(store, day, sym)
+        except Exception:  # never 500 — a symbol without a playbook is normal
+            built = None
+        if not built:
+            return envelope(snap, available=False, symbol=sym,
+                            note=f"could not build layers for {sym}")
+        playbook_syms = ("SPX", "QQQ", "IWM")
+        ict = built.get("ict") or {}
+        prior = _chart_prior_levels(store, bar_sym, day)
+        layers = {
+            "levels": built.get("levels") or [],           # coach ladder (playbook only)
+            "order_blocks": ict.get("active_order_blocks") or [],
+            "fvgs": ict.get("fresh_fvgs") or [],
+            "liquidity": ict.get("unswept_liquidity") or {},
+            "draw": ict.get("draw") or None,
+            "prior": prior,
+            "gex": built.get("gex_anchors") or {},
+            "price": built.get("price"),
+        }
+        return envelope(snap, available=True, symbol=sym, day=day,
+                        has_levels=(sym in playbook_syms), layers=layers)
+
+    @app.get("/api/chart/{symbol}/position")
+    def chart_position(symbol: str):
+        """The investor's own context for a symbol, drawn as the Position chart layer:
+        cost_basis (weighted avg of held lots) + the ticker-plan target/stop. Read-only.
+        Empty (available fields null) when the symbol isn't held / has no plan."""
+        snap = state.snapshot()
+        sym = (symbol or "").upper()
+        # weighted-avg cost basis across every lot of this symbol (any account).
+        cost_basis = None
+        try:
+            lots = [l for l in store.load_lots() if (l.symbol or "").upper() == sym]
+            tot_sh = sum(l.shares for l in lots)
+            if tot_sh > 0:
+                cost_basis = round(sum(l.shares * l.cost_per_share for l in lots) / tot_sh, 2)
+        except Exception:  # noqa: BLE001
+            cost_basis = None
+        plan = None
+        if getattr(store, "uses_sqlite", False):
+            try:
+                p = store.load_ticker_plan(sym) or {}
+                plan = {"target": _num(p.get("target")), "stop": _num(p.get("stop")),
+                        "thesis": p.get("thesis") or None}
+            except Exception:  # noqa: BLE001
+                plan = None
+        held = cost_basis is not None
+        return envelope(snap, available=(held or bool(plan)), symbol=sym,
+                        cost_basis=cost_basis, plan=plan, held=held)
+
+    @app.get("/api/chart/{symbol}/forecast")
+    def chart_forecast(symbol: str):
+        """The latest stored forecast for a symbol, parsed into chart-ready fields:
+        {as_of, price_at, bias, target, invalidation, path[], score}. Read-only;
+        the chart's Forecast layer draws target/invalidation as reference lines and
+        projects the numbered path forward from as_of. Empty when no forecast exists."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="forecasts need the SQLite backend")
+        sym = (symbol or "SPX").upper()
+        rows = store.list_spx_forecasts(sym, None, 1)
+        if not rows:
+            return envelope(snap, available=False, symbol=sym, note=f"no forecast for {sym} yet")
+        row = rows[0]
+        fc = row.get("forecast") or {}
+        plot = fc.get("plot") if isinstance(fc, dict) else None
+        if not isinstance(plot, dict):
+            return envelope(snap, available=False, symbol=sym,
+                            note="forecast has no structured plot")
+
+        def _num(v):
+            try:
+                n = float(v)
+                return n if n == n else None  # drop NaN
+            except (TypeError, ValueError):
+                return None
+
+        b = str(plot.get("bias") or "").lower()
+        bias = "down" if any(k in b for k in ("down", "bear", "short")) \
+            else "up" if any(k in b for k in ("up", "bull", "long")) else b
+        path = []
+        for i, st in enumerate(plot.get("path") or []):
+            price = _num(st.get("price"))
+            if price is None:
+                continue
+            path.append({"seq": int(_num(st.get("seq")) or i + 1), "price": price,
+                         "note": str(st.get("note") or "")[:40]})
+            if len(path) >= 5:
+                break
+        return envelope(snap, available=True, symbol=sym, as_of=row.get("as_of"),
+                        price_at=row.get("price_at"), forecast={
+                            "bias": bias, "target": _num(plot.get("target")),
+                            "invalidation": _num(plot.get("invalidation")),
+                            "path": path, "score": row.get("score")})
+
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),
                           as_of: str | None = Query(None)):
-        """The chart-centric SNAPSHOT for the SPX-analyst forecast loop: price +
-        the coach's playbook levels + live technicals (VWAP/RSI/rel-vol/ATR) +
+        """The chart-centric SNAPSHOT for the forecast-analyst loop (any ticker):
+        price + the coach's playbook levels + live technicals (VWAP/RSI/rel-vol/ATR) +
         the ICT structures (unswept liquidity, active order blocks, fresh FVGs,
         the level-based draw), from the persisted 1m bars. ``day`` defaults to the
         latest stored session; ``as_of`` (ISO time) truncates mid-session."""
@@ -533,7 +749,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     @app.post("/api/spx/forecast")
     def spx_forecast_save(body: dict = Body(default={})):
         """Persist a 'what will price do?' forecast the SPA generated via Mira's
-        spx_analyst. Body: {day, as_of, symbol?, snapshot, forecast?, forecast_text}.
+        forecast_analyst. Body: {day, as_of, symbol?, snapshot, forecast?, forecast_text}.
         Backend stays Mira-free (the SPA owns the LLM call); this only stores the
         result so it compounds and can be scored later. Returns the new id."""
         snap = state.snapshot()

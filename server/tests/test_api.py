@@ -500,7 +500,7 @@ ALLOWED_WRITE_ROUTES = {
     # send one outbound Telegram message — no broker / order path (ADR-010 holds).
     "/api/reclaim-bot/webhook-secret",
     "/webhook/tradingview",
-    # SPX-analyst forecasts — persist a 'what will price do' read + score it later.
+    # forecast-analyst forecasts — persist a 'what will price do' read + score it later.
     # Writes only our own SQLite; no broker/order path (ADR-010 holds).
     "/api/spx/forecast",
     "/api/spx/forecast/{fid}/score",
@@ -522,6 +522,14 @@ ALLOWED_WRITE_ROUTES = {
     # 60m bars, scanner_result); no broker/order path (ADR-010 holds).
     "/api/scanner/refresh",
     "/api/scanner/tickers",
+    # Manual chart refresh: force-refetch the source bars (1m/60m) for a symbol so
+    # new candles appear. Writes only our own SQLite (intraday bars); no broker/order
+    # path (ADR-010 holds).
+    "/api/chart/{symbol}/refresh",
+    # Chart drawings — upsert/delete user-drawn annotations (client-generated id →
+    # idempotent). POST-only per convention ({delete:id} removes). Writes only our
+    # own SQLite (chart_drawings); no broker/order path (ADR-010 holds).
+    "/api/chart/{symbol}/drawings",
 }
 
 

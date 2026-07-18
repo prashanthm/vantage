@@ -159,6 +159,7 @@ body {
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
 }
 .vg-topbar .tbtn:hover { color: var(--vg-ink); }
+.vg-topbar .tbtn.on { color: var(--vg-accent); }
 .vg-live { gap: 6px; font-size: var(--vg-text-xs); color: var(--vg-faint); padding: 0 var(--vg-sp-4); white-space: nowrap; }
 .vg-live::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--vg-up); }
 
@@ -202,6 +203,57 @@ body {
 @media (max-width: 1439px) { .vg-pane-right { width: 320px; } }
 .vg-pane-left.clps, .vg-pane-right.clps { width: 48px; }
 @media (max-width: 1439px) { .vg-pane-right.clps { width: 48px; } }
+
+/* ── mobile (<820px): single chart + off-canvas drawers ──────────────────────
+   The three-pane grid collapses to one column — the center chart owns the screen,
+   correct for a chart-first product. The left (nav) and right (Mira) panes become
+   fixed slide-over drawers, toggled by the same leftOpen/rightOpen state + the
+   mobile handles. A backdrop dims the chart while a drawer is open. */
+@media (max-width: 820px) {
+  .vg-studio { display: block; position: relative; }
+  .vg-pane-center { height: 100%; }
+  .vg-pane-left, .vg-pane-right {
+    position: fixed; top: 0; bottom: 0; z-index: 40;
+    width: min(86vw, 340px); box-shadow: 0 0 40px rgba(0,0,0,0.28);
+    transition: transform 0.22s ease; will-change: transform;
+  }
+  .vg-pane-left { left: 0; transform: translateX(-100%); }
+  .vg-pane-right { right: 0; left: auto; transform: translateX(100%); width: min(86vw, 360px); }
+  /* .clps is the CLOSED state on desktop; on mobile "not collapsed" = drawer open */
+  .vg-pane-left:not(.clps) { transform: translateX(0); }
+  .vg-pane-right:not(.clps) { transform: translateX(0); }
+  .vg-pane-left.clps, .vg-pane-right.clps { width: min(86vw, 340px); }  /* keep width; transform hides it */
+  .vg-resize-handle { display: none; }              /* no drag-resize on touch */
+  /* backdrop appears when either drawer is open (studio gets .drawer-open) */
+  .vg-studio.drawer-open .vg-mob-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 39;
+    background: rgba(0,0,0,0.32);
+  }
+  /* mobile drawer handles — two pills that pull the nav / Mira in */
+  .vg-mob-handles { position: fixed; bottom: 16px; left: 0; right: 0; z-index: 38;
+    display: flex; justify-content: space-between; padding: 0 14px; pointer-events: none; }
+  .vg-mob-handle { pointer-events: auto; font: 600 12px/1 var(--vg-font-ui);
+    color: var(--vg-ink); background: var(--vg-pane); border: 1px solid var(--vg-rule);
+    border-radius: 999px; padding: 10px 16px; min-height: 40px; cursor: pointer;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.18); display: inline-flex; align-items: center; gap: 6px; }
+  /* touch-size the chart chips + tools so they're tappable */
+  .vg-ic-tfb, .vg-ic-chip { min-height: 30px; padding: 5px 11px; }
+  .vg-ic-tool, .vg-ic-refresh { width: 32px; height: 30px; }
+  .vg-ic-head, .vg-ic-inds, .vg-ic-layers { gap: 5px 6px; }
+  /* FAB hide is defined AFTER the base .vg-fabs rule (source order beats an equal-
+     specificity earlier rule even inside a media query) — see below. */
+}
+/* the handles + backdrop live in the DOM always but only show on mobile */
+.vg-mob-handles { display: none; }
+.vg-mob-backdrop { display: none; }
+.vg-topbar .tbtn.vg-topbar-bell { display: none; position: relative; }
+.vg-bell-cnt { position: absolute; top: 4px; right: 2px; background: var(--vg-down);
+  color: #fff; font-size: 9px; font-weight: 700; border-radius: 999px; min-width: 15px;
+  height: 15px; display: inline-flex; align-items: center; justify-content: center; padding: 0 3px; }
+@media (max-width: 820px) {
+  .vg-mob-handles { display: flex; }
+  .vg-topbar .tbtn.vg-topbar-bell { display: inline-flex; }
+}
 .vg-pane-right.resizing { user-select: none; }
 
 /* Drag handle on the right pane's left edge */
@@ -217,6 +269,11 @@ body {
 .vg-resize-handle:hover::before,
 .vg-pane-right.resizing .vg-resize-handle::before { background: var(--vg-accent); }
 .vg-pane-center { display: block; overflow-y: auto; padding: var(--vg-sp-5) var(--vg-sp-6) var(--vg-sp-8); }
+/* the chart-first route fills the whole center pane (no page padding/scroll) so
+   the chart owns the canvas; the InstrumentChart itself handles its own layout. */
+.vg-pane-center:has(.vg-ic-route) { padding: 0; overflow: hidden; }
+.vg-ic-route { height: 100%; display: flex; flex-direction: column; }
+.vg-ic-route .vg-ic { flex: 1; min-height: 0; border: none; border-radius: 0; }
 
 .vg-pane-top {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -434,6 +491,10 @@ body {
 
 /* floating buttons */
 .vg-fabs { position: fixed; right: 22px; bottom: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 50; }
+/* mobile: the drawer handles cover the FABs' function and the chat FAB collides
+   with the ✦ Mira handle — hide the whole stack (bell moved into the topbar). This
+   sits AFTER the base rule so it wins at equal specificity inside the media query. */
+@media (max-width: 820px) { .vg-fabs { display: none; } }
 .vg-fab {
   width: 48px; height: 48px; border-radius: 999px; border: 1px solid var(--vg-hairline);
   background: var(--vg-card); color: var(--vg-ink); font-size: 20px; cursor: pointer; position: relative;
@@ -980,6 +1041,117 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-fc-price-sm { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .vg-fc-caret { margin-left: auto; color: var(--vg-dim); font-size: 11px; }
 .vg-fc-rowbody { padding: 6px 2px 12px; }
+
+/* ── InstrumentChart (chart_core.jsx — the chart-first canvas) ────────────── */
+.vg-ic { display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden; }
+.vg-ic-head { display: flex; align-items: center; gap: 12px; padding: 9px 13px;
+  border-bottom: 1px solid var(--vg-hairline); flex-wrap: wrap; }
+.vg-ic-sym { font-family: var(--vg-font-data); font-weight: 700; font-size: 15px; }
+.vg-ic-syminput { font-family: var(--vg-font-data); font-size: 12px; width: 68px;
+  border: 1px solid var(--vg-hairline); background: var(--vg-card); color: var(--vg-ink);
+  border-radius: 5px; padding: 3px 7px; text-transform: uppercase; }
+.vg-ic-syminput:focus { border-color: var(--vg-accent); outline: none; }
+.vg-ic-px { font-family: var(--vg-font-data); font-size: 14px; font-variant-numeric: tabular-nums; }
+.vg-ic-ohlc { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim);
+  font-variant-numeric: tabular-nums; }
+.vg-ic-ohlc.up { color: var(--vg-up); } .vg-ic-ohlc.down { color: var(--vg-down); }
+.vg-ic-tf { display: flex; gap: 2px; margin-left: auto; }
+.vg-ic-tfb { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim);
+  border: 1px solid var(--vg-hairline); background: transparent; padding: 3px 9px;
+  border-radius: 5px; cursor: pointer; }
+.vg-ic-tfb:hover { color: var(--vg-ink); }
+.vg-ic-tfb.on { color: var(--vg-accent); border-color: var(--vg-accent);
+  background: var(--vg-accent-soft); font-weight: 600; }
+.vg-ic-refresh { font-family: var(--vg-font-data); font-size: 14px; line-height: 1;
+  color: var(--vg-dim); border: 1px solid var(--vg-hairline); background: transparent;
+  width: 26px; height: 26px; border-radius: 5px; cursor: pointer; margin-left: 4px;
+  display: inline-flex; align-items: center; justify-content: center; }
+.vg-ic-refresh:hover:not(:disabled) { color: var(--vg-accent); border-color: var(--vg-accent); }
+.vg-ic-refresh:disabled { cursor: default; opacity: 0.7; }
+.vg-ic-refresh.spin { animation: vg-ic-spin 0.8s linear infinite; }
+@keyframes vg-ic-spin { to { transform: rotate(360deg); } }
+.vg-ic-inds { display: flex; gap: 4px; padding: 4px 13px 6px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--vg-hairline); }
+.vg-ic-chip { font-family: var(--vg-font-data); font-size: 10.5px; letter-spacing: 0.02em;
+  color: var(--vg-dim); border: 1px solid var(--vg-hairline); background: transparent;
+  padding: 2px 8px; border-radius: 4px; cursor: pointer; }
+.vg-ic-chip:hover:not(:disabled) { color: var(--vg-ink); }
+.vg-ic-chip.on { color: var(--vg-accent); border-color: var(--vg-accent);
+  background: var(--vg-accent-soft); font-weight: 600; }
+.vg-ic-chip.off { opacity: 0.4; cursor: not-allowed; }
+.vg-ic-tools { display: flex; gap: 3px; align-items: center; margin-left: auto; }
+.vg-ic-tool { font-family: var(--vg-font-data); font-size: 12px; line-height: 1;
+  color: var(--vg-dim); border: 1px solid var(--vg-hairline); background: transparent;
+  width: 24px; height: 22px; border-radius: 4px; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; }
+.vg-ic-tool:hover:not(:disabled) { color: var(--vg-ink); border-color: var(--vg-rule); }
+.vg-ic-tool.on { color: var(--vg-accent); border-color: var(--vg-accent);
+  background: var(--vg-accent-soft); }
+.vg-ic-tool:disabled { opacity: 0.35; cursor: default; }
+.vg-ic-hint { font-family: var(--vg-font-data); font-size: 10px; color: var(--vg-accent);
+  padding: 0 2px; }
+.vg-ic-layers { display: flex; gap: 4px; align-items: center; padding: 4px 13px 6px;
+  flex-wrap: wrap; border-bottom: 1px solid var(--vg-hairline); }
+.vg-ic-layers-tag { font-family: var(--vg-font-data); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--vg-dim); padding-right: 4px; }
+.vg-ic-layers-note { font-family: var(--vg-font-ui); font-size: 10px; color: var(--vg-dim);
+  font-style: italic; margin-left: 4px; }
+/* Replay legend + comparison table strip under the chart (reuses .vg-fc-cmp). */
+.vg-ic-legend { display: flex; flex-wrap: wrap; gap: 12px; padding: 6px 13px 0;
+  font-size: 11px; color: var(--vg-dim); }
+.vg-ic-legend span { display: inline-flex; align-items: center; gap: 5px; }
+/* the table shares the chart's height: capped height with its OWN scroll, so it's
+   visible below the chart without page-scrolling past a full-height chart. */
+.vg-ic-cmpwrap { overflow: auto; border-top: 1px solid var(--vg-hairline);
+  flex: 0 0 auto; max-height: 40%; }
+/* ── Replay panel (right pane, chart-first) ──────────────────────────────────── */
+.vg-rp { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; flex: 1; }
+.vg-rp-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px 8px;
+  flex-wrap: wrap; }
+.vg-rp-title { font: 600 var(--vg-text-md) var(--vg-font-ui); color: var(--vg-ink); }
+.vg-rp-runpick { font-family: var(--vg-font-data); font-size: 12px; color: var(--vg-ink);
+  border: 1px solid var(--vg-accent); background: var(--vg-accent-soft); border-radius: 5px;
+  padding: 4px 8px; cursor: pointer; flex: 1; min-width: 0; }
+.vg-rp-summary { display: flex; align-items: center; gap: 8px; padding: 4px 14px 10px;
+  border-bottom: 1px solid var(--vg-hairline); flex-wrap: wrap; }
+.vg-rp-day { font-family: var(--vg-font-data); font-size: 12px; color: var(--vg-ink); font-weight: 600; }
+.vg-rp-stat { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim); }
+.vg-rp-grade { padding: 8px 14px; border-bottom: 1px solid var(--vg-hairline);
+  font-size: var(--vg-text-sm); color: var(--vg-dim); }
+.vg-rp-calls { display: flex; flex-direction: column; }
+.vg-rp-call { border-bottom: 1px solid var(--vg-hairline); }
+.vg-rp-call.on { background: var(--vg-accent-soft); }
+.vg-rp-callhead { display: flex; align-items: center; gap: 8px; padding: 9px 14px; cursor: pointer; }
+.vg-rp-callhead:hover { background: var(--vg-raised); }
+.vg-rp-time { font-family: var(--vg-font-data); font-size: 12px; color: var(--vg-ink); font-weight: 600; }
+.vg-rp-px { font-family: var(--vg-font-data); font-size: 11px; color: var(--vg-dim); }
+.vg-rp-caret { margin-left: auto; color: var(--vg-dim); font-size: 11px; }
+.vg-rp-callbody { padding: 4px 14px 12px; }
+/* new-replay controls + generate progress */
+.vg-rp-gen { padding: 6px 14px 10px; border-bottom: 1px solid var(--vg-hairline);
+  display: flex; flex-direction: column; gap: 6px; }
+.vg-rp-genform { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.vg-rp-date, .vg-rp-step { font-family: var(--vg-font-data); font-size: 12px;
+  border: 1px solid var(--vg-hairline); background: var(--vg-card); color: var(--vg-ink);
+  border-radius: 5px; padding: 3px 6px; }
+.vg-rp-genprog { display: flex; align-items: center; gap: 10px; }
+.vg-rp-gennote { padding: 0; color: var(--vg-down); }
+/* run-level analysis (grade) block atop the calls */
+.vg-rp-gradeblock { border-bottom: 1px solid var(--vg-hairline); }
+.vg-rp-gradehead { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }
+.vg-rp-gradelabel { font: 600 11px/1 var(--vg-font-ui); letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--vg-dim); display: inline-flex; align-items: center; gap: 5px; }
+.vg-rp-gradehint { padding: 0 14px 10px; }
+.vg-ic-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.vg-ic-canvas { flex: 1; width: 100%; min-height: 340px; }
+/* when the table shares the view, let the chart body shrink (min-height:0) so the
+   table fits on screen too, instead of forcing a page-scroll past the chart. */
+.vg-ic:has(.vg-ic-cmpwrap) .vg-ic-canvas { min-height: 0; }
+/* when the replay table is present, hold the chart body at a firm minimum so the
+   layout overflows .vg-ic (which scrolls) instead of the flexbox crushing the chart
+   and clipping the table against the pane bottom. */
+.vg-ic-empty { position: absolute; inset: 0; display: flex; flex-direction: column;
+  gap: 10px; align-items: center; justify-content: center; }
 
 /* ── Replay Forecast (spx_forecast.jsx SpxReplayView) ─────────────────────── */
 .vg-fc-progress { height: 6px; border-radius: 3px; background: var(--vg-raised);

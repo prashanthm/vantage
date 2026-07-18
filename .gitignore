@@ -6,3 +6,6 @@ logs/
 # Local env with real paths/secrets — never commit
 deploy/.env
 .env
+
+# goal-experiment scratch scripts (kept locally, not committed)
+server/scratch/
