@@ -54,6 +54,21 @@ single shipped run (0.605) — the analyst is near coin-flip on direction over a
 varied set, so both error AND directional accuracy have real headroom.
 kept: this is THE baseline for arms B/C/D.
 
+## B1 GEX anchors (gamma_flip/call_wall/put_wall/max_pain/net_gex) → snapshot
+prediction: helps — 0DTE gravitates to walls/flip; downside anchors should tighten
+the weak down-call targets (A1).
+experiment: add a guarded `gex_anchors` block to build_snapshot (env-gated) + a
+prompt line telling the analyst to weight targets toward these magnets. Re-forecast
+the 5 GEX-available days (07-10..07-16, gex_history only goes back to 07-10) with
+`--run-tag b1`; compare to E0 on the SAME 5 days.
+result: E0 (5 days, n=35) median_err 36.4 / hit 0.457. B1 (n=35) median_err **37.7**
+/ hit **0.486**. Error +1.3 (worse), hit +0.03 — both within LLM run-to-run noise.
+verdict: **inconclusive / no material improvement.** The analyst already has
+GEX-derived levels baked into the coach `levels` ladder, so discrete anchors added
+little. Target-error bottleneck is NOT a lack of level references.
+kept: reverted (snapshot block left behind the env flag OFF = baseline; prompt line
+reverted).
+
 ## Status note — this is a multi-hour LLM pursuit
 Each B/C variant = re-forecasting the eval set (~56-147 turns, 20-70 min). ~20
 experiments ahead. Pacing via /loop so it survives idle gaps; E0 + Arm A (metric)

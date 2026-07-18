@@ -196,7 +196,32 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
             "draw": draw,                      # the validated level-based magnet
         },
         "ict_htf": ict_htf,   # backtest-validated hourly heads-up (drop to LTF)
+        **_gex_anchors_block(store, day, symbol),
     }
+
+
+def _gex_anchors_block(store, day: str, symbol: str) -> dict:
+    """EXPERIMENT B1 (goal: forecast-accuracy): discrete GEX anchors for the day —
+    gamma_flip / call_wall / put_wall / max_pain / net_gex_bn — as typed levels the
+    0DTE tape gravitates to. Gated by env SNAPSHOT_GEX_ANCHORS so it's a clean A/B
+    (off = the E0 baseline, unchanged). Guarded: any lookup failure degrades to no
+    block, never crashes. Only available for days with a stored gex_history row."""
+    import os
+    if os.environ.get("SNAPSHOT_GEX_ANCHORS", "").lower() not in ("1", "true", "on"):
+        return {}
+    try:
+        gex_sym = "^SPX" if symbol == "SPX" else symbol
+        hist = store.load_gex_history(gex_sym) if hasattr(store, "load_gex_history") else []
+        row = next((r for r in hist if r.get("date") == day), None)
+        if not row:
+            return {}
+        anchors = {k: row.get(k) for k in
+                   ("gamma_flip", "call_wall", "put_wall", "max_pain",
+                    "net_gex_bn", "regime")
+                   if row.get(k) is not None}
+        return {"gex_anchors": anchors} if anchors else {}
+    except Exception:  # never let the experiment block break the snapshot
+        return {}
 
 
 def _num(v):
