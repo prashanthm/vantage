@@ -1025,6 +1025,12 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-ic-tool:disabled { opacity: 0.35; cursor: default; }
 .vg-ic-hint { font-family: var(--vg-font-data); font-size: 10px; color: var(--vg-accent);
   padding: 0 2px; }
+.vg-ic-layers { display: flex; gap: 4px; align-items: center; padding: 4px 13px 6px;
+  flex-wrap: wrap; border-bottom: 1px solid var(--vg-hairline); }
+.vg-ic-layers-tag { font-family: var(--vg-font-data); font-size: 9px; letter-spacing: 0.08em;
+  color: var(--vg-dim); padding-right: 4px; }
+.vg-ic-layers-note { font-family: var(--vg-font-ui); font-size: 10px; color: var(--vg-dim);
+  font-style: italic; margin-left: 4px; }
 .vg-ic-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .vg-ic-canvas { flex: 1; width: 100%; min-height: 340px; }
 .vg-ic-empty { position: absolute; inset: 0; display: flex; align-items: center;

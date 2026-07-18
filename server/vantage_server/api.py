@@ -130,6 +130,25 @@ class NanSafeJSONResponse(JSONResponse):
         ).encode("utf-8")
 
 
+def _chart_prior_levels(store, bar_sym: str, day: str) -> dict:
+    """Prior session's high/low/close for the chart-layers overlay. Loads a short
+    range ending at ``day`` and reads the extremes of the session before it.
+    Empty when only one session is stored. Guarded — never raises."""
+    try:
+        ohlc = store.load_intraday_bars_range(bar_sym, day, "1m", days=3)
+        if not ohlc or not ohlc.get("ts"):
+            return {}
+        bounds = ohlc.get("day_bounds") or {}
+        si = bounds.get(day)
+        if not si or si <= 0:
+            return {}
+        hi, lo, cl = ohlc["high"][:si], ohlc["low"][:si], ohlc["close"]
+        return {"prev_high": round(max(hi), 2), "prev_low": round(min(lo), 2),
+                "prev_close": round(cl[si - 1], 2)}
+    except Exception:
+        return {}
+
+
 def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     store = Store(data_dir)
     state = AppState(store=store, dataset=store.load_dataset())
@@ -523,6 +542,47 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
              "points": body.get("points") or [], "style": body.get("style") or {}},
             now=now)
         return envelope(snap, available=True, drawing=row)
+
+    @app.get("/api/chart/{symbol}/layers")
+    def chart_layers(symbol: str):
+        """The Vantage-DNA layers for a symbol, as price-level annotations the chart
+        draws as toggleable overlays: coach levels (playbook symbols only), ICT order
+        blocks / FVGs / unswept liquidity / the DRAW (any symbol, from bars), prior-day
+        H/L/C, and GEX anchors (playbook symbols with a chain). Read-only; derived from
+        the same build_snapshot the Playbook uses. Non-playbook symbols get the
+        bars-derived layers only — surfaced honestly via `has_levels`."""
+        from . import spx_snapshot as _snap
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="layers need the SQLite backend")
+        sym = (symbol or "SPX").upper()
+        bar_sym = "^GSPC" if sym == "SPX" else sym
+        day = store.latest_intraday_day(bar_sym, "1m")
+        if not day:
+            return envelope(snap, available=False, symbol=sym,
+                            note=f"no intraday bars stored for {sym} yet")
+        try:
+            built = _snap.build_snapshot(store, day, sym)
+        except Exception:  # never 500 — a symbol without a playbook is normal
+            built = None
+        if not built:
+            return envelope(snap, available=False, symbol=sym,
+                            note=f"could not build layers for {sym}")
+        playbook_syms = ("SPX", "QQQ", "IWM")
+        ict = built.get("ict") or {}
+        prior = _chart_prior_levels(store, bar_sym, day)
+        layers = {
+            "levels": built.get("levels") or [],           # coach ladder (playbook only)
+            "order_blocks": ict.get("active_order_blocks") or [],
+            "fvgs": ict.get("fresh_fvgs") or [],
+            "liquidity": ict.get("unswept_liquidity") or {},
+            "draw": ict.get("draw") or None,
+            "prior": prior,
+            "gex": built.get("gex_anchors") or {},
+            "price": built.get("price"),
+        }
+        return envelope(snap, available=True, symbol=sym, day=day,
+                        has_levels=(sym in playbook_syms), layers=layers)
 
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),

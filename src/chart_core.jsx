@@ -10,9 +10,10 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar } from "./util.jsx";
 import { chartTheme } from "./charts.jsx";
-import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing } from "./live.js";
+import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
 import { drawOne, removeOne } from "./chart_drawings.jsx";
+import { LAYERS, LAYER_DRAWERS, removeLayerHandle } from "./chart_layers.jsx";
 
 const { useState, useRef, useEffect, useCallback } = React;
 
@@ -53,6 +54,15 @@ const savePref = (set) => {
 };
 // timeframes that carry per-bar volume (intraday); daily+ store volume=0.
 const TF_HAS_VOLUME = (tf) => ["1m", "5m", "15m", "1H", "4H"].includes(tf);
+
+const LAYER_PREF_KEY = "vg.ic.layers";
+const loadLayerPref = () => {
+  try { return new Set(JSON.parse(localStorage.getItem(LAYER_PREF_KEY) || "[]")); }
+  catch (e) { return new Set(); }
+};
+const saveLayerPref = (set) => {
+  try { localStorage.setItem(LAYER_PREF_KEY, JSON.stringify([...set])); } catch (e) { /* */ }
+};
 
 // a compact OHLC readout that tracks the crosshair.
 function ohlcText(bar) {
@@ -95,7 +105,24 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
   const [tool, setTool] = useState("cursor");       // active drawing tool
   const [drawings, setDrawings] = useState([]);     // persisted drawings for this symbol
   const [pendingN, setPendingN] = useState(0);      // clicks captured so far (UI hint)
+  const [activeLayers, setActiveLayers] = useState(loadLayerPref);  // active DNA layers
+  const layerHandlesRef = useRef({});               // layer key → [handles]
   toolRef.current = tool;
+
+  // the Vantage-DNA layer data for this symbol (coach/ICT/GEX/prior) — price-level
+  // annotations independent of the chart timeframe, so keyed on symbol only.
+  const layerQ = useLive(() => (symbol ? getLayers(symbol) : Promise.resolve(null)),
+    null, [symbol]);
+  const layerData = layerQ.data && layerQ.data.available ? layerQ.data : null;
+
+  const toggleLayer = useCallback((key) => {
+    setActiveLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      saveLayerPref(next);
+      return next;
+    });
+  }, []);
 
   const toggleInd = useCallback((key) => {
     setActive((prev) => {
@@ -323,6 +350,32 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     return undefined;
   }, [drawings, candles]);
 
+  // Vantage-DNA layers — reconcile active layer groups against drawn handles.
+  // Re-runs when the active set, the fetched layer data, or the candles change
+  // (zones span the candle time range). Each group draws independently so a
+  // toggle only adds/removes that group's handles.
+  useEffect(() => {
+    const chart = chartRef.current, candle = candleRef.current;
+    if (!chart || !candle) return undefined;
+    const handles = layerHandlesRef.current;
+    const removeGroup = (key) => {
+      (handles[key] || []).forEach((h) => removeLayerHandle(chart, candle, h));
+      delete handles[key];
+    };
+    // if the data or candles changed, everything drawn is stale — redraw all active.
+    for (const key of Object.keys(handles)) removeGroup(key);
+    if (!layerData || !candles.length) return undefined;
+    const ctx = { chart, candle, LW: window.LightweightCharts, candles,
+                  layers: layerData.layers || {}, price: (layerData.layers || {}).price
+                    || (candles.length ? candles[candles.length - 1].close : 0) };
+    for (const key of activeLayers) {
+      const drawer = LAYER_DRAWERS[key];
+      if (!drawer) continue;
+      try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
+    }
+    return undefined;
+  }, [activeLayers, layerData, candles]);
+
   const last = candles.length ? candles[candles.length - 1].close : null;
 
   return (
@@ -368,6 +421,22 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
           <button className="vg-ic-tool" onClick={clearDrawings} disabled={!drawings.length}
             title="Clear all drawings" aria-label="Clear all drawings">✕</button>
         </div>
+      </div>
+      <div className="vg-ic-layers">
+        <span className="vg-ic-layers-tag">DNA</span>
+        {LAYERS.map((ly) => {
+          const gated = ly.needsLevels && layerData && !layerData.has_levels;
+          const on = activeLayers.has(ly.key) && !gated;
+          return (
+            <button key={ly.key} className={cls("vg-ic-chip", on && "on", gated && "off")}
+              onClick={() => !gated && toggleLayer(ly.key)} disabled={gated}
+              title={gated ? `${ly.label} needs a coach playbook (SPX/QQQ/IWM)` : `Toggle ${ly.label}`}>
+              {ly.label}
+            </button>);
+        })}
+        {layerQ.loading && <span className="vg-ic-hint">…</span>}
+        {layerData && !layerData.has_levels && (
+          <span className="vg-ic-layers-note">bars-derived only (no coach chain)</span>)}
       </div>
       <div className="vg-ic-body">
         {(q.loading) && <LoadBar />}
