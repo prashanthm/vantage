@@ -31,3 +31,31 @@ result: min 6.1 / p25 23.9 / median 46.8 / p75 78.2 / max 117.3 / mean 50.2. Mea
 ≈ median → not outlier-dominated; broad spread. Worst (~87-117) are the down/late
 calls A1 flagged.
 verdict: confirmed. Median is the headline stat. kept: n/a (offline).
+
+## Eval harness (scratch/forecast_eval.py) — validated
+Drives Mira /turn headlessly over eval days, saves under run_id `eval-<tag>-<day>`,
+scores + prints median target-error + hit-rate. Runs inside the backend container
+(`PYTHONPATH=/app python -B scratch/forecast_eval.py`), reaches Mira at
+host.docker.internal:8080. Smoke test (2026-07-16, 60m): median 36.4 / hit 0.571.
+**Key caveat learned: Mira is NON-DETERMINISTIC run-to-run** (the shipped run of
+the same day was 24.75; this fresh run 36.4). → variants MUST be compared over
+MANY days (~21 available) so per-day LLM noise averages out; a 1-day A/B is
+meaningless. This shapes every B/C experiment: re-forecast the SAME multi-day eval
+set under each variant (~147 turns/experiment) and compare aggregate medians.
+
+## E0 eval-set baseline (fresh forecasts, current snapshot, 60m, 8 days)
+method: harness `--run-tag e0` over 8 days (07-07..07-16), current snapshot — the
+apples-to-apples reference every variant is measured against.
+result: **n=53 measurable, median abs target-error = 30.2 pts** (mean 37.5),
+path-MAE 54.0. **hit-rate = 0.436** (n=55). by_bias: down 0.429, up 0.40.
+verdict: baseline set. **PREDICATE: median target-error ≤ 22.7 pts (−25%) with
+hit-rate ≥ 0.436.** Note the multi-day hit-rate (0.44) is much lower than the
+single shipped run (0.605) — the analyst is near coin-flip on direction over a
+varied set, so both error AND directional accuracy have real headroom.
+kept: this is THE baseline for arms B/C/D.
+
+## Status note — this is a multi-hour LLM pursuit
+Each B/C variant = re-forecasting the eval set (~56-147 turns, 20-70 min). ~20
+experiments ahead. Pacing via /loop so it survives idle gaps; E0 + Arm A (metric)
+are committed and are the durable deliverable regardless of how many features move
+the number.
