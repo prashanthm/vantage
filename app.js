@@ -4681,6 +4681,24 @@ ${ref}`;
       }
       return void 0;
     }, [activeLayers, layerData, forecastData, replayData, candles]);
+    useEffect6(() => {
+      const chart = chartRef.current;
+      if (!chart || !activeLayers.has("replay") || !replayData || !candles.length) return;
+      const ts = replayData.forecasts.map((f) => f.as_of_ts).filter((t) => t != null);
+      if (!ts.length) return;
+      const first = Math.min(...ts), lastT = Math.max(...ts);
+      const c0 = candles[0].time, cN = candles[candles.length - 1].time;
+      const pad = 2 * 3600;
+      const from = Math.max(c0, first - pad), to = Math.min(cN, lastT + pad);
+      if (to > from) {
+        requestAnimationFrame(() => {
+          try {
+            chart.timeScale().setVisibleRange({ from, to });
+          } catch (e) {
+          }
+        });
+      }
+    }, [replayData, activeLayers, candles]);
     const last = candles.length ? candles[candles.length - 1].close : null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
       "button",

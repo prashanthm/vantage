@@ -418,6 +418,27 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height }) {
     return undefined;
   }, [activeLayers, layerData, forecastData, replayData, candles]);
 
+  // scroll the chart to the selected replay run's day so its markers are in view
+  // (a run is day-specific; without this, picking an older day draws markers
+  // off-screen). Frame from just before the first forecast to just after the last,
+  // clamped to the candles we actually have. Only when Replay is active.
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !activeLayers.has("replay") || !replayData || !candles.length) return;
+    const ts = replayData.forecasts.map((f) => f.as_of_ts).filter((t) => t != null);
+    if (!ts.length) return;
+    const first = Math.min(...ts), lastT = Math.max(...ts);
+    const c0 = candles[0].time, cN = candles[candles.length - 1].time;
+    // pad ~2h either side so the day frames nicely; clamp to loaded candle range.
+    const pad = 2 * 3600;
+    const from = Math.max(c0, first - pad), to = Math.min(cN, lastT + pad);
+    if (to > from) {
+      requestAnimationFrame(() => {
+        try { chart.timeScale().setVisibleRange({ from, to }); } catch (e) { /* */ }
+      });
+    }
+  }, [replayData, activeLayers, candles]);
+
   const last = candles.length ? candles[candles.length - 1].close : null;
 
   return (
