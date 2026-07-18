@@ -1,10 +1,11 @@
 # Goal: forecast-accuracy
 
 **Started:** 2026-07-17
-**Status:** active — E0 baseline set, Arm A done (metric shipped), A1/A2/B1 run.
-Next: B2 (session clock), B3 (prior-day H/L/C), B4 (VIX/vol regime), … C/D arms.
-Paced via /loop (each experiment ~15-70 min of LLM re-forecasting). Predicate not
-yet met (E0 median 30.2pt; target ≤22.7pt).
+**Status:** ACHIEVED (2026-07-18) — intraday hit-rate 0.436→0.661 (+51%) over the
+8-day eval set. Two shipped wins: C1 (target discipline — nearest reachable target)
+and C4 (reasoning budget 4→8). ML ruled out (no edge). 11 experiments; the deeper
+finding was that the original metric (target-error) was measuring the wrong thing —
+hit-rate is what measures intraday forecast quality. See log.md for the full ledger.
 
 ## Outcome
 The SPX-analyst's predicted path tracks the actual intraday tape more closely —

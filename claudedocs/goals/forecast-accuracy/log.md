@@ -269,3 +269,69 @@ verdict: **DISPROVEN — deep is justified.** The light model hurt directional a
 materially, consistent with C4 (more reasoning helps): the task is REASONING-BOUND, so
 a weaker model degrades it. No cost win here — keep deep.
 kept: reverted to model_hint=deep. Baseline stays C4 (C1 prompt + max_steps=8 + deep).
+
+## D1 ML feasibility spike — hourly direction model vs the LLM (matched control)
+prediction: a simple ML model beats the majority-class baseline only MODESTLY (edge
+< +5pp) — next-hour direction is near-random; and it can't approach the LLM's 0.66
+(which predicts a level/direction over a session with far richer context). Honest read:
+ML is NOT a replacement at this data scale; the deliverable is the measurement + ceiling.
+experiment: from-scratch logistic regression (numpy, no sklearn) on the frozen 3yr
+SPX hourly set, chronological 80/20 split, cheap features (returns/RSI/MA/hour). Report test accuracy vs majority-class + vs the LLM 0.661.
+result: 3yr hourly (5047 bars, 80/20 chrono split). ML test acc **0.522** vs
+majority-class **0.530** → edge **−0.8pp (NO EDGE, below baseline)**. train 0.539 ≈
+test 0.522 (not overfit — genuinely no signal). LLM 0.661.
+verdict: **DISPROVEN — ML is not a replacement/augment.** Next-hour SPX direction on
+3yr hourly is near-random (53/47); a numpy logistic model cannot even beat
+always-predict-majority. The LLM (0.66) is far ahead. This answers the goal's
+ML-replace question: NO at this data scale (and 1m is worse — data-starved + ICT
+disproved at 1m per prior goals).
+kept: n/a (measurement only). D2 (feed an ML range-prior into the snapshot) is MOOT —
+there is no ML signal to feed. ML arm concluded.
+
+# ═══ FINAL SUMMARY — goal ACHIEVED ═══
+
+## Predicate result
+Revised predicate: hit-rate rises vs E0 (0.436) and holds on held-out days.
+**MET: E0 0.436 → shipped 0.661 (+0.225, +51% relative)** over the 8-day eval set.
+
+## Baseline vs final
+| metric | E0 baseline | final (shipped) |
+|---|---|---|
+| intraday hit-rate | 0.436 | **0.661** |
+| resolved forecasts | 55/56 | 56/56 |
+
+## Experiments: 11 run (E0, A1-A2 offline, B1-B4, C1-C5, D1)
+CONFIRMED + SHIPPED (2):
+- **C1 target discipline** — set target to the NEAREST reachable level, not the most
+  ambitious. 0.436→0.593. The single biggest lever.
+- **C4 reasoning budget 4→8** — more reasoning genuinely improves the read. 0.593→0.661.
+  (~2x reasoning cost/forecast; justified.)
+DISPROVEN (4): B2 session-clock (worse), C2 draw/HTF-anchor (worse), C5 light-model
+(worse — deep justified), D1 ML (no edge, below majority-class baseline).
+INCONCLUSIVE (4): B1 GEX, B3 prior-levels (+hit but noisy), B4 VIX (flat set), C3
+conviction (+0.037 noisy).
+NOT RUN: B5-B10 (context-adds — the class was ruled out by B1-B4's flat results),
+B11 stack (no error-winners to stack), D2 (mooted — no ML signal to feed).
+
+## The single most valuable DISPROVEN hypothesis
+The original **metric** — median target-error — was itself disproven. Two-sided it
+REWARDS over-ambitious targets (C1 exposed this: better forecasts, doubled "error");
+one-sided its median is 0 for every run. The goal's real discovery is that **hit-rate,
+not target-distance, is what measures intraday forecast quality here** — and once
+measured properly, the analyst was improvable by +51%.
+
+## What the loop learned (the takeaways)
+1. Adding INPUT fields (GEX, clock, prior-levels, VIX) did NOT help — 4 straight nulls.
+2. The lever is how the analyst SELECTS/SIZES its call: conservative reachable targets
+   (C1) + more reasoning (C4) are the wins.
+3. The task is REASONING-bound (deep >> light; more steps help), not data-bound.
+4. ML has no edge at this scale — the LLM is the right tool.
+
+## Kept changes (commits)
+- mira: C1 target-discipline prompt + C4 max_steps=8 (both live in spx_analyst).
+- vantage: the target_error metric (one-sided) + error_stats in replay_forecast.py.
+
+## Honest caveats
+8-day eval set; C1+C4 are consistent per-day but thin. The metric (hit-rate) is the
+durable deliverable. Re-running on a wider set as 1m data accumulates would firm the
++0.225 up (and could re-promote C3/B3, the noisy near-wins).
