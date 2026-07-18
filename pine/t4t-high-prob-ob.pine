@@ -1,0 +1,342 @@
+//@version=6
+indicator(title = 'T4T High Probability Order Blocks', shorttitle = 'T4T HP-OB', overlay = true, max_boxes_count = 500, max_labels_count = 500)
+
+// ═══════════════════════════ INPUTS ═══════════════════════════
+grpDet = 'Detection'
+int    pivLen        = input.int   (2,           title = 'Pivot length (liquidity highs/lows)',      minval = 1,             group = grpDet)
+float  dispMult      = input.float (0.7,         title = 'Displacement filter (x ATR, 0 = off)',     minval = 0, step = 0.1, group = grpDet)
+float  eqTol         = input.float (0.15,        title = 'Equal level tolerance (x ATR)',            minval = 0, step = 0.05, group = grpDet)
+int    llLookback    = input.int   (20,          title = 'Lower-low / higher-high lookback',         minval = 1,             group = grpDet)
+int    atrLen        = input.int   (10,          title = 'ATR length',                               minval = 1,             group = grpDet)
+
+grpZone = 'Zones'
+string zoneMode      = input.string('Body + Wick', title = 'Zone boundaries',                        options = ['Full Wick', 'Body + Wick'], group = grpZone)
+int    maxActive     = input.int   (10,          title = 'Max active OBs per side',                  minval = 1,             group = grpZone)
+bool   show_fvg      = input.bool  (false,       title = 'Plot validating FVG boxes',                                        group = grpZone)
+bool   show_labels   = input.bool  (true,        title = 'Show OB labels',                                                   group = grpZone)
+
+grpMit = 'Mitigation'
+int    box_test_delay = input.int  (3,           title = 'Delay to count test of OB',                minval = 0,             group = grpMit)
+int    box_fill_delay = input.int  (3,           title = 'Delay to count fill of OB',                minval = 0,             group = grpMit)
+bool   box_test_sv    = input.bool (true,        title = 'Dim tested OBs',                                                   group = grpMit)
+bool   box_stop_sv    = input.bool (true,        title = 'Stop plotting filled OBs',                                         group = grpMit)
+
+grpBrkr = 'Breaker Blocks'
+bool   brkr_sv       = input.bool  (true,        title = 'Convert filled OBs to breaker blocks',                             group = grpBrkr)
+int    brkrWindow    = input.int   (3,           title = 'FVG confirmation window after fill (bars)', minval = 1,            group = grpBrkr)
+
+grpCol = 'Colors'
+color  bullCol       = input.color (color.new(color.green,  80), title = 'Bullish OB',              group = grpCol)
+color  bearCol       = input.color (color.new(color.red,    80), title = 'Bearish OB',              group = grpCol)
+color  testCol       = input.color (color.new(color.gray,   80), title = 'Tested OB',               group = grpCol)
+color  fvgBullCol    = input.color (color.new(color.teal,   88), title = 'Bullish FVG',             group = grpCol)
+color  fvgBearCol    = input.color (color.new(color.maroon, 88), title = 'Bearish FVG',             group = grpCol)
+color  brkrBullCol   = input.color (color.new(color.aqua,   80), title = 'Bullish breaker',         group = grpCol)
+color  brkrBearCol   = input.color (color.new(color.orange, 80), title = 'Bearish breaker',         group = grpCol)
+
+// ═══════════════════════════ STATE ════════════════════════════
+// Unswept liquidity pools (confirmed pivots)
+var float[] pvlPrice     = array.new_float()   // pivot lows  (sell-side liquidity)
+var int[]   pvlBar       = array.new_int()
+var float[] pvhPrice     = array.new_float()   // pivot highs (buy-side liquidity)
+var int[]   pvhBar       = array.new_int()
+
+// Active / retired OB boxes + per-box tested flags
+var box[]   long_boxes    = array.new_box()
+var bool[]  long_tested   = array.new_bool()
+var box[]   short_boxes   = array.new_box()
+var bool[]  short_tested  = array.new_bool()
+var box[]   oldlong_boxes  = array.new_box()
+var box[]   oldshort_boxes = array.new_box()
+var box[]   fvg_boxes      = array.new_box()
+
+// Breaker pipeline: filled OBs pending FVG confirmation + active breakers
+var box[]   pend_bull_boxes  = array.new_box()   // filled bearish OBs awaiting bullish FVG
+var int[]   pend_bull_bar    = array.new_int()
+var box[]   pend_bear_boxes  = array.new_box()   // filled bullish OBs awaiting bearish FVG
+var int[]   pend_bear_bar    = array.new_int()
+var box[]   bull_brkr_boxes  = array.new_box()
+var bool[]  bull_brkr_tested = array.new_bool()
+var int[]   bull_brkr_bar    = array.new_int()   // conversion bar (mitigation delays anchor here)
+var box[]   bear_brkr_boxes  = array.new_box()
+var bool[]  bear_brkr_tested = array.new_bool()
+var int[]   bear_brkr_bar    = array.new_int()
+
+int  MAX_PIVOTS = 50
+int  MAX_OLD    = 40
+
+// ═══════════════════════════ GLOBAL CALCS ═════════════════════
+float atrVal = ta.atr(atrLen)
+float pl     = ta.pivotlow (low,  pivLen, pivLen)
+float ph     = ta.pivothigh(high, pivLen, pivLen)
+float llLevel = ta.lowest (low,  llLookback)[1]   // lowest low of the previous N bars
+float hhLevel = ta.highest(high, llLookback)[1]   // highest high of the previous N bars
+
+// Per-bar sweep flags (series — history is referenced 2 bars later)
+bool sweptLowBar  = false
+bool sweptHighBar = false
+
+// Alert flags
+bool newBullOB  = false
+bool newBearOB  = false
+bool bullTested = false
+bool bearTested = false
+bool newBullBrkr    = false
+bool newBearBrkr    = false
+bool bullBrkrTested = false
+bool bearBrkrTested = false
+
+if barstate.isconfirmed
+
+    // ── 1. Register newly confirmed liquidity pivots ──────────
+    if not na(pl)
+        array.push(pvlPrice, pl)
+        array.push(pvlBar,   bar_index - pivLen)
+        if array.size(pvlPrice) > MAX_PIVOTS
+            array.shift(pvlPrice)
+            array.shift(pvlBar)
+    if not na(ph)
+        array.push(pvhPrice, ph)
+        array.push(pvhBar,   bar_index - pivLen)
+        if array.size(pvhPrice) > MAX_PIVOTS
+            array.shift(pvhPrice)
+            array.shift(pvhBar)
+
+    // ── 2. Sweep check: did THIS bar raid or tap a stored pool? ──
+    // Strict break through a level consumes the pool. An equal or
+    // relatively equal touch (within tolerance) counts as a sweep
+    // but leaves the pool armed — equal highs/lows build liquidity.
+    // A plain lower low / higher high vs the previous N bars also
+    // qualifies — no pivot confirmation lag, no pool dependency.
+    if low < llLevel
+        sweptLowBar := true
+    if high > hhLevel
+        sweptHighBar := true
+    float tol = eqTol * atrVal
+    if array.size(pvlPrice) > 0
+        for i = array.size(pvlPrice) - 1 to 0 by 1
+            float p = array.get(pvlPrice, i)
+            if low < p
+                sweptLowBar := true
+                array.remove(pvlPrice, i)
+                array.remove(pvlBar,   i)
+            else if low <= p + tol
+                sweptLowBar := true
+    if array.size(pvhPrice) > 0
+        for i = array.size(pvhPrice) - 1 to 0 by 1
+            float p = array.get(pvhPrice, i)
+            if high > p
+                sweptHighBar := true
+                array.remove(pvhPrice, i)
+                array.remove(pvhBar,   i)
+            else if high >= p - tol
+                sweptHighBar := true
+
+    // ── 3. OB validation (fires 2 bars after the OB candle) ───
+    // Candle [2] = OB candle | Candle [1] = displacement | Candle [0] = FVG confirmation
+    bool bullFVG  = low > high[2]
+    bool bearFVG  = high < low[2]
+    bool dispOKb  = close[1] > open[1] and (dispMult == 0 or (close[1] - open[1]) > dispMult * atrVal[1])
+    bool dispOKs  = close[1] < open[1] and (dispMult == 0 or (open[1] - close[1]) > dispMult * atrVal[1])
+
+    // Bullish OB: bearish candle that swept a prior low, then displacement up leaving an FVG
+    // OB candle must hold the extreme: its low <= displacement candle's low
+    if sweptLowBar[2] and close[2] < open[2] and low[2] <= low[1] and dispOKb and bullFVG
+        newBullOB := true
+        float obTop = zoneMode == 'Full Wick' ? high[2] : open[2]
+        float obBot = low[2]
+        array.push(long_boxes, box.new(left = bar_index - 2, top = obTop, right = bar_index, bottom = obBot, bgcolor = bullCol, border_color = bullCol, extend = extend.right))
+        array.push(long_tested, false)
+        if show_labels
+            label.new(x = bar_index - 2, y = obBot, text = 'OB+', xloc = xloc.bar_index, style = label.style_label_up, color = color.new(color.green, 60), textcolor = color.white, size = size.tiny)
+        if show_fvg
+            array.push(fvg_boxes, box.new(left = bar_index - 1, top = low, right = bar_index + 4, bottom = high[2], bgcolor = fvgBullCol, border_color = fvgBullCol))
+
+    // Bearish OB: bullish candle that swept a prior high, then displacement down leaving an FVG
+    // OB candle must hold the extreme: its high >= displacement candle's high
+    if sweptHighBar[2] and close[2] > open[2] and high[2] >= high[1] and dispOKs and bearFVG
+        newBearOB := true
+        float obTop = high[2]
+        float obBot = zoneMode == 'Full Wick' ? low[2] : open[2]
+        array.push(short_boxes, box.new(left = bar_index - 2, top = obTop, right = bar_index, bottom = obBot, bgcolor = bearCol, border_color = bearCol, extend = extend.right))
+        array.push(short_tested, false)
+        if show_labels
+            label.new(x = bar_index - 2, y = obTop, text = 'OB-', xloc = xloc.bar_index, style = label.style_label_down, color = color.new(color.red, 60), textcolor = color.white, size = size.tiny)
+        if show_fvg
+            array.push(fvg_boxes, box.new(left = bar_index - 1, top = low[2], right = bar_index + 4, bottom = high, bgcolor = fvgBearCol, border_color = fvgBearCol))
+
+    // ── 4. Prune oldest actives beyond the cap ────────────────
+    if array.size(long_boxes) > maxActive
+        box.delete(array.shift(long_boxes))
+        array.shift(long_tested)
+    if array.size(short_boxes) > maxActive
+        box.delete(array.shift(short_boxes))
+        array.shift(short_tested)
+    if array.size(fvg_boxes) > maxActive * 2
+        box.delete(array.shift(fvg_boxes))
+
+    // ── 5. Mitigation — bearish (short) OBs ───────────────────
+    // Test = wick into zone | Fill = close through the far side
+    if array.size(short_boxes) > 0
+        for i = array.size(short_boxes) - 1 to 0 by 1
+            box  tbox   = array.get(short_boxes, i)
+            float top    = box.get_top(tbox)
+            float bottom = box.get_bottom(tbox)
+            if high > bottom and box.get_left(tbox) + box_test_delay < bar_index
+                if not array.get(short_tested, i)
+                    array.set(short_tested, i, true)
+                    bearTested := true
+                if box_test_sv
+                    box.set_bgcolor(tbox, testCol)
+                    box.set_border_color(tbox, testCol)
+            if close > top and box.get_left(tbox) + box_fill_delay < bar_index
+                if box_stop_sv
+                    box.set_right(tbox, bar_index)
+                    box.set_extend(tbox, extend.none)
+                    if brkr_sv
+                        array.push(pend_bull_boxes, tbox)
+                        array.push(pend_bull_bar, bar_index)
+                    else
+                        array.unshift(oldshort_boxes, tbox)
+                    array.remove(short_boxes, i)
+                    array.remove(short_tested, i)
+
+    // ── 6. Mitigation — bullish (long) OBs ────────────────────
+    if array.size(long_boxes) > 0
+        for i = array.size(long_boxes) - 1 to 0 by 1
+            box  lbox   = array.get(long_boxes, i)
+            float top    = box.get_top(lbox)
+            float bottom = box.get_bottom(lbox)
+            if low < top and box.get_left(lbox) + box_test_delay < bar_index
+                if not array.get(long_tested, i)
+                    array.set(long_tested, i, true)
+                    bullTested := true
+                if box_test_sv
+                    box.set_bgcolor(lbox, testCol)
+                    box.set_border_color(lbox, testCol)
+            if close < bottom and box.get_left(lbox) + box_fill_delay < bar_index
+                if box_stop_sv
+                    box.set_right(lbox, bar_index)
+                    box.set_extend(lbox, extend.none)
+                    if brkr_sv
+                        array.push(pend_bear_boxes, lbox)
+                        array.push(pend_bear_bar, bar_index)
+                    else
+                        array.unshift(oldlong_boxes, lbox)
+                    array.remove(long_boxes, i)
+                    array.remove(long_tested, i)
+
+    // ── 7. Breaker conversion: process pending candidates ─────
+    // A filled OB converts to a breaker only if a qualifying FVG
+    // confirms within the window — the gap must displace through
+    // the zone: overlap it or clear it in the break direction.
+    // Window expires with no FVG → the zone retires dead.
+    if array.size(pend_bear_boxes) > 0
+        for i = array.size(pend_bear_boxes) - 1 to 0 by 1
+            box pbox = array.get(pend_bear_boxes, i)
+            if bearFVG and high < box.get_top(pbox)
+                box.set_bgcolor(pbox, brkrBearCol)
+                box.set_border_color(pbox, brkrBearCol)
+                box.set_right(pbox, bar_index)
+                box.set_extend(pbox, extend.right)
+                array.push(bear_brkr_boxes, pbox)
+                array.push(bear_brkr_tested, false)
+                array.push(bear_brkr_bar, bar_index)
+                newBearBrkr := true
+                if show_labels
+                    label.new(x = bar_index, y = box.get_top(pbox), text = 'BRKR-', xloc = xloc.bar_index, style = label.style_label_down, color = color.new(color.orange, 60), textcolor = color.white, size = size.tiny)
+                array.remove(pend_bear_boxes, i)
+                array.remove(pend_bear_bar, i)
+            else if bar_index > array.get(pend_bear_bar, i) + brkrWindow
+                array.unshift(oldlong_boxes, pbox)
+                array.remove(pend_bear_boxes, i)
+                array.remove(pend_bear_bar, i)
+    if array.size(pend_bull_boxes) > 0
+        for i = array.size(pend_bull_boxes) - 1 to 0 by 1
+            box pbox = array.get(pend_bull_boxes, i)
+            if bullFVG and low > box.get_bottom(pbox)
+                box.set_bgcolor(pbox, brkrBullCol)
+                box.set_border_color(pbox, brkrBullCol)
+                box.set_right(pbox, bar_index)
+                box.set_extend(pbox, extend.right)
+                array.push(bull_brkr_boxes, pbox)
+                array.push(bull_brkr_tested, false)
+                array.push(bull_brkr_bar, bar_index)
+                newBullBrkr := true
+                if show_labels
+                    label.new(x = bar_index, y = box.get_bottom(pbox), text = 'BRKR+', xloc = xloc.bar_index, style = label.style_label_up, color = color.new(color.aqua, 60), textcolor = color.white, size = size.tiny)
+                array.remove(pend_bull_boxes, i)
+                array.remove(pend_bull_bar, i)
+            else if bar_index > array.get(pend_bull_bar, i) + brkrWindow
+                array.unshift(oldshort_boxes, pbox)
+                array.remove(pend_bull_boxes, i)
+                array.remove(pend_bull_bar, i)
+    if array.size(bear_brkr_boxes) > maxActive
+        box.delete(array.shift(bear_brkr_boxes))
+        array.shift(bear_brkr_tested)
+        array.shift(bear_brkr_bar)
+    if array.size(bull_brkr_boxes) > maxActive
+        box.delete(array.shift(bull_brkr_boxes))
+        array.shift(bull_brkr_tested)
+        array.shift(bull_brkr_bar)
+
+    // ── 8. Breaker mitigation — same rules as OBs ─────────────
+    // Delays anchor to the conversion bar, not the original OB.
+    // Bearish breaker = resistance: test = wick in, retire = close above top
+    if array.size(bear_brkr_boxes) > 0
+        for i = array.size(bear_brkr_boxes) - 1 to 0 by 1
+            box  bbox   = array.get(bear_brkr_boxes, i)
+            float top    = box.get_top(bbox)
+            float bottom = box.get_bottom(bbox)
+            if high > bottom and array.get(bear_brkr_bar, i) + box_test_delay < bar_index
+                if not array.get(bear_brkr_tested, i)
+                    array.set(bear_brkr_tested, i, true)
+                    bearBrkrTested := true
+                if box_test_sv
+                    box.set_bgcolor(bbox, testCol)
+                    box.set_border_color(bbox, testCol)
+            if close > top and array.get(bear_brkr_bar, i) + box_fill_delay < bar_index
+                if box_stop_sv
+                    box.set_right(bbox, bar_index)
+                    box.set_extend(bbox, extend.none)
+                    array.unshift(oldshort_boxes, bbox)
+                    array.remove(bear_brkr_boxes, i)
+                    array.remove(bear_brkr_tested, i)
+                    array.remove(bear_brkr_bar, i)
+    // Bullish breaker = support: test = wick in, retire = close below bottom
+    if array.size(bull_brkr_boxes) > 0
+        for i = array.size(bull_brkr_boxes) - 1 to 0 by 1
+            box  bbox   = array.get(bull_brkr_boxes, i)
+            float top    = box.get_top(bbox)
+            float bottom = box.get_bottom(bbox)
+            if low < top and array.get(bull_brkr_bar, i) + box_test_delay < bar_index
+                if not array.get(bull_brkr_tested, i)
+                    array.set(bull_brkr_tested, i, true)
+                    bullBrkrTested := true
+                if box_test_sv
+                    box.set_bgcolor(bbox, testCol)
+                    box.set_border_color(bbox, testCol)
+            if close < bottom and array.get(bull_brkr_bar, i) + box_fill_delay < bar_index
+                if box_stop_sv
+                    box.set_right(bbox, bar_index)
+                    box.set_extend(bbox, extend.none)
+                    array.unshift(oldlong_boxes, bbox)
+                    array.remove(bull_brkr_boxes, i)
+                    array.remove(bull_brkr_tested, i)
+                    array.remove(bull_brkr_bar, i)
+
+    // ── 9. Cap retired-box history ────────────────────────────
+    if array.size(oldlong_boxes) > MAX_OLD
+        box.delete(array.pop(oldlong_boxes))
+    if array.size(oldshort_boxes) > MAX_OLD
+        box.delete(array.pop(oldshort_boxes))
+
+// ═══════════════════════════ ALERTS ═══════════════════════════
+alertcondition(newBullOB,  title = 'New Bullish OB',    message = 'T4T HP-OB: New bullish order block validated (sweep + displacement + FVG)')
+alertcondition(newBearOB,  title = 'New Bearish OB',    message = 'T4T HP-OB: New bearish order block validated (sweep + displacement + FVG)')
+alertcondition(bullTested, title = 'Bullish OB tested', message = 'T4T HP-OB: Price tapped into a bullish order block')
+alertcondition(bearTested, title = 'Bearish OB tested', message = 'T4T HP-OB: Price tapped into a bearish order block')
+alertcondition(newBullBrkr,    title = 'New Bullish Breaker',    message = 'T4T HP-OB: Bullish breaker block confirmed (OB broken with FVG displacement)')
+alertcondition(newBearBrkr,    title = 'New Bearish Breaker',    message = 'T4T HP-OB: Bearish breaker block confirmed (OB broken with FVG displacement)')
+alertcondition(bullBrkrTested, title = 'Bullish breaker tested', message = 'T4T HP-OB: Price tapped into a bullish breaker block')
+alertcondition(bearBrkrTested, title = 'Bearish breaker tested', message = 'T4T HP-OB: Price tapped into a bearish breaker block')
