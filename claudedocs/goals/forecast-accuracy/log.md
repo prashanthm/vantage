@@ -254,3 +254,18 @@ kept: **YES — max_steps=8 shipped** in build_spx_analyst_specialist.
 
 Running hit-rate ladder: E0 0.436 → C1 0.593 (target discipline) → C4 0.661 (2x
 reasoning). +0.225 total over baseline. C1+C4 are the shipped wins.
+
+## C5 model tier deep → light (on C1+C4 baseline)
+baseline: C4 (C1 prompt + max_steps=8), hit 0.661. Metric: hit-rate.
+prediction: hit-rate DROPS with light — the C4 result (more reasoning helps) implies
+the task is reasoning-bound, so a weaker model should hurt. If it DROPS, deep is
+justified (keep). If it HOLDS, we found a cost win (ship light). Predict hit ↓
+(≥0.05 drop) → deep stays.
+experiment: model_hint "deep" → "light" in SPX_ANALYST_CARD (only var; C1 prompt +
+max_steps=8 unchanged). Re-forecast 8 days `--run-tag c5` vs c4.
+result: C4/deep hit 0.661 (resolved 56). C5/light hit **0.537 (−0.124, WORSE)**,
+resolved 54 (fewer clean plots too).
+verdict: **DISPROVEN — deep is justified.** The light model hurt directional accuracy
+materially, consistent with C4 (more reasoning helps): the task is REASONING-BOUND, so
+a weaker model degrades it. No cost win here — keep deep.
+kept: reverted to model_hint=deep. Baseline stays C4 (C1 prompt + max_steps=8 + deep).
