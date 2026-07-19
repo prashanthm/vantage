@@ -1695,6 +1695,44 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         sym = symbol.upper() if symbol else None
         return envelope(snap, available=True, **_j.build_journal(store, sym))
 
+    @app.post("/api/import/transactions")
+    async def import_transactions(file: UploadFile = File(...),
+                                  account: str = Form(...),
+                                  broker: str = Form("fidelity")):
+        """Upload a broker TRANSACTION-history CSV → parse buys/sells into the
+        history table (which realized_gains FIFO-matches into lots + ST/LT gains).
+        Writes ONLY our own SQLite (history) — no broker/order path (ADR-010).
+        `broker` selects the parser (fidelity today). Returns imported count +
+        parser warnings."""
+        from . import importer as _imp
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        acct = str(account or "").strip()
+        if not acct:
+            return JSONResponse({"error": "account is required"}, status_code=400)
+        check_account(acct)
+        raw = await file.read()
+        try:
+            text = raw.decode("utf-8-sig")   # Fidelity exports carry a BOM
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1", "replace")
+        parser = {"fidelity": _imp.parse_fidelity_transactions}.get(str(broker).lower())
+        if parser is None:
+            return JSONResponse({"error": f"no transaction parser for broker '{broker}'"},
+                                status_code=400)
+        try:
+            rows, warnings = parser(text, acct)
+        except Exception as e:  # noqa: BLE001 — a malformed CSV is user error, not a 500
+            return envelope(snap, available=False,
+                            note=f"couldn't parse the file: {type(e).__name__}: {e}")
+        if rows:
+            store.upsert_history(acct, rows)
+        return envelope(snap, available=True, imported=len(rows),
+                        buys=sum(1 for r in rows if r["side"] == "buy"),
+                        sells=sum(1 for r in rows if r["side"] == "sell"),
+                        warnings=warnings)
+
     @app.post("/api/journal/upload")
     async def journal_upload(image: UploadFile = File(default=None),
                              note: str = Form(""),

@@ -71,6 +71,29 @@ export const createAccount = (body) => postJson(`${backendBase()}/api/accounts`,
 export const editAccount = (id, body) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/edit`, body);
 export const deleteAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/delete`, {});
 export const syncAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/sync`, {});
+// Upload a broker transaction-history CSV → parsed buys/sells into our history
+// table (realized_gains FIFO-matches them). Multipart; returns {imported, buys,
+// sells, warnings} or {available:false}.
+export async function importTransactions(file, account, broker = "fidelity") {
+  const base = backendBase();
+  if (!base) return { available: false };
+  const fd = new FormData();
+  fd.append("file", file, file.name || "transactions.csv");
+  fd.append("account", account);
+  fd.append("broker", broker);
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 30000);
+  try {
+    const res = await fetch(`${base}/api/import/transactions`, {
+      method: "POST", body: fd, signal: ctrl.signal,
+    });
+    return res.ok ? await res.json() : { available: false, note: `HTTP ${res.status}` };
+  } catch (e) {
+    return { available: false, note: String((e && e.message) || e) };
+  } finally {
+    clearTimeout(t);
+  }
+}
 // Kite one-click re-auth: fetch the login URL to open (the backend catches the
 // redirect and saves the daily token; no copy-paste). Returns {login_url} or
 // {error}.

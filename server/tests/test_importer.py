@@ -102,6 +102,45 @@ def test_parse_fidelity_positions():
     assert "core cash" in joined and "Pending" in joined  # cash captured, pending skipped
 
 
+# Fidelity transaction/history export (activity CSV): buys, sells, and non-trade
+# rows (a dividend + an options trade) that must be skipped.
+FIDELITY_TXN_CSV = """Run Date,Account,Action,Symbol,Description,Type,Quantity,Price ($),Commission ($),Fees ($),Amount ($),Settlement Date
+01/10/2024,X12345,YOU BOUGHT,VOO,VANGUARD S&P 500 ETF,Cash,10,400.00,0,0,-4000.00,01/12/2024
+06/01/2026,X12345,YOU BOUGHT,VOO,VANGUARD S&P 500 ETF,Cash,10,420.00,0,0,-4200.00,06/03/2026
+07/01/2026,X12345,YOU SOLD,VOO,VANGUARD S&P 500 ETF,Cash,-15,460.00,0,0,6900.00,07/03/2026
+07/02/2026,X12345,DIVIDEND RECEIVED,VOO,VANGUARD S&P 500 ETF,Cash,,,,,12.50,07/02/2026
+07/02/2026,X12345,YOU BOUGHT,-SPY260117C500,CALL SPY,Margin,1,5.00,0,0,-500.00,07/02/2026
+"""
+
+
+def test_parse_fidelity_transactions():
+    from vantage_server.importer import parse_fidelity_transactions
+    rows, warnings = parse_fidelity_transactions(FIDELITY_TXN_CSV, "fid-taxable")
+    # 2 buys + 1 sell of VOO; dividend + option skipped.
+    assert [(r["side"], r["symbol"], r["quantity"], r["price"]) for r in rows] == [
+        ("buy", "VOO", 10.0, 400.0),
+        ("buy", "VOO", 10.0, 420.0),
+        ("sell", "VOO", 15.0, 460.0),
+    ]
+    assert all(r["kind"] == "equity" and r["account"] == "fid-taxable" for r in rows)
+    assert rows[0]["date"] == "2024-01-10"                 # MM/DD/YYYY → ISO
+    assert "2 non-equity-trade row" in " ".join(warnings)  # dividend + option
+
+
+def test_transaction_rows_feed_realized_gains():
+    """The parsed rows are exactly the shape portfolio.realized_gains FIFO-matches:
+    the VOO round-trip books a real long-term + short-term split."""
+    from vantage_server import portfolio
+    from vantage_server.importer import parse_fidelity_transactions
+    rows, _ = parse_fidelity_transactions(FIDELITY_TXN_CSV, "fid-taxable")
+    rg = portfolio.realized_gains(rows, year=2026)
+    # sell 15 @ 460: 10 from the 2024 lot (LT, cost 400 → +$600) + 5 from the 2026
+    # lot (ST, cost 420 → +$200). total +$800.
+    assert rg["long_term"]["gain"] == 600.0, rg["long_term"]
+    assert rg["short_term"]["gain"] == 200.0, rg["short_term"]
+    assert rg["total_gain"] == 800.0
+
+
 def test_fidelity_non_money_market_double_star_still_skipped():
     # A "**" symbol that is NOT money-market/sweep/cash stays skipped (no value
     # misbooked as cash).
