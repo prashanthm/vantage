@@ -244,17 +244,8 @@ function AccountManagerCard({ ba, accounts, accountId, setAccountId, refreshing,
     deleteAccount(a.id).then(() => onChanged && onChanged());
   };
   return (
-    <div className="vg-card vg-pf-card vg-pf-accounts">
-      <div className="vg-pf-head">
-        <span className="vg-pf-title">Accounts</span>
-        <span className="vg-note">{list.length} linked · click to scope</span>
-      </div>
+    <div className="vg-pf-managepanel">
       <div className="vg-pf-acctlist">
-        <button className={cls("vg-pf-acctrow", accountId === "all" && "on")}
-          onClick={() => setAccountId && setAccountId("all")}>
-          <span className="vg-pf-acctname"><b>All accounts</b></span>
-          <span className="vg-note">{list.length} linked</span>
-        </button>
         {list.map((a) => {
           const csvOnly = a.refreshable === false;
           const pending = !!(refreshing && refreshing[a.id]);
@@ -283,6 +274,40 @@ function AccountManagerCard({ ba, accounts, accountId, setAccountId, refreshing,
           {cc.top_account} holds {pct(cc.top_pct)} of the {c} book — single-account concentration.
         </p>))}
       <div style={{ marginTop: 8 }}><AddAccount onAdded={onChanged} /></div>
+    </div>);
+}
+
+// The slim account BAR at the top — scope chips (All + each account with its
+// value) + a ⚙ Manage toggle that expands the full manager inline. Accounts are
+// both the inventory ("what do I own") AND the lens (scope recomputes every card),
+// so this is a control, not a footer — it lives above the analysis.
+function AccountBar({ ba, accounts, accountId, setAccountId, refreshing,
+                     onRefreshAccount, onChanged }) {
+  const [manage, setManage] = useState(false);
+  const list = accounts || [];
+  const total = list.reduce((m, a) => { const c = a.currency || "USD"; m[c] = (m[c] || 0) + (a.value || 0); return m; }, {});
+  const totalLabel = Object.entries(total).map(([c, v]) => money(v, c)).join(" · ");
+  return (
+    <div className="vg-card vg-pf-acctbar">
+      <div className="vg-pf-chips">
+        <button className={cls("vg-pf-chip-acct", accountId === "all" && "on")}
+          onClick={() => setAccountId && setAccountId("all")} title="All accounts">
+          <b>All</b> <span className="vg-note">{totalLabel}</span>
+        </button>
+        {list.map((a) => (
+          <button key={a.id} className={cls("vg-pf-chip-acct", accountId === a.id && "on")}
+            onClick={() => setAccountId && setAccountId(a.id)} title={`Scope to ${a.name || a.short}`}>
+            <b>{a.short}</b> <span className="vg-note">{money(a.value, a.currency || "USD")}</span>
+          </button>))}
+        <button className={cls("vg-btn sm vg-pf-manage", manage && "on")}
+          onClick={() => setManage((v) => !v)} title="Add / import / sync / remove accounts">
+          ⚙ {manage ? "Done" : "Manage"}
+        </button>
+      </div>
+      {manage && (
+        <AccountManagerCard ba={ba} accounts={accounts} accountId={accountId}
+          setAccountId={setAccountId} refreshing={refreshing}
+          onRefreshAccount={onRefreshAccount} onChanged={onChanged} />)}
     </div>);
 }
 
@@ -403,6 +428,11 @@ export function PortfolioView({ accountId, setAccountId, scopeAccounts,
             ))}
           </div>)}
       </div>
+      {/* the account bar is a CONTROL (scope + inventory) — always at the top,
+          above the analysis it drives. */}
+      <AccountBar ba={d?.by_account} accounts={scopeAccounts} accountId={account}
+        setAccountId={setAccountId} refreshing={refreshing}
+        onRefreshAccount={onRefreshAccount} onChanged={onAccountsChanged} />
       {q.loading && <LoadBar />}
       {d && (
         <div className="vg-pf-grid">
@@ -416,11 +446,8 @@ export function PortfolioView({ accountId, setAccountId, scopeAccounts,
           <IncomeCard inc={d.income} ccy={activeCcy} />
           <RebalanceCard rb={d.rebalance} targets={d.targets} />
           <CharacterCard ch={d.character} />
-          {/* 4 — value + ops: performance, then the account manager (full width) */}
+          {/* 4 — value */}
           <PerformanceCard account={account} accounts={scopeAccounts} />
-          <AccountManagerCard ba={d.by_account} accounts={scopeAccounts}
-            accountId={account} setAccountId={setAccountId} refreshing={refreshing}
-            onRefreshAccount={onRefreshAccount} onChanged={onAccountsChanged} />
         </div>)}
       {!q.loading && !d && <p className="vg-note" style={{ padding: 14 }}>No portfolio data.</p>}
     </div>);

@@ -1322,12 +1322,11 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-pf-analyze { grid-column: 1 / -1; }                     /* Mira: full width */
 .vg-pf-c-div   { grid-column: span 2; }                     /* Diversification */
 .vg-pf-c-wl    { grid-column: span 2; }                     /* Winners & losers */
-.vg-pf-accounts{ grid-column: span 4; }                     /* Accounts: full width */
 @media (max-width: 1180px) {
-  .vg-pf-c-div, .vg-pf-c-wl, .vg-pf-accounts { grid-column: span 2; }
+  .vg-pf-c-div, .vg-pf-c-wl { grid-column: span 2; }
 }
 @media (max-width: 640px) {
-  .vg-pf-c-div, .vg-pf-c-wl, .vg-pf-accounts { grid-column: auto; }
+  .vg-pf-c-div, .vg-pf-c-wl { grid-column: auto; }
 }
 .vg-pf-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .vg-pf-title { font: 600 var(--vg-text-md) var(--vg-font-ui); color: var(--vg-ink); }
@@ -1353,6 +1352,20 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-note.good { color: var(--vg-up); }
 .vg-note.bad { color: var(--vg-down); }
 /* account manager card */
+/* the slim account bar (scope chips + Manage) at the top of Portfolio */
+.vg-pf-acctbar { padding: 10px 14px; margin-bottom: 16px; }
+.vg-pf-chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.vg-pf-chip-acct { all: unset; cursor: pointer; display: inline-flex; align-items: baseline;
+  gap: 6px; padding: 5px 12px; border-radius: 999px; border: 1px solid var(--vg-hairline);
+  font-size: 13px; color: var(--vg-ink); white-space: nowrap; }
+.vg-pf-chip-acct:hover { border-color: var(--vg-rule); background: var(--vg-raised); }
+.vg-pf-chip-acct.on { border-color: var(--vg-accent);
+  background: color-mix(in srgb, var(--vg-accent) 10%, transparent); }
+.vg-pf-chip-acct .vg-note { font-family: var(--vg-font-data); }
+.vg-pf-manage { margin-left: auto; }
+.vg-pf-manage.on { background: var(--vg-accent); color: #fff; border-color: var(--vg-accent); }
+.vg-pf-managepanel { margin-top: 12px; border-top: 1px solid var(--vg-hairline); padding-top: 12px;
+  display: flex; flex-direction: column; gap: 8px; }
 .vg-pf-acctlist { display: flex; flex-direction: column; }
 .vg-pf-acctrow { display: flex; align-items: center; gap: 8px; padding: 7px 8px;
   border-radius: 6px; border: 1px solid transparent; text-align: left; }

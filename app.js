@@ -2125,15 +2125,7 @@
       if (!window.confirm(`Remove account "${a.short}" and its lots? This can't be undone.`)) return;
       deleteAccount(a.id).then(() => onChanged && onChanged());
     };
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card vg-pf-accounts" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Accounts"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, list.length, " linked \xB7 click to scope")), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-acctlist" }, /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: cls("vg-pf-acctrow", accountId === "all" && "on"),
-        onClick: () => setAccountId && setAccountId("all")
-      },
-      /* @__PURE__ */ React.createElement("span", { className: "vg-pf-acctname" }, /* @__PURE__ */ React.createElement("b", null, "All accounts")),
-      /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, list.length, " linked")
-    ), list.map((a) => {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pf-managepanel" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-acctlist" }, list.map((a) => {
       const csvOnly = a.refreshable === false;
       const pending = !!(refreshing && refreshing[a.id]);
       return /* @__PURE__ */ React.createElement("div", { key: a.id, className: cls("vg-pf-acctrow", accountId === a.id && "on") }, /* @__PURE__ */ React.createElement(
@@ -2156,6 +2148,66 @@
         pending ? "\u2026" : "\u27F3 sync"
       ), /* @__PURE__ */ React.createElement(UploadTxn, { acctId: a.id, onDone: onChanged }), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn bad", onClick: () => remove(a), title: "Remove account" }, "\u2715")));
     })), flags.map(([c, cc]) => /* @__PURE__ */ React.createElement("p", { key: c, className: "vg-note vg-pf-note" }, cc.top_account, " holds ", pct(cc.top_pct), " of the ", c, " book \u2014 single-account concentration.")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(AddAccount, { onAdded: onChanged })));
+  }
+  function AccountBar({
+    ba,
+    accounts: accounts2,
+    accountId,
+    setAccountId,
+    refreshing,
+    onRefreshAccount,
+    onChanged
+  }) {
+    const [manage, setManage] = useState3(false);
+    const list = accounts2 || [];
+    const total = list.reduce((m, a) => {
+      const c = a.currency || "USD";
+      m[c] = (m[c] || 0) + (a.value || 0);
+      return m;
+    }, {});
+    const totalLabel = Object.entries(total).map(([c, v]) => money(v, c)).join(" \xB7 ");
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-acctbar" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-chips" }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: cls("vg-pf-chip-acct", accountId === "all" && "on"),
+        onClick: () => setAccountId && setAccountId("all"),
+        title: "All accounts"
+      },
+      /* @__PURE__ */ React.createElement("b", null, "All"),
+      " ",
+      /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, totalLabel)
+    ), list.map((a) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: a.id,
+        className: cls("vg-pf-chip-acct", accountId === a.id && "on"),
+        onClick: () => setAccountId && setAccountId(a.id),
+        title: `Scope to ${a.name || a.short}`
+      },
+      /* @__PURE__ */ React.createElement("b", null, a.short),
+      " ",
+      /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, money(a.value, a.currency || "USD"))
+    )), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: cls("vg-btn sm vg-pf-manage", manage && "on"),
+        onClick: () => setManage((v) => !v),
+        title: "Add / import / sync / remove accounts"
+      },
+      "\u2699 ",
+      manage ? "Done" : "Manage"
+    )), manage && /* @__PURE__ */ React.createElement(
+      AccountManagerCard,
+      {
+        ba,
+        accounts: accounts2,
+        accountId,
+        setAccountId,
+        refreshing,
+        onRefreshAccount,
+        onChanged
+      }
+    ));
   }
   function RebalanceCard({ rb, targets }) {
     if (!rb) return null;
@@ -2229,10 +2281,10 @@ ${ref}`;
         onClick: () => setCcy(c)
       },
       c
-    )))), q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), d && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-grid" }, /* @__PURE__ */ React.createElement(AnalyzePane, { account }), /* @__PURE__ */ React.createElement(DiversificationCard, { d: d.diversification }), /* @__PURE__ */ React.createElement(WinnersLosersCard, { wl: d.winners_losers, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RiskCard, { rk: d.risk }), /* @__PURE__ */ React.createElement(IncomeCard, { inc: d.income, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RebalanceCard, { rb: d.rebalance, targets: d.targets }), /* @__PURE__ */ React.createElement(CharacterCard, { ch: d.character }), /* @__PURE__ */ React.createElement(PerformanceCard, { account, accounts: scopeAccounts }), /* @__PURE__ */ React.createElement(
-      AccountManagerCard,
+    )))), /* @__PURE__ */ React.createElement(
+      AccountBar,
       {
-        ba: d.by_account,
+        ba: d?.by_account,
         accounts: scopeAccounts,
         accountId: account,
         setAccountId,
@@ -2240,7 +2292,7 @@ ${ref}`;
         onRefreshAccount,
         onChanged: onAccountsChanged
       }
-    )), !q.loading && !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 14 } }, "No portfolio data."));
+    ), q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), d && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-grid" }, /* @__PURE__ */ React.createElement(AnalyzePane, { account }), /* @__PURE__ */ React.createElement(DiversificationCard, { d: d.diversification }), /* @__PURE__ */ React.createElement(WinnersLosersCard, { wl: d.winners_losers, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RiskCard, { rk: d.risk }), /* @__PURE__ */ React.createElement(IncomeCard, { inc: d.income, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RebalanceCard, { rb: d.rebalance, targets: d.targets }), /* @__PURE__ */ React.createElement(CharacterCard, { ch: d.character }), /* @__PURE__ */ React.createElement(PerformanceCard, { account, accounts: scopeAccounts })), !q.loading && !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 14 } }, "No portfolio data."));
   }
 
   // src/options.jsx
