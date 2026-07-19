@@ -11,7 +11,7 @@ import {
 } from "./util.jsx";
 import * as live from "./live.js";
 import { useLive, mapBarsOverlay, mapPositions, mapNotebook } from "./live.js";
-import { ConvictionBadge } from "./charts.jsx";
+import { ConvictionBadge } from "./chart_theme.jsx";
 import { MiraRender } from "./mira-render.jsx";
 
 const { useState, useMemo, useEffect } = React;

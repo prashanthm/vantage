@@ -7,7 +7,7 @@
 // HONESTY is the UX: only buckets the engine marked `significant` are shown as
 // edges; everything else is visually muted with an "n too small" note so the
 // user never reads noise as signal.
-import { cls, usd, signUsd, signPct, fmtDate } from "./util.jsx";
+import { cls, usd, signUsd, signPct, fmtDate, underlyingOf } from "./util.jsx";
 import { useLive, getRoundtrips, getTradeStats } from "./live.js";
 
 const { useMemo } = React;
@@ -192,7 +192,7 @@ function RoundtripsTable({ roundtrips, setSymbol, go }) {
     return rs.slice(0, 50);
   }, [roundtrips]);
   if (rows.length === 0) return null;
-  const jump = (sym) => { if (setSymbol && go) { setSymbol(sym); go("charts"); } };
+  const jump = (sym) => { if (setSymbol && go) { const u = underlyingOf(sym); setSymbol(u); go("ic", u); } };
   return (
     <div className="vg-card vg-tablewrap" style={{ marginTop: 8, padding: "8px 12px" }}>
       <table className="vg-table" style={{ width: "100%", borderCollapse: "collapse" }}>

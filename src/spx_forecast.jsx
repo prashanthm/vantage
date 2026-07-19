@@ -8,7 +8,7 @@
 // their accuracy score. The score is graded against elapsed price action.
 import { cls, dirCls, LoadBar } from "./util.jsx";
 import { parseMira, MiraRender } from "./mira-render.jsx";
-import { chartTheme } from "./charts.jsx";
+import { chartTheme } from "./chart_theme.jsx";
 import {
   useLive, streamTurn, getSpxSnapshot, saveSpxForecast,
   getSpxForecasts, scoreSpxForecast, prepareSpx, refreshSpx,
@@ -1153,6 +1153,3 @@ function ReplayCalibration({ scores }) {
     </div>
   );
 }
-
-// Back-compat alias (older mounts referenced SpxForecastPanel).
-export const SpxForecastPanel = SpxPlaybookView;
