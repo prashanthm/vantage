@@ -27,6 +27,11 @@ REV_BARS = 6       # window (hourly bars) to realize the reversal
 DISP_MULT = 0.7    # displacement gate: FVG middle-candle body > 0.7*ATR
 LOOK_SWEEP = 8     # bars after a sweep to find the displacement FVG (confluence)
 LOOK_FILL = 40     # bars to wait for first return into an FVG
+# thesis-invalidation buffer BEYOND the FVG far edge, in hourly-ATR units. The raw
+# far edge is spike-bait (median 0.27 ATR); pushing it out ~0.10 ATR moves it past
+# the gap so a wick doesn't read as invalidation. Backtest: 0.10 ATR keeps 64%
+# positive on the exit ladder (claudedocs/research/scanner-spread-invalidation.md).
+INVALID_BUFFER_ATR = 0.10
 
 
 def _atr(hi, lo, cl, i, n=14):
@@ -259,7 +264,12 @@ def htf_setup(hi, lo, cl, op, hour_of_day, active_obs=None, near_atr=3.0):
         reasons.append("PM drift — reduced conviction")
 
     direction = "long" if d > 0 else "short"
-    invalid = far  # the far FVG edge is the structural invalidation reference
+    # invalidation sits just BEYOND the FVG far edge, not AT it — the raw edge is
+    # spike-bait (median 0.27 ATR). Push it out INVALID_BUFFER_ATR * ATR in the
+    # losing direction (below `far` for a long, above for a short) so a wick past
+    # the gap doesn't read as invalidation. hatr from the FVG's formation bar.
+    hatr_fi = _atr(hi, lo, cl, fi, 14) or 0.0
+    invalid = far - d * INVALID_BUFFER_ATR * hatr_fi
     targets, runner_is_pool = _exit_ladder(hi, lo, ti, d, ce, invalid)
     return {
         "present": True,
@@ -281,3 +291,26 @@ def htf_setup(hi, lo, cl, op, hour_of_day, active_obs=None, near_atr=3.0):
         "bars_ago": (N - 1) - ti,
         "reason": " · ".join(reasons),
     }
+
+
+def _demo() -> None:
+    """Self-check: the exit ladder's rung math + the invalidation buffer invariant
+    (the stop sits BEYOND the FVG far edge, not at it). Runs offline, no bars."""
+    # ladder: long entry 100, stop 98 (risk 2) → TP1 102 / TP2 104 / TP3 106 (no pool)
+    tgts, pool = _exit_ladder([100] * 10, [100] * 10, 5, 1, 100.0, 98.0)
+    assert [t["price"] for t in tgts] == [102.0, 104.0, 106.0], tgts
+    assert [t["size"] for t in tgts] == [0.5, 0.25, 0.25] and pool is False
+    assert abs(sum(t["size"] for t in tgts) - 1.0) < 1e-9
+
+    # invalidation buffer: for a long, invalid must be BELOW the raw far edge; for a
+    # short, ABOVE it (pushed out of the gap by INVALID_BUFFER_ATR * ATR).
+    far, hatr = 98.0, 1.5
+    long_invalid = far - 1 * INVALID_BUFFER_ATR * hatr
+    short_invalid = 102.0 - (-1) * INVALID_BUFFER_ATR * hatr
+    assert long_invalid < far, (long_invalid, far)
+    assert short_invalid > 102.0, (short_invalid,)
+    print("ict_htf self-check OK")
+
+
+if __name__ == "__main__":
+    _demo()
