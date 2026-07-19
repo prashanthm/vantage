@@ -32,6 +32,16 @@ LOOK_FILL = 40     # bars to wait for first return into an FVG
 # the gap so a wick doesn't read as invalidation. Backtest: 0.10 ATR keeps 64%
 # positive on the exit ladder (claudedocs/research/scanner-spread-invalidation.md).
 INVALID_BUFFER_ATR = 0.10
+# FVG-SIZE GRADE (claudedocs/research/scanner-fvg-grade.md). FVG size — not
+# displacement — is what stratifies performance: FVG≥0.7 ATR wins 81%, 0.3-0.7 ~63%,
+# <0.3 is a 48% coin-flip. Confluence (the sweep) stays additive on top. Displacement
+# stays only as the ≥0.7-ATR gate that forms the FVG, NOT in the grade.
+FVG_GRADE_HI = 0.7     # FVG/ATR ≥ this + confluence → A+
+FVG_GRADE_LO = 0.3     # FVG/ATR < this → suppressed (no edge)
+# stop floor: no setup's stop sits tighter than this many ATR from entry, even when
+# the FVG gap is thin. 0.5 ATR was the calibrated best (floor ≥1.0 cost more R than
+# it saved).
+STOP_FLOOR_ATR = 0.5
 
 
 def _atr(hi, lo, cl, i, n=14):
@@ -242,14 +252,27 @@ def htf_setup(hi, lo, cl, op, hour_of_day, active_obs=None, near_atr=3.0):
     ti, d, ce, far, fi = chosen
     ob_backed = _overlaps_ob(ce, active_obs)
 
-    tier = base
+    # FVG SIZE is the conviction grade (scanner-fvg-grade.md). ce is the FVG midpoint
+    # and far is one edge, so the full gap width is 2×|far−ce|. Scale by the ATR at
+    # formation. A thin gap (<FVG_GRADE_LO ATR) is a 48% coin-flip → not surfaced.
+    hatr_fi = _atr(hi, lo, cl, fi, 14) or 0.0
+    fvg_ratio = (abs(far - ce) * 2 / hatr_fi) if hatr_fi else 0.0
+    if fvg_ratio < FVG_GRADE_LO:
+        return {"present": False, "suppressed": "thin-fvg", "fvg_ratio": round(fvg_ratio, 2)}
+
     reasons = []
+    fat = fvg_ratio >= FVG_GRADE_HI
     if base == "A+":
         reasons.append("sweep → displacement FVG (confluence)")
+        # A+ requires confluence AND a fat gap (81% edge); confluence + medium gap → B
+        tier = "A+" if fat else "B"
     else:
         reasons.append("displacement-gated FVG reaction")
+        # bare FVG (no sweep) is B even when fat (78% vs 81% confluence); OB can lift it
+        tier = "A+" if ob_backed and fat else "B"
         if ob_backed:
-            tier = "A+"; reasons.append("order-block-backed")
+            reasons.append("order-block-backed")
+    reasons.append(f"FVG {'fat' if fat else 'medium'} ({fvg_ratio:.1f}×ATR)")
 
     # hour-of-day modifier (C9 expansion decay)
     hb = _hour_bucket(hour_of_day)
@@ -264,12 +287,15 @@ def htf_setup(hi, lo, cl, op, hour_of_day, active_obs=None, near_atr=3.0):
         reasons.append("PM drift — reduced conviction")
 
     direction = "long" if d > 0 else "short"
-    # invalidation sits just BEYOND the FVG far edge, not AT it — the raw edge is
-    # spike-bait (median 0.27 ATR). Push it out INVALID_BUFFER_ATR * ATR in the
-    # losing direction (below `far` for a long, above for a short) so a wick past
-    # the gap doesn't read as invalidation. hatr from the FVG's formation bar.
-    hatr_fi = _atr(hi, lo, cl, fi, 14) or 0.0
-    invalid = far - d * INVALID_BUFFER_ATR * hatr_fi
+    # invalidation: beyond the FVG far edge (INVALID_BUFFER_ATR × formation ATR), THEN
+    # floored so it sits at least STOP_FLOOR_ATR from entry — a thin gap can't leave a
+    # sub-0.5-ATR stop that a wick takes out. The FLOOR uses the CURRENT (last-bar) ATR
+    # `hatr` — "0.5 ATR of the stock's range right now" — not the formation ATR, so a
+    # setup that aged into higher volatility still gets a survivable stop. Take
+    # whichever is FARTHER from entry: min for a long (lower), max for a short.
+    buffered = far - d * INVALID_BUFFER_ATR * hatr_fi
+    floored = ce - d * STOP_FLOOR_ATR * (hatr or hatr_fi)
+    invalid = min(buffered, floored) if d > 0 else max(buffered, floored)
     targets, runner_is_pool = _exit_ladder(hi, lo, ti, d, ce, invalid)
     return {
         "present": True,
@@ -309,6 +335,16 @@ def _demo() -> None:
     short_invalid = 102.0 - (-1) * INVALID_BUFFER_ATR * hatr
     assert long_invalid < far, (long_invalid, far)
     assert short_invalid > 102.0, (short_invalid,)
+
+    # stop FLOOR: with a thin gap the buffered stop is tighter than STOP_FLOOR_ATR,
+    # so the floored stop (0.5 ATR from entry) must win. entry 100, far 99.7 (thin),
+    # ATR 4 → buffered 99.3 (0.18 ATR), floored 98.0 (0.5 ATR) → floored is farther.
+    entry, far_thin, atr = 100.0, 99.7, 4.0
+    buffered = far_thin - 1 * INVALID_BUFFER_ATR * atr
+    floored = entry - 1 * STOP_FLOOR_ATR * atr
+    inv = min(buffered, floored)  # long → the lower (farther) stop
+    assert inv == floored, (inv, buffered, floored)
+    assert abs(entry - inv) >= STOP_FLOOR_ATR * atr - 1e-9, (entry - inv)
     print("ict_htf self-check OK")
 
 
