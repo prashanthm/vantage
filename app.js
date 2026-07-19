@@ -2500,1106 +2500,8 @@ ${ref}`;
     ), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: copy }, copied ? "Copied \u2713" : "Copy script")))));
   }
 
-  // src/spx_forecast.jsx
-  var { useState: useState6, useRef: useRef2, useEffect: useEffect4 } = React;
-  var PLAYBOOK_SYMBOLS = ["SPX", "QQQ", "IWM"];
-  var hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
-  function forecastFields(data) {
-    if (!data) return {};
-    const num2 = (v) => {
-      const n = parseFloat(v);
-      return Number.isFinite(n) ? n : null;
-    };
-    const p = data.plot;
-    if (p && typeof p === "object") {
-      const b = String(p.bias || "").toLowerCase();
-      const biasDir = /down|bear|short/.test(b) ? "down" : /up|bull|long/.test(b) ? "up" : b;
-      const path = (Array.isArray(p.path) ? p.path : []).map((st, i) => ({
-        seq: num2(st.seq) || i + 1,
-        price: num2(st.price),
-        dir: /down|short|bear/.test(String(st.dir || "").toLowerCase()) ? "down" : /up|long|bull/.test(String(st.dir || "").toLowerCase()) ? "up" : biasDir,
-        note: String(st.note || "").slice(0, 40)
-      })).filter((st) => st.price != null).slice(0, 5);
-      return { bias: biasDir, target: num2(p.target), invalid: num2(p.invalidation), path };
-    }
-    const firstNum = (v) => {
-      const m = String(v).match(/\d{3,6}(?:\.\d+)?/);
-      return m ? parseFloat(m[0]) : null;
-    };
-    let target = null, invalid = null;
-    for (const sec of data.sections || []) {
-      for (const r of sec.rows || []) {
-        const k = String(r.k || "").toLowerCase();
-        if (target == null && k.includes("target") && !/upside|wrong|if /.test(k)) target = firstNum(r.v);
-        if (invalid == null && (k.includes("invalid") || k.includes("stop"))) invalid = firstNum(r.v);
-      }
-    }
-    return { bias: "", target, invalid, path: [] };
-  }
-  function ForecastChart({ snap, forecast }) {
-    const elRef = useRef2(null);
-    const chartRef = useRef2(null);
-    const candleRef = useRef2(null);
-    const linesRef = useRef2([]);
-    const zonesRef = useRef2([]);
-    const markedRef = useRef2(false);
-    const pathSeriesRef = useRef2(null);
-    useEffect4(() => {
-      const el = elRef.current;
-      if (!el || !hasLW()) return void 0;
-      const LW = window.LightweightCharts;
-      const th = chartTheme();
-      const chart = LW.createChart(el, {
-        autoSize: true,
-        layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
-        grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
-        // wider right scale + top/bottom margins so the labeled level tags have
-        // room and don't clip against the edge. rightOffset leaves future space for
-        // the projected forecast path.
-        rightPriceScale: {
-          borderColor: th.border,
-          minimumWidth: 116,
-          scaleMargins: { top: 0.08, bottom: 0.08 },
-          autoScale: true
-        },
-        timeScale: {
-          borderColor: th.border,
-          timeVisible: true,
-          secondsVisible: false,
-          rightOffset: 12
-        },
-        crosshair: { mode: LW.CrosshairMode.Normal },
-        // wheel zooms BOTH axes; both axes drag-stretchable (vertical price zoom).
-        handleScale: {
-          mouseWheel: true,
-          pinch: true,
-          axisPressedMouseMove: { time: true, price: true },
-          axisDoubleClickReset: { time: true, price: true }
-        },
-        handleScroll: {
-          mouseWheel: true,
-          pressedMouseMove: true,
-          horzTouchDrag: true,
-          vertTouchDrag: true
-        }
-      });
-      const candle = chart.addCandlestickSeries({
-        upColor: th.up,
-        downColor: th.down,
-        wickUpColor: th.up,
-        wickDownColor: th.down,
-        borderUpColor: th.up,
-        borderDownColor: th.down
-      });
-      chartRef.current = chart;
-      candleRef.current = candle;
-      return () => {
-        chart.remove();
-        chartRef.current = candleRef.current = null;
-        linesRef.current = [];
-        zonesRef.current = [];
-        pathSeriesRef.current = null;
-      };
-    }, []);
-    const fittedRef = useRef2(false);
-    useEffect4(() => {
-      const candle = candleRef.current;
-      const bars = snap && snap.bars_5m;
-      if (!candle || !bars || !bars.length) return;
-      candle.setData(bars);
-      if (chartRef.current && !fittedRef.current) {
-        chartRef.current.timeScale().fitContent();
-        fittedRef.current = true;
-      }
-    }, [snap]);
-    useEffect4(() => {
-      const candle = candleRef.current, chart = chartRef.current;
-      if (!candle || !chart || !snap) return;
-      const LW = window.LightweightCharts;
-      const th = chartTheme();
-      for (const pl of linesRef.current) {
-        try {
-          candle.removePriceLine(pl);
-        } catch (e) {
-        }
-      }
-      for (const z of zonesRef.current) {
-        try {
-          chart.removeSeries(z);
-        } catch (e) {
-        }
-      }
-      linesRef.current = [];
-      zonesRef.current = [];
-      const addLine = (o) => linesRef.current.push(candle.createPriceLine(o));
-      const bars = snap.bars_5m || [];
-      const t0 = bars.length ? bars[0].time : 0;
-      const t1 = bars.length ? bars[bars.length - 1].time : 0;
-      const hasFc = !!(forecast && (forecast.target != null || forecast.path && forecast.path.length));
-      const dim = hasFc ? 0.35 : 1;
-      const ctxN = hasFc ? 3 : 5;
-      const liqN = hasFc ? 2 : 4;
-      const addZone = (top, bottom, rgb, alpha, tag) => {
-        const area = chart.addBaselineSeries({
-          baseValue: { type: "price", price: bottom },
-          topFillColor1: `rgba(${rgb},${alpha})`,
-          topFillColor2: `rgba(${rgb},${alpha})`,
-          topLineColor: `rgba(${rgb},0.5)`,
-          bottomLineColor: `rgba(${rgb},0.5)`,
-          bottomFillColor1: "rgba(0,0,0,0)",
-          bottomFillColor2: "rgba(0,0,0,0)",
-          lineWidth: 1,
-          priceLineVisible: false,
-          lastValueVisible: false
-        });
-        area.setData([{ time: t0, value: top }, { time: t1, value: top }]);
-        zonesRef.current.push(area);
-        if (tag) addLine({
-          price: top,
-          color: `rgba(${rgb},0.9)`,
-          lineWidth: 1,
-          lineStyle: LW.LineStyle.Dotted,
-          axisLabelVisible: false,
-          title: tag
-        });
-      };
-      (snap.levels || []).forEach((lv) => {
-        const lbl = String(lv.label || "");
-        const isRes = /resist|call wall/i.test(lbl);
-        const isSup = /support|put wall|max pain/i.test(lbl);
-        const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
-        addLine({
-          price: lv.price,
-          color: `rgba(${rgb.join(",")},${0.55 * dim})`,
-          lineWidth: /wall|max pain|durable/i.test(lbl) ? 2 : 1,
-          lineStyle: LW.LineStyle.Dashed,
-          axisLabelVisible: !hasFc,
-          title: hasFc ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 20)
-        });
-      });
-      const px2 = snap.price || (bars.length ? bars[bars.length - 1].close : 0);
-      const nearest3 = (arr, mid, n) => (arr || []).slice().sort((a, b) => Math.abs(mid(a) - px2) - Math.abs(mid(b) - px2)).slice(0, n);
-      const ict = snap.ict || {};
-      nearest3(ict.active_order_blocks, (o) => (o.top + o.bottom) / 2, ctxN).forEach((o) => {
-        const rgb = (o.side === "bull" ? th.upRgb : th.downRgb).join(",");
-        addZone(o.top, o.bottom, rgb, 0.14 * dim, hasFc ? "" : `${o.side === "bull" ? "demand" : "supply"} OB`);
-      });
-      nearest3(ict.fresh_fvgs, (f) => (f.hi + f.lo) / 2, ctxN).forEach((f) => {
-        const rgb = (f.side === "bull" ? th.upRgb : th.downRgb).join(",");
-        addZone(f.hi, f.lo, rgb, 0.1 * dim, hasFc ? "" : `${f.side === "bull" ? "bull" : "bear"} FVG`);
-      });
-      const liq = ict.unswept_liquidity || {};
-      const liqRgb = "184,122,22";
-      nearest3(liq.bsl, (p) => p, liqN).forEach((p) => addLine({
-        price: p,
-        color: `rgba(${liqRgb},${0.6 * dim})`,
-        lineWidth: 1,
-        lineStyle: LW.LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: "BSL"
-      }));
-      nearest3(liq.ssl, (p) => p, liqN).forEach((p) => addLine({
-        price: p,
-        color: `rgba(${liqRgb},${0.6 * dim})`,
-        lineWidth: 1,
-        lineStyle: LW.LineStyle.Dotted,
-        axisLabelVisible: false,
-        title: "SSL"
-      }));
-      if (ict.draw && ict.draw.level != null) addLine({
-        price: ict.draw.level,
-        color: "rgba(124,92,255,0.9)",
-        lineWidth: 2,
-        lineStyle: LW.LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: `DRAW ${ict.draw.dir === "up" ? "\u2191" : "\u2193"}`
-      });
-      if (pathSeriesRef.current) {
-        try {
-          chart.removeSeries(pathSeriesRef.current);
-        } catch (e) {
-        }
-        pathSeriesRef.current = null;
-      }
-      if (forecast) {
-        const { target, invalid, path } = forecast;
-        if (target != null) addLine({
-          price: target,
-          color: `rgb(${th.upRgb.join(",")})`,
-          lineWidth: 3,
-          lineStyle: LW.LineStyle.Solid,
-          axisLabelVisible: true,
-          title: `\u{1F3AF} TARGET`
-        });
-        if (invalid != null) addLine({
-          price: invalid,
-          color: `rgb(${th.downRgb.join(",")})`,
-          lineWidth: 3,
-          lineStyle: LW.LineStyle.Solid,
-          axisLabelVisible: true,
-          title: `\u2715 INVALID`
-        });
-        const steps = (path || []).filter((st) => st.price != null);
-        if (t1 && steps.length) {
-          const barSec = bars.length > 1 ? bars[bars.length - 1].time - bars[bars.length - 2].time || 300 : 300;
-          const px0 = snap.price || (bars.length ? bars[bars.length - 1].close : steps[0].price);
-          const data = [{ time: t1, value: px0 }];
-          const markers = [];
-          steps.forEach((st, i) => {
-            const tt = t1 + barSec * (i + 1);
-            data.push({ time: tt, value: st.price });
-            const label = `${st.seq} \xB7 ${st.price}${st.note ? " " + st.note : ""}`.slice(0, 34);
-            markers.push({
-              time: tt,
-              position: st.dir === "down" ? "belowBar" : "aboveBar",
-              shape: st.dir === "down" ? "arrowDown" : "arrowUp",
-              color: st.dir === "down" ? `rgb(${th.downRgb.join(",")})` : `rgb(${th.upRgb.join(",")})`,
-              text: label
-            });
-          });
-          try {
-            const ps = chart.addLineSeries({
-              color: "rgba(124,92,255,0.95)",
-              lineWidth: 2,
-              lineStyle: LW.LineStyle.Dashed,
-              lastValueVisible: false,
-              priceLineVisible: false,
-              crosshairMarkerVisible: false
-            });
-            ps.setData(data);
-            ps.setMarkers(markers);
-            pathSeriesRef.current = ps;
-          } catch (e) {
-          }
-        }
-        if (t1) {
-          try {
-            candle.setMarkers([{
-              time: t1,
-              position: "aboveBar",
-              shape: "circle",
-              color: "rgb(124,92,255)",
-              text: forecast.origin && forecast.origin.label || "now"
-            }]);
-            markedRef.current = true;
-          } catch (e) {
-          }
-        }
-      } else if (markedRef.current) {
-        try {
-          candle.setMarkers([]);
-        } catch (e) {
-        }
-        markedRef.current = false;
-      }
-    }, [snap, forecast]);
-    if (!hasLW()) {
-      return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
-    }
-    return /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-fc-chart" });
-  }
-  function ForecastRow({ f, onScore, scoring, selected, onSelect }) {
-    const [open, setOpen] = useState6(false);
-    const sc = f.score;
-    const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-row", selected && "vg-fc-row-sel") }, /* @__PURE__ */ React.createElement(
-      "div",
-      {
-        className: "vg-fc-rowhead",
-        style: { cursor: "pointer" },
-        title: selected ? "hide from chart" : "show this forecast on the chart",
-        onClick: () => onSelect(selected ? null : f)
-      },
-      /* @__PURE__ */ React.createElement("span", { className: "vg-fc-showbtn", "aria-hidden": "true" }, "\u{1F4C8}"),
-      /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, f.day, " \xB7 ", String(f.as_of || "").slice(11, 16)),
-      /* @__PURE__ */ React.createElement("span", { className: "vg-fc-price-sm" }, "@ ", f.price_at),
-      sc ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontSize: 11 } }, sc.verdict, sc.moved_pt != null ? ` \xB7 ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : "") : /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          className: "vg-btn-sm",
-          disabled: scoring === f.id,
-          onClick: (e) => {
-            e.stopPropagation();
-            onScore(f.id);
-          }
-        },
-        scoring === f.id ? "\u2026" : "score it"
-      ),
-      /* @__PURE__ */ React.createElement(
-        "span",
-        {
-          className: "vg-fc-caret",
-          title: "show the written read",
-          onClick: (e) => {
-            e.stopPropagation();
-            setOpen((v) => !v);
-          }
-        },
-        open ? "\u25BE" : "\u25B8"
-      )
-    ), selected && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowhint" }, "\u{1F4C8} shown on chart \u2014 click again to hide"), open && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-rowbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
-  }
-  var PlaybookCtx = React.createContext(null);
-  var usePlaybook = () => React.useContext(PlaybookCtx);
-  function usePlaybookStore(initialSymbol) {
-    const [symbol, setSymbolState] = useState6((initialSymbol || "SPX").toUpperCase());
-    const [entry, setEntry] = useState6(symbol);
-    const [nonce, setNonce] = useState6(0);
-    const [preparing, setPreparing] = useState6(false);
-    const [prepNote, setPrepNote] = useState6(null);
-    const [read, setRead] = useState6(null);
-    const [scoring, setScoring] = useState6(null);
-    const [selected, setSelected] = useState6(null);
-    const [autoRefresh, setAutoRefresh] = useState6(true);
-    const abortRef = useRef2(null);
-    useEffect4(() => () => {
-      if (abortRef.current) abortRef.current();
-    }, []);
-    useEffect4(() => {
-      if (!autoRefresh || !PLAYBOOK_SYMBOLS.includes(symbol)) return void 0;
-      const tick = () => {
-        if (document.hidden) return;
-        refreshSpx(symbol).then(() => setNonce((n) => n + 1)).catch(() => {
-        });
-      };
-      const id = setInterval(tick, 5 * 60 * 1e3);
-      return () => clearInterval(id);
-    }, [autoRefresh, symbol]);
-    const snapQ = useLive(() => getSpxSnapshot(void 0, void 0, symbol), null, [symbol, nonce]);
-    const priors = useLive(() => getSpxForecasts(void 0, symbol, 30), null, [symbol, nonce]);
-    const s = snapQ.data && snapQ.data.available ? snapQ.data : null;
-    const isPlaybook = PLAYBOOK_SYMBOLS.includes(symbol);
-    const busy = read && read.loading;
-    const liveFields = read && read.data ? forecastFields(read.data) : null;
-    const fcFields = selected ? {
-      ...forecastFields(selected.forecast),
-      origin: { label: `called @ ${String(selected.as_of || "").slice(11, 16)}`, price: selected.price_at }
-    } : liveFields ? { ...liveFields, origin: { label: "now" } } : null;
-    const applySymbol = (sym) => {
-      const s2 = String(sym || "").trim().toUpperCase();
-      if (!s2 || s2 === symbol) return;
-      setRead(null);
-      setPrepNote(null);
-      setSymbolState(s2);
-      setEntry(s2);
-    };
-    const prepare = () => {
-      setPreparing(true);
-      setPrepNote(null);
-      prepareSpx(symbol, 5).then((r) => {
-        if (r && r.note) setPrepNote(r.note);
-        setNonce((n) => n + 1);
-      }).catch((e) => setPrepNote(String(e && e.message || e))).finally(() => setPreparing(false));
-    };
-    const runForecast = (day, asOf) => {
-      let text = "";
-      const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
-      const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
-${ref}`;
-      abortRef.current = streamTurn(prompt, `spx-forecast-${symbol}-${day}-${asOf}`, (evt) => {
-        if (evt.kind === "error") {
-          setRead({ error: evt.message || "Mira error" });
-          return;
-        }
-        if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
-          text += evt.text;
-          setRead({ loading: true, text });
-          return;
-        }
-        if (evt.kind === "done") {
-          abortRef.current = null;
-          if (evt.text && !text) text = evt.text;
-          const data = parseMira(text);
-          if (!data && !text) {
-            setRead({ error: "Mira returned an empty forecast." });
-            return;
-          }
-          setRead({ text, data });
-          saveSpxForecast({
-            day,
-            as_of: asOf,
-            symbol,
-            snapshot: s,
-            forecast: data || null,
-            forecast_text: text
-          }).then(() => setNonce((n) => n + 1)).catch(() => {
-          });
-        }
-      });
-    };
-    const forecast = () => {
-      if (!s) return;
-      setRead({ loading: true });
-      refreshSpx(symbol).then((r) => {
-        const day = r && r.available && r.day || s.day;
-        const asOf = r && r.available && r.as_of || s.as_of;
-        runForecast(day, asOf);
-      }).catch(() => runForecast(s.day, s.as_of));
-    };
-    const score = (fid) => {
-      setScoring(fid);
-      scoreSpxForecast(fid).then(() => setNonce((n) => n + 1)).finally(() => setScoring(null));
-    };
-    const t = s && s.technicals || {};
-    const draw = s && s.ict && s.ict.draw || {};
-    return {
-      symbol,
-      entry,
-      setEntry,
-      applySymbol,
-      PLAYBOOK_SYMBOLS,
-      s,
-      snapQ,
-      isPlaybook,
-      busy,
-      preparing,
-      prepNote,
-      prepare,
-      read,
-      forecast,
-      score,
-      scoring,
-      selected,
-      setSelected,
-      fcFields,
-      autoRefresh,
-      setAutoRefresh,
-      priors,
-      t,
-      draw
-    };
-  }
-  function PlaybookProvider({ initialSymbol = "SPX", children }) {
-    const store = usePlaybookStore(initialSymbol);
-    return /* @__PURE__ */ React.createElement(PlaybookCtx.Provider, { value: store }, children);
-  }
-  function SpxPlaybookView() {
-    const p = usePlaybook();
-    if (!p) return null;
-    const {
-      symbol,
-      entry,
-      setEntry,
-      applySymbol,
-      s,
-      snapQ,
-      isPlaybook,
-      preparing,
-      prepNote,
-      prepare,
-      selected,
-      setSelected,
-      fcFields,
-      autoRefresh,
-      setAutoRefresh,
-      t,
-      draw,
-      busy
-    } = p;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-loadhost" }, (snapQ.loading || busy || preparing) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 14, flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "0DTE Playbook \u2014 ", symbol), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, isPlaybook ? "5-min candles \xB7 coach levels \xB7 ICT structure \xB7 what will price do?" : "5-min candles \u2014 coach levels & forecast need a GEX chain (SPX / QQQ / IWM)")), /* @__PURE__ */ React.createElement(
-      "form",
-      {
-        className: "vg-fc-symbar",
-        onSubmit: (e) => {
-          e.preventDefault();
-          applySymbol(entry);
-        }
-      },
-      PLAYBOOK_SYMBOLS.map((sy) => /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          type: "button",
-          key: sy,
-          className: cls("vg-fc-chip", sy === symbol && "vg-fc-chip-on"),
-          onClick: () => applySymbol(sy)
-        },
-        sy
-      )),
-      /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          className: "vg-fc-syminput",
-          value: entry,
-          spellCheck: false,
-          onChange: (e) => setEntry(e.target.value.toUpperCase()),
-          placeholder: "symbol",
-          "aria-label": "chart symbol"
-        }
-      ),
-      /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "Load")
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14 } }, s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-tapehead" }, /* @__PURE__ */ React.createElement("b", null, s.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.day, " \xB7 ", String(s.as_of || "").slice(11, 16), " ET", s.history_days > 1 ? ` \xB7 ${s.history_days}-day history` : ""), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-tape" }, "VWAP ", t.vwap, " (", t.vs_vwap_pt >= 0 ? "+" : "", t.vs_vwap_pt, ") \xB7 RSI ", t.rsi, " \xB7 vol ", t.rel_volume, "\xD7", draw.dir ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 draw ", draw.dir, " \u2192 ", /* @__PURE__ */ React.createElement("b", null, draw.level)) : null), isPlaybook && /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: cls("vg-fc-auto", autoRefresh && "vg-fc-auto-on"),
-        onClick: () => setAutoRefresh((v) => !v),
-        title: "Auto-refresh the 1m bars + chart every 5 minutes during market hours"
-      },
-      autoRefresh ? "\u25CF auto 5m" : "\u25CB auto off"
-    )), s && selected && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-pinned" }, /* @__PURE__ */ React.createElement("span", null, "\u{1F4C8} showing forecast @ ", selected.day, " \xB7 ", String(selected.as_of || "").slice(11, 16)), fcFields && fcFields.path && fcFields.path.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "path: ", fcFields.path.map((x) => x.price).join(" \u2192 ")), /* @__PURE__ */ React.createElement("button", { className: "vg-fc-pinned-x", onClick: () => setSelected(null) }, "\u2715 clear")), s && s.ict_htf && s.ict_htf.present && /* @__PURE__ */ React.createElement("div", { className: cls("vg-fc-htf", s.ict_htf.tier === "A+" && "vg-fc-htf-ap") }, /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-tag" }, s.ict_htf.tier === "A+" ? "\u26A1" : "\u2022", " ", s.ict_htf.tier, " HOURLY SETUP"), /* @__PURE__ */ React.createElement("b", { className: dirCls(s.ict_htf.dir === "long" ? 1 : -1) }, s.ict_htf.dir.toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.ict_htf.reason), /* @__PURE__ */ React.createElement("span", { className: "vg-fc-htf-drop" }, "\u2192 drop to 5m/1m for entry"), Array.isArray(s.ict_htf.entry_zone) && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "zone ", s.ict_htf.entry_zone[0], "\u2013", s.ict_htf.entry_zone[1], " \xB7 invalid ", s.ict_htf.invalid)), s && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-up)" } }), "coach support"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dash", style: { borderColor: "var(--vg-down)" } }), "coach resistance"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(31,157,107,0.18)" } }), "demand OB / bull FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(217,59,78,0.18)" } }), "supply OB / bear FVG"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "rgb(184,122,22)" } }), "liquidity pool (BSL/SSL)"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw vg-lg-dot", style: { borderColor: "#7c5cff" } }), "draw (magnet)"), fcFields && /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u{1F3AF} forecast + numbered path")), s ? /* @__PURE__ */ React.createElement(ForecastChart, { key: symbol, snap: s, forecast: fcFields }) : /* @__PURE__ */ React.createElement("div", { className: "vg-fc-empty" }, snapQ.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Loading candles\u2026") : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginBottom: 12 } }, snapQ.data && snapQ.data.note ? snapQ.data.note : `No stored 1m bars for ${symbol} yet.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn", disabled: preparing, onClick: prepare }, preparing ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Fetching ", symbol, " data\u2026") : `\u2913 Fetch data & compute levels`), prepNote && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, prepNote)))));
-  }
-  function SpxPlaybookRail() {
-    const p = usePlaybook();
-    if (!p) return null;
-    const {
-      s,
-      isPlaybook,
-      busy,
-      read,
-      forecast,
-      score,
-      scoring,
-      selected,
-      setSelected,
-      priors
-    } = p;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-fc-rail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "What will price do?"), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: "vg-btn-sm",
-        disabled: busy || !s || !isPlaybook,
-        onClick: forecast,
-        title: !isPlaybook ? "forecast needs coach levels (SPX / QQQ / IWM)" : void 0
-      },
-      busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Reading\u2026") : "\u{1F52E} Forecast now"
-    )), !isPlaybook && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart only \u2014 the forecast reasons over coach levels, which need a GEX chain."), read && (read.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error) : read.data || read.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })) : read.loading ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Reasoning over the liquidity, draw, and structure\u2026") : isPlaybook && s ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Hit forecast for a scoreable directional read.") : null)), priors.data && priors.data.forecasts && priors.data.forecasts.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Prior forecasts"), priors.data.forecasts.map((f) => /* @__PURE__ */ React.createElement(
-      ForecastRow,
-      {
-        key: f.id,
-        f,
-        onScore: score,
-        scoring,
-        selected: selected && selected.id === f.id,
-        onSelect: setSelected
-      }
-    ))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 11, color: "var(--vg-dim)" } }, "Levels are the nightly EOD estimate \xB7 0DTE-blind \xB7 not advice."));
-  }
-  var hhmm = (iso) => String(iso || "").slice(11, 16);
-  function rampColor(i, n, alpha) {
-    const t = n > 1 ? i / (n - 1) : 0;
-    const hue = 210 - 210 * t;
-    return `hsla(${hue}, 75%, 55%, ${alpha})`;
-  }
-  function ReplayChart({ snap, forecasts, activeId, etShiftSec = 0 }) {
-    const elRef = useRef2(null);
-    const chartRef = useRef2(null);
-    const actualRef = useRef2(null);
-    const predSeriesRefs = useRef2([]);
-    useEffect4(() => {
-      const el = elRef.current;
-      if (!el || !hasLW()) return void 0;
-      const LW = window.LightweightCharts;
-      const th = chartTheme();
-      const chart = LW.createChart(el, {
-        autoSize: true,
-        layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
-        grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
-        rightPriceScale: {
-          borderColor: th.border,
-          minimumWidth: 72,
-          scaleMargins: { top: 0.12, bottom: 0.12 },
-          autoScale: true
-        },
-        timeScale: { borderColor: th.border, timeVisible: true, secondsVisible: false },
-        crosshair: { mode: LW.CrosshairMode.Normal },
-        handleScale: {
-          mouseWheel: true,
-          pinch: true,
-          axisPressedMouseMove: { time: true, price: true },
-          axisDoubleClickReset: { time: true, price: true }
-        },
-        handleScroll: {
-          mouseWheel: true,
-          pressedMouseMove: true,
-          horzTouchDrag: true,
-          vertTouchDrag: true
-        }
-      });
-      const actual = chart.addLineSeries({
-        color: th.text,
-        lineWidth: 2,
-        priceLineVisible: false,
-        lastValueVisible: true,
-        crosshairMarkerVisible: true
-      });
-      chartRef.current = chart;
-      actualRef.current = actual;
-      return () => {
-        chart.remove();
-        chartRef.current = actualRef.current = null;
-        predSeriesRefs.current = [];
-      };
-    }, []);
-    const fittedRef = useRef2(false);
-    useEffect4(() => {
-      const actual = actualRef.current;
-      const bars = snap && snap.bars_5m;
-      if (!actual || !bars || !bars.length) return;
-      const day = snap.day;
-      const shifted = (t) => t + etShiftSec;
-      const etDate = (t) => new Date(shifted(t) * 1e3).toISOString().slice(0, 10);
-      const dayBars = day ? bars.filter((b) => etDate(b.time) === day) : bars;
-      const use = dayBars.length ? dayBars : bars;
-      actual.setData(use.map((b) => ({ time: shifted(b.time), value: b.close })));
-      if (chartRef.current) {
-        chartRef.current.timeScale().fitContent();
-        fittedRef.current = true;
-      }
-    }, [snap, etShiftSec]);
-    useEffect4(() => {
-      const chart = chartRef.current;
-      if (!chart) return;
-      const LW = window.LightweightCharts;
-      const th = chartTheme();
-      for (const s of predSeriesRefs.current) {
-        try {
-          chart.removeSeries(s);
-        } catch (e) {
-        }
-      }
-      predSeriesRefs.current = [];
-      const list = (forecasts || []).filter((f) => f.plot && f.plot.target != null && f._t0).slice().sort((a, b) => a._t0 - b._t0);
-      const n = list.length;
-      const markers = [];
-      if (list.length) {
-        const pts2 = [];
-        let lastT = -Infinity;
-        for (const f of list) {
-          const base = f._t0 + etShiftSec;
-          const t = base <= lastT ? lastT + 1 : base;
-          pts2.push({ time: t, value: f.plot.target });
-          lastT = t;
-        }
-        try {
-          const ps = chart.addLineSeries({
-            color: "rgba(124,92,255,0.95)",
-            lineWidth: 2,
-            lineStyle: LW.LineStyle.Solid,
-            lastValueVisible: false,
-            priceLineVisible: false,
-            crosshairMarkerVisible: true,
-            pointMarkersVisible: true
-          });
-          ps.setData(pts2);
-          predSeriesRefs.current.push(ps);
-        } catch (e) {
-        }
-      }
-      list.forEach((f, i) => {
-        const isActive = activeId != null && f.id === activeId;
-        const sc = f.score || {};
-        const good = sc.verdict === "hit target" || sc.verdict === "direction correct";
-        const bad = sc.verdict === "invalidated" || sc.verdict === "direction wrong";
-        const from = f.price_at != null ? f.price_at : f.plot.target;
-        const up = f.plot.target >= from;
-        markers.push({
-          time: f._t0 + etShiftSec,
-          position: up ? "aboveBar" : "belowBar",
-          shape: up ? "arrowUp" : "arrowDown",
-          color: good ? `rgb(${th.upRgb.join(",")})` : bad ? `rgb(${th.downRgb.join(",")})` : rampColor(i, n, 0.9),
-          text: isActive ? `${hhmm(f.as_of)} \u2192 ${f.plot.target}` : hhmm(f.as_of)
-        });
-      });
-      markers.sort((a, b) => a.time - b.time);
-      try {
-        if (actualRef.current) actualRef.current.setMarkers(markers);
-      } catch (e) {
-      }
-    }, [snap, forecasts, activeId, etShiftSec]);
-    if (!hasLW()) {
-      return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Chart unavailable (Lightweight Charts didn't load).");
-    }
-    return /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-fc-chart" });
-  }
-  function useReplayStore() {
-    const [symbol, setSymbol] = useState6("SPX");
-    const [entry, setEntry] = useState6("SPX");
-    const todayISO2 = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-    const [day, setDay] = useState6(todayISO2);
-    const [stepMin, setStepMin] = useState6(15);
-    const [premarket, setPremarket] = useState6(false);
-    const [note, setNote] = useState6(null);
-    const [runId, setRunId] = useState6(null);
-    const [runState, setRunState] = useState6(null);
-    const [nonce, setNonce] = useState6(0);
-    const [activeId, setActiveId] = useState6(null);
-    const [grade, setGrade] = useState6(null);
-    const stopRef = useRef2(false);
-    const abortRef = useRef2(null);
-    const runningRef = useRef2(false);
-    useEffect4(() => () => {
-      stopRef.current = true;
-      if (abortRef.current) abortRef.current();
-    }, []);
-    const runQ = useLive(
-      () => runId ? getReplay(runId) : Promise.resolve(null),
-      null,
-      [runId, nonce]
-    );
-    const forecastStep = (asOf, rid) => new Promise((resolve) => {
-      getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
-        const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
-        if (!snapshot) {
-          resolve(false);
-          return;
-        }
-        let text = "";
-        const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
-        const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
-${ref}`;
-        abortRef.current = streamTurn(prompt, `replay-${symbol}-${day}-${asOf}`, (evt) => {
-          if (evt.kind === "error") {
-            resolve(false);
-            return;
-          }
-          if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
-            text += evt.text;
-            return;
-          }
-          if (evt.kind === "done") {
-            abortRef.current = null;
-            if (evt.text && !text) text = evt.text;
-            const data = parseMira(text);
-            saveSpxForecast({
-              day,
-              as_of: asOf,
-              symbol,
-              snapshot,
-              forecast: data || null,
-              forecast_text: text,
-              run_id: rid
-            }).then(() => resolve(true)).catch(() => resolve(false));
-          }
-        });
-      }).catch(() => resolve(false));
-    });
-    const start = () => {
-      if (runningRef.current) return;
-      runningRef.current = true;
-      setNote(null);
-      setGrade(null);
-      stopRef.current = false;
-      setRunState({ status: "planning", total: 0, done: 0 });
-      planReplay(day, symbol, premarket, stepMin).then(async (plan) => {
-        if (!plan || !plan.available) {
-          setRunState(null);
-          setNote(plan && plan.note || "Couldn't plan the run for that day.");
-          return;
-        }
-        const rid = plan.run_id;
-        setRunId(rid);
-        const steps = plan.steps || [];
-        let existing = [];
-        try {
-          const g = await getReplay(rid);
-          existing = g && g.forecasts || [];
-        } catch (e) {
-        }
-        const done0 = new Set(existing.map((f) => f.as_of));
-        setRunState({ status: "running", total: steps.length, done: done0.size });
-        let stopped = false;
-        for (let k = 0; k < steps.length; k++) {
-          if (stopRef.current) {
-            setRunState((r) => ({ ...r, status: "stopped" }));
-            stopped = true;
-            break;
-          }
-          const asOf = steps[k].as_of;
-          if (!done0.has(asOf)) {
-            await forecastStep(asOf, rid);
-            setNonce((x) => x + 1);
-          }
-          setRunState((r) => ({ ...r, status: "running", done: k + 1 }));
-        }
-        if (!stopped) {
-          try {
-            await scoreReplay(rid);
-          } catch (e) {
-          }
-          setRunState((r) => ({ ...r || {}, status: "done", done: steps.length, total: steps.length }));
-          setNonce((x) => x + 1);
-        }
-      }).catch((e) => {
-        setRunState(null);
-        setNote(String(e && e.message || e));
-      }).finally(() => {
-        runningRef.current = false;
-      });
-    };
-    const stop = () => {
-      stopRef.current = true;
-      runningRef.current = false;
-      if (abortRef.current) abortRef.current();
-    };
-    const applySymbol = (sym) => {
-      const s2 = String(sym || "").trim().toUpperCase();
-      if (!s2) return;
-      setSymbol(s2);
-      setEntry(s2);
-      setRunId(null);
-      setRunState(null);
-      setGrade(null);
-      setNote(null);
-    };
-    const gradeRun = () => {
-      if (!runId) return;
-      setGrade({ loading: true });
-      calibrateReplay(runId).then(() => {
-        let text = "";
-        const ref = `FORECAST_GRADE_REF run_id=${runId}`;
-        const prompt = `Grade this replay forecast run \u2014 how did the analyst's read evolve through the day? Read the code-computed scores and narrate them.
-${ref}`;
-        abortRef.current = streamTurn(prompt, `grade-${runId}`, (evt) => {
-          if (evt.kind === "error") {
-            setGrade({ error: evt.message || "Mira error" });
-            return;
-          }
-          if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
-            text += evt.text;
-            setGrade({ loading: true, text });
-            return;
-          }
-          if (evt.kind === "done") {
-            abortRef.current = null;
-            if (evt.text && !text) text = evt.text;
-            const data = parseMira(text);
-            setGrade({ text, data });
-            const narrative = data && data.headline || (text || "").replace(/\s+/g, " ").slice(0, 800) || null;
-            calibrateReplay(runId, { narrative }).then(() => setNonce((x) => x + 1)).catch(() => setNonce((x) => x + 1));
-          }
-        });
-      }).catch((e) => setGrade({ error: String(e && e.message || e) }));
-    };
-    const runsQ = useLive(() => getReplays(40), null, [nonce]);
-    const loadRun = (run) => {
-      if (!run || !run.run_id) return;
-      stop();
-      runningRef.current = false;
-      setSymbol(run.symbol || "SPX");
-      setEntry(run.symbol || "SPX");
-      if (run.day) setDay(run.day);
-      setGrade(null);
-      setNote(null);
-      setRunState({ status: "done", total: run.n || 0, done: run.n || 0 });
-      setRunId(run.run_id);
-      setNonce((x) => x + 1);
-    };
-    return {
-      symbol,
-      entry,
-      setEntry,
-      applySymbol,
-      PLAYBOOK_SYMBOLS,
-      day,
-      setDay,
-      stepMin,
-      setStepMin,
-      premarket,
-      setPremarket,
-      note,
-      runId,
-      runState,
-      start,
-      stop,
-      runQ,
-      runsQ,
-      loadRun,
-      activeId,
-      setActiveId,
-      grade,
-      gradeRun,
-      todayISO: todayISO2
-    };
-  }
-  function enrichForRun(forecasts, snap) {
-    const bars = snap && snap.bars_5m || [];
-    const lastT = bars.length ? bars[bars.length - 1].time : 0;
-    const barSec = bars.length > 1 ? bars[bars.length - 1].time - bars[bars.length - 2].time || 300 : 300;
-    const toUnix = (iso) => Math.floor(new Date(iso).getTime() / 1e3);
-    return (forecasts || []).map((f) => {
-      const ff = forecastFields(f.forecast);
-      const fUnix = toUnix(f.as_of);
-      let t0 = lastT;
-      for (const b of bars) {
-        if (b.time <= fUnix) t0 = b.time;
-        else break;
-      }
-      return {
-        ...f,
-        plot: { bias: ff.bias, target: ff.target, invalidation: ff.invalid, path: ff.path },
-        _t0: t0,
-        _barSec: barSec
-      };
-    });
-  }
-  function SpxReplayView() {
-    const p = useReplayStore();
-    const {
-      symbol,
-      entry,
-      setEntry,
-      applySymbol,
-      day,
-      setDay,
-      stepMin,
-      setStepMin,
-      premarket,
-      setPremarket,
-      note,
-      runId,
-      runState,
-      start,
-      stop,
-      runQ,
-      runsQ,
-      loadRun,
-      activeId,
-      setActiveId,
-      grade,
-      gradeRun,
-      todayISO: todayISO2
-    } = p;
-    const rows = runQ.data && runQ.data.forecasts || [];
-    const cal = runQ.data && runQ.data.calibration;
-    const snapQ = useLive(
-      () => runId ? getSpxSnapshot(day, void 0, symbol) : Promise.resolve(null),
-      null,
-      [runId, day, symbol, rows.length]
-    );
-    const snap = snapQ.data && snapQ.data.available ? snapQ.data : null;
-    const enriched = snap ? enrichForRun(rows, snap) : [];
-    const etShiftSec = (() => {
-      const iso = rows[0] && rows[0].as_of || "";
-      const m = iso.match(/([+-])(\d{2}):(\d{2})$/);
-      if (!m) return 0;
-      const sign = m[1] === "-" ? -1 : 1;
-      return sign * (parseInt(m[2], 10) * 3600 + parseInt(m[3], 10) * 60);
-    })();
-    const running = runState && (runState.status === "running" || runState.status === "planning");
-    const pct6 = runState && runState.total ? Math.round(runState.done / runState.total * 100) : 0;
-    const minDay = (() => {
-      const d = /* @__PURE__ */ new Date();
-      d.setDate(d.getDate() - 30);
-      return d.toISOString().slice(0, 10);
-    })();
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-loadhost" }, (running || snapQ.loading || grade && grade.loading) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 12, flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "\u{1F3AC} Replay Forecast \u2014 ", symbol), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "Step the day, forecast at each interval, plot the sequence, grade the run."))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
-      "form",
-      {
-        className: "vg-fc-symbar",
-        style: { flexWrap: "wrap", gap: 10 },
-        onSubmit: (e) => {
-          e.preventDefault();
-          applySymbol(entry);
-        }
-      },
-      PLAYBOOK_SYMBOLS.map((sy) => /* @__PURE__ */ React.createElement(
-        "button",
-        {
-          type: "button",
-          key: sy,
-          className: cls("vg-fc-chip", sy === symbol && "vg-fc-chip-on"),
-          onClick: () => applySymbol(sy)
-        },
-        sy
-      )),
-      /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          className: "vg-fc-syminput",
-          value: entry,
-          spellCheck: false,
-          onChange: (e) => setEntry(e.target.value.toUpperCase()),
-          placeholder: "symbol",
-          "aria-label": "replay symbol"
-        }
-      ),
-      /* @__PURE__ */ React.createElement("label", { className: "vg-note" }, "day", " ", /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type: "date",
-          value: day,
-          min: minDay,
-          max: todayISO2,
-          onChange: (e) => setDay(e.target.value),
-          "aria-label": "replay day"
-        }
-      )),
-      /* @__PURE__ */ React.createElement("label", { className: "vg-note" }, "every", " ", /* @__PURE__ */ React.createElement(
-        "select",
-        {
-          value: stepMin,
-          onChange: (e) => setStepMin(Number(e.target.value)),
-          "aria-label": "replay interval"
-        },
-        /* @__PURE__ */ React.createElement("option", { value: 5 }, "5m"),
-        /* @__PURE__ */ React.createElement("option", { value: 15 }, "15m"),
-        /* @__PURE__ */ React.createElement("option", { value: 30 }, "30m"),
-        /* @__PURE__ */ React.createElement("option", { value: 60 }, "60m")
-      )),
-      /* @__PURE__ */ React.createElement("label", { className: "vg-note", style: { display: "inline-flex", alignItems: "center", gap: 4 } }, /* @__PURE__ */ React.createElement(
-        "input",
-        {
-          type: "checkbox",
-          checked: premarket,
-          onChange: (e) => setPremarket(e.target.checked)
-        }
-      ), " pre-market"),
-      running ? /* @__PURE__ */ React.createElement("button", { type: "button", className: "vg-btn-sm", onClick: stop }, "\u25A0 Stop") : /* @__PURE__ */ React.createElement("button", { type: "submit", className: "vg-btn", onClick: (e) => {
-        e.preventDefault();
-        if (entry !== symbol) applySymbol(entry);
-        start();
-      } }, "\u25B6 Run replay")
-    ), runState && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, runState.status === "planning" ? "Priming data & planning steps\u2026" : runState.status === "running" ? `Forecasting ${runState.done}/${runState.total} \u2026` : runState.status === "stopped" ? `Stopped at ${runState.done}/${runState.total}` : `Done \u2014 ${runState.total} forecasts.`), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress" }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-progress-bar", style: { width: `${pct6}%` } }))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, note)), runsQ.data && runsQ.data.runs && runsQ.data.runs.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: "0 0 8px" } }, "Saved runs"), /* @__PURE__ */ React.createElement("div", { className: "vg-fc-runlist" }, runsQ.data.runs.map((r) => /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        key: r.run_id,
-        className: cls("vg-fc-runchip", r.run_id === runId && "vg-fc-runchip-on"),
-        onClick: () => loadRun(r),
-        title: `load ${r.symbol} ${r.day} \u2014 ${r.n} forecasts`
-      },
-      /* @__PURE__ */ React.createElement("b", null, r.symbol),
-      /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, r.day),
-      /* @__PURE__ */ React.createElement("span", { className: "vg-fc-runmeta" }, r.n_scored, "/", r.n, " scored"),
-      r.graded && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { fontSize: 9 } }, "graded")
-    )))), snap && enriched.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-fc-chartcard", style: { padding: 14, marginBottom: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-legend", style: { marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-ink)" } }), "actual price"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "#7c5cff" } }), "predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-up)" } }), "\u25B2 call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "var(--vg-down)" } }), "\u25B2 call missed")), /* @__PURE__ */ React.createElement(
-      ReplayChart,
-      {
-        key: `${symbol}-${runId}`,
-        snap,
-        forecasts: enriched,
-        activeId,
-        etShiftSec
-      }
-    )), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 0, marginBottom: 12, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, enriched.map((f) => {
-      const path = f.plot && f.plot.path || [];
-      const sc = f.score;
-      const tone = !sc ? "plain" : sc.verdict === "hit target" || sc.verdict === "direction correct" ? "good" : sc.verdict === "invalidated" || sc.verdict === "direction wrong" ? "bad" : "plain";
-      return /* @__PURE__ */ React.createElement(
-        "tr",
-        {
-          key: f.id,
-          className: cls("vg-fc-cmprow", activeId === f.id && "vg-fc-cmprow-on"),
-          onMouseEnter: () => setActiveId(f.id),
-          onMouseLeave: () => setActiveId(null)
-        },
-        /* @__PURE__ */ React.createElement("td", null, hhmm(f.as_of)),
-        /* @__PURE__ */ React.createElement("td", null, f.price_at),
-        /* @__PURE__ */ React.createElement("td", { className: dirCls(f.plot.bias === "up" ? 1 : f.plot.bias === "down" ? -1 : 0) }, f.plot.bias || "\u2014"),
-        [0, 1, 2, 3, 4].map((i) => /* @__PURE__ */ React.createElement("td", { key: i, className: "vg-fc-cmpstep", title: path[i] ? path[i].note : "" }, path[i] ? path[i].price : "")),
-        /* @__PURE__ */ React.createElement("td", null, f.plot.target != null ? f.plot.target : "\u2014"),
-        /* @__PURE__ */ React.createElement("td", null, f.plot.invalidation != null ? f.plot.invalidation : "\u2014"),
-        /* @__PURE__ */ React.createElement("td", null, sc ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontSize: 10 } }, sc.verdict) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014"))
-      );
-    })))), rows.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Grade this run"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: grade && grade.loading, onClick: gradeRun }, grade && grade.loading ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Grading\u2026") : "\u2696\uFE0F Grade the run")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6, fontSize: 11, color: "var(--vg-dim)" } }, "Scores are computed in code; the grader reads and narrates them \u2014 it never invents a number. The calibration below is grader-owned and read-only (never fed back to the forecaster)."), grade && (grade.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, grade.error) : grade.data || grade.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: grade.data, text: grade.text })) : null), cal && cal.scores && /* @__PURE__ */ React.createElement("div", { className: "vg-fc-cal", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Calibration record ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "(read-only)")), /* @__PURE__ */ React.createElement(ReplayCalibration, { scores: cal.scores }))));
-  }
-  function ReplayCalibration({ scores }) {
-    const pctOf = (b) => b && b.insufficient ? "insufficient" : `${Math.round((b.hit_rate || 0) * 100)}% (${b.wins}/${b.n})`;
-    const overall = scores.overall || {};
-    const group = (label, obj) => /* @__PURE__ */ React.createElement("div", { className: "vg-fc-calgrp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontWeight: 600 } }, label), Object.entries(obj || {}).map(([k, v]) => /* @__PURE__ */ React.createElement("div", { key: k, className: "vg-fc-calrow" }, /* @__PURE__ */ React.createElement("span", null, k), /* @__PURE__ */ React.createElement("span", null, pctOf(v)))));
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-fc-calrow", style: { fontWeight: 600 } }, /* @__PURE__ */ React.createElement("span", null, "Overall"), /* @__PURE__ */ React.createElement("span", null, pctOf(overall))), group("By time of day", scores.by_time), group("By called bias", scores.by_bias), group("By hourly tier", scores.by_tier));
-  }
-
   // src/scanner.jsx
-  var { useState: useState7, useEffect: useEffect5 } = React;
+  var { useState: useState6, useEffect: useEffect4 } = React;
   var SCANNERS = [{ id: "ict_htf", label: "A+ ICT hourly setup" }];
   function ago(iso) {
     if (!iso) return "never";
@@ -3609,7 +2511,7 @@ ${ref}`;
     if (s < 86400) return `${Math.round(s / 3600)}h ago`;
     return `${Math.round(s / 86400)}d ago`;
   }
-  var hhmm2 = (iso) => iso ? String(iso).slice(11, 16) : "";
+  var hhmm = (iso) => iso ? String(iso).slice(11, 16) : "";
   function SignalCard({ h, onOpen }) {
     const isAp = h.tier === "A+";
     const dir = h.dir === "long" ? 1 : -1;
@@ -3621,16 +2523,16 @@ ${ref}`;
         onClick: () => onOpen && onOpen(h.symbol),
         title: `open ${h.symbol} chart`
       },
-      /* @__PURE__ */ React.createElement("div", { className: "vg-scan-cardhead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-sym" }, h.symbol), /* @__PURE__ */ React.createElement("span", { className: cls("vg-scan-tier", isAp && "ap") }, isAp ? "\u26A1 A+" : "\u2022 B"), /* @__PURE__ */ React.createElement("b", { className: dirCls(dir) }, String(h.dir || "").toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-age vg-note" }, "setup @ ", hhmm2(h.as_of))),
+      /* @__PURE__ */ React.createElement("div", { className: "vg-scan-cardhead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-sym" }, h.symbol), /* @__PURE__ */ React.createElement("span", { className: cls("vg-scan-tier", isAp && "ap") }, isAp ? "\u26A1 A+" : "\u2022 B"), /* @__PURE__ */ React.createElement("b", { className: dirCls(dir) }, String(h.dir || "").toUpperCase()), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-age vg-note" }, "setup @ ", hhmm(h.as_of))),
       /* @__PURE__ */ React.createElement("div", { className: "vg-scan-cardmeta" }, z && /* @__PURE__ */ React.createElement("span", null, "entry ", /* @__PURE__ */ React.createElement("b", null, z[0], "\u2013", z[1])), /* @__PURE__ */ React.createElement("span", null, "invalid ", /* @__PURE__ */ React.createElement("b", null, h.invalid)), h.ob_backed && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { fontSize: 9 } }, "OB-backed")),
       /* @__PURE__ */ React.createElement("div", { className: "vg-scan-reason vg-note" }, h.reason)
     );
   }
   function ScannerView({ onOpenSymbol }) {
-    const [scanner, setScanner] = useState7("ict_htf");
-    const [nonce, setNonce] = useState7(0);
-    const [note, setNote] = useState7(null);
-    const [entry, setEntry] = useState7("");
+    const [scanner, setScanner] = useState6("ict_htf");
+    const [nonce, setNonce] = useState6(0);
+    const [note, setNote] = useState6(null);
+    const [entry, setEntry] = useState6("");
     const q = useLive(() => getScanner(scanner), null, [scanner, nonce]);
     const d = q.data && q.data.available ? q.data : null;
     const running = d && d.status === "running";
@@ -3639,7 +2541,7 @@ ${ref}`;
     const aplus = hits.filter((h) => h.tier === "A+");
     const bs = hits.filter((h) => h.tier !== "A+");
     const manual = d && d.manual_tickers || [];
-    useEffect5(() => {
+    useEffect4(() => {
       if (!running) return void 0;
       const id = setInterval(() => setNonce((n) => n + 1), 3e3);
       return () => clearInterval(id);
@@ -4196,7 +3098,7 @@ ${ref}`;
   }
 
   // src/chart_core.jsx
-  var { useState: useState8, useRef: useRef3, useEffect: useEffect6, useCallback: useCallback2 } = React;
+  var { useState: useState7, useRef: useRef2, useEffect: useEffect5, useCallback: useCallback2 } = React;
   var TOOLS = [
     { key: "cursor", label: "\u2316", title: "Cursor / pan", pts: 0 },
     { key: "hline", label: "\u2500", title: "Horizontal line", pts: 1 },
@@ -4208,7 +3110,7 @@ ${ref}`;
   var _didSeq = 0;
   var newDrawingId = () => `d${(_didSeq++).toString(36)}${performance.now().toString(36).replace(".", "")}`;
   var TIMEFRAMES = ["1m", "5m", "15m", "1H", "4H", "1D", "1W", "1M"];
-  var hasLW2 = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
+  var hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   var _etTime = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/New_York",
     hour: "2-digit",
@@ -4306,32 +3208,32 @@ ${ref}`;
     setActiveCallId,
     onOpenSymbol
   }) {
-    const elRef = useRef3(null);
-    const [symInput, setSymInput] = useState8("");
-    const chartRef = useRef3(null);
-    const candleRef = useRef3(null);
-    const fittedKey = useRef3(null);
-    const indRef = useRef3({});
-    const pocLineRef = useRef3(null);
-    const drawnRef = useRef3({});
-    const pendingRef = useRef3([]);
-    const toolRef = useRef3("cursor");
-    const commitDrawingRef = useRef3(() => {
+    const elRef = useRef2(null);
+    const [symInput, setSymInput] = useState7("");
+    const chartRef = useRef2(null);
+    const candleRef = useRef2(null);
+    const fittedKey = useRef2(null);
+    const indRef = useRef2({});
+    const pocLineRef = useRef2(null);
+    const drawnRef = useRef2({});
+    const pendingRef = useRef2([]);
+    const toolRef = useRef2("cursor");
+    const commitDrawingRef = useRef2(() => {
     });
-    const levelClickRef = useRef3(() => {
+    const levelClickRef = useRef2(() => {
     });
-    const [hover, setHover] = useState8(null);
-    const [nonce, setNonce] = useState8(0);
-    const [refreshing, setRefreshing] = useState8(false);
-    const [active, setActive] = useState8(loadPref);
-    const [tool, setTool] = useState8("cursor");
-    const [drawings, setDrawings] = useState8([]);
-    const [pendingN, setPendingN] = useState8(0);
-    const [activeLayers, setActiveLayers] = useState8(loadLayerPref);
-    const [selectedLevel, setSelectedLevel] = useState8(null);
-    const selectedLevelRef = useRef3(null);
+    const [hover, setHover] = useState7(null);
+    const [nonce, setNonce] = useState7(0);
+    const [refreshing, setRefreshing] = useState7(false);
+    const [active, setActive] = useState7(loadPref);
+    const [tool, setTool] = useState7("cursor");
+    const [drawings, setDrawings] = useState7([]);
+    const [pendingN, setPendingN] = useState7(0);
+    const [activeLayers, setActiveLayers] = useState7(loadLayerPref);
+    const [selectedLevel, setSelectedLevel] = useState7(null);
+    const selectedLevelRef = useRef2(null);
     selectedLevelRef.current = selectedLevel;
-    const layerHandlesRef = useRef3({});
+    const layerHandlesRef = useRef2({});
     toolRef.current = tool;
     const layerQ = useLive(
       () => symbol ? getLayers(symbol) : Promise.resolve(null),
@@ -4406,10 +3308,10 @@ ${ref}`;
       }
     }, [symbol]);
     commitDrawingRef.current = commitDrawing;
-    useEffect6(() => {
+    useEffect5(() => {
       if (!activeLayers.has("levels")) setSelectedLevel(null);
     }, [activeLayers]);
-    useEffect6(() => {
+    useEffect5(() => {
       setSelectedLevel(null);
     }, [symbol]);
     const clearDrawings = useCallback2(async () => {
@@ -4491,9 +3393,9 @@ ${ref}`;
       setSelectedLevel(lv.price);
     }, [layerData, candles]);
     levelClickRef.current = frameToLevel;
-    useEffect6(() => {
+    useEffect5(() => {
       const el = elRef.current;
-      if (!el || !hasLW2()) return void 0;
+      if (!el || !hasLW()) return void 0;
       const LW = window.LightweightCharts;
       const th = chartTheme();
       const chart = LW.createChart(el, {
@@ -4574,7 +3476,7 @@ ${ref}`;
         chartRef.current = candleRef.current = null;
       };
     }, []);
-    useEffect6(() => {
+    useEffect5(() => {
       const candle = candleRef.current, chart = chartRef.current;
       if (!candle || !candles.length) return;
       candle.setData(candles);
@@ -4589,7 +3491,7 @@ ${ref}`;
         });
       }
     }, [candles, symbol, tf]);
-    useEffect6(() => {
+    useEffect5(() => {
       if (!overlays || !chartRef.current || !candleRef.current || !candles.length) return void 0;
       return overlays({
         chart: chartRef.current,
@@ -4598,7 +3500,7 @@ ${ref}`;
         candles
       });
     }, [overlays, candles]);
-    useEffect6(() => {
+    useEffect5(() => {
       const chart = chartRef.current;
       if (!chart) return void 0;
       const th = chartTheme();
@@ -4706,7 +3608,7 @@ ${ref}`;
       }
       return void 0;
     }, [candles, active, tf]);
-    useEffect6(() => {
+    useEffect5(() => {
       let alive = true;
       pendingRef.current = [];
       setPendingN(0);
@@ -4722,7 +3624,7 @@ ${ref}`;
         alive = false;
       };
     }, [symbol]);
-    useEffect6(() => {
+    useEffect5(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const drawn = drawnRef.current;
@@ -4744,7 +3646,7 @@ ${ref}`;
       }
       return void 0;
     }, [drawings, candles]);
-    useEffect6(() => {
+    useEffect5(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const handles = layerHandlesRef.current;
@@ -4781,7 +3683,7 @@ ${ref}`;
       }
       return void 0;
     }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, selectedLevel, candles]);
-    useEffect6(() => {
+    useEffect5(() => {
       const chart = chartRef.current;
       if (!chart || !replayShown || !replayData || !candles.length) return;
       const ts = replayData.forecasts.map((f) => f.as_of_ts).filter((t) => t != null);
@@ -4903,7 +3805,7 @@ ${ref}`;
         },
         ly.label
       );
-    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW2() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => doRefresh(30), disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
+    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => doRefresh(30), disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
       ReplayCompareTable,
       {
         forecasts: replayData.forecasts,
@@ -4913,7 +3815,7 @@ ${ref}`;
     ));
   }
   function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
-    const hhmm3 = (iso) => String(iso || "").slice(11, 16);
+    const hhmm2 = (iso) => String(iso || "").slice(11, 16);
     const tone = (sc) => !sc ? "plain" : sc === "hit target" || sc === "direction correct" ? "good" : sc === "invalidated" || sc === "direction wrong" ? "bad" : "plain";
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ic-cmpwrap" }, /* @__PURE__ */ React.createElement("table", { className: "vg-fc-cmp" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "time"), /* @__PURE__ */ React.createElement("th", null, "@ px"), /* @__PURE__ */ React.createElement("th", null, "bias"), /* @__PURE__ */ React.createElement("th", null, "1"), /* @__PURE__ */ React.createElement("th", null, "2"), /* @__PURE__ */ React.createElement("th", null, "3"), /* @__PURE__ */ React.createElement("th", null, "4"), /* @__PURE__ */ React.createElement("th", null, "5"), /* @__PURE__ */ React.createElement("th", null, "target"), /* @__PURE__ */ React.createElement("th", null, "invalid"), /* @__PURE__ */ React.createElement("th", null, "result"))), /* @__PURE__ */ React.createElement("tbody", null, forecasts.map((f) => {
       const path = f.path || [];
@@ -4925,7 +3827,7 @@ ${ref}`;
           onMouseEnter: () => setActiveId && setActiveId(f.id),
           onMouseLeave: () => setActiveId && setActiveId(null)
         },
-        /* @__PURE__ */ React.createElement("td", null, hhmm3(f.as_of)),
+        /* @__PURE__ */ React.createElement("td", null, hhmm2(f.as_of)),
         /* @__PURE__ */ React.createElement("td", null, f.price_at),
         /* @__PURE__ */ React.createElement("td", { className: dirCls(f.bias === "up" ? 1 : f.bias === "down" ? -1 : 0) }, f.bias || "\u2014"),
         [0, 1, 2, 3, 4].map((i) => /* @__PURE__ */ React.createElement("td", { key: i, className: "vg-fc-cmpstep", title: path[i] ? path[i].note : "" }, path[i] ? path[i].price : "")),
@@ -4947,7 +3849,7 @@ ${ref}`;
     setActiveCallId,
     onOpenSymbol
   }) {
-    const [tf, setTf] = useState8(defaultTf);
+    const [tf, setTf] = useState7(defaultTf);
     return /* @__PURE__ */ React.createElement(
       InstrumentChart,
       {
@@ -4967,7 +3869,7 @@ ${ref}`;
   }
 
   // src/chart_replay_panel.jsx
-  var { useState: useState9, useEffect: useEffect7, useRef: useRef4, useCallback: useCallback3 } = React;
+  var { useState: useState8, useEffect: useEffect6, useRef: useRef3, useCallback: useCallback3 } = React;
   var REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
   function verdictTone(sc) {
     if (!sc) return "plain";
@@ -4976,7 +3878,7 @@ ${ref}`;
     return "plain";
   }
   function CallRow({ f, onScore, scoring, active, onActivate }) {
-    const [open, setOpen] = useState9(false);
+    const [open, setOpen] = useState8(false);
     const sc = f.score;
     const tone = verdictTone(sc);
     return /* @__PURE__ */ React.createElement("div", { className: cls("vg-rp-call", active && "on") }, /* @__PURE__ */ React.createElement(
@@ -5015,18 +3917,18 @@ ${ref}`;
     ), open && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-callbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
   }
   function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId }) {
-    const [scoring, setScoring] = useState9(null);
-    const [nonce, setNonce] = useState9(0);
-    const runningRef = useRef4(false);
-    const genRunRef = useRef4(null);
+    const [scoring, setScoring] = useState8(null);
+    const [nonce, setNonce] = useState8(0);
+    const runningRef = useRef3(false);
+    const genRunRef = useRef3(null);
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
-    useEffect7(() => {
+    useEffect6(() => {
       const onFocus = () => setNonce((n) => n + 1);
       window.addEventListener("focus", onFocus);
       return () => window.removeEventListener("focus", onFocus);
     }, []);
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
-    useEffect7(() => {
+    useEffect6(() => {
       if (!runs.length || runId || runningRef.current || genRunRef.current) return;
       setRunId(runs[0].run_id);
     }, [runs, runId]);
@@ -5041,20 +3943,20 @@ ${ref}`;
     const scored = forecasts.filter((f) => f.score);
     const hits = scored.filter((f) => verdictTone(f.score) === "good").length;
     const hitRate = scored.length ? Math.round(hits / scored.length * 100) : null;
-    const [gen, setGen] = useState9(null);
-    const [showGen, setShowGen] = useState9(false);
-    const [genDay, setGenDay] = useState9(() => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
-    const [stepMin, setStepMin] = useState9(60);
-    const [note, setNote] = useState9(null);
-    const [grade, setGrade] = useState9(null);
-    const [gradeOpen, setGradeOpen] = useState9(true);
-    const stopRef = useRef4(false);
-    const abortRef = useRef4(null);
-    useEffect7(() => () => {
+    const [gen, setGen] = useState8(null);
+    const [showGen, setShowGen] = useState8(false);
+    const [genDay, setGenDay] = useState8(() => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
+    const [stepMin, setStepMin] = useState8(60);
+    const [note, setNote] = useState8(null);
+    const [grade, setGrade] = useState8(null);
+    const [gradeOpen, setGradeOpen] = useState8(true);
+    const stopRef = useRef3(false);
+    const abortRef = useRef3(null);
+    useEffect6(() => () => {
       stopRef.current = true;
       if (abortRef.current) abortRef.current();
     }, []);
-    const [fc, setFc] = useState9(null);
+    const [fc, setFc] = useState8(null);
     const canForecast = REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase());
     const priorsQ = useLive(
       () => canForecast ? getSpxForecasts(void 0, symbol, 20) : Promise.resolve(null),
@@ -5309,7 +4211,7 @@ ${ref}`;
   }
 
   // src/exits.jsx
-  var { useEffect: useEffect8, useState: useState10 } = React;
+  var { useEffect: useEffect7, useState: useState9 } = React;
   var fmt = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var STATUS_TONE = {
     pending_entry: "warn",
@@ -5318,15 +4220,15 @@ ${ref}`;
     disarmed: "warn"
   };
   function ExitsView({ refreshNonce }) {
-    const [data, setData] = useState10({ positions: [], broker: [], live_gate: false });
-    const [busy, setBusy] = useState10(false);
-    const [actions, setActions] = useState10(null);
-    const [note, setNote] = useState10(null);
+    const [data, setData] = useState9({ positions: [], broker: [], live_gate: false });
+    const [busy, setBusy] = useState9(false);
+    const [actions, setActions] = useState9(null);
+    const [note, setNote] = useState9(null);
     const load = async () => setData(await getExits(void 0, { mergeBroker: true }));
-    useEffect8(() => {
+    useEffect7(() => {
       load();
     }, [refreshNonce]);
-    useEffect8(() => {
+    useEffect7(() => {
       const open2 = data.positions.some((p) => p.status === "active" || p.status === "pending_entry");
       if (!open2) return void 0;
       const t = setInterval(load, 3e4);
@@ -5380,15 +4282,15 @@ ${ref}`;
   }
 
   // src/signalbot.jsx
-  var { useEffect: useEffect9, useState: useState11 } = React;
+  var { useEffect: useEffect8, useState: useState10 } = React;
   var fmt2 = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var money2 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}`;
   function SignalBotView({ refreshNonce }) {
-    const [status, setStatus] = useState11(null);
-    const [perf, setPerf] = useState11(null);
-    const [nightly, setNightly] = useState11(null);
-    const [busy, setBusy] = useState11("");
-    const [note, setNote] = useState11(null);
+    const [status, setStatus] = useState10(null);
+    const [perf, setPerf] = useState10(null);
+    const [nightly, setNightly] = useState10(null);
+    const [busy, setBusy] = useState10("");
+    const [note, setNote] = useState10(null);
     const load = async () => {
       const [s2, p, n] = await Promise.all([
         getBotStatus(),
@@ -5399,7 +4301,7 @@ ${ref}`;
       setPerf(p && p.available !== false ? p : null);
       setNightly(n && n.available && n.runs ? n.runs : []);
     };
-    useEffect9(() => {
+    useEffect8(() => {
       load();
     }, [refreshNonce]);
     const poll = async () => {
@@ -5431,7 +4333,7 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("h3", { className: "vg-kicker", style: { marginTop: 16 } }, "Nightly runs"), runs.map((run, i) => /* @__PURE__ */ React.createElement(NightlyRun, { key: run.id || i, run })));
   }
   function NightlyRun({ run }) {
-    const [open, setOpen] = useState11(false);
+    const [open, setOpen] = useState10(false);
     const jobs = run.jobs || [];
     const bad = jobs.filter((j) => !j.ok);
     const total = jobs.reduce((a, j) => a + (j.duration_sec || 0), 0);
@@ -5446,10 +4348,10 @@ ${ref}`;
     ))))));
   }
   function ConfigCard({ status, onSaved }) {
-    const [tokenInput, setTokenInput] = useState11("");
-    const [chatInput, setChatInput] = useState11(status.telegram_chat_id || "");
-    const [busy, setBusy] = useState11("");
-    const [msg, setMsg] = useState11(null);
+    const [tokenInput, setTokenInput] = useState10("");
+    const [chatInput, setChatInput] = useState10(status.telegram_chat_id || "");
+    const [busy, setBusy] = useState10("");
+    const [msg, setMsg] = useState10(null);
     const save = async (test) => {
       setBusy(test ? "test" : "save");
       setMsg(null);
@@ -5490,16 +4392,16 @@ ${ref}`;
   }
 
   // src/today.jsx
-  var { useEffect: useEffect10, useState: useState12 } = React;
+  var { useEffect: useEffect9, useState: useState11 } = React;
   var fmt3 = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var money3 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(Number(v)).toFixed(0)}`;
   function TodayView({ refreshNonce }) {
-    const [status, setStatus] = useState12(null);
-    const [perf, setPerf] = useState12(null);
-    const [nightly, setNightly] = useState12(null);
-    const [pb, setPb] = useState12(null);
-    const [pos, setPos] = useState12(null);
-    const [ticket, setTicket] = useState12(null);
+    const [status, setStatus] = useState11(null);
+    const [perf, setPerf] = useState11(null);
+    const [nightly, setNightly] = useState11(null);
+    const [pb, setPb] = useState11(null);
+    const [pos, setPos] = useState11(null);
+    const [ticket, setTicket] = useState11(null);
     const load = async () => {
       const [s, p, n, b, q] = await Promise.all([
         getBotStatus(),
@@ -5514,10 +4416,10 @@ ${ref}`;
       setPb(b && b.available ? b : null);
       setPos(q && q.positions ? q.positions : []);
     };
-    useEffect10(() => {
+    useEffect9(() => {
       load();
     }, [refreshNonce]);
-    useEffect10(() => {
+    useEffect9(() => {
       if (!status || !status.market_open) return void 0;
       const t = setInterval(load, 6e4);
       return () => clearInterval(t);
@@ -5594,10 +4496,10 @@ ${ref}`;
     ), /* @__PURE__ */ React.createElement("td", null, p.managed ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "stop ", fmt3(p.stop_price)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "unprotected")))))), naked.length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-verdict" }, "\u26A0\uFE0F ", naked.map((p) => p.symbol).join(", "), " ", naked.length === 1 ? "has" : "have", " no monitor stop \u2014 the exit monitor is not protecting ", naked.length === 1 ? "it" : "them", "."));
   }
   function WhyCard({ pb, onReload }) {
-    const [busy, setBusy] = useState12(false);
-    const [pine, setPine] = useState12(null);
-    const [pineTitle, setPineTitle] = useState12("TradingView Pine");
-    const [note, setNote] = useState12(null);
+    const [busy, setBusy] = useState11(false);
+    const [pine, setPine] = useState11(null);
+    const [pineTitle, setPineTitle] = useState11("TradingView Pine");
+    const [note, setNote] = useState11(null);
     if (!pb) return null;
     const sc = pb.scaffold || {};
     const reg = sc.regime || {};
@@ -5682,7 +4584,7 @@ ${ref}`;
   }
 
   // src/futures.jsx
-  var { useState: useState13 } = React;
+  var { useState: useState12 } = React;
   var pct2 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var usd2 = (v) => v == null ? "\u2014" : `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`;
   var pts = (v) => v == null ? "\u2014" : `${v > 0 ? "+" : ""}${v}pt`;
@@ -5739,8 +4641,8 @@ ${ref}`;
     );
   }
   function FuturesView({ refreshNonce }) {
-    const [nonce, setNonce] = useState13(0);
-    const [busy, setBusy] = useState13(false);
+    const [nonce, setNonce] = useState12(0);
+    const [busy, setBusy] = useState12(false);
     const fa = useLive(() => getFuturesAnalysis({ alignment: true }), null, [refreshNonce, nonce]);
     const a = fa.data;
     const reimport = async () => {
@@ -5850,7 +4752,7 @@ ${ref}`;
   }
 
   // src/paper.jsx
-  var { useState: useState14 } = React;
+  var { useState: useState13 } = React;
   var usd3 = (v) => v == null ? "\u2014" : `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`;
   var pct3 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var px = (v) => v == null ? "\u2014" : Number(v).toFixed(2);
@@ -5867,9 +4769,9 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", height: H, preserveAspectRatio: "none", style: { display: "block" } }, /* @__PURE__ */ React.createElement("line", { x1: pad, y1: y(0), x2: W - pad, y2: y(0), stroke: "currentColor", strokeOpacity: "0.2" }), /* @__PURE__ */ React.createElement("path", { d: line2(peaks), fill: "none", stroke: "currentColor", strokeOpacity: "0.25", strokeWidth: "1", strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("path", { d: line2(xs), fill: "none", stroke: up ? "var(--vg-up)" : "var(--vg-down)", strokeWidth: "1.75" }));
   }
   function PaperView({ refreshNonce }) {
-    const [nonce, setNonce] = useState14(0);
-    const [busy, setBusy] = useState14("");
-    const [sym, setSym] = useState14("SPX");
+    const [nonce, setNonce] = useState13(0);
+    const [busy, setBusy] = useState13("");
+    const [sym, setSym] = useState13("SPX");
     const pv = useLive(() => getPaper(sym), null, [refreshNonce, nonce, sym]);
     const d = pv.data;
     const reload = () => setNonce((n) => n + 1);
@@ -5928,7 +4830,7 @@ ${ref}`;
   }
 
   // src/journal.jsx
-  var { useState: useState15, useRef: useRef5, useEffect: useEffect11, useMemo: useMemo4 } = React;
+  var { useState: useState14, useRef: useRef4, useEffect: useEffect10, useMemo: useMemo4 } = React;
   var pct4 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
   var MONTHS = [
@@ -5966,18 +4868,18 @@ ${ref}`;
     return "warn";
   }
   function JournalView({ refreshNonce }) {
-    const [nonce, setNonce] = useState15(0);
-    const [busy, setBusy] = useState15("");
-    const [sym, setSym] = useState15("SPX");
-    const [tab, setTab] = useState15("days");
-    const [selDay, setSelDay] = useState15(todayISO());
+    const [nonce, setNonce] = useState14(0);
+    const [busy, setBusy] = useState14("");
+    const [sym, setSym] = useState14("SPX");
+    const [tab, setTab] = useState14("days");
+    const [selDay, setSelDay] = useState14(todayISO());
     const now = /* @__PURE__ */ new Date();
-    const [view, setView] = useState15({ y: now.getFullYear(), m: now.getMonth() });
+    const [view, setView] = useState14({ y: now.getFullYear(), m: now.getMonth() });
     const jv = useLive(() => getJournal(sym), null, [refreshNonce, nonce, sym]);
     const d = jv.data;
     const reload = () => setNonce((n) => n + 1);
-    const ensuredRef = useRef5({});
-    useEffect11(() => {
+    const ensuredRef = useRef4({});
+    useEffect10(() => {
       if (ensuredRef.current[sym]) return;
       ensuredRef.current[sym] = true;
       (async () => {
@@ -6041,8 +4943,8 @@ ${ref}`;
   }
   var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function DayStrip({ byDay, selDay, onSelect, sym }) {
-    const stripRef = useRef5(null);
-    const [pnl, setPnl] = useState15({});
+    const stripRef = useRef4(null);
+    const [pnl, setPnl] = useState14({});
     const days = useMemo4(() => {
       const out = [];
       const d = /* @__PURE__ */ new Date();
@@ -6055,7 +4957,7 @@ ${ref}`;
       }
       return out;
     }, []);
-    useEffect11(() => {
+    useEffect10(() => {
       let live = true;
       (async () => {
         const v = await getDayPnl(days, sym);
@@ -6065,7 +4967,7 @@ ${ref}`;
         live = false;
       };
     }, [days.join(","), sym]);
-    useEffect11(() => {
+    useEffect10(() => {
       const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
       if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
     }, [selDay]);
@@ -6097,7 +4999,7 @@ ${ref}`;
     }));
   }
   function MonthJump({ view, setView, byDay, selDay, onSelect }) {
-    const [open, setOpen] = useState15(false);
+    const [open, setOpen] = useState14(false);
     return /* @__PURE__ */ React.createElement("div", { className: "vg-monthjump" }, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -6169,17 +5071,17 @@ ${ref}`;
     })), /* @__PURE__ */ React.createElement("div", { className: "vg-cal-legend" }, /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot good" }), " forecast held"), /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot warn" }), " mixed"), /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot bad" }), " missed"), /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot none" }), " not scored")));
   }
   function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
-    const [entry, setEntry] = useState15(s.entry || {});
-    const [thoughts, setThoughts] = useState15(() => {
+    const [entry, setEntry] = useState14(s.entry || {});
+    const [thoughts, setThoughts] = useState14(() => {
       try {
         return JSON.parse((s.entry || {}).trades || "{}");
       } catch (e) {
         return {};
       }
     });
-    const [drag, setDrag] = useState15(false);
-    const fileRef = useRef5(null);
-    useEffect11(() => {
+    const [drag, setDrag] = useState14(false);
+    const fileRef = useRef4(null);
+    useEffect10(() => {
       setEntry(s.entry || {});
       try {
         setThoughts(JSON.parse((s.entry || {}).trades || "{}"));
@@ -6333,11 +5235,11 @@ ${ref}`;
   var money4 = (n) => n == null ? "\u2014" : `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
   var fmtLvl = (v) => v == null ? "\u2014" : Number(v).toFixed(v >= 100 ? 0 : 2);
   function TradesPanel({ snap, thoughts, onThought }) {
-    const [data, setData] = useState15(null);
-    const [busy, setBusy] = useState15(false);
-    const [open, setOpen] = useState15(null);
-    const [batch, setBatch] = useState15(null);
-    const [tk, setTk] = useState15("all");
+    const [data, setData] = useState14(null);
+    const [busy, setBusy] = useState14(false);
+    const [open, setOpen] = useState14(null);
+    const [batch, setBatch] = useState14(null);
+    const [tk, setTk] = useState14("all");
     const day = String(snap.created_at || "").slice(0, 10);
     const load = async () => {
       setBusy(true);
@@ -6364,7 +5266,7 @@ ${ref}`;
       setBatch({ done, total: targets.length, running: false });
       await load();
     };
-    useEffect11(() => {
+    useEffect10(() => {
       setData(null);
       setOpen(null);
       setTk("all");
@@ -6454,17 +5356,17 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ja-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, h.trades, " trades \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: h.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(h.net_pnl)), " \xB7 rubric v", h.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, recs.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 10 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 10 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), (h.patterns || []).length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, h.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, " \xB7 ", (p.cites || []).length, " trades"))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "SWOT & read"), h.swot ? /* @__PURE__ */ React.createElement(SwotRender, { swot: h.swot }) : /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, h.narrative || "(no narrative saved)"));
   }
   function JournalAnalysisPanel({ sym }) {
-    const [win, setWin] = useState15(() => {
+    const [win, setWin] = useState14(() => {
       const to = todayISO();
       const from = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
       return { from, to, period: "weekly" };
     });
-    const [bundle, setBundle] = useState15(null);
-    const [read, setRead] = useState15(null);
-    const [saved, setSaved] = useState15(false);
-    const [hist, setHist] = useState15(null);
-    const abortRef = useRef5(null);
-    const [openId, setOpenId] = useState15(null);
+    const [bundle, setBundle] = useState14(null);
+    const [read, setRead] = useState14(null);
+    const [saved, setSaved] = useState14(false);
+    const [hist, setHist] = useState14(null);
+    const abortRef = useRef4(null);
+    const [openId, setOpenId] = useState14(null);
     const toggleStored = (h) => setOpenId((cur) => cur === h.id ? null : h.id);
     const loadHist = async () => {
       const h = await getJournalAnalyses(sym);
@@ -6472,7 +5374,7 @@ ${ref}`;
       setHist(list);
       return list;
     };
-    useEffect11(() => {
+    useEffect10(() => {
       setBundle(null);
       setRead(null);
       setSaved(false);
@@ -6525,7 +5427,7 @@ ${ref}`;
         });
       }
     };
-    useEffect11(() => () => {
+    useEffect10(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const b = bundle;
@@ -6680,9 +5582,9 @@ ${ref}`;
     return { status: "empty" };
   }
   function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
-    const [state, setState] = useState15(null);
-    const abortRef = useRef5(null);
-    const readRef = useRef5(null);
+    const [state, setState] = useState14(null);
+    const abortRef = useRef4(null);
+    const readRef = useRef4(null);
     const busy = state === "loading" || state === "streaming";
     const run = async () => {
       setState("loading");
@@ -6716,7 +5618,7 @@ ${ref}`;
       setState({ text, dna: res.dna, saved: !!text.trim() });
       setTimeout(() => readRef.current && readRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
     };
-    useEffect11(() => {
+    useEffect10(() => {
       let live = true;
       (async () => {
         const res = await getTradeDna(day, tradeIndex, underlying);
@@ -6813,7 +5715,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 10 } }, title), corr && corr.nearby && corr.nearby.length ? /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, corr.nearby.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i, className: c.level === nearest3.level ? "vg-hl" : "" }, /* @__PURE__ */ React.createElement("td", null, fmtLvl(c.level)), /* @__PURE__ */ React.createElement("td", null, c.role, " ", (c.kinds || []).length ? `\xB7 ${c.kinds.join(" + ")}` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " [", c.source, "]")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, c.distance > 0 ? "+" : "", c.distance, "pt"))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 12, margin: "2px 0" } }, "No forecast level within range \u2014 ", openSpace, "."));
   }
   function FillLadder({ fills, scale }) {
-    const [open, setOpen] = useState15(false);
+    const [open, setOpen] = useState14(false);
     if (!scale || !fills || fills.length <= 2) return null;
     const svg = (n) => n == null ? "\u2014" : `$${Number(n).toFixed(2)}`;
     return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 10 } }, "The ladder \u2014 ", scale.peak_contracts, "\xD7 peak"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 12, margin: "2px 0 4px" } }, scale.entries, " ", scale.entries === 1 ? "entry" : "entries", " @ avg ", svg(scale.avg_entry), " \u2192 ", scale.exits, " ", scale.exits === 1 ? "exit" : "exits", " @ avg ", svg(scale.avg_exit), scale.add_behavior ? /* @__PURE__ */ React.createElement("span", null, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, scale.add_behavior)) : null, scale.exit_style ? /* @__PURE__ */ React.createElement("span", null, " \xB7 ", scale.exit_style) : null), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setOpen((v) => !v) }, open ? "\u25BE hide fills" : `\u25B8 show all ${fills.length} fills`), open && /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, className: "vg-note", style: { fontSize: 10, paddingBottom: 2 } }, "times in ET (market hours)")), fills.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, r.at_et || (r.at || "").slice(11, 16)), /* @__PURE__ */ React.createElement("td", { className: r.side === "buy" ? "vg-up" : "vg-down" }, r.side), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, r.qty, "\xD7"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, svg(r.price)), /* @__PURE__ */ React.createElement("td", { className: "vg-note", style: { textAlign: "right" } }, "\u2192 ", r.running, " held"))))));
@@ -6955,7 +5857,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState16, useMemo: useMemo6, useEffect: useEffect12, useRef: useRef6, useCallback: useCallback4 } = React;
+  var { useState: useState15, useMemo: useMemo6, useEffect: useEffect11, useRef: useRef5, useCallback: useCallback4 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem2 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -6972,7 +5874,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       // machine health, one screen (see claudedocs/goals/ux-feature-value).
       { id: "today", label: "Today", icon: "\u{1F3AF}" },
       { id: "options", label: "Options", icon: "\u25CE" },
-      { id: "playbook", label: "0DTE Playbook", icon: "\u{1F4D0}" },
+      { id: "playbook", label: "Daily plan", icon: "\u{1F4D0}" },
       { id: "scanner", label: "Scanner", icon: "\u{1F52D}" },
       { id: "signalbot", label: "Signal Bot", icon: "\u{1F4E1}" },
       { id: "exits", label: "Managed Exits", icon: "\u{1F6E1}\uFE0F" },
@@ -6992,8 +5894,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
       return { route, param };
     };
-    const [state, setState] = useState16(parse);
-    useEffect12(() => {
+    const [state, setState] = useState15(parse);
+    useEffect11(() => {
       const onHash = () => setState(parse());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
@@ -7005,47 +5907,19 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     };
     return [state.route, go, state.param];
   }
-  function MaybePlaybookProvider({ active, children }) {
-    return active ? /* @__PURE__ */ React.createElement(PlaybookProvider, { initialSymbol: "SPX" }, children) : children;
-  }
-  function PlaybookRoute({ refreshNonce, tab, setTab }) {
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-subtabs" }, /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: cls("vg-subtab", tab === "chart" && "vg-subtab-on"),
-        onClick: () => setTab("chart")
-      },
-      "\u{1F4C8} Chart & forecast"
-    ), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: cls("vg-subtab", tab === "replay" && "vg-subtab-on"),
-        onClick: () => setTab("replay")
-      },
-      "\u{1F3AC} Replay"
-    ), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: cls("vg-subtab", tab === "plan" && "vg-subtab-on"),
-        onClick: () => setTab("plan")
-      },
-      "\u{1F4D0} Daily plan"
-    )), tab === "chart" ? /* @__PURE__ */ React.createElement(SpxPlaybookView, null) : tab === "replay" ? /* @__PURE__ */ React.createElement(SpxReplayView, null) : /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }));
-  }
   function App() {
-    const [settings, setSettings] = useState16(loadSettings);
-    const [accountId, setAccountId] = useState16(settings.defaultAccount);
-    const [symbol, setSymbol] = useState16("SPY");
+    const [settings, setSettings] = useState15(loadSettings);
+    const [accountId, setAccountId] = useState15(settings.defaultAccount);
+    const [symbol, setSymbol] = useState15("SPY");
     const [route, go, routeParam] = useHashRoute();
-    const [playbookTab, setPlaybookTab] = useState16("chart");
-    const [notifs, setNotifs] = useState16([]);
-    const [notifOpen, setNotifOpen] = useState16(false);
-    const [chatOpen, setChatOpen] = useState16(false);
-    const [settingsOpen, setSettingsOpen] = useState16(false);
-    const [leftOpen, setLeftOpen] = useState16(() => window.innerWidth >= 860);
-    const [rightOpen, setRightOpen] = useState16(() => window.innerWidth >= 1100);
-    const [focus, setFocus] = useState16(false);
-    const focusPrev = useRef6({ left: true, right: true });
+    const [notifs, setNotifs] = useState15([]);
+    const [notifOpen, setNotifOpen] = useState15(false);
+    const [chatOpen, setChatOpen] = useState15(false);
+    const [settingsOpen, setSettingsOpen] = useState15(false);
+    const [leftOpen, setLeftOpen] = useState15(() => window.innerWidth >= 860);
+    const [rightOpen, setRightOpen] = useState15(() => window.innerWidth >= 1100);
+    const [focus, setFocus] = useState15(false);
+    const focusPrev = useRef5({ left: true, right: true });
     const enterFocus = useCallback4(() => {
       focusPrev.current = { left: leftOpen, right: rightOpen };
       setLeftOpen(false);
@@ -7060,7 +5934,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const toggleFocus = useCallback4(() => {
       focus ? exitFocus() : enterFocus();
     }, [focus, enterFocus, exitFocus]);
-    useEffect12(() => {
+    useEffect11(() => {
       const onKey = (e) => {
         const el = e.target;
         const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -7078,11 +5952,11 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     }, [toggleFocus, exitFocus, focus]);
     const RIGHT_MIN = 300;
     const rightMax = () => Math.min(1100, Math.round(window.innerWidth * 0.5));
-    const [rightWidth, setRightWidth] = useState16(() => {
+    const [rightWidth, setRightWidth] = useState15(() => {
       const saved = Number(localStorage.getItem("vantage.rightWidth"));
       return saved >= RIGHT_MIN ? Math.min(saved, rightMax()) : 360;
     });
-    const [resizing, setResizing] = useState16(false);
+    const [resizing, setResizing] = useState15(false);
     const startResize = (e) => {
       e.preventDefault();
       setResizing(true);
@@ -7106,12 +5980,12 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     };
-    const rightWidthRef = useRef6(rightWidth);
+    const rightWidthRef = useRef5(rightWidth);
     rightWidthRef.current = rightWidth;
-    const [refreshNonce, setRefreshNonce] = useState16(0);
-    const [refreshing, setRefreshing] = useState16({});
-    const [refreshNote, setRefreshNote] = useState16(null);
-    useEffect12(() => {
+    const [refreshNonce, setRefreshNonce] = useState15(0);
+    const [refreshing, setRefreshing] = useState15({});
+    const [refreshNote, setRefreshNote] = useState15(null);
+    useEffect11(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
       const mqLeft = window.matchMedia("(max-width: 859px)");
@@ -7198,23 +6072,22 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     };
     const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh: tlh2, go, setNotifOpen, refreshNonce };
     const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
-    const isPlaybookChart = route === "playbook" && playbookTab === "chart";
-    const [replayOn, setReplayOn] = useState16(false);
-    const [replayRunId, setReplayRunId] = useState16(null);
-    const [activeCallId, setActiveCallId] = useState16(null);
+    const [replayOn, setReplayOn] = useState15(false);
+    const [replayRunId, setReplayRunId] = useState15(null);
+    const [activeCallId, setActiveCallId] = useState15(null);
     const showReplayPanel = route === "ic" && replayOn;
     const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
-    useEffect12(() => {
+    useEffect11(() => {
       if (icSymbol) setSymbol(icSymbol);
     }, [icSymbol]);
-    useEffect12(() => {
+    useEffect11(() => {
       if (route !== "ic") {
         setReplayOn(false);
         setReplayRunId(null);
         setActiveCallId(null);
       }
     }, [route]);
-    useEffect12(() => {
+    useEffect11(() => {
       setReplayRunId(null);
       setActiveCallId(null);
     }, [icSymbol]);
@@ -7236,7 +6109,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         "aria-label": "Toggle focus mode"
       },
       focus ? "\u2922 Exit" : "\u2922 Focus"
-    ), /* @__PURE__ */ React.createElement(ThemeButton, null), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => setSettingsOpen(true) }, "Settings"))), /* @__PURE__ */ React.createElement(MaybePlaybookProvider, { active: route === "playbook" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-studio", (leftOpen || rightOpen) && "drawer-open") }, /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(ThemeButton, null), /* @__PURE__ */ React.createElement("button", { className: "tbtn", onClick: () => setSettingsOpen(true) }, "Settings"))), /* @__PURE__ */ React.createElement("div", { className: cls("vg-studio", (leftOpen || rightOpen) && "drawer-open") }, /* @__PURE__ */ React.createElement(
       "div",
       {
         className: "vg-mob-backdrop",
@@ -7306,7 +6179,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         },
         /* @__PURE__ */ React.createElement("span", { className: "ic" }, "\u27F3")
       )));
-    }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "portfolio" && /* @__PURE__ */ React.createElement(PortfolioView, { accountId }), route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookRoute, { refreshNonce, tab: playbookTab, setTab: setPlaybookTab }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
+    }), refreshNote && /* @__PURE__ */ React.createElement("p", { className: cls("vg-note"), style: { marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : void 0 } }, refreshNote.text), scopeAccounts.length === 0 && scopeOutage && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Backend unreachable \u2014 no accounts to show. Start the Vantage server, or import a broker."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10, padding: "0 4px" } }, "Read-only aggregation. Vantage never holds funds or places orders."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, padding: "0 4px" } }, "Vantage \xB7 built on the Lookey design system \xB7 AI analysis is educational only \u2014 not financial, investment, or tax advice.")))), /* @__PURE__ */ React.createElement("main", { id: "vg-center", className: "vg-pane vg-pane-center" }, route === "portfolio" && /* @__PURE__ */ React.createElement(PortfolioView, { accountId }), route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
       setSymbol(sym);
       go("ic", sym);
     } }), route === "signalbot" && /* @__PURE__ */ React.createElement(SignalBotView, { refreshNonce }), route === "exits" && /* @__PURE__ */ React.createElement(ExitsView, { refreshNonce }), route === "paper" && /* @__PURE__ */ React.createElement(PaperView, { refreshNonce }), route === "journal" && /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }), route === "futures" && /* @__PURE__ */ React.createElement(FuturesView, { refreshNonce }), route === "trades" && /* @__PURE__ */ React.createElement(TradeAnalyticsView, { ...viewProps }), route === "ic" && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-route" }, /* @__PURE__ */ React.createElement(
@@ -7355,7 +6228,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           onClick: () => setRightOpen(!rightOpen)
         },
         rightOpen ? "\xBB" : "\xAB"
-      ), rightOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, showReplayPanel ? "\u27F2 Replay" : isPlaybookChart ? "\u{1F52E} Forecast" : symbol ? "Notebook" : "Vantage AI"), rightOpen && showReplayPanel && /* @__PURE__ */ React.createElement(
+      ), rightOpen && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, showReplayPanel ? "\u27F2 Replay" : symbol ? "Notebook" : "Vantage AI"), rightOpen && showReplayPanel && /* @__PURE__ */ React.createElement(
         "button",
         {
           className: "vg-linkbtn",
@@ -7379,7 +6252,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           activeCallId,
           setActiveCallId
         }
-      ) : isPlaybookChart ? /* @__PURE__ */ React.createElement(SpxPlaybookRail, null) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
+      ) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
     )), !focus && /* @__PURE__ */ React.createElement("div", { className: "vg-mob-handles" }, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -7400,7 +6273,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         }
       },
       "\u2726 Mira"
-    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-fabs" }, /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Notifications", onClick: () => setNotifOpen(true) }, "\u{1F514}", unread > 0 && /* @__PURE__ */ React.createElement("span", { className: "cnt" }, unread)), !rightOpen && /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Vantage AI chat", onClick: () => setChatOpen(true) }, "\u{1F4AC}")), notifOpen && /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-fabs" }, /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Notifications", onClick: () => setNotifOpen(true) }, "\u{1F514}", unread > 0 && /* @__PURE__ */ React.createElement("span", { className: "cnt" }, unread)), !rightOpen && /* @__PURE__ */ React.createElement("button", { className: "vg-fab", "aria-label": "Vantage AI chat", onClick: () => setChatOpen(true) }, "\u{1F4AC}")), notifOpen && /* @__PURE__ */ React.createElement(
       NotifPanel,
       {
         notifs,
@@ -7439,8 +6312,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     );
   }
   function LiveStatusDots({ settings }) {
-    const [st, setSt] = useState16({ backend: null, mira: null });
-    useEffect12(() => {
+    const [st, setSt] = useState15({ backend: null, mira: null });
+    useEffect11(() => {
       let alive = true;
       health().then((h) => {
         if (alive) setSt((s) => ({ ...s, backend: h }));
@@ -7704,11 +6577,11 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return optionMatchKeyFrom(strike, exp, cp === "C" ? "call" : "put");
   }
   function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
-    const [expanded, setExpanded] = useState16({});
-    const [sortKey, setSortKey] = useState16("value");
-    const [recFilter, setRecFilter] = useState16("all");
-    const [kindFilter, setKindFilter] = useState16("all");
-    const [query, setQuery] = useState16("");
+    const [expanded, setExpanded] = useState15({});
+    const [sortKey, setSortKey] = useState15("value");
+    const [recFilter, setRecFilter] = useState15("all");
+    const [kindFilter, setKindFilter] = useState15("all");
+    const [query, setQuery] = useState15("");
     const pos = useLive(() => positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
     const byUnderlying = useMemo6(() => {
@@ -7809,14 +6682,14 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     };
   }
   function ActivityView({ accountId, settings, refreshNonce }) {
-    const [kind, setKind] = useState16("all");
-    const [shown, setShown] = useState16(ACTIVITY_PAGE);
+    const [kind, setKind] = useState15("all");
+    const [shown, setShown] = useState15(ACTIVITY_PAGE);
     const rows = useLive(
       () => getHistory(accountId).then(mapHistory),
       null,
       [accountId, settings, refreshNonce]
     ).data;
-    useEffect12(() => {
+    useEffect11(() => {
       setShown(ACTIVITY_PAGE);
     }, [accountId, kind]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -7853,7 +6726,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card", style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Realized gains \xB7 ", g.year), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", g.total_gain >= 0 ? "good" : "bad") }, signUsd(g.total_gain))), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Short-term", value: signUsd(st.gain), deltaDir: dirCls(st.gain), note: `${st.n || 0} lots \xB7 taxed as income` }), /* @__PURE__ */ React.createElement(StatTile, { label: "Long-term", value: signUsd(lt.gain), deltaDir: dirCls(lt.gain), note: `${lt.n || 0} lots \xB7 held >1yr` }), /* @__PURE__ */ React.createElement(StatTile, { label: "Est. tax owed", value: usd(g.estimated_tax), note: `${Math.round((g.st_rate || 0) * 100)}% ST / ${Math.round((g.lt_rate || 0) * 100)}% LT` })), cu.proceeds > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, usd(cu.proceeds), " of sells have no imported buy history \u2014 cost basis unknown, gain not computed (", (cu.rows || []).map((r) => r.symbol).slice(0, 6).join(", "), ")."));
   }
   function TaxView({ settings, tlh: tlh2, accountId }) {
-    const [washFaqOpen, setWashFaqOpen] = useState16(false);
+    const [washFaqOpen, setWashFaqOpen] = useState15(false);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Tax Center \u2014 realized gains & loss harvesting"), /* @__PURE__ */ React.createElement(RealizedGainsCard, { accountId }), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Every lot marked to last close \xB7 wash-sale window checked across ", /* @__PURE__ */ React.createElement("b", null, "all linked accounts"), " \xB7 threshold ", usd(settings.thresholdUsd), " or ", settings.thresholdPct, "% \xB7 decision-support only, no orders placed"), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Lot"), /* @__PURE__ */ React.createElement("th", null, "Account"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"), /* @__PURE__ */ React.createElement("th", null, "Status"), /* @__PURE__ */ React.createElement("th", null, "Action"))), /* @__PURE__ */ React.createElement("tbody", null, tlh2.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, c.lot.symbol), " \xB7 ", c.lot.shares, " sh @ ", usd(c.lot.costPerShare, 2), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "bought ", fmtDate(c.lot.date))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-chip" }, c.acct.short)), /* @__PURE__ */ React.createElement("td", { className: "num down" }, signUsd(c.unrl), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "(", signPct(-c.lossPct), ")")), /* @__PURE__ */ React.createElement("td", null, c.status === "clear" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u2713 Clear to harvest"), c.status === "blocked" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "\u2715 Wash-sale blocked"), c.status === "below" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "Below threshold"), c.status === "na" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "N/A \u2014 tax-advantaged"), c.status === "blocked" && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { maxWidth: 320, marginTop: 4 } }, c.wash.reason, ". Clears ", c.wash.clearsOn === "auto-buy paused" ? "once the auto-buy is paused" : c.wash.clearsOn, ".")), /* @__PURE__ */ React.createElement("td", null, c.status === "clear" && (c.replacement ? /* @__PURE__ */ React.createElement("span", null, "Sell \u2192 buy ", /* @__PURE__ */ React.createElement("b", null, c.replacement), " ", /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "different index, near-identical exposure")) : /* @__PURE__ */ React.createElement("span", null, "Sell, wait 31 days to rebuy", /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "no like-exposure partner for single stock"))), c.status === "blocked" && c.wash.futureRisk && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Pause ", c.wash.futureRisk.symbol, " auto-buy to open a window"), (c.status === "below" || c.status === "na") && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Monitor"))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(
       FAQItem2,
       {
@@ -7920,7 +6793,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return `${name}: ${tf.trend.direction} (${tf.trend.structure})`;
   }
   function RecRow2({ d, onJump }) {
-    const [open, setOpen] = useState16(false);
+    const [open, setOpen] = useState15(false);
     const conv = CONVICTION_CHIP[d.conviction.label] || CONVICTION_CHIP.neutral;
     const rec = REC_CHIP[d.recommendation] || { cls: "plain", text: d.recommendation };
     const ev = d.evidence || {};
@@ -7943,7 +6816,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Persisted decision journal", data && data.asOf ? ` \xB7 as of ${data.asOf}` : "", " \xB7 actionable first \xB7 educational only, not advice"), sorted.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "The decision journal is empty or the backend is unreachable. Run the nightly analysis (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.analyze"), ") and confirm the backend URL in Settings.")) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 0, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 12, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Conviction"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Recommendation"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Detail"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px", textAlign: "right" } }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(RecRow2, { key: d.symbol, d, onJump: jump }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Executable covered-call ideas on your book \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
   }
   function MarketsView({ setSymbol, go, settings }) {
-    const [signalsTab, setSignalsTab] = useState16("active");
+    const [signalsTab, setSignalsTab] = useState15("active");
     const signals = useLive(() => getSignals().then(mapSignals), [], [settings], { blankOnOutage: true }).data;
     const isPastSignal = (s) => s.status === "hit-target" || s.status === "stopped";
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Pattern signals"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Backend-graded technical signals \xB7 statuses computed from live quotes, never authored \xB7 educational only"), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "AI pattern signals"), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", signalsTab === "active" && "sel"), onClick: () => setSignalsTab("active") }, "Active (", signals.filter((s) => !isPastSignal(s)).length, ")"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", signalsTab === "past" && "sel"), onClick: () => setSignalsTab("past") }, "Past (", signals.filter(isPastSignal).length, ")"))), /* @__PURE__ */ React.createElement("div", { className: "vg-tablewrap", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Ticker"), /* @__PURE__ */ React.createElement("th", null, "Pattern"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Entry"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Target"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Stop"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Move"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Conf"), /* @__PURE__ */ React.createElement("th", null, "Status"))), /* @__PURE__ */ React.createElement("tbody", null, signals.filter((s) => signalsTab === "active" ? !isPastSignal(s) : isPastSignal(s)).map((s) => /* @__PURE__ */ React.createElement("tr", { key: s.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, s.sym), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.time)), /* @__PURE__ */ React.createElement("td", null, s.pattern), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.entry.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.target.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.stop.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(s.movePct || 0)) }, s.movePct != null ? signPct(s.movePct, 1) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.conf != null ? `${s.conf}%` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, s.status === "active" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u25CF Active"), s.status === "hit-target" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info" }, "\u2713 Hit target"), s.status === "stopped" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "\u2715 Stopped"), s.status === "unquoted" && /* @__PURE__ */ React.createElement(
@@ -7985,17 +6858,17 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function ChatPanel({ settings, onClose, docked }) {
     const useMira = settings.aiBackend === "mira";
-    const [msgs, setMsgs] = useState16([
+    const [msgs, setMsgs] = useState15([
       { who: "ai", text: "Hi \u2014 I'm Vantage AI. I can see across all 4 of your linked accounts. Ask me about harvesting, wash sales, overlap, or your allocation." }
     ]);
-    const [draft, setDraft] = useState16("");
-    const [busy, setBusy] = useState16(false);
-    const bodyRef = useRef6(null);
-    const abortRef = useRef6(null);
-    useEffect12(() => {
+    const [draft, setDraft] = useState15("");
+    const [busy, setBusy] = useState15(false);
+    const bodyRef = useRef5(null);
+    const abortRef = useRef5(null);
+    useEffect11(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect12(() => () => {
+    useEffect11(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -8061,13 +6934,13 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function AccountsSettings() {
     const live_ = live_exports;
-    const [rows, setRows] = useState16(null);
-    const [busy, setBusy] = useState16("");
-    const [err, setErr] = useState16("");
-    const [adding, setAdding] = useState16(false);
-    const [editId, setEditId] = useState16(null);
+    const [rows, setRows] = useState15(null);
+    const [busy, setBusy] = useState15("");
+    const [err, setErr] = useState15("");
+    const [adding, setAdding] = useState15(false);
+    const [editId, setEditId] = useState15(null);
     const blank = { id: "", name: "", currency: "USD", jurisdiction: "US", taxable: true, broker: "" };
-    const [form, setForm] = useState16(blank);
+    const [form, setForm] = useState15(blank);
     const load = async () => {
       try {
         const p = await live_.accounts();
@@ -8076,7 +6949,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         setRows([]);
       }
     };
-    useEffect12(() => {
+    useEffect11(() => {
       load();
     }, []);
     const startAdd = () => {
@@ -8272,7 +7145,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     ), " Taxable account"), err && /* @__PURE__ */ React.createElement("div", { className: "vg-neg", style: { fontSize: 12, marginBottom: 8 } }, err), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "flex-end", gap: 8 } }, /* @__PURE__ */ React.createElement(Button, { variant: "outline", onClick: () => setAdding(false) }, "Cancel"), /* @__PURE__ */ React.createElement(Button, { variant: "primary", disabled: busy === "save", onClick: save }, busy === "save" ? "Saving\u2026" : editId ? "Save changes" : "Create account"))), err && !adding && /* @__PURE__ */ React.createElement("div", { className: "vg-neg", style: { fontSize: 12, marginTop: 8 } }, err));
   }
   function SettingsModal({ settings, accounts: accounts2 = [], onSave, onClose }) {
-    const [draft, setDraft] = useState16(settings);
+    const [draft, setDraft] = useState15(settings);
     return /* @__PURE__ */ React.createElement(Modal, { title: "Settings", open: true, onClose }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Accounts"), /* @__PURE__ */ React.createElement(AccountsSettings, null), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Preferences"), /* @__PURE__ */ React.createElement(
       FormField,
       {
