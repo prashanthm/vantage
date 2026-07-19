@@ -56,4 +56,14 @@ expectancy (wider stops cost more R than they save). e.g. gate 0.5: floor 0.0
   survivor has a sub-0.5-ATR stop.
 
 Constants in ict_htf.py: `FVG_GRADE_HI=0.7`, `FVG_GRADE_LO=0.3`, `STOP_FLOOR_ATR=0.5`.
+
+## Two implementations, one calculation
+The same grade + floor is MIRRORED into `coach_pine.py` (the TradingView chart
+indicator) with identical constants (`FVG_GRADE_HI/LO`, `INVALID_BUFFER_ATR`,
+`STOP_FLOOR_ATR`) — so a setup the scanner flags is verifiable on the chart: same A+
+grade, same thin-suppression, same floored invalidation (drawn as a dashed line).
+Pine can't call the Python (TradingView sandbox), so this is a faithful mirror, not
+a shared module — when either changes, update both and keep the constants equal. The
+Python `ict_htf` remains the parity-validated source; Pine reproduces its numbers.
+
 Relates to [[goal-ict-concepts-edge]], scanner-exit-ladder.md, scanner-spread-invalidation.md.

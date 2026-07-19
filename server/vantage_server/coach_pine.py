@@ -213,17 +213,29 @@ lastSwLo := not na(swLo) ? swLo : lastSwLo
 // Put this indicator on your 1H chart and it detects the setups the
 // ict-concepts-edge goal confirmed on SPX hourly, then alerts you to drop to a
 // lower timeframe for entry. On <60m charts it stays silent (its normal ARMED/
-// TRIGGER role runs instead). NOTE: this Pine detection is an APPROXIMATION of
-// the server-side ict_htf (which is the parity-validated source of truth) — the
-// sandbox can't perfectly replicate the Python. Two tiers:
-//   A+ = a liquidity SWEEP of a pivot, then within 8 bars a DISPLACEMENT FVG
-//        (3-candle gap, middle body > 0.7*ATR) in the reversal direction.
-//   B  = a displacement FVG alone (the +0.42R workhorse).
+// TRIGGER role runs instead). This MIRRORS the server-side ict_htf calculation
+// (the parity-validated source of truth): same numbers, different format, so a
+// setup the scanner flags is verifiable here on the chart. Constants match
+// ict_htf.py exactly (claudedocs/research/scanner-fvg-grade.md):
+//   A+ = SWEEP confluence AND a FAT FVG gap (>= FVG_GRADE_HI * ATR) — 81% edge.
+//   B  = confluence + a MEDIUM gap, OR a bare displacement-FVG (no sweep).
+//   thin gap (< FVG_GRADE_LO * ATR) is a 48% coin-flip → SUPPRESSED (not surfaced).
+// FVG size — not displacement — is the conviction grade; the displacement > 0.7*ATR
+// stays only as the gate that forms the FVG. Stop = FVG far edge + buffer, floored.
+FVG_GRADE_HI = 0.7
+FVG_GRADE_LO = 0.3
+INVALID_BUFFER_ATR = 0.10
+STOP_FLOOR_ATR = 0.5
 isHtfTf = timeframe.in_seconds(timeframe.period) >= 3600
 dispBody = na(atr) or atr == 0 ? false : math.abs(close[1] - open[1]) > 0.7 * atr
 // 3-candle FVG on the just-closed gap (bar[1] is the middle candle)
 bullFvg = low > high[2] and dispBody
 bearFvg = high < low[2] and dispBody
+// FVG gap width / ATR — the conviction grade (mirrors ict_htf fvg_ratio).
+fvgWidth = bullFvg ? (low - high[2]) : bearFvg ? (high - low[2]) : 0.0
+fvgRatio = (na(atr) or atr == 0) ? 0.0 : fvgWidth / atr
+fatFvg = fvgRatio >= FVG_GRADE_HI
+thinFvg = fvgRatio < FVG_GRADE_LO
 // sweep of the most recent swing: wick beyond, close back inside
 sweepUp = not na(lastSwLo) and low < lastSwLo and close > lastSwLo   // swept SSL, bullish
 sweepDn = not na(lastSwHi) and high > lastSwHi and close < lastSwHi  // swept BSL, bearish
@@ -242,10 +254,19 @@ confShort = isHtfTf and recentSweep and sweepDir == -1 and bearFvg
 // bare displacement-FVG (tier B) when there's no qualifying sweep confluence
 bLong = isHtfTf and bullFvg and not confLong
 bShort = isHtfTf and bearFvg and not confShort
-htfFire = confLong or confShort or bLong or bShort
-htfTier = confLong or confShort ? "A+" : "B"
+htfConf = confLong or confShort
+// thin gaps are suppressed entirely (no edge); A+ needs confluence AND a fat gap
+htfFire = (confLong or confShort or bLong or bShort) and not thinFvg
+htfTier = htfConf and fatFvg ? "A+" : "B"
 htfDir = confLong or bLong ? "long" : "short"
 htfCe = confLong or bLong ? (high[2] + low) / 2 : (low[2] + high) / 2
+// invalidation = far FVG edge + buffer, then floored to STOP_FLOOR_ATR from entry —
+// mirrors ict_htf so the chart's stop matches the scanner's (a thin gap can't leave
+// a sub-0.5-ATR stop). Long: far = low edge (high[2]); short: far = high edge (low[2]).
+htfFar = confLong or bLong ? high[2] : low[2]
+htfBuffered = confLong or bLong ? htfFar - INVALID_BUFFER_ATR * atr : htfFar + INVALID_BUFFER_ATR * atr
+htfFloored = confLong or bLong ? htfCe - STOP_FLOOR_ATR * atr : htfCe + STOP_FLOOR_ATR * atr
+htfInvalid = confLong or bLong ? math.min(htfBuffered, htfFloored) : math.max(htfBuffered, htfFloored)
 
 // ── ICT LEVEL LADDER (non-SPX) — structure the coach already computes ─────────
 // SPX plans off the baked GEX ladder. Other tickers have no options chain, so
@@ -726,7 +747,7 @@ dirWord = tDir == 1 or showLong ? "LONG" : "SHORT"
 // HOURLY heads-up (only on >=60m charts): fire once when a setup forms, telling
 // you to look to a lower timeframe for the entry. Not an entry itself.
 if htfFire
-    f_alert("HEADS_UP", "⚡ " + htfTier + " HOURLY SETUP · " + str.upper(htfDir) + " · near " + str.tostring(htfCe, "#.#"), "backtest-validated hourly " + (htfTier == "A+" ? "confluence (sweep→displacement FVG)" : "displacement-FVG") + " — drop to 5m/1m for entry")
+    f_alert("HEADS_UP", "⚡ " + htfTier + " HOURLY SETUP · " + str.upper(htfDir) + " · near " + str.tostring(htfCe, "#.#"), "backtest-validated hourly " + (htfTier == "A+" ? "confluence (sweep→displacement FVG · fat gap " + str.tostring(fvgRatio, "#.##") + "×ATR)" : "displacement-FVG") + " · invalid " + str.tostring(htfInvalid, "#.#") + " — drop to 5m/1m for entry")
     // a COMPACT marker (icon + tier) above/below the bar — the full detail is in
     // the Telegram alert; the chart just needs a glanceable, non-congesting dot.
     // long → arrow-up BELOW the bar; short → arrow-down ABOVE it.
@@ -734,6 +755,9 @@ if htfFire
     htfMk = (htfDir == "long" ? "▲" : "▼") + htfTier
     // dark text on the bright green/red fill so the tier is readable (white washed out)
     label.new(bar_index, htfDir == "long" ? low : high, htfMk, yloc=(htfDir == "long" ? yloc.belowbar : yloc.abovebar), style=(htfDir == "long" ? label.style_label_up : label.style_label_down), color=htfCol, textcolor=color.new(#0d1017, 0), size=size.tiny)
+    // draw the floored INVALIDATION as a short dashed line so it's visually
+    // verifiable against the scanner's stop — same calculation, on the chart.
+    line.new(bar_index, htfInvalid, bar_index + 3, htfInvalid, color=color.new(htfCol, 30), style=line.style_dashed, width=1)
 
 if firedNow
     f_alert("TRIGGERED", (tDir == 1 ? "🔔 BUY CALLS" : "🔔 BUY PUTS") + " · " + armLbl + " " + str.tostring(tEntry, "#.#") + (lowConviction ? " · ⚠ LOW CONVICTION" : ""), "target " + str.tostring(tT1, "#.#") + " · stop " + str.tostring(tStop, "#.#") + (na(armRR) ? "" : " · R:R " + str.tostring(armRR, "#.#")) + (lowConviction ? " · " + convReason : "") + " · read: " + str.lower(readVerd))
