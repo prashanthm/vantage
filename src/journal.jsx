@@ -9,11 +9,12 @@
 // image is reference only — never analyzed. Journal/analysis only — no orders
 // (ADR-010).
 import { cls, SymbolSwitcher, LoadBar } from "./util.jsx";
-import { parseMira, MiraRender, SwotRender } from "./mira-render.jsx";
+import { MiraRender, SwotRender } from "./mira-render.jsx";
+import { collectTurn } from "./use_stream_turn.js";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
-  getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis, streamTurn,
+  getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis,
   getJournalAnalysisBundle, saveJournalAnalysis, getJournalAnalyses,
 } from "./live.js";
 
@@ -832,40 +833,33 @@ function JournalAnalysisPanel({ sym }) {
       setRead({ error: (res && res.note) || "couldn't build the bundle" }); return;
     }
     setBundle(res.bundle);
-    let text = "";
     setRead({ text: "" });
-    abortRef.current = streamTurn(res.prompt, `journal-${win.from}-${win.to}`, (evt) => {
-      if (evt.kind === "error") { setRead({ error: evt.message || "Mira error" }); return; }
-      if (evt.kind === "done") {
-        abortRef.current = null;
-        // Render the model's output via the shared generic renderer; if the JSON
-        // is malformed or the wrong shape, parseMira returns null and MiraRender
-        // shows the prose — the operator always gets a usable result.
-        const data = parseMira(text);
-        setRead({ text, data, mode: data ? "structured" : "prose" });
-        if (text.trim()) {
-          const b = res.bundle;
-          saveJournalAnalysis({
-            period: win.period, window_from: win.from, window_to: win.to,
-            underlying: sym, rubric_version: b.rubric_version,
-            trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
-            patterns: b.patterns, recommendations: b.recommendations,
-            swot: swot || null, narrative: text,
-          }).then((r) => {
-            setSaved(true);
-            // the run is now a saved history row — clear the live view and
-            // expand the fresh row inline (so there's one place it lives).
-            loadHist().then(() => {
-              setRead(null); setBundle(null);
-              if (r && r.id) setOpenId(r.id);
-            });
-          });
-        }
-        return;
-      }
-      const chunk = evt.text || evt.delta || evt.content || "";
-      if (chunk) { text += chunk; setRead({ text }); }
+    // Render via the shared generic renderer; a malformed/absent JSON → parseMira
+    // returns null and MiraRender shows prose — the operator always gets a result.
+    const { text, data, error } = await collectTurn(res.prompt, `journal-${win.from}-${win.to}`, {
+      onToken: (t) => setRead({ text: t }),
+      setAbort: (fn) => { abortRef.current = fn; },
     });
+    if (error && !text) { setRead({ error }); return; }
+    setRead({ text, data, mode: data ? "structured" : "prose" });
+    if (text.trim()) {
+      const b = res.bundle;
+      saveJournalAnalysis({
+        period: win.period, window_from: win.from, window_to: win.to,
+        underlying: sym, rubric_version: b.rubric_version,
+        trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
+        patterns: b.patterns, recommendations: b.recommendations,
+        swot: swot || null, narrative: text,
+      }).then((r) => {
+        setSaved(true);
+        // the run is now a saved history row — clear the live view and expand
+        // the fresh row inline (so there's one place it lives).
+        loadHist().then(() => {
+          setRead(null); setBundle(null);
+          if (r && r.id) setOpenId(r.id);
+        });
+      });
+    }
   };
   useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
 
@@ -1214,24 +1208,14 @@ async function analyzeTradeOnce(day, tradeIndex, underlying, operator, { force =
   if (!res || !res.available || !res.dna) return { status: "error", note: (res && res.note) || "no DNA" };
   if (!force && res.stored && (res.stored.analysis || "").trim()) return { status: "skipped" };
   const prompt = buildAnalystPrompt(res.dna, operator || {}, res.playbook_session);
-  let text = "";
-  return await new Promise((resolve) => {
-    streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
-      if (evt.kind === "error") { resolve({ status: "error", note: evt.message }); return; }
-      if (evt.kind === "done") {
-        if (text.trim() && res.trade_key) {
-          saveTradeAnalysis({ day, trade_key: res.trade_key, underlying,
-            label: res.dna.label, dna: res.dna, analysis: text });
-          resolve({ status: "saved" });
-        } else {
-          resolve({ status: "empty" });
-        }
-        return;
-      }
-      const chunk = evt.text || evt.delta || evt.content || "";
-      if (chunk) { text += chunk; if (onChunk) onChunk(text); }
-    });
-  });
+  const { text, error } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, { onToken: onChunk });
+  if (error && !text) return { status: "error", note: error };
+  if (text.trim() && res.trade_key) {
+    saveTradeAnalysis({ day, trade_key: res.trade_key, underlying,
+      label: res.dna.label, dna: res.dna, analysis: text });
+    return { status: "saved" };
+  }
+  return { status: "empty" };
 }
 
 // the read. The "entire DNA of the trade" in one place.
@@ -1252,31 +1236,26 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
       return;
     }
     const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag }, res.playbook_session);
-    let text = "";
     setState("streaming");
-    abortRef.current = streamTurn(prompt, `trade-${day}-${tradeIndex}`, (evt) => {
-      if (evt.kind === "error") { setState({ error: evt.message || "Mira error" }); return; }
-      if (evt.kind === "done") {
-        abortRef.current = null;
-        // The trade-analyst routes and the supervisor synthesizes with the
-        // model, so `text` is a real prose review. Freeze it + the DNA into
-        // the record (survives 1m bars ageing out).
-        if (text.trim() && res.trade_key) {
-          saveTradeAnalysis({
-            day, trade_key: res.trade_key, underlying, label: res.dna.label,
-            dna: res.dna, analysis: text,
-          });
-        }
-        setState({ text, dna: res.dna, saved: !!text.trim() });
-        // pull the finished read into view — it renders below the fold, so
-        // completion was invisible if the operator had scrolled away.
-        setTimeout(() => readRef.current &&
-          readRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
-        return;
-      }
-      const chunk = evt.text || evt.delta || evt.content || "";
-      if (chunk) { text += chunk; setState({ text, dna: res.dna }); }
+    const { text, error } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, {
+      onToken: (t) => setState({ text: t }),
+      setAbort: (fn) => { abortRef.current = fn; },
     });
+    if (error && !text) { setState({ error }); return; }
+    // The trade-analyst routes and the supervisor synthesizes with the model, so
+    // `text` is a real prose review. Freeze it + the DNA into the record (survives
+    // 1m bars ageing out).
+    if (text.trim() && res.trade_key) {
+      saveTradeAnalysis({
+        day, trade_key: res.trade_key, underlying, label: res.dna.label,
+        dna: res.dna, analysis: text,
+      });
+    }
+    setState({ text, dna: res.dna, saved: !!text.trim() });
+    // pull the finished read into view — it renders below the fold, so completion
+    // was invisible if the operator had scrolled away.
+    setTimeout(() => readRef.current &&
+      readRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
   };
 
   // show a previously-saved read on open, so the record persists across sessions
