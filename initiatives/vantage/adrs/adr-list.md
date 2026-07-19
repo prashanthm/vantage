@@ -38,6 +38,7 @@ ADRs via adr-maintenance. Deferred rows are decisions the live-data phase must m
 |----|-------|--------|---------|
 | ADR-010 | Read-only decision support: no order or fund-movement code paths | Proposed | Vantage never places orders, holds funds, or writes to brokers; the codebase must contain no execution integration, mirroring the portfolio-wide analysis/execution separation. |
 | ADR-011 | Educational-only compliance banner on every AI surface | Proposed | Every view that renders AI-generated analysis carries the persistent "educational purposes only — not financial, investment, or tax advice" banner. |
+| ADR-015 | Autonomous strategy lifecycle execution (Alpaca) | Proposed | Amends ADR-010 (v4): a registered strategy validated on Alpaca paper that beats its frozen backtest baseline may be manually promoted to a live cash/margin account where it opens AND closes real Alpaca orders (incl. multi-leg options) autonomously — only within four hard gates (kill switch + `VANTAGE_AUTONOMOUS_OK`, per-strategy caps, manual promotion, immutable audit log). First sanctioned autonomous-entry path; Robinhood's carve-out untouched. |
 
 ### Deployment
 
