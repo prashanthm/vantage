@@ -1163,7 +1163,7 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 /* when the replay table is present, hold the chart body at a firm minimum so the
    layout overflows .vg-ic (which scrolls) instead of the flexbox crushing the chart
    and clipping the table against the pane bottom. */
-.vg-ic-empty { position: absolute; inset: 0; display: flex; flex-direction: column;
+.vg-ic-empty { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column;
   gap: 10px; align-items: center; justify-content: center; }
 
 /* ── Replay Forecast (spx_forecast.jsx SpxReplayView) ─────────────────────── */
