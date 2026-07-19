@@ -325,7 +325,46 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
     }
     if hasattr(store, "save_scanner_result"):
         store.save_scanner_result(scanner, result)
+    # auto-log A+ setups as paper debit spreads (deduped). Best-effort — a logging
+    # failure must never break a scan.
+    try:
+        n = arm_scanner_spreads(store, result)
+        if n:
+            log.info("scanner %s: logged %d new paper spread(s)", scanner, n)
+    except Exception as e:  # noqa: BLE001
+        log.warning("scanner-spread auto-log failed: %s", e)
     return result
+
+
+def arm_scanner_spreads(store, scan_result: dict) -> int:
+    """Log each A+ scanner hit as a paper DEBIT SPREAD, deduped by setup_key so a
+    re-scan of unchanged data adds nothing. Mirrors signal_bot.arm_session. Returns
+    the count of newly logged spreads. Writes only our store — no order (ADR-010)."""
+    if not getattr(store, "uses_sqlite", False):
+        return 0
+    from . import scanner_spread as _sp
+    known = store.paper_setup_keys()
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    logged = 0
+    for hit in scan_result.get("hits") or []:
+        if hit.get("tier") != "A+":
+            continue
+        spread = _sp.spread_from_hit(hit)
+        if spread is None or spread["setup_key"] in known:
+            continue
+        store.record_paper_trade({
+            **spread,
+            "opened_at": now,
+            "session": (hit.get("as_of") or "")[:10] or None,
+            "source": "scanner-auto",
+            "status": "open",
+            "fill_status": "filled",
+            "filled_at": now,
+            "opened_price_src": "scanner A+ setup",
+        })
+        known.add(spread["setup_key"])
+        logged += 1
+    return logged
 
 
 def start_background_scan(store, scanner: str = "ict_htf",

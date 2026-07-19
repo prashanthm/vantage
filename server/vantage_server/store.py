@@ -1565,7 +1565,11 @@ class Store:
                 "spy_entry", "spy_target", "spy_stop", "shares", "ref_strike",
                 "source", "status", "opened_price_src",
                 "entry_trigger", "entry_note", "spy_level", "fill_status",
-                "filled_at", "spy_opposing")
+                "filled_at", "spy_opposing",
+                # v24 scanner debit-spread fields (NULL for reclaim rows)
+                "book", "structure", "underlying", "long_strike", "short_strike",
+                "contracts", "est_debit", "underlying_entry", "underlying_target",
+                "underlying_invalid", "setup_key")
         import json as _json
 
         def _val(c):
@@ -1583,17 +1587,28 @@ class Store:
                 tuple(_val(c) for c in cols))
             return int(cur.lastrowid)
 
-    def load_paper_trades(self, status: str | None = None) -> list[dict]:
-        """Paper trades (optionally filtered by status), newest first.
-        ``spy_opposing`` is decoded back to a list of floats."""
+    def load_paper_trades(self, status: str | None = None,
+                          book: str | None = None) -> list[dict]:
+        """Paper trades (optionally filtered by status and/or book), newest first.
+        ``spy_opposing`` is decoded back to a list of floats. ``book`` selects a
+        strategy record — 'scanner-spread' for the scanner spreads, or the special
+        value 'reclaim' to select the legacy rows where book IS NULL (so the two
+        strategies' win-rates never mix)."""
         if not self.uses_sqlite:
             return []
         conn = self._backend._conn()
         try:
             sql = "SELECT * FROM paper_trades"
+            where: list[str] = []
             params: list = []
             if status:
-                sql += " WHERE status=?"; params.append(status)
+                where.append("status=?"); params.append(status)
+            if book == "reclaim":
+                where.append("book IS NULL")
+            elif book is not None:
+                where.append("book=?"); params.append(book)
+            if where:
+                sql += " WHERE " + " AND ".join(where)
             sql += " ORDER BY opened_at DESC, id DESC"
             rows = conn.execute(sql, params).fetchall()
         finally:
@@ -1610,6 +1625,20 @@ class Store:
                     d["spy_opposing"] = None
             out.append(d)
         return out
+
+    def paper_setup_keys(self) -> set[str]:
+        """The set of setup_keys already logged (any status) — for scanner-spread
+        dedup so a re-scan of unchanged data doesn't double-log the same setup."""
+        if not self.uses_sqlite:
+            return set()
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT setup_key FROM paper_trades WHERE setup_key IS NOT NULL"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {r["setup_key"] for r in rows}
 
     def fill_paper_trade(self, trade_id: int, *, spy_entry: float,
                          filled_at: str, spy_target: float | None = None,

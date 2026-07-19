@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 23  # v23: strategy_lifecycle + strategy_audit (ADR-015 lifecycle)
+SCHEMA_VERSION = 24  # v24: scanner debit-spread columns on paper_trades (book/strikes)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -34,6 +34,20 @@ _PAPER_ADDED_COLUMNS = {
     "spy_level": "REAL",
     "fill_status": "TEXT NOT NULL DEFAULT 'filled'",
     "filled_at": "TEXT",
+    # v24: scanner debit-spread rows. `book` tags the strategy so the spread record
+    # never mixes into the SPX reclaim win-rate (they have different P&L bases).
+    # Legacy single-leg rows keep book=NULL. All nullable → old rows untouched.
+    "book": "TEXT",                 # 'scanner-spread' | NULL (reclaim)
+    "structure": "TEXT",            # 'debit_call_spread' | 'debit_put_spread'
+    "underlying": "TEXT",           # the ticker (AMAT, KLAC, …) — not the SPY proxy
+    "long_strike": "REAL",
+    "short_strike": "REAL",
+    "contracts": "INTEGER",         # ×4 (ladder 2/1/1)
+    "est_debit": "REAL",            # modeled per-spread debit (no live chain)
+    "underlying_entry": "REAL",     # FVG center
+    "underlying_target": "REAL",    # runner target = short strike ref
+    "underlying_invalid": "REAL",   # buffered thesis-invalidation
+    "setup_key": "TEXT",            # dedup: symbol:as_of:long:short
 }
 
 DB_FILENAME = "vantage.db"
