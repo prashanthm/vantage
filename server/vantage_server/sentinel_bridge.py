@@ -129,16 +129,18 @@ def zones(source: str = "sentinel") -> dict:
 # --------------------------------------------------------------- market context
 
 def market_context() -> dict:
-    """Breadth + sector rotation + VIX vol state.
+    """Breadth + sector rotation + VIX term structure + intermarket macro.
 
-    Shape (Sentinel market_context.py): ``{breadth:{pct_above_50ma, ad_ratio,
-    new_highs_20d, new_lows_20d,...}, sectors:[{etf,quadrant,...}], vol:{vix,
-    vix3m, band, contango, stance}, bullets:[...]}``.
+    Now computed natively by Vantage (``market_context.py``) — no longer reads the
+    retired Sentinel artifact. Shape: ``{breadth:{pct_above_50ma, ad_ratio,
+    new_highs_20d, new_lows_20d}, sectors:[{etf,name,ret_20d_pct,...}], vol:{vix,
+    vix3m, band, contango, stance}, intermarket:{dxy,tnx,oil,gold}, bullets:[...]}``.
     """
-    d = _read_json(_logs_dir() / "market_context.json")
-    if not isinstance(d, dict):
+    from . import market_context as _mc  # noqa: PLC0415 — avoid import cycle at module load
+    try:
+        return _mc.market_context()
+    except Exception:  # noqa: BLE001 — context is additive; never break the bundle
         return _missing("market_context")
-    return {"available": True, **d}
 
 
 # --------------------------------------------------------------- macro events

@@ -842,7 +842,12 @@ def build_playbook(today: _dt.date | None = None, store: Any = None,
         "vwap_regime": chart.get("vwap_regime"),
         "vix": (mc.get("vol") or {}).get("vix") if mc.get("available") else None,
         "vix_band": (mc.get("vol") or {}).get("band") if mc.get("available") else None,
+        "vix_term_stance": (mc.get("vol") or {}).get("stance") if mc.get("available") else None,
+        "vix_contango": (mc.get("vol") or {}).get("contango") if mc.get("available") else None,
         "breadth_pct_above_50ma": (mc.get("breadth") or {}).get("pct_above_50ma") if mc.get("available") else None,
+        "breadth_ad_ratio": (mc.get("breadth") or {}).get("ad_ratio") if mc.get("available") else None,
+        "intermarket": mc.get("intermarket") if mc.get("available") else None,
+        "market_bullets": mc.get("bullets") if mc.get("available") else None,
     }
     spot = regime.get("spot")
 
