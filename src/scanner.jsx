@@ -54,6 +54,32 @@ function SignalCard({ h, onOpen }) {
   );
 }
 
+// A tier's hits, split into LONG and SHORT sub-blocks. The setup rationale is
+// captioned once for the tier (identical across its hits); each side is its own
+// labeled column so direction is read from structure, not a per-card marker.
+function TierGroup({ label, hits, onOpen }) {
+  const longs = hits.filter((h) => h.dir === "long");
+  const shorts = hits.filter((h) => h.dir !== "long");
+  const side = (name, list) => list.length > 0 && (
+    <div className="vg-scan-side">
+      <div className="vg-scan-sidehd">{name} · {list.length}</div>
+      <div className="vg-scan-grid">
+        {list.map((h) => <SignalCard key={h.symbol} h={h} onOpen={onOpen} />)}
+      </div>
+    </div>);
+  return (
+    <div className="vg-scan-group">
+      <div className="vg-scan-grouphead">
+        <span className="vg-kicker">{label} · {hits.length}</span>
+        {hits[0].reason && <span className="vg-scan-rationale">{hits[0].reason}</span>}
+      </div>
+      <div className="vg-scan-sides">
+        {side("Long", longs)}
+        {side("Short", shorts)}
+      </div>
+    </div>);
+}
+
 export function ScannerView({ onOpenSymbol }) {
   const [scanner, setScanner] = useState("ict_htf");
   const [nonce, setNonce] = useState(0);
@@ -155,28 +181,10 @@ export function ScannerView({ onOpenSymbol }) {
       </div>
       {note && <p className="vg-note" style={{ color: "var(--vg-down)", marginBottom: 10 }}>{note}</p>}
 
-      {/* ranked signal cards — the shared setup rationale is captioned once per
-          group (it's identical across a tier's hits), not repeated on every card. */}
-      {aplus.length > 0 && (
-        <div className="vg-scan-group">
-          <div className="vg-scan-grouphead">
-            <span className="vg-kicker">A+ setups · {aplus.length}</span>
-            {aplus[0].reason && <span className="vg-scan-rationale">{aplus[0].reason}</span>}
-          </div>
-          <div className="vg-scan-grid">
-            {aplus.map((h) => <SignalCard key={h.symbol} h={h} onOpen={onOpenSymbol} />)}
-          </div>
-        </div>)}
-      {bs.length > 0 && (
-        <div className="vg-scan-group">
-          <div className="vg-scan-grouphead">
-            <span className="vg-kicker">B setups · {bs.length}</span>
-            {bs[0].reason && <span className="vg-scan-rationale">{bs[0].reason}</span>}
-          </div>
-          <div className="vg-scan-grid">
-            {bs.map((h) => <SignalCard key={h.symbol} h={h} onOpen={onOpenSymbol} />)}
-          </div>
-        </div>)}
+      {/* ranked signal cards — shared rationale captioned once per tier, then the
+          hits split into LONG / SHORT sub-blocks so direction is structural. */}
+      {aplus.length > 0 && <TierGroup label="A+ setups" hits={aplus} onOpen={onOpenSymbol} />}
+      {bs.length > 0 && <TierGroup label="B setups" hits={bs} onOpen={onOpenSymbol} />}
 
       {d && hits.length === 0 && (
         <div className="vg-card" style={{ padding: 18 }}>

@@ -1221,19 +1221,27 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-scan-grouphead { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .vg-scan-grouphead .vg-kicker { margin-bottom: 0; }
 .vg-scan-rationale { font-size: 12px; color: var(--vg-dim); }
-.vg-scan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+/* long / short columns — direction is structural, split into two labeled sides */
+.vg-scan-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 12px;
+  align-items: start; }
+.vg-scan-side { min-width: 0; }
+.vg-scan-sidehd { font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--vg-dim);
+  padding-bottom: 6px; margin-bottom: 2px; border-bottom: 1px solid var(--vg-hairline); }
+.vg-scan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   gap: 8px; margin-top: 10px; }
-/* compact card: a colored direction edge, symbol, entry/invalid numbers, freshness */
+@media (max-width: 900px) { .vg-scan-sides { grid-template-columns: 1fr; gap: 16px; } }
+/* compact card — direction is carried by the LONG/SHORT label's own color, not a
+   colored rail. Uniform hairline border; the setup rationale is captioned above. */
 .vg-scan-card { text-align: left; display: flex; flex-direction: column; gap: 8px;
   padding: 10px 12px 9px; border-radius: var(--vg-r-md); cursor: pointer;
-  border: 1px solid var(--vg-hairline); border-left-width: 3px; background: var(--vg-card);
+  border: 1px solid var(--vg-hairline); background: var(--vg-card);
   color: var(--vg-ink); transition: border-color .12s, background .12s; }
-.vg-scan-card.long { border-left-color: var(--vg-up); }
-.vg-scan-card.short { border-left-color: var(--vg-down); }
 .vg-scan-card:hover { background: var(--vg-raised); border-color: var(--vg-rule); }
 .vg-scan-cardhead { display: flex; align-items: center; gap: 8px; }
 .vg-scan-sym { font-weight: 700; font-size: 15px; letter-spacing: -.01em; }
-.vg-scan-dir { font-size: 10px; font-weight: 700; letter-spacing: .04em; }
+.vg-scan-dir { font-size: 10px; font-weight: 700; letter-spacing: .06em; color: var(--vg-dim); }
+.vg-scan-dir.up { color: var(--vg-up); }
+.vg-scan-dir.down { color: var(--vg-down); }
 .vg-scan-ob { margin-left: auto; font-size: 9px; font-weight: 700; letter-spacing: .05em;
   color: var(--vg-accent); background: var(--vg-accent-soft); padding: 1px 5px; border-radius: 4px; }
 .vg-scan-nums { display: flex; gap: 14px; }
