@@ -141,6 +141,27 @@ def test_transaction_rows_feed_realized_gains():
     assert rg["total_gain"] == 800.0
 
 
+# Schwab's transaction export: different header ("Date"/"Action:Buy/Sell"/"Amount")
+# and a CUSIP-listed security that must be skipped.
+SCHWAB_TXN_CSV = """Date,Action,Symbol,Description,Quantity,Price,Fees & Comm,Amount
+07/16/2026,Buy,TQQQ,PROSHARES ULTRAPRO QQQ,10,72.70,0,-727.00
+07/17/2026,Sell,TQQQ,PROSHARES ULTRAPRO QQQ,10,74.30,0,743.00
+07/17/2026,Buy,25490K323,DFA SECURITY,5,100.00,0,-500.00
+07/18/2026,Reinvest Dividend,MU,MICRON,0.5,80.00,0,40.00
+"""
+
+
+def test_parse_schwab_transactions_via_shared_parser():
+    from vantage_server.importer import parse_transactions
+    rows, warnings = parse_transactions(SCHWAB_TXN_CSV, "charles-schwab")
+    # 1 buy + 1 sell of TQQQ; the CUSIP + the dividend reinvest skipped.
+    assert [(r["side"], r["symbol"], r["quantity"]) for r in rows] == [
+        ("buy", "TQQQ", 10.0), ("sell", "TQQQ", 10.0)]
+    assert rows[0]["date"] == "2026-07-16" and rows[0]["account"] == "charles-schwab"
+    joined = " ".join(warnings)
+    assert "CUSIP-only" in joined and "non-equity-trade" in joined
+
+
 def test_fidelity_non_money_market_double_star_still_skipped():
     # A "**" symbol that is NOT money-market/sweep/cash stays skipped (no value
     # misbooked as cash).

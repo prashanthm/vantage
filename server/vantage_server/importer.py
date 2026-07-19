@@ -234,18 +234,17 @@ def parse_fidelity(text: str, account: str, as_of: str | None):
     return lots, warnings
 
 
-def parse_fidelity_transactions(text: str, account: str):
-    """Fidelity TRANSACTION-history export → history rows (buys/sells), NOT lots.
+def parse_transactions(text: str, account: str):
+    """Broker TRANSACTION-history export → history rows (buys/sells), NOT lots.
 
-    Fidelity's activity/history CSV has columns like:
-      Run Date, Account, Action, Symbol, Description, Type, Quantity, Price ($),
-      Commission ($), Fees ($), Accrued Interest ($), Amount ($), Settlement Date
-    The ``Action`` text ("YOU BOUGHT" / "YOU SOLD" / "DIVIDEND RECEIVED" ...)
-    determines the side. We emit one equity buy/sell row per trade in the shape
-    portfolio.realized_gains FIFO-matches ({kind, symbol, side, date, quantity,
-    price, amount, description}); non-trade rows (dividends, interest, transfers)
-    are skipped with a note. Options rows are skipped (equity realized-gains only,
-    matching realized_gains' `kind=="equity"` filter)."""
+    Column-name based (via _find_header), so it handles both Fidelity's activity
+    CSV ("Run Date, Action, ..., Amount ($)", action "YOU BOUGHT"/"YOU SOLD") and
+    Schwab's ("Date, Action, ..., Amount", action "Buy"/"Sell") — and any broker
+    with the same action/symbol/quantity/price columns. Emits one equity buy/sell
+    row per trade in the shape portfolio.realized_gains FIFO-matches ({kind,
+    symbol, side, date, quantity, price, amount, description}); non-trade rows
+    (dividends, interest, transfers), option contracts, and CUSIP-only securities
+    are skipped with a note (realized_gains is equity-only)."""
     rows = _rows(text)
     hi, cols = _find_header(rows, "action", ("symbol",))
     i_act = cols["action"]
@@ -257,6 +256,7 @@ def parse_fidelity_transactions(text: str, account: str):
     i_desc = _first(cols, "description")
     out, warnings = [], []
     n_skip = 0
+    n_cusip = 0
     for row in rows[hi + 1:]:
         action = (_cell(row, i_act) or "").strip().upper()
         symbol = (_cell(row, i_sym) or "").strip().strip('"').upper()
@@ -269,10 +269,15 @@ def parse_fidelity_transactions(text: str, account: str):
         else:
             n_skip += 1   # dividend / interest / transfer / fee — not a trade
             continue
-        # equity only: Fidelity option symbols start with '-' or '.' (e.g.
-        # -SPY260117C500) or carry a space — realized_gains is equity-only.
+        # equity only: option symbols start with '-'/'.' or carry a space.
         if not symbol or symbol[0] in "-." or " " in symbol:
             n_skip += 1
+            continue
+        # a 9-char CUSIP (Schwab lists some securities by CUSIP, e.g. 25490K323)
+        # isn't a ticker — skip so it doesn't pollute the book with a fake symbol.
+        if len(symbol) == 9 and any(ch.isdigit() for ch in symbol) and symbol[:1].isalnum() \
+                and not symbol.isalpha():
+            n_cusip += 1
             continue
         qty = _to_float(_cell(row, i_qty))
         price = _to_float(_cell(row, i_price))
@@ -293,7 +298,13 @@ def parse_fidelity_transactions(text: str, account: str):
     if n_skip:
         warnings.append(f"skipped {n_skip} non-equity-trade row(s) "
                         "(dividends / interest / transfers / options)")
+    if n_cusip:
+        warnings.append(f"skipped {n_cusip} CUSIP-only security row(s) (no ticker)")
     return out, warnings
+
+
+# Back-compat alias: the parser is broker-agnostic now (Fidelity + Schwab + …).
+parse_fidelity_transactions = parse_transactions
 
 
 def usd_note(v: float) -> str:

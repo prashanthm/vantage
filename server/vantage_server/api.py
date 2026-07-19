@@ -1717,12 +1717,10 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             text = raw.decode("utf-8-sig")   # Fidelity exports carry a BOM
         except UnicodeDecodeError:
             text = raw.decode("latin-1", "replace")
-        parser = {"fidelity": _imp.parse_fidelity_transactions}.get(str(broker).lower())
-        if parser is None:
-            return JSONResponse({"error": f"no transaction parser for broker '{broker}'"},
-                                status_code=400)
+        # one broker-agnostic parser (column-name based) handles Fidelity, Schwab,
+        # and any export with the same action/symbol/quantity/price columns.
         try:
-            rows, warnings = parser(text, acct)
+            rows, warnings = _imp.parse_transactions(text, acct)
         except Exception as e:  # noqa: BLE001 — a malformed CSV is user error, not a 500
             return envelope(snap, available=False,
                             note=f"couldn't parse the file: {type(e).__name__}: {e}")

@@ -158,18 +158,24 @@ function RiskCard({ rk }) {
 
 // Per-account concentration — surfaces single-account / single-broker risk per currency.
 // Upload a transaction CSV for one account (hidden file input + a labeled button).
-function UploadTxn({ acctId, onDone }) {
+// The result MUST survive the parent's list refresh — importing bumps the account
+// list, which would otherwise unmount this and wipe the confirmation (the "nothing
+// happened" bug). So we hold the result here and refresh the list on a short delay,
+// and show a persistent inline confirmation the user can dismiss.
+function UploadTxn({ acctId, broker, onDone }) {
   const ref = useRef(null);
-  const [state, setState] = useState(null);   // {busy} | {result} | {error}
+  const [state, setState] = useState(null);   // null | {busy} | {result} | {error}
   const pick = () => ref.current && ref.current.click();
   const onFile = (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     setState({ busy: true });
-    importTransactions(f, acctId, "fidelity").then((r) => {
-      if (r && r.available === false) { setState({ error: r.note || "import failed" }); return; }
+    importTransactions(f, acctId, broker || "fidelity").then((r) => {
+      if (!r || r.available === false) { setState({ error: (r && r.note) || "import failed" }); return; }
       setState({ result: r });
-      onDone && onDone();
+      // refresh the underlying data AFTER the confirmation is on screen (and give
+      // the user a beat to read it), so the result isn't torn down instantly.
+      setTimeout(() => onDone && onDone(), 2500);
     }).catch((err) => setState({ error: String(err && err.message || err) }))
       .finally(() => { if (ref.current) ref.current.value = ""; });
   };
@@ -177,11 +183,20 @@ function UploadTxn({ acctId, onDone }) {
     <>
       <input ref={ref} type="file" accept=".csv" style={{ display: "none" }} onChange={onFile} />
       <button className="vg-linkbtn" onClick={pick} disabled={state?.busy}
-        title="Upload a Fidelity transaction-history CSV → parsed into buys/sells + realized gains">
+        title="Upload a transaction-history CSV (Fidelity / Schwab) → buys/sells + realized gains">
         {state?.busy ? "importing…" : "⬆ transactions"}
       </button>
-      {state?.result && <span className="vg-note good"> +{state.result.imported} ({state.result.buys}b/{state.result.sells}s)</span>}
-      {state?.error && <span className="vg-note bad"> {state.error}</span>}
+      {state?.result && (
+        <span className="vg-note good" title={(state.result.warnings || []).join(" · ")}>
+          {" "}✓ imported {state.result.imported} ({state.result.buys} buy / {state.result.sells} sell)
+          {(state.result.warnings || []).length ? ` · ${state.result.warnings.length} skipped` : ""}
+          <button className="vg-linkbtn" style={{ marginLeft: 4 }}
+            onClick={() => setState(null)}>×</button>
+        </span>)}
+      {state?.error && (
+        <span className="vg-note bad"> ✕ {state.error}
+          <button className="vg-linkbtn" style={{ marginLeft: 4 }} onClick={() => setState(null)}>×</button>
+        </span>)}
     </>);
 }
 
@@ -263,7 +278,7 @@ function AccountManagerCard({ ba, accounts, accountId, setAccountId, refreshing,
                   <button className="vg-linkbtn" disabled={pending}
                     onClick={() => onRefreshAccount && onRefreshAccount(a.id)}
                     title={`Refresh ${a.short} (re-pull holdings)`}>{pending ? "…" : "⟳ sync"}</button>)}
-                <UploadTxn acctId={a.id} onDone={onChanged} />
+                <UploadTxn acctId={a.id} broker={a.broker} onDone={onChanged} />
                 <button className="vg-linkbtn bad" onClick={() => remove(a)} title="Remove account">✕</button>
               </span>
             </div>);
