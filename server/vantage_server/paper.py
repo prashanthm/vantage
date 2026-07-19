@@ -492,6 +492,82 @@ def _settle_one(trade: dict, bars) -> dict | None:
     return None
 
 
+#: how many trading days a scanner spread stays open before it's closed at the
+#: modeled intrinsic (a swing horizon, not 0DTE).
+SPREAD_HORIZON_DAYS = 30
+
+
+def _settle_spread(store, t: dict) -> dict | None:
+    """Resolve one open scanner DEBIT SPREAD on its underlying's hourly bars after
+    the open. Returns close fields or None (still open).
+
+    Debit spread P&L (per the confirmed structure — long at entry, short at target):
+      - price reaches the SHORT strike (target)      → win: (width − debit) × N × 100
+      - price breaches the buffered invalidation      → loss: −debit × N × 100
+        (invalidation sits BEYOND the FVG edge, past the long strike, so the spread
+        is ~worthless there — a full-debit loss is the honest mark)
+      - neither within the horizon                    → close at modeled intrinsic
+        based on where price sits vs the two strikes.
+    Target checked before invalidation within a bar is NOT assumed — invalidation
+    (the loss) is checked first, conservatively."""
+    from .scanner import load_hourly_series  # lazy — avoid an import cycle at load
+    ser = load_hourly_series(store, t.get("underlying") or t.get("symbol"), days=90)
+    if not ser or not ser.get("ts"):
+        return None
+    opened = t.get("filled_at") or t.get("opened_at") or ""
+    long_k = float(t["long_strike"]); short_k = float(t["short_strike"])
+    invalid = float(t["underlying_invalid"])
+    debit = float(t.get("est_debit") or 0.0)
+    n = int(t.get("contracts") or 4)
+    width = abs(short_k - long_k)
+    is_call = (t.get("structure") == "debit_call_spread")
+    hi, lo, ts = ser["high"], ser["low"], ser["ts"]
+
+    def _win():
+        return round((width - debit) * n * 100, 2)
+
+    def _loss():
+        return round(-debit * n * 100, 2)
+
+    last_i = None
+    for i, tstamp in enumerate(ts):
+        if tstamp <= opened:
+            continue
+        last_i = i
+        h, l = float(hi[i]), float(lo[i])
+        # invalidation first (conservative — book the loss if both touch in a bar)
+        inval_hit = (l <= invalid) if is_call else (h >= invalid)
+        if inval_hit:
+            return {"spy_exit": round(invalid, 2), "exit_reason": "invalidation",
+                    "pnl": _loss(), "pnl_pct": round(-100.0, 2), "closed_at": tstamp}
+        tgt_hit = (h >= short_k) if is_call else (l <= short_k)
+        if tgt_hit:
+            pnl = _win()
+            pct = round((width - debit) / debit * 100, 2) if debit else None
+            return {"spy_exit": round(short_k, 2), "exit_reason": "target",
+                    "pnl": pnl, "pnl_pct": pct, "closed_at": tstamp}
+    # horizon: if the setup has aged past SPREAD_HORIZON_DAYS, close at intrinsic
+    if last_i is not None:
+        import datetime as __dt
+        try:
+            age_days = (__dt.datetime.fromisoformat(ts[last_i])
+                        - __dt.datetime.fromisoformat(opened)).days
+        except ValueError:
+            age_days = 0
+        if age_days >= SPREAD_HORIZON_DAYS:
+            last_px = float(ser["close"][last_i])
+            # modeled intrinsic of the debit spread at last price, capped to [0, width]
+            if is_call:
+                intrinsic = max(0.0, min(width, last_px - long_k))
+            else:
+                intrinsic = max(0.0, min(width, long_k - last_px))
+            pnl = round((intrinsic - debit) * n * 100, 2)
+            pct = round((intrinsic - debit) / debit * 100, 2) if debit else None
+            return {"spy_exit": round(last_px, 2), "exit_reason": "horizon",
+                    "pnl": pnl, "pnl_pct": pct, "closed_at": ts[last_i]}
+    return None
+
+
 def settle_open(store: Store) -> dict:
     """Advance every OPEN paper trade against fresh 5m bars of ITS OWN proxy.
 
@@ -506,6 +582,15 @@ def settle_open(store: Store) -> dict:
     bars_by_proxy: dict[str, object] = {}
     filled = expired = closed = 0
     for t in open_trades:
+        # scanner debit spreads settle on their OWN underlying's daily bars, with
+        # spread P&L — a different basis from the SPY-proxy reclaim trades.
+        if t.get("book") == "scanner-spread":
+            res = _settle_spread(store, t)
+            if res and store.close_paper_trade(
+                    t["id"], spy_exit=res["spy_exit"], exit_reason=res["exit_reason"],
+                    pnl=res["pnl"], pnl_pct=res["pnl_pct"], closed_at=res["closed_at"]):
+                closed += 1
+            continue
         proxy = t.get("symbol") or "SPY"
         if proxy not in bars_by_proxy:
             bars_by_proxy[proxy] = _fetch_proxy_5m(proxy)
