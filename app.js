@@ -2274,6 +2274,11 @@ ${ref}`;
     onAccountsChanged
   }) {
     const account = accountId || "all";
+    const changeTimer = useRef2(null);
+    const changed = React.useCallback(() => {
+      if (changeTimer.current) clearTimeout(changeTimer.current);
+      changeTimer.current = setTimeout(() => onAccountsChanged && onAccountsChanged(), 900);
+    }, [onAccountsChanged]);
     const [ccy, setCcy] = useState3("");
     const q = useLive(() => portfolioAnalyze(account, ccy || "USD"), null, [account, ccy]);
     const d = q.data;
@@ -2308,7 +2313,7 @@ ${ref}`;
         setAccountId,
         refreshing,
         onRefreshAccount,
-        onChanged: onAccountsChanged
+        onChanged: changed
       }
     ), (() => {
       const missing = (scopeAccounts || []).filter((a) => a.has_holdings === false && (account === "all" || a.id === account));

@@ -433,6 +433,14 @@ function AnalyzePane({ account }) {
 export function PortfolioView({ accountId, setAccountId, scopeAccounts,
                                refreshing, onRefreshAccount, onAccountsChanged }) {
   const account = accountId || "all";
+  // Coalesce rapid data changes (uploading holdings + transactions to several
+  // accounts fires onChanged repeatedly) into ONE refresh, so the account-list
+  // refetch + the heavy portfolio-analyze don't stack up and lock the tab.
+  const changeTimer = useRef(null);
+  const changed = React.useCallback(() => {
+    if (changeTimer.current) clearTimeout(changeTimer.current);
+    changeTimer.current = setTimeout(() => onAccountsChanged && onAccountsChanged(), 900);
+  }, [onAccountsChanged]);
   // Default the currency view to USD (the reporting currency) rather than the
   // dominant-by-value bucket the server picks — a USD-first user shouldn't land
   // on the INR book just because it's larger. "" means "not yet resolved".
@@ -468,7 +476,7 @@ export function PortfolioView({ accountId, setAccountId, scopeAccounts,
           above the analysis it drives. */}
       <AccountBar ba={d?.by_account} accounts={scopeAccounts} accountId={account}
         setAccountId={setAccountId} refreshing={refreshing}
-        onRefreshAccount={onRefreshAccount} onChanged={onAccountsChanged} />
+        onRefreshAccount={onRefreshAccount} onChanged={changed} />
       {/* honesty: accounts with no holdings imported are $0 → excluded from every
           card. Say so, so the numbers are never silently partial. */}
       {(() => {
