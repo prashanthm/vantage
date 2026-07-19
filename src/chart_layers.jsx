@@ -8,7 +8,7 @@
 //
 // A price line hangs off the candle series; a shaded zone is a baseline series
 // spanning the visible time range. Handles are {kind:'line'|'zone', handle}.
-import { chartTheme } from "./charts.jsx";
+import { chartTheme } from "./chart_theme.jsx";
 
 // how many of each ICT structure to draw (nearest to price) — the multi-day scan
 // can surface many; drawing them all is noise.
