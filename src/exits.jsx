@@ -10,6 +10,7 @@
 // The continuous loop is `python -m vantage_server.execution_monitor`; this
 // view is the operator's window onto the same state, not a replacement.
 import { getExits, exitsTick, disarmExit } from "./live.js";
+import { PositionsTable } from "./positions_table.jsx";
 import { cls } from "./util.jsx";
 
 const { useEffect, useState } = React;
@@ -117,49 +118,15 @@ export function ExitsView({ refreshNonce }) {
 function BrokerBook({ rows }) {
   const held = rows.filter((p) => (p.shares || 0) !== 0);
   if (!held.length) return null;
-  const naked = held.filter((p) => !p.managed);
   return (
     <>
       <h3 className="vg-kicker" style={{ marginTop: 14 }}>
         Broker book ({held.length}) · what you actually hold
       </h3>
-      <div style={{ overflowX: "auto" }}>
-        <table className="vg-table" style={{ fontSize: 13 }}>
-          <thead>
-            <tr><th>symbol</th><th>shares</th><th>cost</th><th>value</th>
-              <th>unrealized</th><th>day P/L</th><th>protection</th></tr>
-          </thead>
-          <tbody>
-            {held.map((p) => (
-              <tr key={p.symbol}>
-                <td><b>{p.symbol}</b></td>
-                <td>{fmt(p.shares, 0)}</td>
-                <td>{fmt(p.cost)}</td>
-                <td>{fmt(p.value)}</td>
-                <td style={{ color: p.unrealized >= 0 ? "var(--vg-up)" : "var(--vg-down)" }}>
-                  {fmt(p.unrealized)}
-                </td>
-                <td style={{ color: p.day_pl >= 0 ? "var(--vg-up)" : "var(--vg-down)" }}>
-                  {fmt(p.day_pl)}
-                </td>
-                <td>
-                  {p.managed
-                    ? <span className="vg-badge good" title={`managed position #${p.managed_id}`}>
-                        stop {fmt(p.stop_price)}
-                      </span>
-                    : <span className="vg-badge bad">unprotected</span>}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {naked.length > 0 && (
-        <p className="vg-note" style={{ marginTop: 6, color: "var(--vg-down)" }}>
-          ⚠️ {naked.length} position{naked.length === 1 ? "" : "s"} with no monitor stop —
-          the exit monitor only protects what the execute path opened.
-        </p>
-      )}
+      <PositionsTable rows={held} dayPl warn={{
+        text: (n) => `${n.length} position${n.length === 1 ? "" : "s"} with no monitor stop — `
+          + "the exit monitor only protects what the execute path opened.",
+      }} />
     </>
   );
 }

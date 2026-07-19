@@ -21,6 +21,7 @@ import { getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook,
          getTradeablePositions, recomputePlaybook, getPlaybookPine,
          getReclaimPine, getCoachPine } from "./live.js";
 import { cls, StatTile } from "./util.jsx";
+import { PositionsTable } from "./positions_table.jsx";
 
 const { useEffect, useState } = React;
 
@@ -217,35 +218,11 @@ function PositionsCard({ rows }) {
         </div>
         <a className="vg-linkbtn" href="#exits">full book →</a>
       </div>
-      <table className="vg-table" style={{ marginTop: 10, fontSize: 13 }}>
-        <thead>
-          <tr><th>symbol</th><th>shares</th><th>cost</th><th>value</th>
-            <th>unrealized</th><th>protection</th></tr>
-        </thead>
-        <tbody>
-          {rows.map((p) => (
-            <tr key={p.symbol}>
-              <td><b>{p.symbol}</b></td>
-              <td style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(p.shares, 0)}</td>
-              <td style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(p.cost)}</td>
-              <td style={{ fontVariantNumeric: "tabular-nums" }}>{fmt(p.value)}</td>
-              <td className={p.unrealized >= 0 ? "vg-up" : "vg-down"}
-                style={{ fontVariantNumeric: "tabular-nums" }}>{money(p.unrealized)}</td>
-              <td>
-                {p.managed
-                  ? <span className="vg-badge good">stop {fmt(p.stop_price)}</span>
-                  : <span className="vg-badge bad">unprotected</span>}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {naked.length > 0 && (
-        <p className="vg-verdict">
-          ⚠️ {naked.map((p) => p.symbol).join(", ")} {naked.length === 1 ? "has" : "have"} no
-          monitor stop — the exit monitor is not protecting {naked.length === 1 ? "it" : "them"}.
-        </p>
-      )}
+      <PositionsTable rows={rows} warn={{
+        verdict: true,
+        text: (n) => `${n.map((p) => p.symbol).join(", ")} ${n.length === 1 ? "has" : "have"} no `
+          + `monitor stop — the exit monitor is not protecting ${n.length === 1 ? "it" : "them"}.`,
+      }} />
     </div>
   );
 }
