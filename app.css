@@ -1333,6 +1333,39 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   border-bottom: 1px solid var(--vg-hairline); }
 .vg-pf-note { margin: 0; }
 .vg-pf-note.bad { color: var(--vg-down); }
+.vg-note.good { color: var(--vg-up); }
+.vg-note.bad { color: var(--vg-down); }
+/* account manager card */
+.vg-pf-accounts { grid-column: span 2; }
+@media (max-width: 900px) { .vg-pf-accounts { grid-column: auto; } }
+.vg-pf-acctlist { display: flex; flex-direction: column; }
+.vg-pf-acctrow { display: flex; align-items: center; gap: 8px; padding: 7px 8px;
+  border-radius: 6px; border: 1px solid transparent; text-align: left; }
+.vg-pf-acctrow:hover { background: var(--vg-raised); }
+.vg-pf-acctrow.on { border-color: var(--vg-accent); background: color-mix(in srgb, var(--vg-accent) 8%, transparent); }
+button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: center;
+  gap: 8px; padding: 7px 8px; border-radius: 6px; }
+.vg-pf-acctpick { all: unset; cursor: pointer; flex: 1; min-width: 0; display: flex;
+  flex-direction: column; gap: 1px; }
+.vg-pf-acctname { font-size: 13px; color: var(--vg-ink); }
+.vg-pf-acctval { font-family: var(--vg-font-data); font-size: 13px; color: var(--vg-ink);
+  white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vg-pf-acctactions { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+.vg-pf-acctactions .vg-linkbtn.bad { color: var(--vg-down); }
+/* add-account form */
+.vg-pf-addacct { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--vg-hairline); padding-top: 10px; }
+.vg-pf-addgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.vg-pf-addgrid label { display: flex; flex-direction: column; gap: 3px; font-size: 11px;
+  color: var(--vg-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+.vg-pf-addgrid input, .vg-pf-addgrid select { font-family: var(--vg-font-data); font-size: 13px;
+  padding: 4px 6px; border: 1px solid var(--vg-hairline); border-radius: 5px;
+  background: var(--vg-card); color: var(--vg-ink); }
+.vg-pf-chk { flex-direction: row !important; align-items: center; gap: 6px !important; text-transform: none !important; }
+/* the compact scope chip left in the nav */
+.vg-scope-chip { all: unset; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 4px; }
+.vg-scope-chip:hover .bal { color: var(--vg-accent); }
+.vg-scope-chip .bal { font-family: var(--vg-font-data); font-size: 13px; color: var(--vg-ink); }
 /* currency toggle in the topbar */
 .vg-pf-ccy { display: flex; gap: 4px; margin-left: auto; }
 .vg-pf-ccy .vg-chip { cursor: pointer; border: 1px solid var(--vg-hairline); margin: 0;

@@ -339,71 +339,16 @@ function App() {
             {leftOpen && (
               <div>
                 <div className="vg-divider" />
-                <div className="vg-scope-head">
-                  <div className="vg-kicker">Account scope</div>
-                  {/* Global refresh: re-pull every API-broker account. */}
-                  <button
-                    className={cls("vg-refresh", refreshing.all && "spinning")}
-                    title="Refresh all accounts (re-pull holdings + transactions)"
-                    aria-label="Refresh all accounts"
-                    disabled={!!refreshing.all}
-                    onClick={onRefreshAll}
-                  >
-                    <span className="ic">⟳</span>
-                  </button>
-                </div>
-                <button className={cls("vg-acct", accountId === "all" && "sel")} onClick={() => setAccountId("all")}>
-                  <div>
-                    <div>All accounts</div>
-                    <div className="meta">{scopeAccounts.length} linked</div>
-                  </div>
-                  <span className="bal">{moneyByCcy(scopeAccounts.reduce((m, a) => { const c = a.currency || "USD"; m[c] = (m[c] || 0) + a.value; return m; }, {}))}</span>
+                {/* The account list + scope selector now live in Portfolio (the
+                    "Accounts" card manages linking/importing/scoping). The scope
+                    chip below shows the current scope + a jump there. */}
+                <button className="vg-scope-chip" onClick={() => go("portfolio")}
+                  title="Manage accounts + scope in Portfolio">
+                  <span className="vg-kicker" style={{ margin: 0 }}>Scope</span>
+                  <span className="bal">{accountId === "all" ? "All accounts"
+                    : (scopeAccounts.find((a) => a.id === accountId)?.short || accountId)}</span>
+                  <span className="vg-note">accounts →</span>
                 </button>
-                {scopeAccounts.map((a) => {
-                  // refreshable === false -> a CSV-only broker (no live API): the
-                  // ⟳ is disabled and honest ("re-import CSV to refresh").
-                  const csvOnly = a.refreshable === false;
-                  const pending = !!refreshing[a.id];
-                  return (
-                    <div key={a.id} className={cls("vg-acct", accountId === a.id && "sel")} style={{ cursor: "default" }}>
-                      <button
-                        onClick={() => setAccountId(a.id)}
-                        style={{ all: "unset", cursor: "pointer", flex: 1, minWidth: 0 }}
-                        title={`Scope to ${a.short}`}
-                      >
-                        <div>{a.short}</div>
-                        <div className="meta">{a.type}</div>
-                        {a.lastSynced !== undefined && (
-                          <div className="synced">synced {syncedAgo(a.lastSynced)}</div>
-                        )}
-                      </button>
-                      <span className="bal">{money(a.value, a.currency || "USD")}</span>
-                      <span className="actions">
-                        <button
-                          className={cls("vg-refresh", pending && "spinning")}
-                          title={csvOnly
-                            ? "re-import CSV to refresh — no live API"
-                            : `Refresh ${a.short} (re-pull holdings + transactions)`}
-                          aria-label={`Refresh ${a.short}`}
-                          disabled={pending || csvOnly}
-                          onClick={(e) => { e.stopPropagation(); if (!csvOnly) onRefreshAccount(a.id); }}
-                        >
-                          <span className="ic">⟳</span>
-                        </button>
-                      </span>
-                    </div>
-                  );
-                })}
-                {refreshNote && (
-                  <p className={cls("vg-note")} style={{ marginTop: 8, padding: "0 4px", color: refreshNote.tone === "warn" ? "var(--color-grey)" : undefined }}>
-                    {refreshNote.text}
-                  </p>
-                )}
-                {scopeAccounts.length === 0 && scopeOutage && (
-                  <p className="vg-note" style={{ marginTop: 8, padding: "0 4px" }}>
-                    Backend unreachable — no accounts to show. Start the Vantage server, or import a broker.
-                  </p>
-                )}
                 <p className="vg-note" style={{ marginTop: 10, padding: "0 4px" }}>
                   Read-only aggregation. Vantage never holds funds or places orders.
                 </p>
@@ -418,7 +363,11 @@ function App() {
 
         {/* -------- center pane: routed view -------- */}
         <main id="vg-center" className="vg-pane vg-pane-center">
-          {route === "portfolio" && <PortfolioView accountId={accountId} />}
+          {route === "portfolio" && (
+            <PortfolioView accountId={accountId} setAccountId={setAccountId}
+              scopeAccounts={scopeAccounts} refreshing={refreshing}
+              onRefreshAccount={onRefreshAccount} onRefreshAll={onRefreshAll}
+              onAccountsChanged={() => setRefreshNonce((n) => n + 1)} />)}
           {route === "dashboard" && <DashboardView {...viewProps} {...dashProps} notifs={notifs} />}
           {route === "holdings" && <HoldingsView {...viewProps} />}
           {route === "activity" && <ActivityView {...viewProps} />}
