@@ -70,6 +70,16 @@ services:
       # The daily token lives in the WRITABLE data volume so the one-click
       # /api/kite/callback can save it (and it persists across restarts).
       KITE_TOKEN_FILE: /data/.kite_token.json
+      # Alpaca strategy lifecycle (ADR-015). Keys from YOUR .env (reuse sentinel's).
+      # ALPACA_PAPER defaults to paper in code; set to 0 ONLY for a live account.
+      ALPACA_API_KEY: "${ALPACA_API_KEY:-}"
+      ALPACA_SECRET_KEY: "${ALPACA_SECRET_KEY:-}"
+      ALPACA_PAPER: "${ALPACA_PAPER:-1}"
+      # Autonomous live gate (ADR-015). BOTH must be 1 (and the kill switch clear)
+      # for a promoted strategy to place REAL orders — DEFAULT UNSET = dry-run.
+      VANTAGE_LIVE_OK: "${VANTAGE_LIVE_OK:-}"
+      VANTAGE_AUTONOMOUS_OK: "${VANTAGE_AUTONOMOUS_OK:-}"
+      VANTAGE_KILL_SWITCH_FILE: /data/AUTONOMOUS_KILL
       # Where the spx_playbook job reads Sentinel's artifacts (the mount above).
       SENTINEL_LOGS_DIR: /sentinel/logs
       SENTINEL_DATA_DIR: /sentinel/data
