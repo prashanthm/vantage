@@ -442,7 +442,7 @@
   var refreshAll = () => postJson(`${backendBase()}/api/refresh`, {});
   var positions = (account = "all") => getJson(`${backendBase()}/api/positions?account=${encodeURIComponent(account)}`);
   var allocation = (account = "all") => getJson(`${backendBase()}/api/allocation?account=${encodeURIComponent(account)}`);
-  var portfolioAnalyze = (account = "all") => getJson(`${backendBase()}/api/portfolio/analyze?account=${encodeURIComponent(account)}`, { timeoutMs: 6e4 });
+  var portfolioAnalyze = (account = "all", currency = "") => getJson(`${backendBase()}/api/portfolio/analyze?account=${encodeURIComponent(account)}` + (currency ? `&currency=${encodeURIComponent(currency)}` : ""), { timeoutMs: 6e4 });
   var portfolioPerformance = (account = "all") => getJson(`${backendBase()}/api/portfolio/performance?account=${encodeURIComponent(account)}`);
   var lots = (account = "all") => getJson(`${backendBase()}/api/lots?account=${encodeURIComponent(account)}`);
   var wash = () => getJson(`${backendBase()}/api/tax/wash`);
@@ -1910,8 +1910,12 @@
   }
 
   // src/portfolio_view.jsx
-  var { useState: useState3 } = React;
+  var { useState: useState3, useCallback, useRef: useRef2, useEffect: useEffect3 } = React;
   var pct = (n, d = 1) => n == null ? "\u2014" : `${Number(n).toFixed(d)}%`;
+  var ccyMoney = (n, ccy) => n == null ? "\u2014" : new Intl.NumberFormat(
+    ccy === "INR" ? "en-IN" : "en-US",
+    { style: "currency", currency: ccy || "USD", maximumFractionDigits: 0 }
+  ).format(n);
   function WeightBar({ label, value, max, tone, right }) {
     const w = max > 0 ? Math.min(100, Math.abs(value) / max * 100) : 0;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pf-bar" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-bar-lbl" }, label), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-bar-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-pf-bar-fill", tone), style: { width: `${w}%` } })), /* @__PURE__ */ React.createElement("span", { className: "vg-pf-bar-val" }, right != null ? right : pct(value)));
@@ -1924,9 +1928,31 @@
     const bandTone = { diversified: "good", moderate: "warn", concentrated: "bad" }[c.band] || "plain";
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Diversification"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", bandTone) }, c.band, " \xB7 HHI ", c.hhi)), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Top 5 holdings", value: pct(c.top5_weight), note: "of the book" }), /* @__PURE__ */ React.createElement(StatTile, { label: "Largest position", value: pct(c.top_name?.weight), note: c.top_name?.symbol }), /* @__PURE__ */ React.createElement(StatTile, { label: "Largest sector", value: pct(c.top_sector?.weight), note: c.top_sector?.sector })), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-bars" }, sectors.map(([s, v]) => /* @__PURE__ */ React.createElement(WeightBar, { key: s, label: s, value: v, max: maxSec, tone: "accent" }))), (c.single_name_flags || []).length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, "Concentrated single names (>7%): ", c.single_name_flags.map((f) => `${f.symbol} ${pct(f.weight)}`).join(" \xB7 ")));
   }
-  function IncomeCard({ inc }) {
+  function IncomeCard({ inc, ccy }) {
     if (!inc) return null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Income")), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Projected annual", value: usd(inc.annual_income), note: "from dividends" }), /* @__PURE__ */ React.createElement(StatTile, { label: "Portfolio yield", value: pct(inc.portfolio_yield, 2) }), /* @__PURE__ */ React.createElement(StatTile, { label: "Yield on cost", value: pct(inc.yield_on_cost, 2) })), (inc.contributors || []).length > 0 && /* @__PURE__ */ React.createElement("table", { className: "vg-pf-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "symbol"), /* @__PURE__ */ React.createElement("th", null, "yield"), /* @__PURE__ */ React.createElement("th", null, "annual"))), /* @__PURE__ */ React.createElement("tbody", null, inc.contributors.slice(0, 8).map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.symbol }, /* @__PURE__ */ React.createElement("td", null, r.symbol), /* @__PURE__ */ React.createElement("td", null, pct(r.yield, 2)), /* @__PURE__ */ React.createElement("td", null, usd(r.annual_income)))))));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Income")), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Projected annual", value: ccyMoney(inc.annual_income, ccy), note: "from dividends" }), /* @__PURE__ */ React.createElement(StatTile, { label: "Portfolio yield", value: pct(inc.portfolio_yield, 2) }), /* @__PURE__ */ React.createElement(StatTile, { label: "Yield on cost", value: pct(inc.yield_on_cost, 2) })), (inc.contributors || []).length > 0 && /* @__PURE__ */ React.createElement("table", { className: "vg-pf-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "symbol"), /* @__PURE__ */ React.createElement("th", null, "yield"), /* @__PURE__ */ React.createElement("th", null, "annual"))), /* @__PURE__ */ React.createElement("tbody", null, inc.contributors.slice(0, 8).map((r) => /* @__PURE__ */ React.createElement("tr", { key: r.symbol }, /* @__PURE__ */ React.createElement("td", null, r.symbol), /* @__PURE__ */ React.createElement("td", null, pct(r.yield, 2)), /* @__PURE__ */ React.createElement("td", null, ccyMoney(r.annual_income, ccy)))))));
+  }
+  function WinnersLosersCard({ wl, ccy }) {
+    if (!wl) return null;
+    const Row = ({ r }) => /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, r.symbol), /* @__PURE__ */ React.createElement("td", { className: dirCls(r.gain_pct) }, r.gain_pct == null ? "\u2014" : signPct(r.gain_pct)), /* @__PURE__ */ React.createElement("td", { className: dirCls(r.unrealized) }, ccyMoney(r.unrealized, r.currency || ccy)));
+    const winners = wl.winners_pct || [];
+    const losers = wl.losers_pct || [];
+    if (!winners.length && !losers.length) return null;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Winners & losers"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "by gain %")), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-wl" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-wl-h up" }, "Top winners"), /* @__PURE__ */ React.createElement("table", { className: "vg-pf-table" }, /* @__PURE__ */ React.createElement("tbody", null, winners.map((r) => /* @__PURE__ */ React.createElement(Row, { key: r.symbol, r }))))), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-wl-h down" }, "Worst losers"), /* @__PURE__ */ React.createElement("table", { className: "vg-pf-table" }, /* @__PURE__ */ React.createElement("tbody", null, losers.map((r) => /* @__PURE__ */ React.createElement(Row, { key: r.symbol, r })))))));
+  }
+  function RiskCard({ rk }) {
+    if (!rk) return null;
+    if (!rk.available) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Risk")), /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, rk.note || "No stored bars \u2014 seed them to compute risk."));
+    }
+    const sharpeTone = rk.sharpe == null ? "plain" : rk.sharpe >= 1 ? "good" : rk.sharpe >= 0.5 ? "warn" : "bad";
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Risk"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", sharpeTone) }, "Sharpe ", rk.sharpe == null ? "\u2014" : rk.sharpe)), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Annualized vol", value: pct(rk.vol_annual_pct) }), /* @__PURE__ */ React.createElement(StatTile, { label: "Sortino", value: rk.sortino == null ? "\u2014" : rk.sortino }), /* @__PURE__ */ React.createElement(StatTile, { label: "Max drawdown", value: pct(rk.max_drawdown_pct), deltaDir: dirCls(rk.max_drawdown_pct) })), /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, rk.days, "d window \xB7 ", pct(rk.coverage_pct), " of book has bars"));
+  }
+  function ByAccountCard({ ba }) {
+    if (!ba || !(ba.accounts || []).length) return null;
+    const conc = ba.concentration || {};
+    const flags = Object.entries(conc).filter(([, c]) => c.top_pct >= 60 && c.n_accounts > 1);
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "By account")), /* @__PURE__ */ React.createElement("table", { className: "vg-pf-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "account"), /* @__PURE__ */ React.createElement("th", null, "broker"), /* @__PURE__ */ React.createElement("th", null, "value"))), /* @__PURE__ */ React.createElement("tbody", null, ba.accounts.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.account }, /* @__PURE__ */ React.createElement("td", null, a.name), /* @__PURE__ */ React.createElement("td", null, a.broker || "\u2014"), /* @__PURE__ */ React.createElement("td", null, Object.entries(a.by_currency || {}).map(([c, v]) => ccyMoney(v, c)).join(" \xB7 ")))))), flags.map(([c, cc]) => /* @__PURE__ */ React.createElement("p", { key: c, className: "vg-note vg-pf-note" }, cc.top_account, " holds ", pct(cc.top_pct), " of the ", c, " book \u2014 single-account concentration.")));
   }
   function RebalanceCard({ rb, targets }) {
     if (!rb) return null;
@@ -1953,15 +1979,61 @@
     const d = q.data;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Returns vs benchmark")), q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), d && !d.available && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, d.note), d && d.available && d.twr != null && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Time-weighted return", value: signPct(d.twr), deltaDir: dirCls(d.twr) }), /* @__PURE__ */ React.createElement(StatTile, { label: "vs benchmark", value: d.benchmark != null ? signPct(d.benchmark) : "\u2014" })));
   }
+  function AnalyzePane({ account }) {
+    const [state, setState] = useState3(null);
+    const abortRef = useRef2(null);
+    useEffect3(() => () => {
+      if (abortRef.current) abortRef.current();
+    }, []);
+    useEffect3(() => {
+      setState(null);
+    }, [account]);
+    const run = useCallback(() => {
+      setState({ loading: true, text: "" });
+      const ref = `PORTFOLIO_SNAPSHOT_REF account=${account}`;
+      const prompt = `Analyze my portfolio and give me recommended actions. Read the DNA \u2014 currencies are separate books, never combine them \u2014 and end in concrete, sized actions (trim / harvest / rebalance / diversify).
+${ref}`;
+      let text = "";
+      abortRef.current = streamTurn(prompt, `portfolio-${account}`, (evt) => {
+        if (evt.kind === "error") {
+          setState({ error: evt.text || "Mira failed." });
+          abortRef.current = null;
+          return;
+        }
+        if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
+          text += evt.text;
+          setState({ loading: true, text });
+          return;
+        }
+        if (evt.kind === "done") {
+          abortRef.current = null;
+          if (evt.text && !text) text = evt.text;
+          setState({ text });
+        }
+      });
+    }, [account]);
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card vg-pf-analyze" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Mira \xB7 portfolio actions"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn sm", onClick: run, disabled: state?.loading }, state?.loading ? "Analyzing\u2026" : state ? "Re-analyze" : "Analyze my portfolio")), !state && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, "Mira reads your portfolio DNA and recommends actions \u2014 decision-support, not orders."), state?.loading && !state.text && /* @__PURE__ */ React.createElement(LoadBar, null), state?.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note bad" }, state.error), state?.text && /* @__PURE__ */ React.createElement(MiraRender, { text: state.text }));
+  }
   function PortfolioView({ accountId }) {
     const account = accountId || "all";
-    const q = useLive(() => portfolioAnalyze(account), null, [account]);
+    const [ccy, setCcy] = useState3("");
+    const q = useLive(() => portfolioAnalyze(account, ccy), null, [account, ccy]);
     const d = q.data;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pf" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-topbar" }, /* @__PURE__ */ React.createElement("h2", { className: "vg-pf-h2" }, "Portfolio"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Roll-up analysis across your holdings \xB7 scope: ", account)), q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), d && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-grid" }, /* @__PURE__ */ React.createElement(DiversificationCard, { d: d.diversification }), /* @__PURE__ */ React.createElement(IncomeCard, { inc: d.income }), /* @__PURE__ */ React.createElement(RebalanceCard, { rb: d.rebalance, targets: d.targets }), /* @__PURE__ */ React.createElement(CharacterCard, { ch: d.character }), /* @__PURE__ */ React.createElement(PerformanceCard, { account })), !q.loading && !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 14 } }, "No portfolio data."));
+    const currencies = d?.currencies || [];
+    const activeCcy = d?.currency || ccy || (currencies[0] || "USD");
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pf" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-topbar" }, /* @__PURE__ */ React.createElement("h2", { className: "vg-pf-h2" }, "Portfolio"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Roll-up analysis \xB7 scope: ", account), currencies.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-ccy", role: "group", "aria-label": "currency" }, currencies.map((c) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: c,
+        className: cls("vg-chip", c === activeCcy && "on"),
+        onClick: () => setCcy(c)
+      },
+      c
+    )))), q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), d && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-grid" }, /* @__PURE__ */ React.createElement(AnalyzePane, { account }), /* @__PURE__ */ React.createElement(DiversificationCard, { d: d.diversification }), /* @__PURE__ */ React.createElement(WinnersLosersCard, { wl: d.winners_losers, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RiskCard, { rk: d.risk }), /* @__PURE__ */ React.createElement(IncomeCard, { inc: d.income, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RebalanceCard, { rb: d.rebalance, targets: d.targets }), /* @__PURE__ */ React.createElement(CharacterCard, { ch: d.character }), /* @__PURE__ */ React.createElement(ByAccountCard, { ba: d.by_account }), /* @__PURE__ */ React.createElement(PerformanceCard, { account })), !q.loading && !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 14 } }, "No portfolio data."));
   }
 
   // src/options.jsx
-  var { useState: useState4, useEffect: useEffect3 } = React;
+  var { useState: useState4, useEffect: useEffect4 } = React;
   var { SecurityCard, FAQItem: FAQItem2 } = window.LookeyDS;
   var STRAT_PAGE = 40;
   var stratLabel = (s) => s.structure || s.name || "strategy";
@@ -2034,7 +2106,7 @@
       null,
       [accountId]
     ).data;
-    useEffect3(() => {
+    useEffect4(() => {
       setShown(STRAT_PAGE);
       setOpen({});
     }, [accountId, tab]);
@@ -2403,7 +2475,7 @@
   }
 
   // src/spx_forecast.jsx
-  var { useState: useState6, useRef: useRef2, useEffect: useEffect4 } = React;
+  var { useState: useState6, useRef: useRef3, useEffect: useEffect5 } = React;
   var PLAYBOOK_SYMBOLS = ["SPX", "QQQ", "IWM"];
   var hasLW = () => typeof window !== "undefined" && !!(window.LightweightCharts && window.LightweightCharts.createChart);
   function forecastFields(data) {
@@ -2439,14 +2511,14 @@
     return { bias: "", target, invalid, path: [] };
   }
   function ForecastChart({ snap, forecast }) {
-    const elRef = useRef2(null);
-    const chartRef = useRef2(null);
-    const candleRef = useRef2(null);
-    const linesRef = useRef2([]);
-    const zonesRef = useRef2([]);
-    const markedRef = useRef2(false);
-    const pathSeriesRef = useRef2(null);
-    useEffect4(() => {
+    const elRef = useRef3(null);
+    const chartRef = useRef3(null);
+    const candleRef = useRef3(null);
+    const linesRef = useRef3([]);
+    const zonesRef = useRef3([]);
+    const markedRef = useRef3(false);
+    const pathSeriesRef = useRef3(null);
+    useEffect5(() => {
       const el = elRef.current;
       if (!el || !hasLW()) return void 0;
       const LW = window.LightweightCharts;
@@ -2503,8 +2575,8 @@
         pathSeriesRef.current = null;
       };
     }, []);
-    const fittedRef = useRef2(false);
-    useEffect4(() => {
+    const fittedRef = useRef3(false);
+    useEffect5(() => {
       const candle = candleRef.current;
       const bars = snap && snap.bars_5m;
       if (!candle || !bars || !bars.length) return;
@@ -2514,7 +2586,7 @@
         fittedRef.current = true;
       }
     }, [snap]);
-    useEffect4(() => {
+    useEffect5(() => {
       const candle = candleRef.current, chart = chartRef.current;
       if (!candle || !chart || !snap) return;
       const LW = window.LightweightCharts;
@@ -2753,11 +2825,11 @@
     const [scoring, setScoring] = useState6(null);
     const [selected, setSelected] = useState6(null);
     const [autoRefresh, setAutoRefresh] = useState6(true);
-    const abortRef = useRef2(null);
-    useEffect4(() => () => {
+    const abortRef = useRef3(null);
+    useEffect5(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!autoRefresh || !PLAYBOOK_SYMBOLS.includes(symbol)) return void 0;
       const tick = () => {
         if (document.hidden) return;
@@ -2982,11 +3054,11 @@ ${ref}`;
     return `hsla(${hue}, 75%, 55%, ${alpha})`;
   }
   function ReplayChart({ snap, forecasts, activeId, etShiftSec = 0 }) {
-    const elRef = useRef2(null);
-    const chartRef = useRef2(null);
-    const actualRef = useRef2(null);
-    const predSeriesRefs = useRef2([]);
-    useEffect4(() => {
+    const elRef = useRef3(null);
+    const chartRef = useRef3(null);
+    const actualRef = useRef3(null);
+    const predSeriesRefs = useRef3([]);
+    useEffect5(() => {
       const el = elRef.current;
       if (!el || !hasLW()) return void 0;
       const LW = window.LightweightCharts;
@@ -3031,8 +3103,8 @@ ${ref}`;
         predSeriesRefs.current = [];
       };
     }, []);
-    const fittedRef = useRef2(false);
-    useEffect4(() => {
+    const fittedRef = useRef3(false);
+    useEffect5(() => {
       const actual = actualRef.current;
       const bars = snap && snap.bars_5m;
       if (!actual || !bars || !bars.length) return;
@@ -3047,7 +3119,7 @@ ${ref}`;
         fittedRef.current = true;
       }
     }, [snap, etShiftSec]);
-    useEffect4(() => {
+    useEffect5(() => {
       const chart = chartRef.current;
       if (!chart) return;
       const LW = window.LightweightCharts;
@@ -3125,10 +3197,10 @@ ${ref}`;
     const [nonce, setNonce] = useState6(0);
     const [activeId, setActiveId] = useState6(null);
     const [grade, setGrade] = useState6(null);
-    const stopRef = useRef2(false);
-    const abortRef = useRef2(null);
-    const runningRef = useRef2(false);
-    useEffect4(() => () => {
+    const stopRef = useRef3(false);
+    const abortRef = useRef3(null);
+    const runningRef = useRef3(false);
+    useEffect5(() => () => {
       stopRef.current = true;
       if (abortRef.current) abortRef.current();
     }, []);
@@ -3501,7 +3573,7 @@ ${ref}`;
   }
 
   // src/scanner.jsx
-  var { useState: useState7, useEffect: useEffect5 } = React;
+  var { useState: useState7, useEffect: useEffect6 } = React;
   var SCANNERS = [{ id: "ict_htf", label: "A+ ICT hourly setup" }];
   function ago(iso) {
     if (!iso) return "never";
@@ -3541,7 +3613,7 @@ ${ref}`;
     const aplus = hits.filter((h) => h.tier === "A+");
     const bs = hits.filter((h) => h.tier !== "A+");
     const manual = d && d.manual_tickers || [];
-    useEffect5(() => {
+    useEffect6(() => {
       if (!running) return void 0;
       const id = setInterval(() => setNonce((n) => n + 1), 3e3);
       return () => clearInterval(id);
@@ -4098,7 +4170,7 @@ ${ref}`;
   }
 
   // src/chart_core.jsx
-  var { useState: useState8, useRef: useRef3, useEffect: useEffect6, useCallback } = React;
+  var { useState: useState8, useRef: useRef4, useEffect: useEffect7, useCallback: useCallback2 } = React;
   var TOOLS = [
     { key: "cursor", label: "\u2316", title: "Cursor / pan", pts: 0 },
     { key: "hline", label: "\u2500", title: "Horizontal line", pts: 1 },
@@ -4208,19 +4280,19 @@ ${ref}`;
     setActiveCallId,
     onOpenSymbol
   }) {
-    const elRef = useRef3(null);
+    const elRef = useRef4(null);
     const [symInput, setSymInput] = useState8("");
-    const chartRef = useRef3(null);
-    const candleRef = useRef3(null);
-    const fittedKey = useRef3(null);
-    const indRef = useRef3({});
-    const pocLineRef = useRef3(null);
-    const drawnRef = useRef3({});
-    const pendingRef = useRef3([]);
-    const toolRef = useRef3("cursor");
-    const commitDrawingRef = useRef3(() => {
+    const chartRef = useRef4(null);
+    const candleRef = useRef4(null);
+    const fittedKey = useRef4(null);
+    const indRef = useRef4({});
+    const pocLineRef = useRef4(null);
+    const drawnRef = useRef4({});
+    const pendingRef = useRef4([]);
+    const toolRef = useRef4("cursor");
+    const commitDrawingRef = useRef4(() => {
     });
-    const levelClickRef = useRef3(() => {
+    const levelClickRef = useRef4(() => {
     });
     const [hover, setHover] = useState8(null);
     const [nonce, setNonce] = useState8(0);
@@ -4231,9 +4303,9 @@ ${ref}`;
     const [pendingN, setPendingN] = useState8(0);
     const [activeLayers, setActiveLayers] = useState8(loadLayerPref);
     const [selectedLevel, setSelectedLevel] = useState8(null);
-    const selectedLevelRef = useRef3(null);
+    const selectedLevelRef = useRef4(null);
     selectedLevelRef.current = selectedLevel;
-    const layerHandlesRef = useRef3({});
+    const layerHandlesRef = useRef4({});
     toolRef.current = tool;
     const layerQ = useLive(
       () => symbol ? getLayers(symbol) : Promise.resolve(null),
@@ -4280,7 +4352,7 @@ ${ref}`;
       }).filter((f) => f.as_of_ts != null);
       return { run_id: d.run_id, forecasts, activeCallId };
     }, [runDetailQ.data, activeCallId]);
-    const toggleLayer = useCallback((key) => {
+    const toggleLayer = useCallback2((key) => {
       setActiveLayers((prev) => {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key);
@@ -4289,7 +4361,7 @@ ${ref}`;
         return next;
       });
     }, []);
-    const toggleInd = useCallback((key) => {
+    const toggleInd = useCallback2((key) => {
       setActive((prev) => {
         const next = new Set(prev);
         if (next.has(key)) next.delete(key);
@@ -4298,7 +4370,7 @@ ${ref}`;
         return next;
       });
     }, []);
-    const commitDrawing = useCallback(async (kind, points) => {
+    const commitDrawing = useCallback2(async (kind, points) => {
       const d = { id: newDrawingId(), kind, points, style: {} };
       setDrawings((prev) => [...prev, d]);
       setTool("cursor");
@@ -4308,13 +4380,13 @@ ${ref}`;
       }
     }, [symbol]);
     commitDrawingRef.current = commitDrawing;
-    useEffect6(() => {
+    useEffect7(() => {
       if (!activeLayers.has("levels")) setSelectedLevel(null);
     }, [activeLayers]);
-    useEffect6(() => {
+    useEffect7(() => {
       setSelectedLevel(null);
     }, [symbol]);
-    const clearDrawings = useCallback(async () => {
+    const clearDrawings = useCallback2(async () => {
       const ids = drawings.map((d) => d.id);
       setDrawings([]);
       for (const id of ids) {
@@ -4324,7 +4396,7 @@ ${ref}`;
         }
       }
     }, [symbol, drawings]);
-    const undoLastDrawing = useCallback(async () => {
+    const undoLastDrawing = useCallback2(async () => {
       const last2 = drawings[drawings.length - 1];
       if (!last2) return;
       setDrawings((prev) => prev.slice(0, -1));
@@ -4338,7 +4410,7 @@ ${ref}`;
       null,
       [symbol, tf, nonce]
     );
-    const doRefresh = useCallback(async (days = 1) => {
+    const doRefresh = useCallback2(async (days = 1) => {
       if (!symbol || refreshing) return;
       setRefreshing(true);
       try {
@@ -4351,7 +4423,7 @@ ${ref}`;
     }, [symbol, tf, refreshing]);
     const data = q.data && q.data.available ? q.data : null;
     const candles = data && data.candles || [];
-    const frameToLevel = useCallback((clickPrice) => {
+    const frameToLevel = useCallback2((clickPrice) => {
       const levels = layerData && layerData.layers && layerData.layers.levels || [];
       if (!levels.length || !candles.length || clickPrice == null) return;
       let lv = null, best = Infinity;
@@ -4393,7 +4465,7 @@ ${ref}`;
       setSelectedLevel(lv.price);
     }, [layerData, candles]);
     levelClickRef.current = frameToLevel;
-    useEffect6(() => {
+    useEffect7(() => {
       const el = elRef.current;
       if (!el || !hasLW2()) return void 0;
       const LW = window.LightweightCharts;
@@ -4476,7 +4548,7 @@ ${ref}`;
         chartRef.current = candleRef.current = null;
       };
     }, []);
-    useEffect6(() => {
+    useEffect7(() => {
       const candle = candleRef.current, chart = chartRef.current;
       if (!candle || !candles.length) return;
       candle.setData(candles);
@@ -4491,7 +4563,7 @@ ${ref}`;
         });
       }
     }, [candles, symbol, tf]);
-    useEffect6(() => {
+    useEffect7(() => {
       if (!overlays || !chartRef.current || !candleRef.current || !candles.length) return void 0;
       return overlays({
         chart: chartRef.current,
@@ -4500,7 +4572,7 @@ ${ref}`;
         candles
       });
     }, [overlays, candles]);
-    useEffect6(() => {
+    useEffect7(() => {
       const chart = chartRef.current;
       if (!chart) return void 0;
       const th = chartTheme();
@@ -4608,7 +4680,7 @@ ${ref}`;
       }
       return void 0;
     }, [candles, active, tf]);
-    useEffect6(() => {
+    useEffect7(() => {
       let alive = true;
       pendingRef.current = [];
       setPendingN(0);
@@ -4624,7 +4696,7 @@ ${ref}`;
         alive = false;
       };
     }, [symbol]);
-    useEffect6(() => {
+    useEffect7(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const drawn = drawnRef.current;
@@ -4646,7 +4718,7 @@ ${ref}`;
       }
       return void 0;
     }, [drawings, candles]);
-    useEffect6(() => {
+    useEffect7(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const handles = layerHandlesRef.current;
@@ -4683,7 +4755,7 @@ ${ref}`;
       }
       return void 0;
     }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, selectedLevel, candles]);
-    useEffect6(() => {
+    useEffect7(() => {
       const chart = chartRef.current;
       if (!chart || !replayShown || !replayData || !candles.length) return;
       const ts = replayData.forecasts.map((f) => f.as_of_ts).filter((t) => t != null);
@@ -4869,7 +4941,7 @@ ${ref}`;
   }
 
   // src/chart_replay_panel.jsx
-  var { useState: useState9, useEffect: useEffect7, useRef: useRef4, useCallback: useCallback2 } = React;
+  var { useState: useState9, useEffect: useEffect8, useRef: useRef5, useCallback: useCallback3 } = React;
   var REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
   function verdictTone(sc) {
     if (!sc) return "plain";
@@ -4919,16 +4991,16 @@ ${ref}`;
   function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId }) {
     const [scoring, setScoring] = useState9(null);
     const [nonce, setNonce] = useState9(0);
-    const runningRef = useRef4(false);
-    const genRunRef = useRef4(null);
+    const runningRef = useRef5(false);
+    const genRunRef = useRef5(null);
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
-    useEffect7(() => {
+    useEffect8(() => {
       const onFocus = () => setNonce((n) => n + 1);
       window.addEventListener("focus", onFocus);
       return () => window.removeEventListener("focus", onFocus);
     }, []);
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
-    useEffect7(() => {
+    useEffect8(() => {
       if (!runs.length || runId || runningRef.current || genRunRef.current) return;
       setRunId(runs[0].run_id);
     }, [runs, runId]);
@@ -4950,13 +5022,13 @@ ${ref}`;
     const [note, setNote] = useState9(null);
     const [grade, setGrade] = useState9(null);
     const [gradeOpen, setGradeOpen] = useState9(true);
-    const stopRef = useRef4(false);
-    const abortRef = useRef4(null);
-    useEffect7(() => () => {
+    const stopRef = useRef5(false);
+    const abortRef = useRef5(null);
+    useEffect8(() => () => {
       stopRef.current = true;
       if (abortRef.current) abortRef.current();
     }, []);
-    const forecastStep = useCallback2((asOf, rid, day) => new Promise((resolve) => {
+    const forecastStep = useCallback3((asOf, rid, day) => new Promise((resolve) => {
       getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
         const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
         if (!snapshot) {
@@ -4993,7 +5065,7 @@ ${ref}`;
         });
       }).catch(() => resolve(false));
     }), [symbol]);
-    const generate = useCallback2(() => {
+    const generate = useCallback3(() => {
       if (runningRef.current) return;
       runningRef.current = true;
       setNote(null);
@@ -5054,13 +5126,13 @@ ${ref}`;
         setNonce((x) => x + 1);
       });
     }, [genDay, stepMin, symbol, forecastStep, setRunId, setActiveCallId]);
-    const stopGen = useCallback2(() => {
+    const stopGen = useCallback3(() => {
       stopRef.current = true;
       runningRef.current = false;
       if (abortRef.current) abortRef.current();
       setGen((g) => g ? { ...g, status: "stopped" } : g);
     }, []);
-    const gradeRun = useCallback2(() => {
+    const gradeRun = useCallback3(() => {
       if (!runId) return;
       setGrade({ loading: true, text: "" });
       setGradeOpen(true);
@@ -5156,7 +5228,7 @@ ${ref}`;
   }
 
   // src/exits.jsx
-  var { useEffect: useEffect8, useState: useState10 } = React;
+  var { useEffect: useEffect9, useState: useState10 } = React;
   var fmt = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var STATUS_TONE = {
     pending_entry: "warn",
@@ -5170,10 +5242,10 @@ ${ref}`;
     const [actions, setActions] = useState10(null);
     const [note, setNote] = useState10(null);
     const load = async () => setData(await getExits(void 0, { mergeBroker: true }));
-    useEffect8(() => {
+    useEffect9(() => {
       load();
     }, [refreshNonce]);
-    useEffect8(() => {
+    useEffect9(() => {
       const open2 = data.positions.some((p) => p.status === "active" || p.status === "pending_entry");
       if (!open2) return void 0;
       const t = setInterval(load, 3e4);
@@ -5227,7 +5299,7 @@ ${ref}`;
   }
 
   // src/signalbot.jsx
-  var { useEffect: useEffect9, useState: useState11 } = React;
+  var { useEffect: useEffect10, useState: useState11 } = React;
   var fmt2 = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var money2 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : ""}${Number(v).toFixed(2)}`;
   function SignalBotView({ refreshNonce }) {
@@ -5246,7 +5318,7 @@ ${ref}`;
       setPerf(p && p.available !== false ? p : null);
       setNightly(n && n.available && n.runs ? n.runs : []);
     };
-    useEffect9(() => {
+    useEffect10(() => {
       load();
     }, [refreshNonce]);
     const poll = async () => {
@@ -5337,7 +5409,7 @@ ${ref}`;
   }
 
   // src/today.jsx
-  var { useEffect: useEffect10, useState: useState12 } = React;
+  var { useEffect: useEffect11, useState: useState12 } = React;
   var fmt3 = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
   var money3 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(Number(v)).toFixed(0)}`;
   function TodayView({ refreshNonce }) {
@@ -5361,10 +5433,10 @@ ${ref}`;
       setPb(b && b.available ? b : null);
       setPos(q && q.positions ? q.positions : []);
     };
-    useEffect10(() => {
+    useEffect11(() => {
       load();
     }, [refreshNonce]);
-    useEffect10(() => {
+    useEffect11(() => {
       if (!status || !status.market_open) return void 0;
       const t = setInterval(load, 6e4);
       return () => clearInterval(t);
@@ -5775,7 +5847,7 @@ ${ref}`;
   }
 
   // src/journal.jsx
-  var { useState: useState15, useRef: useRef5, useEffect: useEffect11, useMemo: useMemo5 } = React;
+  var { useState: useState15, useRef: useRef6, useEffect: useEffect12, useMemo: useMemo5 } = React;
   var pct4 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
   var MONTHS = [
@@ -5823,8 +5895,8 @@ ${ref}`;
     const jv = useLive(() => getJournal(sym), null, [refreshNonce, nonce, sym]);
     const d = jv.data;
     const reload = () => setNonce((n) => n + 1);
-    const ensuredRef = useRef5({});
-    useEffect11(() => {
+    const ensuredRef = useRef6({});
+    useEffect12(() => {
       if (ensuredRef.current[sym]) return;
       ensuredRef.current[sym] = true;
       (async () => {
@@ -5888,7 +5960,7 @@ ${ref}`;
   }
   var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function DayStrip({ byDay, selDay, onSelect, sym }) {
-    const stripRef = useRef5(null);
+    const stripRef = useRef6(null);
     const [pnl, setPnl] = useState15({});
     const days = useMemo5(() => {
       const out = [];
@@ -5902,7 +5974,7 @@ ${ref}`;
       }
       return out;
     }, []);
-    useEffect11(() => {
+    useEffect12(() => {
       let live = true;
       (async () => {
         const v = await getDayPnl(days, sym);
@@ -5912,7 +5984,7 @@ ${ref}`;
         live = false;
       };
     }, [days.join(","), sym]);
-    useEffect11(() => {
+    useEffect12(() => {
       const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
       if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
     }, [selDay]);
@@ -6025,8 +6097,8 @@ ${ref}`;
       }
     });
     const [drag, setDrag] = useState15(false);
-    const fileRef = useRef5(null);
-    useEffect11(() => {
+    const fileRef = useRef6(null);
+    useEffect12(() => {
       setEntry(s.entry || {});
       try {
         setThoughts(JSON.parse((s.entry || {}).trades || "{}"));
@@ -6211,7 +6283,7 @@ ${ref}`;
       setBatch({ done, total: targets.length, running: false });
       await load();
     };
-    useEffect11(() => {
+    useEffect12(() => {
       setData(null);
       setOpen(null);
       setTk("all");
@@ -6310,7 +6382,7 @@ ${ref}`;
     const [read, setRead] = useState15(null);
     const [saved, setSaved] = useState15(false);
     const [hist, setHist] = useState15(null);
-    const abortRef = useRef5(null);
+    const abortRef = useRef6(null);
     const [openId, setOpenId] = useState15(null);
     const toggleStored = (h) => setOpenId((cur) => cur === h.id ? null : h.id);
     const loadHist = async () => {
@@ -6319,7 +6391,7 @@ ${ref}`;
       setHist(list);
       return list;
     };
-    useEffect11(() => {
+    useEffect12(() => {
       setBundle(null);
       setRead(null);
       setSaved(false);
@@ -6379,7 +6451,7 @@ ${ref}`;
         }
       });
     };
-    useEffect11(() => () => {
+    useEffect12(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const b = bundle;
@@ -6551,8 +6623,8 @@ ${ref}`;
   }
   function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
     const [state, setState] = useState15(null);
-    const abortRef = useRef5(null);
-    const readRef = useRef5(null);
+    const abortRef = useRef6(null);
+    const readRef = useRef6(null);
     const busy = state === "loading" || state === "streaming";
     const run = async () => {
       setState("loading");
@@ -6592,7 +6664,7 @@ ${ref}`;
         }
       });
     };
-    useEffect11(() => {
+    useEffect12(() => {
       let live = true;
       (async () => {
         const res = await getTradeDna(day, tradeIndex, underlying);
@@ -6830,7 +6902,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState16, useMemo: useMemo7, useEffect: useEffect12, useRef: useRef6, useCallback: useCallback3 } = React;
+  var { useState: useState16, useMemo: useMemo7, useEffect: useEffect13, useRef: useRef7, useCallback: useCallback4 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem3 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -6868,7 +6940,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       return { route, param };
     };
     const [state, setState] = useState16(parse);
-    useEffect12(() => {
+    useEffect13(() => {
       const onHash = () => setState(parse());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
@@ -6920,22 +6992,22 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [leftOpen, setLeftOpen] = useState16(() => window.innerWidth >= 860);
     const [rightOpen, setRightOpen] = useState16(() => window.innerWidth >= 1100);
     const [focus, setFocus] = useState16(false);
-    const focusPrev = useRef6({ left: true, right: true });
-    const enterFocus = useCallback3(() => {
+    const focusPrev = useRef7({ left: true, right: true });
+    const enterFocus = useCallback4(() => {
       focusPrev.current = { left: leftOpen, right: rightOpen };
       setLeftOpen(false);
       setRightOpen(false);
       setFocus(true);
     }, [leftOpen, rightOpen]);
-    const exitFocus = useCallback3(() => {
+    const exitFocus = useCallback4(() => {
       setLeftOpen(focusPrev.current.left);
       setRightOpen(focusPrev.current.right);
       setFocus(false);
     }, []);
-    const toggleFocus = useCallback3(() => {
+    const toggleFocus = useCallback4(() => {
       focus ? exitFocus() : enterFocus();
     }, [focus, enterFocus, exitFocus]);
-    useEffect12(() => {
+    useEffect13(() => {
       const onKey = (e) => {
         const el = e.target;
         const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -6981,12 +7053,12 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       document.addEventListener("mousemove", onMove);
       document.addEventListener("mouseup", onUp);
     };
-    const rightWidthRef = useRef6(rightWidth);
+    const rightWidthRef = useRef7(rightWidth);
     rightWidthRef.current = rightWidth;
     const [refreshNonce, setRefreshNonce] = useState16(0);
     const [refreshing, setRefreshing] = useState16({});
     const [refreshNote, setRefreshNote] = useState16(null);
-    useEffect12(() => {
+    useEffect13(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
       const mqLeft = window.matchMedia("(max-width: 859px)");
@@ -7079,17 +7151,17 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [activeCallId, setActiveCallId] = useState16(null);
     const showReplayPanel = route === "ic" && replayOn;
     const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
-    useEffect12(() => {
+    useEffect13(() => {
       if (icSymbol) setSymbol(icSymbol);
     }, [icSymbol]);
-    useEffect12(() => {
+    useEffect13(() => {
       if (route !== "ic") {
         setReplayOn(false);
         setReplayRunId(null);
         setActiveCallId(null);
       }
     }, [route]);
-    useEffect12(() => {
+    useEffect13(() => {
       setReplayRunId(null);
       setActiveCallId(null);
     }, [icSymbol]);
@@ -7315,7 +7387,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function LiveStatusDots({ settings }) {
     const [st, setSt] = useState16({ backend: null, mira: null });
-    useEffect12(() => {
+    useEffect13(() => {
       let alive = true;
       health().then((h) => {
         if (alive) setSt((s) => ({ ...s, backend: h }));
@@ -7691,7 +7763,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       null,
       [accountId, settings, refreshNonce]
     ).data;
-    useEffect12(() => {
+    useEffect13(() => {
       setShown(ACTIVITY_PAGE);
     }, [accountId, kind]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -7865,12 +7937,12 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     ]);
     const [draft, setDraft] = useState16("");
     const [busy, setBusy] = useState16(false);
-    const bodyRef = useRef6(null);
-    const abortRef = useRef6(null);
-    useEffect12(() => {
+    const bodyRef = useRef7(null);
+    const abortRef = useRef7(null);
+    useEffect13(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect12(() => () => {
+    useEffect13(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -7951,7 +8023,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         setRows([]);
       }
     };
-    useEffect12(() => {
+    useEffect13(() => {
       load();
     }, []);
     const startAdd = () => {

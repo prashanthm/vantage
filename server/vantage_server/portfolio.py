@@ -203,8 +203,6 @@ def risk(positions: Sequence[Any], closes_of: Callable[[str], list[float] | None
     None. Data-gated: only holdings WITH bars contribute; `coverage_pct` is the % of the
     (currency-scoped) book that had data, so a thin series is surfaced honestly, never
     fabricated. Annualized with 252 trading days."""
-    import statistics as _st
-
     held = [p for p in _held(positions, currency) if str(_get(p, "symbol") or "").upper() != "CASH"]
     series: list[tuple[float, list[float]]] = []  # (weight-value, returns)
     covered = total = 0.0
@@ -227,10 +225,18 @@ def risk(positions: Sequence[Any], closes_of: Callable[[str], list[float] | None
     for i in range(-m, 0):
         port.append(sum(w * r[i] for w, r in series) / wsum)
 
-    mean = _st.fmean(port)
-    sd = _st.pstdev(port) if len(port) > 1 else 0.0
+    def _pstdev(xs: list[float]) -> float:
+        # population stdev, computed directly to avoid statistics.pstdev's exact-
+        # fraction path (which raises on plain floats on some CPython builds).
+        if len(xs) < 2:
+            return 0.0
+        mu = sum(xs) / len(xs)
+        return (sum((x - mu) ** 2 for x in xs) / len(xs)) ** 0.5
+
+    mean = sum(port) / len(port)
+    sd = _pstdev(port)
     downside = [r for r in port if r < 0]
-    dsd = _st.pstdev(downside) if len(downside) > 1 else 0.0
+    dsd = _pstdev(downside)
     ann = 252 ** 0.5
     rf_daily = rf_annual / 252.0
     vol_ann = sd * ann
