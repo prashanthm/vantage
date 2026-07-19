@@ -946,6 +946,21 @@ export const exitsTick = () =>
 export const disarmExit = (id) =>
   postJson(`${backendBase()}/api/exits/${encodeURIComponent(id)}/disarm`, {});
 
+// Strategy lifecycle (ADR-015): each strategy's stage + gate (paper win-rate vs
+// frozen backtest baseline) + caps; operator promote/pause/resume; one autonomous
+// driver pass (dry-run unless the env gates are armed); the immutable audit trail.
+export const getLifecycle = () => getJson(`${backendBase()}/api/lifecycle`);
+export const promoteStrategy = (sid, body) =>
+  postJson(`${backendBase()}/api/lifecycle/${encodeURIComponent(sid)}/promote`, body);
+export const pauseStrategy = (sid, body = {}) =>
+  postJson(`${backendBase()}/api/lifecycle/${encodeURIComponent(sid)}/pause`, body);
+export const resumeStrategy = (sid) =>
+  postJson(`${backendBase()}/api/lifecycle/${encodeURIComponent(sid)}/resume`, {});
+export const lifecycleTick = (live = false) =>
+  postJson(`${backendBase()}/api/lifecycle/tick`, { live }, { timeoutMs: 60000 });
+export const getStrategyAudit = (sid) =>
+  getJson(`${backendBase()}/api/lifecycle/${encodeURIComponent(sid)}/audit`);
+
 // Reclaim signal bot (Telegram): status, config (stored in OUR meta table;
 // container env wins when set), one poll pass, and the signal↔live
 // correlation report.

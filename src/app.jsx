@@ -19,6 +19,7 @@ import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
 import { ExitsView } from "./exits.jsx";
 import { SignalBotView } from "./signalbot.jsx";
+import { StrategiesView } from "./strategies_view.jsx";
 import { TodayView } from "./today.jsx";
 import { FuturesView } from "./futures.jsx";
 import { PaperView } from "./paper.jsx";
@@ -51,6 +52,7 @@ const NAV = [
     { id: "options", label: "Options", icon: "◎" },
     { id: "playbook", label: "Daily plan", icon: "📐" },
     { id: "scanner", label: "Scanner", icon: "🔭" },
+    { id: "strategies", label: "Strategies", icon: "🤖" },
     { id: "signalbot", label: "Signal Bot", icon: "📡" },
     { id: "exits", label: "Managed Exits", icon: "🛡️" },
     { id: "paper", label: "Paper Trading", icon: "📝" },
@@ -430,6 +432,7 @@ function App() {
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
           {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
           {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
+          {route === "strategies" && <StrategiesView />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
           {route === "paper" && <PaperView refreshNonce={refreshNonce} />}
