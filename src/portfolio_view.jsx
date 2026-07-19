@@ -118,11 +118,17 @@ function RiskCard({ rk }) {
   if (!rk.available) {
     return (
       <div className="vg-card vg-pf-card">
-        <div className="vg-pf-head"><span className="vg-pf-title">Risk</span></div>
-        <p className="vg-note vg-pf-note">{rk.note || "No stored bars — seed them to compute risk."}</p>
+        <div className="vg-pf-head"><span className="vg-pf-title">Risk</span>
+          <span className="vg-badge plain">no data</span></div>
+        <p className="vg-note vg-pf-note">{rk.note
+          || "No stored daily bars for these holdings — risk (Sharpe / vol / drawdown) "
+             + "needs a price series. Scope to a US-equity account, or seed bars, to compute it."}</p>
       </div>);
   }
-  const sharpeTone = rk.sharpe == null ? "plain" : rk.sharpe >= 1 ? "good" : rk.sharpe >= 0.5 ? "warn" : "bad";
+  // low coverage → the numbers exist but represent a small slice; say so loudly.
+  const thin = (rk.coverage_pct ?? 0) < 60;
+  const sharpeTone = thin ? "plain"
+    : rk.sharpe == null ? "plain" : rk.sharpe >= 1 ? "good" : rk.sharpe >= 0.5 ? "warn" : "bad";
   return (
     <div className="vg-card vg-pf-card">
       <div className="vg-pf-head"><span className="vg-pf-title">Risk</span>
@@ -132,7 +138,11 @@ function RiskCard({ rk }) {
         <StatTile label="Sortino" value={rk.sortino == null ? "—" : rk.sortino} />
         <StatTile label="Max drawdown" value={pct(rk.max_drawdown_pct)} deltaDir={dirCls(rk.max_drawdown_pct)} />
       </div>
-      <p className="vg-note vg-pf-note">{rk.days}d window · {pct(rk.coverage_pct)} of book has bars</p>
+      {thin
+        ? <p className="vg-note vg-pf-note warn">⚠ Only {pct(rk.coverage_pct)} of the book has price
+            bars — these figures cover a slice, not the whole portfolio. Scope to a US-equity
+            account for a fuller read.</p>
+        : <p className="vg-note vg-pf-note">{rk.days}d window · {pct(rk.coverage_pct)} of book has bars</p>}
     </div>);
 }
 
@@ -304,19 +314,32 @@ function CharacterCard({ ch }) {
     </div>);
 }
 
-function PerformanceCard({ account }) {
+function PerformanceCard({ account, accounts }) {
   const q = useLive(() => portfolioPerformance(account), null, [account]);
   const d = q.data;
+  // Until a value-history time series accrues, show the point-in-time book value
+  // by currency (from the live account list) so the slot is informative, not empty.
+  const scoped = (accounts || []).filter((a) => account === "all" || a.id === account);
+  const byCcy = scoped.reduce((m, a) => { const c = a.currency || "USD"; m[c] = (m[c] || 0) + (a.value || 0); return m; }, {});
   return (
     <div className="vg-card vg-pf-card">
-      <div className="vg-pf-head"><span className="vg-pf-title">Returns vs benchmark</span></div>
+      <div className="vg-pf-head"><span className="vg-pf-title">Performance</span>
+        <span className="vg-note">point-in-time</span></div>
+      {Object.keys(byCcy).length > 0 && (
+        <div className="vg-pf-stats">
+          {Object.entries(byCcy).map(([c, v]) => (
+            <StatTile key={c} label={`Book value · ${c}`} value={money(v, c)} />
+          ))}
+        </div>)}
       {q.loading && <LoadBar />}
-      {d && !d.available && <p className="vg-note vg-pf-note">{d.note}</p>}
       {d && d.available && d.twr != null && (
         <div className="vg-pf-stats">
           <StatTile label="Time-weighted return" value={signPct(d.twr)} deltaDir={dirCls(d.twr)} />
           <StatTile label="vs benchmark" value={d.benchmark != null ? signPct(d.benchmark) : "—"} />
         </div>)}
+      {d && !d.available && (
+        <p className="vg-note vg-pf-note">Time-weighted return + benchmark accrue once nightly
+          value snapshots begin — no history yet.</p>)}
     </div>);
 }
 
@@ -383,7 +406,7 @@ export function PortfolioView({ accountId, setAccountId, scopeAccounts,
           <IncomeCard inc={d.income} ccy={activeCcy} />
           <RebalanceCard rb={d.rebalance} targets={d.targets} />
           <CharacterCard ch={d.character} />
-          <PerformanceCard account={account} />
+          <PerformanceCard account={account} accounts={scopeAccounts} />
         </div>)}
       {!q.loading && !d && <p className="vg-note" style={{ padding: 14 }}>No portfolio data.</p>}
     </div>);
