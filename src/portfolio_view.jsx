@@ -39,7 +39,7 @@ function DiversificationCard({ d }) {
   const maxSec = Math.max(...sectors.map(([, v]) => v), 1);
   const bandTone = { diversified: "good", moderate: "warn", concentrated: "bad" }[c.band] || "plain";
   return (
-    <div className="vg-card vg-pf-card">
+    <div className="vg-card vg-pf-card vg-pf-c-div">
       <div className="vg-pf-head">
         <span className="vg-pf-title">Diversification</span>
         <span className={cls("vg-badge", bandTone)}>{c.band} · HHI {c.hhi}</span>
@@ -91,33 +91,34 @@ function shortSym(sym) {
   return m ? `${m[1]} ${m[2]}` : s;
 }
 
-// Winners/losers by unrealized gain % (not just $) — the "what to trim / harvest" read.
+// Winners/losers by unrealized gain % (not just $) — the "what to trim / harvest"
+// read. A single stacked list (winners then losers), each a full-width row:
+// symbol · gain% · $ — so it never smushes two tables into half a card.
 function WinnersLosersCard({ wl, ccy }) {
   if (!wl) return null;
-  const Row = ({ r }) => (
-    <tr>
-      <td className="vg-pf-wl-sym" title={r.symbol}>{shortSym(r.symbol)}</td>
-      <td className={dirCls(r.gain_pct)}>{r.gain_pct == null ? "—" : signPct(r.gain_pct)}</td>
-      <td className={dirCls(r.unrealized)}>{ccyMoney(r.unrealized, r.currency || ccy)}</td>
-    </tr>);
   const winners = wl.winners_pct || [];
   const losers = wl.losers_pct || [];
   if (!winners.length && !losers.length) return null;
-  const Col = ({ title, tone, rows }) => (
-    <div className="vg-pf-wl-col">
-      <div className={cls("vg-pf-wl-h", tone)}>{title}</div>
-      <table className="vg-pf-table vg-pf-wl-table">
-        <tbody>{rows.map((r) => <Row key={r.symbol} r={r} />)}</tbody>
-      </table>
+  const Item = ({ r }) => (
+    <div className="vg-pf-wl-item">
+      <span className="vg-pf-wl-sym" title={r.symbol}>{shortSym(r.symbol)}</span>
+      <span className={cls("vg-pf-wl-pct", dirCls(r.gain_pct))}>
+        {r.gain_pct == null ? "—" : signPct(r.gain_pct)}</span>
+      <span className={cls("vg-pf-wl-usd", dirCls(r.unrealized))}>
+        {ccyMoney(r.unrealized, r.currency || ccy)}</span>
     </div>);
   return (
-    <div className="vg-card vg-pf-card">
+    <div className="vg-card vg-pf-card vg-pf-c-wl">
       <div className="vg-pf-head"><span className="vg-pf-title">Winners &amp; losers</span>
         <span className="vg-note">by gain %</span></div>
-      <div className="vg-pf-wl">
-        <Col title="Top winners" tone="up" rows={winners} />
-        <Col title="Worst losers" tone="down" rows={losers} />
-      </div>
+      {winners.length > 0 && <>
+        <div className="vg-pf-wl-h up">Top winners</div>
+        <div className="vg-pf-wl-list">{winners.map((r) => <Item key={r.symbol} r={r} />)}</div>
+      </>}
+      {losers.length > 0 && <>
+        <div className="vg-pf-wl-h down">Worst losers</div>
+        <div className="vg-pf-wl-list">{losers.map((r) => <Item key={r.symbol} r={r} />)}</div>
+      </>}
     </div>);
 }
 
@@ -405,17 +406,21 @@ export function PortfolioView({ accountId, setAccountId, scopeAccounts,
       {q.loading && <LoadBar />}
       {d && (
         <div className="vg-pf-grid">
+          {/* 1 — Mira's actions (full width) */}
           <AnalyzePane account={account} />
-          <AccountManagerCard ba={d.by_account} accounts={scopeAccounts}
-            accountId={account} setAccountId={setAccountId} refreshing={refreshing}
-            onRefreshAccount={onRefreshAccount} onChanged={onAccountsChanged} />
+          {/* 2 — composition: what the book IS (Diversification + Winners/losers, 2 cols each) */}
           <DiversificationCard d={d.diversification} />
           <WinnersLosersCard wl={d.winners_losers} ccy={activeCcy} />
+          {/* 3 — the analytical read: risk · income · rebalance · character (1 col each) */}
           <RiskCard rk={d.risk} />
           <IncomeCard inc={d.income} ccy={activeCcy} />
           <RebalanceCard rb={d.rebalance} targets={d.targets} />
           <CharacterCard ch={d.character} />
+          {/* 4 — value + ops: performance, then the account manager (full width) */}
           <PerformanceCard account={account} accounts={scopeAccounts} />
+          <AccountManagerCard ba={d.by_account} accounts={scopeAccounts}
+            accountId={account} setAccountId={setAccountId} refreshing={refreshing}
+            onRefreshAccount={onRefreshAccount} onChanged={onAccountsChanged} />
         </div>)}
       {!q.loading && !d && <p className="vg-note" style={{ padding: 14 }}>No portfolio data.</p>}
     </div>);

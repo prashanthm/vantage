@@ -1310,8 +1310,25 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-pf { padding: var(--vg-sp-5) var(--vg-sp-6) var(--vg-sp-8); }
 .vg-pf-topbar { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .vg-pf-h2 { font: 700 20px/1 var(--vg-font-ui); color: var(--vg-ink); margin: 0; }
-.vg-pf-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; }
+/* a deliberate 4-column grid with explicit per-card spans (set below) so the
+   reading order is intentional: analyze → composition → risk/income → value/ops.
+   Collapses to 2 cols, then 1, on narrower viewports. */
+.vg-pf-grid { display: grid; grid-template-columns: repeat(4, 1fr);
+  grid-auto-flow: row dense; gap: 16px; align-items: start; }
+@media (max-width: 1180px) { .vg-pf-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px)  { .vg-pf-grid { grid-template-columns: 1fr; } }
 .vg-pf-card { padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+/* explicit spans — the layout, not auto-fill guesswork */
+.vg-pf-analyze { grid-column: 1 / -1; }                     /* Mira: full width */
+.vg-pf-c-div   { grid-column: span 2; }                     /* Diversification */
+.vg-pf-c-wl    { grid-column: span 2; }                     /* Winners & losers */
+.vg-pf-accounts{ grid-column: span 4; }                     /* Accounts: full width */
+@media (max-width: 1180px) {
+  .vg-pf-c-div, .vg-pf-c-wl, .vg-pf-accounts { grid-column: span 2; }
+}
+@media (max-width: 640px) {
+  .vg-pf-c-div, .vg-pf-c-wl, .vg-pf-accounts { grid-column: auto; }
+}
 .vg-pf-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .vg-pf-title { font: 600 var(--vg-text-md) var(--vg-font-ui); color: var(--vg-ink); }
 .vg-pf-stats { display: flex; gap: 18px; flex-wrap: wrap; }
@@ -1336,8 +1353,6 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-note.good { color: var(--vg-up); }
 .vg-note.bad { color: var(--vg-down); }
 /* account manager card */
-.vg-pf-accounts { grid-column: span 2; }
-@media (max-width: 900px) { .vg-pf-accounts { grid-column: auto; } }
 .vg-pf-acctlist { display: flex; flex-direction: column; }
 .vg-pf-acctrow { display: flex; align-items: center; gap: 8px; padding: 7px 8px;
   border-radius: 6px; border: 1px solid transparent; text-align: left; }
@@ -1371,18 +1386,18 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
 .vg-pf-ccy .vg-chip { cursor: pointer; border: 1px solid var(--vg-hairline); margin: 0;
   padding: 2px 10px; user-select: none; }
 .vg-pf-ccy .vg-chip.on { background: var(--vg-accent); color: #fff; border-color: var(--vg-accent); }
-/* winners/losers two-column */
-.vg-pf-wl { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.vg-pf-wl-col { min-width: 0; }          /* let the column shrink so tables can't overflow */
-.vg-pf-wl-h { font: 600 12px var(--vg-font-ui); margin-bottom: 3px; }
+/* winners/losers — a stacked list (winners then losers), one full-width row each:
+   symbol grows, gain% + $ are fixed-width and right-aligned. Never smushed. */
+.vg-pf-wl-h { font: 600 11px var(--vg-font-ui); letter-spacing: 0.03em;
+  text-transform: uppercase; margin: 6px 0 2px; }
 .vg-pf-wl-h.up { color: var(--vg-up); }
 .vg-pf-wl-h.down { color: var(--vg-down); }
-/* fixed layout so the symbol column can't push the $ column off the card edge */
-.vg-pf-wl-table { table-layout: fixed; width: 100%; }
-.vg-pf-wl-table td { padding: 4px 4px; white-space: nowrap; }
-.vg-pf-wl-sym { overflow: hidden; text-overflow: ellipsis; }   /* long option names ellipsize */
-.vg-pf-wl-table td:nth-child(2) { width: 4.2em; text-align: right; }   /* gain % */
-.vg-pf-wl-table td:nth-child(3) { width: 5em; text-align: right; }     /* $ */
-@media (max-width: 640px) { .vg-pf-wl { grid-template-columns: 1fr; } }
-/* Mira analyze pane spans the full grid row so its action list has room */
-.vg-pf-analyze { grid-column: 1 / -1; }
+.vg-pf-wl-list { display: flex; flex-direction: column; }
+.vg-pf-wl-item { display: grid; grid-template-columns: 1fr auto auto; align-items: baseline;
+  gap: 12px; padding: 3px 0; font-size: 13px; border-bottom: 1px solid var(--vg-hairline);
+  font-variant-numeric: tabular-nums; }
+.vg-pf-wl-item:last-child { border-bottom: none; }
+.vg-pf-wl-sym { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--vg-font-data); color: var(--vg-ink); }
+.vg-pf-wl-pct { min-width: 4.5em; text-align: right; }
+.vg-pf-wl-usd { min-width: 6em; text-align: right; color: var(--vg-ink); }
