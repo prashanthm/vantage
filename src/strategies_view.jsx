@@ -13,8 +13,11 @@ import {
   useLive, getLifecycle, promoteStrategy, pauseStrategy, resumeStrategy,
   lifecycleTick, getStrategyAudit,
 } from "./live.js";
+import { SignalBotView } from "./signalbot.jsx";
+import { PaperView } from "./paper.jsx";
+import { ExitsView } from "./exits.jsx";
 
-const { useState, useCallback } = React;
+const { useState, useCallback, useEffect } = React;
 
 const pct = (n, d = 1) => (n == null ? "—" : `${(Number(n) * 100).toFixed(d)}%`);
 
@@ -160,7 +163,7 @@ function StrategyCard({ s, armed, onChange }) {
     </div>);
 }
 
-export function StrategiesView() {
+function LifecycleTab() {
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
   const q = useLive(() => getLifecycle(), null, [nonce]);
@@ -205,5 +208,36 @@ export function StrategiesView() {
             <StrategyCard key={s.strategy_id} s={s} armed={!!gates.armed} onChange={refresh} />
           ))}
         </div>)}
+    </div>);
+}
+
+// The Strategies surface subsumes the former Signal Bot / Paper / Managed Exits
+// into ONE tabbed view — they were three windows onto one signal→paper→exit
+// pipeline; this is that pipeline as a lifecycle. Tabs deep-link via the route
+// param (#/strategies/signalbot), so the old #signalbot / #exits anchors elsewhere
+// still land here (app.jsx maps those legacy hashes to the right tab).
+const SL_TABS = [
+  { key: "lifecycle", label: "Lifecycle" },
+  { key: "signalbot", label: "Signal Bot" },
+  { key: "paper", label: "Track record" },
+  { key: "exits", label: "Live book" },
+];
+
+export function StrategiesView({ tab, onTab, refreshNonce }) {
+  const active = SL_TABS.some((t) => t.key === tab) ? tab : "lifecycle";
+  // keep the URL honest when a tab is picked (so it's shareable / back-button-able).
+  const pick = (k) => { if (onTab) onTab(k); };
+  return (
+    <div className="vg-sl-shell">
+      <div className="vg-subtabs">
+        {SL_TABS.map((t) => (
+          <button key={t.key} className={cls("vg-subtab", active === t.key && "vg-subtab-on")}
+            onClick={() => pick(t.key)}>{t.label}</button>
+        ))}
+      </div>
+      {active === "lifecycle" && <LifecycleTab />}
+      {active === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
+      {active === "paper" && <PaperView refreshNonce={refreshNonce} />}
+      {active === "exits" && <ExitsView refreshNonce={refreshNonce} />}
     </div>);
 }

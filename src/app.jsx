@@ -17,12 +17,9 @@ import { PlaybookView } from "./playbook.jsx";
 import { ScannerView } from "./scanner.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
-import { ExitsView } from "./exits.jsx";
-import { SignalBotView } from "./signalbot.jsx";
 import { StrategiesView } from "./strategies_view.jsx";
 import { TodayView } from "./today.jsx";
 import { FuturesView } from "./futures.jsx";
-import { PaperView } from "./paper.jsx";
 import { JournalView } from "./journal.jsx";
 import { TradeAnalyticsView } from "./trades.jsx";
 import * as live from "./live.js";
@@ -53,9 +50,6 @@ const NAV = [
     { id: "playbook", label: "Daily plan", icon: "📐" },
     { id: "scanner", label: "Scanner", icon: "🔭" },
     { id: "strategies", label: "Strategies", icon: "🤖" },
-    { id: "signalbot", label: "Signal Bot", icon: "📡" },
-    { id: "exits", label: "Managed Exits", icon: "🛡️" },
-    { id: "paper", label: "Paper Trading", icon: "📝" },
     { id: "journal", label: "Trading Journal", icon: "📓" },
     { id: "futures", label: "Futures", icon: "📉" },
     { id: "trades", label: "Performance", icon: "🧮" },
@@ -68,7 +62,10 @@ const NAV = [
 //   activity — per-position transactions, reached from a holding
 //   recs     — the full decision journal, reached from the Dashboard Actions "All →"
 //   markets  — live pattern signals, reached from Market read links
-const DRILLDOWN_ROUTES = ["activity", "recs", "markets"];
+// signalbot / paper / exits are now TABS inside Strategies, but kept as reachable
+// routes so legacy #signalbot / #exits anchors (today.jsx) still resolve — they
+// render the Strategies view opened to that tab (see the route block below).
+const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "signalbot", "paper", "exits"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 // Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
@@ -432,10 +429,13 @@ function App() {
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
           {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
           {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
-          {route === "strategies" && <StrategiesView />}
-          {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
-          {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
-          {route === "paper" && <PaperView refreshNonce={refreshNonce} />}
+          {route === "strategies" && (
+            <StrategiesView tab={routeParam} refreshNonce={refreshNonce}
+              onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
+          {/* legacy hashes → the matching Strategies tab (nav items retired, anchors kept) */}
+          {(route === "signalbot" || route === "paper" || route === "exits") && (
+            <StrategiesView tab={route} refreshNonce={refreshNonce}
+              onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
           {route === "journal" && <JournalView refreshNonce={refreshNonce} />}
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && <TradeAnalyticsView {...viewProps} />}
