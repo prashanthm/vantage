@@ -406,10 +406,19 @@ function AnalyzePane({ account }) {
 export function PortfolioView({ accountId, setAccountId, scopeAccounts,
                                refreshing, onRefreshAccount, onAccountsChanged }) {
   const account = accountId || "all";
-  const [ccy, setCcy] = useState("");   // "" → dominant bucket (server picks)
-  const q = useLive(() => portfolioAnalyze(account, ccy), null, [account, ccy]);
+  // Default the currency view to USD (the reporting currency) rather than the
+  // dominant-by-value bucket the server picks — a USD-first user shouldn't land
+  // on the INR book just because it's larger. "" means "not yet resolved".
+  const [ccy, setCcy] = useState("");
+  const q = useLive(() => portfolioAnalyze(account, ccy || "USD"), null, [account, ccy]);
   const d = q.data;
-  const currencies = d?.currencies || [];
+  // Order the toggle USD-first, then the rest by size (server order).
+  const currencies = (() => {
+    const cs = d?.currencies || [];
+    return cs.includes("USD") ? ["USD", ...cs.filter((c) => c !== "USD")] : cs;
+  })();
+  // reflect what the server actually returned (it falls back to the dominant
+  // bucket if the requested currency isn't held — e.g. an INR-only account).
   const activeCcy = d?.currency || ccy || (currencies[0] || "USD");
   const scopeLabel = account === "all" ? "all accounts"
     : ((scopeAccounts || []).find((a) => a.id === account)?.short || account);

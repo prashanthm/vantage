@@ -2260,9 +2260,12 @@ ${ref}`;
   }) {
     const account = accountId || "all";
     const [ccy, setCcy] = useState3("");
-    const q = useLive(() => portfolioAnalyze(account, ccy), null, [account, ccy]);
+    const q = useLive(() => portfolioAnalyze(account, ccy || "USD"), null, [account, ccy]);
     const d = q.data;
-    const currencies = d?.currencies || [];
+    const currencies = (() => {
+      const cs = d?.currencies || [];
+      return cs.includes("USD") ? ["USD", ...cs.filter((c) => c !== "USD")] : cs;
+    })();
     const activeCcy = d?.currency || ccy || (currencies[0] || "USD");
     const scopeLabel = account === "all" ? "all accounts" : (scopeAccounts || []).find((a) => a.id === account)?.short || account;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pf" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-topbar" }, /* @__PURE__ */ React.createElement("h2", { className: "vg-pf-h2" }, "Portfolio"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Roll-up analysis \xB7 scope: ", scopeLabel, account !== "all" && /* @__PURE__ */ React.createElement(
