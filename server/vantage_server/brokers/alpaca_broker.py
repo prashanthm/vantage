@@ -116,9 +116,31 @@ class AlpacaConnection:
             "total_value": float(acct.get("portfolio_value") or 0),
             "cash": float(acct.get("cash") or 0),
             "buying_power": float(acct.get("buying_power") or 0),
+            # account-wide day change (equity vs yesterday's close).
+            "day_pnl": round(float(acct.get("equity") or 0) - float(acct.get("last_equity") or 0), 2),
             "currency": str(acct.get("currency") or "USD"),
             "paper": is_paper(),
         }
+
+    def day_pnl(self, symbols: set[str] | None = None) -> tuple[float, int]:
+        """Today's intraday P&L (signed $) + open-position count for a strategy's
+        universe. Sums Alpaca's per-position `unrealized_intraday_pl` over the open
+        positions whose symbol is in `symbols` (None = the whole account). This is
+        what the max_daily_loss_usd cap reads to auto-pause a live strategy. Raises
+        BrokerConnectionError on a broker failure — the caller decides how to handle
+        (the autonomous driver treats an unknown P&L as 0 and logs, never blindly
+        opens more risk on a stale read)."""
+        rows = _get("/v2/positions")
+        pnl, n = 0.0, 0
+        for r in rows if isinstance(rows, list) else []:
+            sym = str(r.get("symbol") or "").upper()
+            if symbols is not None and sym not in symbols:
+                continue
+            if float(r.get("qty") or 0) == 0:
+                continue
+            n += 1
+            pnl += float(r.get("unrealized_intraday_pl") or 0)
+        return round(pnl, 2), n
 
     def interactive_auth(self) -> None:
         raise base.NotSupported(
@@ -164,7 +186,25 @@ def _demo() -> None:
             os.environ["ALPACA_SECRET_KEY"] = saved[1]
     assert AlpacaConnection.broker_id == "alpaca"
     assert is_paper() is True  # default
-    print("ok — alpaca_broker read-only refusal self-check passed")
+
+    # day_pnl scoping — no network: stub _get (via globals() so a `python -m` double
+    # import still patches the right module) to a fixed list and check it sums
+    # unrealized_intraday_pl only over the requested symbols.
+    _orig_get = globals()["_get"]
+    globals()["_get"] = lambda path, timeout=15.0: [
+        {"symbol": "SPY", "qty": "10", "unrealized_intraday_pl": "-120.5"},
+        {"symbol": "QQQ", "qty": "5", "unrealized_intraday_pl": "40.0"},
+        {"symbol": "AAPL", "qty": "3", "unrealized_intraday_pl": "999.0"},  # not in scope
+        {"symbol": "IWM", "qty": "0", "unrealized_intraday_pl": "50.0"},    # zero qty skipped
+    ]
+    try:
+        pnl, n = AlpacaConnection().day_pnl({"SPY", "QQQ", "IWM"})
+        assert pnl == -80.5, pnl        # -120.5 + 40.0, AAPL excluded, IWM zero-qty skipped
+        assert n == 2, n                 # SPY + QQQ open
+        assert AlpacaConnection().day_pnl(set()) == (0.0, 0)   # empty scope → 0 (still stubbed)
+    finally:
+        globals()["_get"] = _orig_get
+    print("ok — alpaca_broker read-only refusal + day_pnl self-check passed")
 
 
 if __name__ == "__main__":

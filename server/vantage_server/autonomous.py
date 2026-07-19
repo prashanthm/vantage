@@ -81,15 +81,27 @@ def _orders_for(store, strategy_id: str) -> list[dict]:
 
 
 def _live_context(store, strategy_id: str) -> dict:
-    """The cap-check context for a strategy: how many positions it already has
-    open and its day P&L. Sourced from the audit trail's submitted orders (the
-    driver's own record) — conservative and self-contained. Day P&L integration
-    with the broker fill feed is future work; until then day_pnl is 0 (caps still
-    enforce size + position count, the two that gate OPENING risk)."""
-    submitted = [a for a in store.load_audit(strategy_id, limit=500)
-                 if a.get("mode") == "submitted"]
-    # ponytail: position count from audited opens; broker-reconciled count when the fill feed lands
-    return {"open_positions": len(submitted), "day_pnl": 0.0}
+    """The cap-check context for a strategy: how many positions it has open and
+    its day P&L, read LIVE from the broker (Alpaca `unrealized_intraday_pl` summed
+    over the strategy's universe). This is what max_daily_loss_usd / max_positions
+    check before a submit. On a broker failure day_pnl is unknown → 0.0 so a STALE
+    read never fabricates a loss (which would wrongly pause) nor hides one — the
+    position-count cap still gates opening, and the failure is logged."""
+    strat = get_strategy(strategy_id)
+    # ponytail: universe-scoped day P&L is exact while reclaim is the only live
+    # strategy; if two live strategies ever share a symbol it double-counts —
+    # upgrade to per-order_id attribution (needs strategy_id on managed_positions).
+    symbols = {s.upper() for s in strat.universe}
+    try:
+        from .brokers.alpaca_broker import AlpacaConnection
+        pnl, open_positions = AlpacaConnection().day_pnl(symbols)
+        return {"open_positions": open_positions, "day_pnl": pnl}
+    except Exception as e:  # noqa: BLE001 — broker unreachable / no creds
+        log.warning("day P&L unavailable for %s (%s) — treating as 0", strategy_id, e)
+        # fall back to the audited open count so max_positions still gates.
+        submitted = [a for a in store.load_audit(strategy_id, limit=500)
+                     if a.get("mode") == "submitted"]
+        return {"open_positions": len(submitted), "day_pnl": 0.0}
 
 
 def tick(store, now_iso: str, *, live: bool = False) -> dict:
