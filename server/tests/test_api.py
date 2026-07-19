@@ -540,6 +540,10 @@ ALLOWED_WRITE_ROUTES = {
     "/api/lifecycle/{sid}/pause",
     "/api/lifecycle/{sid}/resume",
     "/api/lifecycle/tick",
+    # Broker transaction-history CSV upload → parsed buys/sells into OUR history
+    # table (realized_gains FIFO-matches them). Writes only our SQLite; no broker/
+    # order path (ADR-010).
+    "/api/import/transactions",
 }
 
 

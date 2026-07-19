@@ -234,6 +234,68 @@ def parse_fidelity(text: str, account: str, as_of: str | None):
     return lots, warnings
 
 
+def parse_fidelity_transactions(text: str, account: str):
+    """Fidelity TRANSACTION-history export → history rows (buys/sells), NOT lots.
+
+    Fidelity's activity/history CSV has columns like:
+      Run Date, Account, Action, Symbol, Description, Type, Quantity, Price ($),
+      Commission ($), Fees ($), Accrued Interest ($), Amount ($), Settlement Date
+    The ``Action`` text ("YOU BOUGHT" / "YOU SOLD" / "DIVIDEND RECEIVED" ...)
+    determines the side. We emit one equity buy/sell row per trade in the shape
+    portfolio.realized_gains FIFO-matches ({kind, symbol, side, date, quantity,
+    price, amount, description}); non-trade rows (dividends, interest, transfers)
+    are skipped with a note. Options rows are skipped (equity realized-gains only,
+    matching realized_gains' `kind=="equity"` filter)."""
+    rows = _rows(text)
+    hi, cols = _find_header(rows, "action", ("symbol",))
+    i_act = cols["action"]
+    i_sym = cols["symbol"]
+    i_date = _first(cols, "run date", "date", "trade date")
+    i_qty = _first(cols, "quantity", "qty")
+    i_price = _first(cols, "price ($)", "price")
+    i_amt = _first(cols, "amount ($)", "amount")
+    i_desc = _first(cols, "description")
+    out, warnings = [], []
+    n_skip = 0
+    for row in rows[hi + 1:]:
+        action = (_cell(row, i_act) or "").strip().upper()
+        symbol = (_cell(row, i_sym) or "").strip().strip('"').upper()
+        if not action:
+            continue
+        if "BOUGHT" in action or "BUY" in action:
+            side = "buy"
+        elif "SOLD" in action or "SELL" in action:
+            side = "sell"
+        else:
+            n_skip += 1   # dividend / interest / transfer / fee — not a trade
+            continue
+        # equity only: Fidelity option symbols start with '-' or '.' (e.g.
+        # -SPY260117C500) or carry a space — realized_gains is equity-only.
+        if not symbol or symbol[0] in "-." or " " in symbol:
+            n_skip += 1
+            continue
+        qty = _to_float(_cell(row, i_qty))
+        price = _to_float(_cell(row, i_price))
+        if qty is None or price is None:
+            warnings.append(f"skipped {symbol} {side}: missing quantity/price")
+            continue
+        out.append({
+            "account": account,
+            "kind": "equity",
+            "symbol": symbol,
+            "side": side,
+            "date": _to_iso_date(_cell(row, i_date)) or "",
+            "quantity": abs(qty),      # side carries direction; magnitude here
+            "price": abs(price),
+            "amount": _to_float(_cell(row, i_amt)),
+            "description": (_cell(row, i_desc) or "").strip(),
+        })
+    if n_skip:
+        warnings.append(f"skipped {n_skip} non-equity-trade row(s) "
+                        "(dividends / interest / transfers / options)")
+    return out, warnings
+
+
 def usd_note(v: float) -> str:
     return f"${v:,.2f}"
 
