@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 22  # v22: chart_drawings (per-symbol chart annotations)
+SCHEMA_VERSION = 23  # v23: strategy_lifecycle + strategy_audit (ADR-015 lifecycle)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -558,6 +558,36 @@ CREATE TABLE IF NOT EXISTS chart_drawings (
     updated_at  TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_chart_drawings_sym ON chart_drawings(symbol, created_at);
+
+-- ADR-015 strategy lifecycle: one row per registered strategy, its stage +
+-- caps + which live account it was promoted to. Stage machine:
+-- paper -> eligible -> live -> paused.
+CREATE TABLE IF NOT EXISTS strategy_lifecycle (
+    strategy_id   TEXT PRIMARY KEY,      -- registry id, e.g. 'reclaim'
+    stage         TEXT NOT NULL,         -- paper | eligible | live | paused
+    caps          TEXT,                  -- JSON {max_order_usd, max_positions, max_daily_loss_usd}
+    live_account  TEXT,                  -- broker account promoted to (null until live)
+    baseline_win_rate REAL,              -- frozen backtest baseline at last gate check
+    paper_win_rate    REAL,              -- last measured live-paper win-rate
+    paper_n           INTEGER,           -- sample size behind paper_win_rate
+    promoted_at   TEXT,                  -- ISO ts of the operator promote (null until live)
+    paused_reason TEXT,                  -- why paused (cap/kill/operator), null when active
+    updated_at    TEXT NOT NULL
+);
+
+-- ADR-015 gate 4: append-only audit of EVERY autonomous order decision. Never
+-- updated or deleted — the immutable record of what the bot did and why.
+CREATE TABLE IF NOT EXISTS strategy_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    at          TEXT NOT NULL,           -- ISO timestamp
+    strategy_id TEXT NOT NULL,
+    mode        TEXT NOT NULL,           -- submitted | dry_run | refused | cap_breach
+    reason      TEXT,                    -- human reason (refusal/dry-run cause)
+    order_json  TEXT NOT NULL,           -- the recomputed order
+    gates_json  TEXT,                    -- gate state at decision time
+    order_id    TEXT                     -- broker order id when submitted
+);
+CREATE INDEX IF NOT EXISTS ix_strategy_audit_strat ON strategy_audit(strategy_id, at);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard
