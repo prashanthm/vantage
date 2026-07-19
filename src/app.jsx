@@ -14,7 +14,6 @@ import { NotebookPanel } from "./notebook.jsx";
 import { PortfolioView } from "./portfolio_view.jsx";
 import { OptionsView } from "./options.jsx";
 import { PlaybookView } from "./playbook.jsx";
-import { SpxPlaybookView, SpxPlaybookRail, SpxReplayView, PlaybookProvider } from "./spx_forecast.jsx";
 import { ScannerView } from "./scanner.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
@@ -50,7 +49,7 @@ const NAV = [
     // machine health, one screen (see claudedocs/goals/ux-feature-value).
     { id: "today", label: "Today", icon: "🎯" },
     { id: "options", label: "Options", icon: "◎" },
-    { id: "playbook", label: "0DTE Playbook", icon: "📐" },
+    { id: "playbook", label: "Daily plan", icon: "📐" },
     { id: "scanner", label: "Scanner", icon: "🔭" },
     { id: "signalbot", label: "Signal Bot", icon: "📡" },
     { id: "exits", label: "Managed Exits", icon: "🛡️" },
@@ -96,43 +95,12 @@ function useHashRoute() {
   return [state.route, go, state.param];
 }
 
-// Mount the playbook state provider only on the playbook route (so its snapshot
-// fetch doesn't run elsewhere), wrapping the whole studio so BOTH the center chart
-// and the right-pane rail can read the shared store.
-function MaybePlaybookProvider({ active, children }) {
-  return active ? <PlaybookProvider initialSymbol="SPX">{children}</PlaybookProvider> : children;
-}
-
-// The 0DTE Playbook route (center): the daily plan (PlaybookView) and the
-// chart-centric forecast view (SpxPlaybookView) toggled by a sub-tab. The forecast
-// RAIL renders in the app's right pane (see PlaybookRail), not here.
-function PlaybookRoute({ refreshNonce, tab, setTab }) {
-  return (
-    <div>
-      <div className="vg-subtabs">
-        <button className={cls("vg-subtab", tab === "chart" && "vg-subtab-on")}
-          onClick={() => setTab("chart")}>📈 Chart & forecast</button>
-        <button className={cls("vg-subtab", tab === "replay" && "vg-subtab-on")}
-          onClick={() => setTab("replay")}>🎬 Replay</button>
-        <button className={cls("vg-subtab", tab === "plan" && "vg-subtab-on")}
-          onClick={() => setTab("plan")}>📐 Daily plan</button>
-      </div>
-      {tab === "chart"
-        ? <SpxPlaybookView />
-        : tab === "replay"
-          ? <SpxReplayView />
-          : <PlaybookView refreshNonce={refreshNonce} />}
-    </div>
-  );
-}
-
 /* ---------------- app shell ---------------- */
 function App() {
   const [settings, setSettings] = useState(loadSettings);
   const [accountId, setAccountId] = useState(settings.defaultAccount);
   const [symbol, setSymbol] = useState("SPY");
   const [route, go, routeParam] = useHashRoute();
-  const [playbookTab, setPlaybookTab] = useState("chart");   // chart | replay | plan (0DTE Playbook)
   const [notifs, setNotifs] = useState([]);
   const [notifOpen, setNotifOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
@@ -284,8 +252,6 @@ function App() {
   // refresh handlers so "how is each account doing" is answered in the brief,
   // not only in the scope selector.
   const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
-  // the 0DTE Playbook's chart sub-tab renders its forecast RAIL in the right pane
-  const isPlaybookChart = route === "playbook" && playbookTab === "chart";
   // Replay (chart-first): the run selection + which call is highlighted are shared
   // between the chart overlay (center) and the ReplayPanel (right pane). `replayOn`
   // makes the right pane show the panel and the chart draw the run's markers.
@@ -336,7 +302,6 @@ function App() {
         </div>
       </div>
 
-      <MaybePlaybookProvider active={route === "playbook"}>
       <div className={cls("vg-studio", (leftOpen || rightOpen) && "drawer-open")}>
         {/* mobile-only backdrop: tapping it closes whichever drawer is open. A real
             element (not a ::after) so the tap has a reliable target. CSS hides it
@@ -463,7 +428,7 @@ function App() {
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "today" && <TodayView refreshNonce={refreshNonce} />}
-          {route === "playbook" && <PlaybookRoute refreshNonce={refreshNonce} tab={playbookTab} setTab={setPlaybookTab} />}
+          {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
           {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
           {route === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
           {route === "exits" && <ExitsView refreshNonce={refreshNonce} />}
@@ -502,7 +467,7 @@ function App() {
             </button>
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
-                {showReplayPanel ? "⟲ Replay" : isPlaybookChart ? "🔮 Forecast" : symbol ? "Notebook" : "Vantage AI"}
+                {showReplayPanel ? "⟲ Replay" : symbol ? "Notebook" : "Vantage AI"}
               </span>
             )}
             {rightOpen && showReplayPanel && (
@@ -516,8 +481,6 @@ function App() {
           {rightOpen && (showReplayPanel
             ? <ReplayPanel symbol={icSymbol} runId={replayRunId} setRunId={setReplayRunId}
                 activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
-            : isPlaybookChart
-            ? <SpxPlaybookRail />
             : symbol
               ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
               : <ChatPanel docked settings={settings} />)}
@@ -537,7 +500,6 @@ function App() {
           </button>
         </div>
       )}
-      </MaybePlaybookProvider>
 
       <div className="vg-fabs">
         <button className="vg-fab" aria-label="Notifications" onClick={() => setNotifOpen(true)}>
