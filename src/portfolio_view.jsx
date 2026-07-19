@@ -36,7 +36,8 @@ function WeightBar({ label, value, max, tone, right }) {
 function DiversificationCard({ d }) {
   if (!d) return null;
   const c = d.concentration || {};
-  const sectors = Object.entries(d.by_sector || {});
+  // largest sector first — a ranked read, not a random order
+  const sectors = Object.entries(d.by_sector || {}).sort((a, b) => b[1] - a[1]);
   const maxSec = Math.max(...sectors.map(([, v]) => v), 1);
   const bandTone = { diversified: "good", moderate: "warn", concentrated: "bad" }[c.band] || "plain";
   return (
@@ -51,8 +52,8 @@ function DiversificationCard({ d }) {
         <StatTile label="Largest sector" value={pct(c.top_sector?.weight)} note={c.top_sector?.sector} />
       </div>
       <div className="vg-pf-bars">
-        {sectors.map(([s, v]) => (
-          <WeightBar key={s} label={s} value={v} max={maxSec} tone="accent" />
+        {sectors.map(([s, v], i) => (
+          <WeightBar key={s} label={s} value={v} max={maxSec} tone={i === 0 ? "accent" : "accent-dim"} />
         ))}
       </div>
       {(c.single_name_flags || []).length > 0 && (

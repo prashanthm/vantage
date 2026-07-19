@@ -20,27 +20,36 @@ function ago(iso) {
 }
 const hhmm = (iso) => (iso ? String(iso).slice(11, 16) : "");
 
-// one ranked signal card — reuses the playbook HTF banner styling.
+// one ranked signal card. The setup rationale (h.reason) is identical across all
+// hits of a tier — it names the SETUP TYPE, not the ticker — so it's hoisted into
+// one caption above the grid, and the card shows only what varies: direction (as a
+// colored edge), symbol, the entry→invalid numbers, freshness, and OB-backing.
 function SignalCard({ h, onOpen }) {
-  const isAp = h.tier === "A+";
-  const dir = h.dir === "long" ? 1 : -1;
+  const long = h.dir === "long";
+  const dir = long ? 1 : -1;
   const z = Array.isArray(h.entry_zone) ? h.entry_zone : null;
   return (
-    <button className={cls("vg-scan-card", isAp && "vg-scan-card-ap")}
+    <button className={cls("vg-scan-card", long ? "long" : "short")}
       onClick={() => onOpen && onOpen(h.symbol)}
       title={`open ${h.symbol} chart`}>
       <div className="vg-scan-cardhead">
         <span className="vg-scan-sym">{h.symbol}</span>
-        <span className={cls("vg-scan-tier", isAp && "ap")}>{isAp ? "⚡ A+" : "• B"}</span>
-        <b className={dirCls(dir)}>{String(h.dir || "").toUpperCase()}</b>
-        <span className="vg-scan-age vg-note">setup @ {hhmm(h.as_of)}</span>
+        <b className={cls("vg-scan-dir", dirCls(dir))}>{long ? "LONG" : "SHORT"}</b>
+        {h.ob_backed && <span className="vg-scan-ob" title="order-block backed">OB</span>}
       </div>
-      <div className="vg-scan-cardmeta">
-        {z && <span>entry <b>{z[0]}–{z[1]}</b></span>}
-        <span>invalid <b>{h.invalid}</b></span>
-        {h.ob_backed && <span className="vg-badge info" style={{ fontSize: 9 }}>OB-backed</span>}
+      <div className="vg-scan-nums">
+        <div className="vg-scan-num">
+          <span className="vg-scan-numlbl">entry</span>
+          <span className="vg-scan-numval">{z ? `${z[0]}–${z[1]}` : (h.ce ?? "—")}</span>
+        </div>
+        <div className="vg-scan-num">
+          <span className="vg-scan-numlbl">invalid</span>
+          <span className="vg-scan-numval down">{h.invalid ?? "—"}</span>
+        </div>
       </div>
-      <div className="vg-scan-reason vg-note">{h.reason}</div>
+      <div className="vg-scan-foot vg-note">
+        @ {hhmm(h.as_of)}{h.bars_ago != null ? ` · ${h.bars_ago}h ago` : ""}
+      </div>
     </button>
   );
 }
@@ -146,21 +155,28 @@ export function ScannerView({ onOpenSymbol }) {
       </div>
       {note && <p className="vg-note" style={{ color: "var(--vg-down)", marginBottom: 10 }}>{note}</p>}
 
-      {/* ranked signal cards */}
+      {/* ranked signal cards — the shared setup rationale is captioned once per
+          group (it's identical across a tier's hits), not repeated on every card. */}
       {aplus.length > 0 && (
-        <>
-          <div className="vg-kicker">A+ setups</div>
+        <div className="vg-scan-group">
+          <div className="vg-scan-grouphead">
+            <span className="vg-kicker">A+ setups · {aplus.length}</span>
+            {aplus[0].reason && <span className="vg-scan-rationale">{aplus[0].reason}</span>}
+          </div>
           <div className="vg-scan-grid">
             {aplus.map((h) => <SignalCard key={h.symbol} h={h} onOpen={onOpenSymbol} />)}
           </div>
-        </>)}
+        </div>)}
       {bs.length > 0 && (
-        <>
-          <div className="vg-kicker" style={{ marginTop: 14 }}>B setups</div>
+        <div className="vg-scan-group">
+          <div className="vg-scan-grouphead">
+            <span className="vg-kicker">B setups · {bs.length}</span>
+            {bs[0].reason && <span className="vg-scan-rationale">{bs[0].reason}</span>}
+          </div>
           <div className="vg-scan-grid">
             {bs.map((h) => <SignalCard key={h.symbol} h={h} onOpen={onOpenSymbol} />)}
           </div>
-        </>)}
+        </div>)}
 
       {d && hits.length === 0 && (
         <div className="vg-card" style={{ padding: 18 }}>

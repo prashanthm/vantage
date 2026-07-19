@@ -669,17 +669,16 @@ function DashboardView({
             </div>
             {report.summary && <p style={{ fontSize: 14, lineHeight: 1.55, margin: "10px 0" }}>{report.summary}</p>}
             {report.observations.length > 0 && (
-              <div className="vg-tablewrap">
-                <table className="vg-table">
-                  <tbody>
-                    {report.observations.map((o, i) => (
-                      <tr key={i}>
-                        <td style={{ width: 140 }}><b>{o.topic}</b></td>
-                        <td>{o.detail}{o.source && <div className="vg-note">{o.source}</div>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="vg-advisor-reads">
+                {report.observations.map((o, i) => (
+                  <div key={i} className="vg-advisor-read">
+                    <div className="vg-advisor-topic">{o.topic}</div>
+                    <div className="vg-advisor-detail">
+                      {o.detail}
+                      {o.source && <span className="vg-advisor-src">{o.source}</span>}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             {report.suggestions.length > 0 && (
