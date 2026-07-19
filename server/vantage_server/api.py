@@ -247,19 +247,14 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     # rebalance math has one source. Per-account targets are future work.
     _ALLOC_TARGETS = {"usEquity": 70.0, "intlEquity": 10.0, "bonds": 15.0, "cash": 5.0}
 
-    @app.get("/api/portfolio/analyze")
-    def portfolio_analyze(account: str = Query("all")):
-        """The Portfolio Analyzer roll-up: diversification (sector + concentration/HHI),
-        income (projected dividends + yield), character (weighted beta/PE), and rebalance
-        drift vs the model targets. One call for the whole section. Point-in-time from
-        holdings; returns/equity-curve are the separate /performance endpoint."""
-        from . import portfolio as _pf
+    def _portfolio_ctx(account: str):
+        """Shared context for the portfolio analyzer: positions (jsonable) + the
+        fund_of/closes_of/acct_meta lookups + allocation-by-class. Currency-scoping
+        happens in portfolio.py, not here (positions carry their currency)."""
         from . import fundamentals as _fund
-        check_account(account)
         snap = state.snapshot()
         rows = engine.positions(ds.lots, snap.quotes, account, accounts=ds.accounts)
         positions = to_jsonable(rows)
-        # per-ticker fundamentals, disk-cached (loops read cache; only stale ones fetch).
         _fcache: dict[str, dict | None] = {}
 
         def fund_of(sym: str):
@@ -271,15 +266,57 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                     _fcache[s] = None
             return _fcache[s]
 
+        _ccache: dict[str, list[float] | None] = {}
+
+        def closes_of(sym: str):
+            s = (sym or "").upper()
+            if s not in _ccache:
+                data = store.load_bars(s) or {}
+                daily = data.get("daily") if isinstance(data, dict) else None
+                _ccache[s] = [float(b["close"]) for b in daily
+                              if isinstance(b, dict) and b.get("close") is not None] if daily else None
+            return _ccache[s]
+
+        _ameta = {a.id: {"name": a.name, "broker": store.get_meta(f"broker:{a.id}"),
+                         "currency": a.currency, "taxable": a.taxable, "type": a.type}
+                  for a in ds.accounts}
         alloc = engine.allocation(ds.lots, snap.quotes, account, accounts=ds.accounts)
         by_class = {cls: {"value": v, "pct": (v / alloc.total * 100) if alloc.total else 0.0}
                     for cls, v in alloc.by_class.items()}
-        return envelope(snap, account=account,
-                        diversification=_pf.diversification(positions, fund_of),
-                        income=_pf.income(positions, fund_of),
-                        character=_pf.character(positions, fund_of),
+        return snap, positions, fund_of, closes_of, _ameta.get, by_class, alloc
+
+    @app.get("/api/portfolio/analyze")
+    def portfolio_analyze(account: str = Query("all"), currency: str | None = Query(None)):
+        """The Portfolio Analyzer roll-up: diversification, income, character (all
+        currency-scoped — never cross-summing INR + USD), winners/losers by gain %,
+        per-account concentration, risk (Sharpe/vol/drawdown, data-gated), and rebalance
+        drift. `currency` filters the currency-scoped cards to one bucket; omitted → the
+        dominant bucket, with `currencies` listing all present."""
+        from . import portfolio as _pf
+        check_account(account)
+        snap, positions, fund_of, closes_of, acct_meta, by_class, alloc = _portfolio_ctx(account)
+        ccys = _pf.currencies(positions)
+        ccy = currency if (currency and currency in ccys) else (ccys[0] if ccys else None)
+        return envelope(snap, account=account, currencies=ccys, currency=ccy,
+                        diversification=_pf.diversification(positions, fund_of, currency=ccy),
+                        income=_pf.income(positions, fund_of, currency=ccy),
+                        character=_pf.character(positions, fund_of, currency=ccy),
+                        risk=_pf.risk(positions, closes_of, currency=ccy),
+                        winners_losers=_pf.winners_losers(positions, currency=ccy),
+                        by_account=_pf.by_account(positions, acct_meta),
                         rebalance=_pf.rebalance(by_class, _ALLOC_TARGETS, alloc.total),
                         targets=_ALLOC_TARGETS)
+
+    @app.get("/api/portfolio/snapshot")
+    def portfolio_snapshot(account: str = Query("all")):
+        """The whole 'portfolio DNA' bundle (all currencies at once) — what the Mira
+        portfolio analyst reasons over to produce actions. Read-only."""
+        from . import portfolio as _pf
+        check_account(account)
+        snap, positions, fund_of, closes_of, acct_meta, by_class, alloc = _portfolio_ctx(account)
+        dna = _pf.snapshot(positions, fund_of, closes_of, acct_meta,
+                           by_class, _ALLOC_TARGETS, alloc.total)
+        return envelope(snap, account=account, **dna)
 
     @app.get("/api/portfolio/performance")
     def portfolio_performance(account: str = Query("all")):
