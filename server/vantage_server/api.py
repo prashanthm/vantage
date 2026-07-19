@@ -45,7 +45,13 @@ LOCALHOST_ORIGINS = r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$"
 @dataclass
 class AppState:
     store: Store
-    dataset: Dataset
+
+    @property
+    def dataset(self) -> Dataset:
+        # Reload per access so CSV imports / account edits are visible without a
+        # restart. Same cost as the fresh store.load_lots() /api/accounts already
+        # pays; avoids a stale boot-time snapshot leaking into every ds.lots reader.
+        return self.store.load_dataset()
 
     def snapshot(self) -> QuoteSnapshot:
         # Provider resolved per call so VANTAGE_QUOTES flips without restart
@@ -151,8 +157,16 @@ def _chart_prior_levels(store, bar_sym: str, day: str) -> dict:
 
 def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     store = Store(data_dir)
-    state = AppState(store=store, dataset=store.load_dataset())
-    ds = state.dataset
+    state = AppState(store=store)
+
+    class _LiveDataset:
+        """Forwards attribute reads to a freshly-loaded dataset, so route closures
+        that captured ``ds`` at boot always see current lots/accounts (imports,
+        account edits) instead of a frozen snapshot."""
+        def __getattr__(self, name):
+            return getattr(state.dataset, name)
+
+    ds = _LiveDataset()
 
     app = FastAPI(
         title="Vantage backend",
