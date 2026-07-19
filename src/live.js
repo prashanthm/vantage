@@ -83,9 +83,12 @@ export const positions = (account = "all") =>
   getJson(`${backendBase()}/api/positions?account=${encodeURIComponent(account)}`);
 export const allocation = (account = "all") =>
   getJson(`${backendBase()}/api/allocation?account=${encodeURIComponent(account)}`);
-// Portfolio Analyzer roll-up: diversification + income + character + rebalance.
-export const portfolioAnalyze = (account = "all") =>
-  getJson(`${backendBase()}/api/portfolio/analyze?account=${encodeURIComponent(account)}`, { timeoutMs: 60000 });
+// Portfolio Analyzer roll-up: diversification + income + character + risk +
+// winners/losers + per-account, all currency-scoped. `currency` filters the
+// currency-scoped cards to one bucket (omit → the dominant bucket).
+export const portfolioAnalyze = (account = "all", currency = "") =>
+  getJson(`${backendBase()}/api/portfolio/analyze?account=${encodeURIComponent(account)}` +
+    (currency ? `&currency=${encodeURIComponent(currency)}` : ""), { timeoutMs: 60000 });
 export const portfolioPerformance = (account = "all") =>
   getJson(`${backendBase()}/api/portfolio/performance?account=${encodeURIComponent(account)}`);
 export const lots = (account = "all") =>

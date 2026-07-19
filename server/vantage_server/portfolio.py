@@ -12,18 +12,32 @@ from __future__ import annotations
 from typing import Any, Callable, Sequence
 
 
-def _held(positions: Sequence[Any]) -> list[Any]:
-    """Real equity/cash holdings with a positive value (skip zero/sleeve rows)."""
+def _get(p: Any, key: str, default=None):
+    return p.get(key, default) if isinstance(p, dict) else getattr(p, key, default)
+
+
+def _held(positions: Sequence[Any], currency: str | None = None) -> list[Any]:
+    """Real equity/cash holdings with a positive value (skip zero/sleeve rows).
+    When `currency` is given, keep ONLY that currency's positions — the "never
+    cross-sum" rule: metrics are computed within one currency bucket, never mixed."""
     out = []
     for p in positions:
-        v = _num(getattr(p, "value", None) if not isinstance(p, dict) else p.get("value"))
-        if v and v > 0:
-            out.append(p)
+        v = _num(_get(p, "value"))
+        if not (v and v > 0):
+            continue
+        if currency is not None and str(_get(p, "currency") or "USD") != currency:
+            continue
+        out.append(p)
     return out
 
 
-def _get(p: Any, key: str, default=None):
-    return p.get(key, default) if isinstance(p, dict) else getattr(p, key, default)
+def currencies(positions: Sequence[Any]) -> list[str]:
+    """The distinct currencies present in the book, largest-value bucket first."""
+    tot: dict[str, float] = {}
+    for p in _held(positions):
+        ccy = str(_get(p, "currency") or "USD")
+        tot[ccy] = tot.get(ccy, 0.0) + (_num(_get(p, "value")) or 0.0)
+    return [c for c, _ in sorted(tot.items(), key=lambda kv: -kv[1])]
 
 
 def _num(v) -> float | None:
@@ -34,10 +48,12 @@ def _num(v) -> float | None:
         return None
 
 
-def diversification(positions: Sequence[Any], fund_of: Callable[[str], dict | None]) -> dict:
+def diversification(positions: Sequence[Any], fund_of: Callable[[str], dict | None],
+                    currency: str | None = None) -> dict:
     """Sector + single-name weights and concentration metrics. `fund_of(sym)` returns
-    the ticker's fundamentals ({sector, ...}) or None. Weights are % of total value."""
-    held = _held(positions)
+    the ticker's fundamentals ({sector, ...}) or None. Weights are % of the (optionally
+    currency-scoped) total — never mixing currencies."""
+    held = _held(positions, currency)
     total = sum(_num(_get(p, "value")) or 0.0 for p in held)
     if total <= 0:
         return {"total": 0.0, "by_sector": {}, "top_holdings": [], "concentration": {}}
@@ -80,11 +96,13 @@ def diversification(positions: Sequence[Any], fund_of: Callable[[str], dict | No
     }
 
 
-def income(positions: Sequence[Any], fund_of: Callable[[str], dict | None]) -> dict:
+def income(positions: Sequence[Any], fund_of: Callable[[str], dict | None],
+           currency: str | None = None) -> dict:
     """Projected annual dividend income, portfolio yield, yield-on-cost, and the
     per-holding contribution list. `dividend_yield` from yfinance is a PERCENT number
-    (2.18 = 2.18%), so income = value × yield/100."""
-    held = _held(positions)
+    (2.18 = 2.18%), so income = value × yield/100. Currency-scoped: income is in that
+    bucket's currency (never summing INR + USD dividends)."""
+    held = _held(positions, currency)
     total_val = sum(_num(_get(p, "value")) or 0.0 for p in held)
     total_cost = sum(_num(_get(p, "cost")) or 0.0 for p in held)
     rows = []
@@ -110,10 +128,11 @@ def income(positions: Sequence[Any], fund_of: Callable[[str], dict | None]) -> d
     }
 
 
-def character(positions: Sequence[Any], fund_of: Callable[[str], dict | None]) -> dict:
+def character(positions: Sequence[Any], fund_of: Callable[[str], dict | None],
+              currency: str | None = None) -> dict:
     """Weighted-average portfolio beta + blended P/E (value-weighted over holdings
-    that have the metric; weights renormalized to those with data)."""
-    held = [p for p in _held(positions) if str(_get(p, "symbol") or "").upper() != "CASH"]
+    that have the metric; weights renormalized to those with data). Currency-scoped."""
+    held = [p for p in _held(positions, currency) if str(_get(p, "symbol") or "").upper() != "CASH"]
     total = sum(_num(_get(p, "value")) or 0.0 for p in held)
     if total <= 0:
         return {"beta": None, "pe": None}
@@ -135,6 +154,147 @@ def character(positions: Sequence[Any], fund_of: Callable[[str], dict | None]) -
                 if isinstance(fund_of(str(_get(p, "symbol") or "")) or {}, dict)
                 and _num((fund_of(str(_get(p, "symbol") or "")) or {}).get("beta")) is not None
             ) / total * 100, 1) if total else 0.0}
+
+
+def winners_losers(positions: Sequence[Any], currency: str | None = None, n: int = 5) -> dict:
+    """Rank holdings by unrealized GAIN % (unrealized/cost), not just $. Returns the
+    top/bottom N by % plus the same by $. Currency-scoped (each holding's gain is in
+    its own currency; % is currency-agnostic so cross-currency % ranking is meaningful,
+    but $ ranking stays within a bucket)."""
+    rows = []
+    for p in _held(positions, currency):
+        sym = str(_get(p, "symbol") or "")
+        if sym.upper() == "CASH":
+            continue
+        v = _num(_get(p, "value")) or 0.0
+        cost = _num(_get(p, "cost")) or 0.0
+        unrl = _num(_get(p, "unrealized"))
+        if unrl is None:
+            unrl = v - cost
+        pct = (unrl / cost * 100.0) if cost > 0 else None
+        rows.append({"symbol": sym, "value": round(v, 2), "cost": round(cost, 2),
+                     "unrealized": round(unrl, 2),
+                     "gain_pct": round(pct, 2) if pct is not None else None,
+                     "currency": str(_get(p, "currency") or "USD")})
+    by_pct = [r for r in rows if r["gain_pct"] is not None]
+    by_pct.sort(key=lambda r: r["gain_pct"], reverse=True)
+    by_usd = sorted(rows, key=lambda r: r["unrealized"], reverse=True)
+    return {
+        "winners_pct": by_pct[:n],
+        "losers_pct": list(reversed(by_pct[-n:])) if by_pct else [],
+        "winners_usd": [r for r in by_usd if r["unrealized"] > 0][:n],
+        "losers_usd": [r for r in reversed(by_usd) if r["unrealized"] < 0][:n],
+    }
+
+
+def _returns(closes: Sequence[float]) -> list[float]:
+    """Close-to-close simple daily returns from a price series."""
+    out = []
+    for a, b in zip(closes, closes[1:]):
+        if a and a > 0:
+            out.append(b / a - 1.0)
+    return out
+
+
+def risk(positions: Sequence[Any], closes_of: Callable[[str], list[float] | None],
+         currency: str | None = None, rf_annual: float = 0.0) -> dict:
+    """Portfolio volatility, Sharpe, Sortino, and max drawdown from a value-weighted
+    daily return series. `closes_of(sym)` returns a daily close list (oldest→newest) or
+    None. Data-gated: only holdings WITH bars contribute; `coverage_pct` is the % of the
+    (currency-scoped) book that had data, so a thin series is surfaced honestly, never
+    fabricated. Annualized with 252 trading days."""
+    held = [p for p in _held(positions, currency) if str(_get(p, "symbol") or "").upper() != "CASH"]
+    series: list[tuple[float, list[float]]] = []  # (weight-value, returns)
+    covered = total = 0.0
+    for p in held:
+        v = _num(_get(p, "value")) or 0.0
+        total += v
+        closes = closes_of(str(_get(p, "symbol") or ""))
+        rets = _returns(closes) if closes else []
+        if len(rets) >= 20:  # need a meaningful window
+            series.append((v, rets))
+            covered += v
+    if not series:
+        return {"available": False, "coverage_pct": 0.0,
+                "note": "No stored daily bars for these holdings — seed them to compute risk."}
+
+    # align to the shortest common length (most recent N days), value-weight per day.
+    m = min(len(r) for _, r in series)
+    wsum = sum(w for w, _ in series)
+    port = []
+    for i in range(-m, 0):
+        port.append(sum(w * r[i] for w, r in series) / wsum)
+
+    def _pstdev(xs: list[float]) -> float:
+        # population stdev, computed directly to avoid statistics.pstdev's exact-
+        # fraction path (which raises on plain floats on some CPython builds).
+        if len(xs) < 2:
+            return 0.0
+        mu = sum(xs) / len(xs)
+        return (sum((x - mu) ** 2 for x in xs) / len(xs)) ** 0.5
+
+    mean = sum(port) / len(port)
+    sd = _pstdev(port)
+    downside = [r for r in port if r < 0]
+    dsd = _pstdev(downside)
+    ann = 252 ** 0.5
+    rf_daily = rf_annual / 252.0
+    vol_ann = sd * ann
+    sharpe = ((mean - rf_daily) / sd * ann) if sd > 0 else None
+    sortino = ((mean - rf_daily) / dsd * ann) if dsd > 0 else None
+    # max drawdown on the compounded equity curve of the weighted series.
+    eq, peak, mdd = 1.0, 1.0, 0.0
+    for r in port:
+        eq *= (1.0 + r)
+        peak = max(peak, eq)
+        mdd = min(mdd, eq / peak - 1.0)
+    return {
+        "available": True, "days": m,
+        "coverage_pct": round(covered / total * 100, 1) if total else 0.0,
+        "vol_annual_pct": round(vol_ann * 100, 2),
+        "sharpe": round(sharpe, 2) if sharpe is not None else None,
+        "sortino": round(sortino, 2) if sortino is not None else None,
+        "max_drawdown_pct": round(mdd * 100, 2),
+    }
+
+
+def by_account(positions: Sequence[Any], acct_meta: Callable[[str], dict | None]) -> dict:
+    """Per-account value + concentration, grouped by currency (never cross-summed).
+    `acct_meta(id)` returns {name, broker, currency, taxable, type} or None. Surfaces
+    single-account / single-broker concentration."""
+    # sum value per (account, currency)
+    acc: dict[str, dict] = {}
+    for p in _held(positions):
+        alist = list(_get(p, "accounts") or [])
+        if not alist:
+            continue
+        v = _num(_get(p, "value")) or 0.0
+        ccy = str(_get(p, "currency") or "USD")
+        # a position may span accounts; attribute its value evenly (lots are the true
+        # source but positions are consolidated — even split is the honest approximation
+        # at the position grain).
+        # ponytail: even split across a position's accounts; use lot-level attribution if per-account $ must be exact
+        share = v / len(alist)
+        for a in alist:
+            aid = str(a)
+            d = acc.setdefault(aid, {"account": aid, "by_currency": {}})
+            d["by_currency"][ccy] = d["by_currency"].get(ccy, 0.0) + share
+    rows = []
+    for aid, d in acc.items():
+        meta = acct_meta(aid) or {}
+        rows.append({"account": aid, "name": meta.get("name") or aid,
+                     "broker": meta.get("broker"), "taxable": meta.get("taxable"),
+                     "by_currency": {k: round(v, 2) for k, v in d["by_currency"].items()}})
+    # concentration per currency: top account's share of that currency's total.
+    conc: dict[str, dict] = {}
+    for ccy in {c for r in rows for c in r["by_currency"]}:
+        vals = [(r["account"], r["by_currency"].get(ccy, 0.0)) for r in rows]
+        tot = sum(v for _, v in vals)
+        top = max(vals, key=lambda x: x[1]) if vals else ("", 0.0)
+        conc[ccy] = {"top_account": top[0], "top_pct": round(top[1] / tot * 100, 1) if tot else 0.0,
+                     "n_accounts": sum(1 for _, v in vals if v > 0)}
+    rows.sort(key=lambda r: -sum(r["by_currency"].values()))
+    return {"accounts": rows, "concentration": conc}
 
 
 def realized_gains(history: Sequence[dict], year: int | None = None,
@@ -247,11 +407,41 @@ def rebalance(alloc_by_class: dict[str, dict], targets: dict[str, float], total:
             "in_band": max_drift < 3.0}   # 3% band, same as the existing UI nudge
 
 
+def snapshot(positions: Sequence[Any], fund_of: Callable[[str], dict | None],
+             closes_of: Callable[[str], list[float] | None],
+             acct_meta: Callable[[str], dict | None],
+             alloc_by_class: dict[str, dict], targets: dict[str, float],
+             alloc_total: float) -> dict:
+    """The whole 'portfolio DNA' bundle — one object the Mira portfolio analyst reasons
+    over to produce actions. Per-currency where it matters (diversification/income/
+    character/risk), currency-agnostic where it's a %, plus cross-account concentration.
+    Pure compute; the caller wires fund_of/closes_of/acct_meta/alloc."""
+    ccys = currencies(positions)
+    per_ccy = {
+        c: {
+            "diversification": diversification(positions, fund_of, currency=c),
+            "income": income(positions, fund_of, currency=c),
+            "character": character(positions, fund_of, currency=c),
+            "risk": risk(positions, closes_of, currency=c),
+        }
+        for c in ccys
+    }
+    return {
+        "currencies": ccys,
+        "by_currency": per_ccy,
+        "winners_losers": winners_losers(positions),
+        "by_account": by_account(positions, acct_meta),
+        "rebalance": rebalance(alloc_by_class, targets, alloc_total),
+    }
+
+
 def _demo() -> None:
     """assert-based self-check for the analyzer math (run: python -m vantage_server.portfolio)."""
     class P:
-        def __init__(self, symbol, value, cost=0.0):
-            self.symbol, self.value, self.cost = symbol, value, cost
+        def __init__(self, symbol, value, cost=0.0, currency="USD", unrealized=None, accounts=()):
+            self.symbol, self.value, self.cost, self.currency = symbol, value, cost, currency
+            self.unrealized = value - cost if unrealized is None else unrealized
+            self.accounts = accounts
     pos = [P("AAPL", 6000, 4000), P("MSFT", 3000, 2000), P("CASH", 1000, 1000)]
     # dividend_yield is a PERCENT number (0.5 = 0.5%), matching yfinance.
     fund = {"AAPL": {"sector": "Tech", "beta": 1.2, "dividend_yield": 0.5, "pe": 30},
@@ -292,6 +482,36 @@ def _demo() -> None:
     assert rg["cost_unknown"]["proceeds"] == 200.0, rg["cost_unknown"]   # 4*50
     # tax: 300*.15 + 50*.24 = 45 + 12 = 57
     assert rg["estimated_tax"] == 57.0, rg["estimated_tax"]
+
+    # --- currency scoping: a mixed INR+USD book must NEVER cross-sum ---
+    mixed = [P("AAPL", 6000, 4000, "USD", accounts=("us",)),
+             P("RELIANCE.NS", 160000, 100000, "INR", accounts=("zerodha",))]
+    assert currencies(mixed) == ["INR", "USD"], currencies(mixed)  # INR bucket bigger
+    dz_usd = diversification(mixed, lambda s: {"sector": "Tech"}, currency="USD")
+    assert dz_usd["total"] == 6000.0, dz_usd["total"]  # USD scope only, NOT 166000
+    assert abs(dz_usd["by_sector"]["Tech"] - 100.0) < 0.01  # AAPL is 100% of the USD book
+    dz_inr = diversification(mixed, lambda s: {"sector": "Energy"}, currency="INR")
+    assert dz_inr["total"] == 160000.0  # INR scope only
+
+    # winners/losers by gain % (currency-agnostic %)
+    wl = winners_losers(mixed)
+    top = wl["winners_pct"][0]
+    assert top["symbol"] == "RELIANCE.NS" and top["gain_pct"] == 60.0, top  # 60000/100000
+    assert wl["winners_pct"][1]["symbol"] == "AAPL"  # 2000/4000 = 50%
+
+    # per-account concentration (never cross-summing currencies)
+    ba = by_account(mixed, lambda a: {"name": a.title(), "broker": a})
+    assert ba["concentration"]["USD"]["top_account"] == "us"
+    assert ba["concentration"]["INR"]["top_pct"] == 100.0  # zerodha holds all INR
+
+    # risk: value-weighted returns, Sharpe/vol/drawdown; data-gated
+    up = [100, 101, 102, 101, 103, 104, 103, 105, 106, 107, 106, 108, 109,
+          110, 109, 111, 112, 113, 112, 114, 115]  # 21 closes → 20 returns
+    rk = risk([P("AAPL", 6000, 4000)], lambda s: up)
+    assert rk["available"] and rk["days"] == 20, rk
+    assert rk["vol_annual_pct"] > 0 and rk["max_drawdown_pct"] <= 0, rk
+    rk0 = risk([P("AAPL", 6000, 4000)], lambda s: None)  # no bars → honest empty
+    assert rk0["available"] is False, rk0
     print("ok — portfolio analyzer self-check passed")
 
 

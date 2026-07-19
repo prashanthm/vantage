@@ -99,6 +99,55 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                         by_class=by_class)
 
     @mcp.tool(
+        name="vantage.portfolio_snapshot",
+        annotations=_READ_ONLY,
+        description="The whole 'portfolio DNA' for one account id or 'all': per-currency "
+                    "diversification/concentration (HHI), projected dividend income, "
+                    "value-weighted beta/PE (character), and risk (annualized vol, Sharpe, "
+                    "Sortino, max-drawdown — data-gated with coverage_pct); plus "
+                    "winners/losers by gain %, per-account concentration, and allocation "
+                    "drift vs the model targets. Currencies are NEVER cross-summed. This "
+                    "is the input a portfolio analyst reasons over to produce actions.",
+    )
+    def portfolio_snapshot(account: str = "all") -> dict:
+        from vantage_server import portfolio as _pf  # noqa: PLC0415
+        from vantage_server import fundamentals as _fund  # noqa: PLC0415
+        snap = snapshot()
+        rows = engine.positions(dataset.lots, snap.quotes, account, accounts=dataset.accounts)
+        positions = to_jsonable(rows)
+
+        _fc: dict[str, dict | None] = {}
+        def fund_of(sym: str):
+            s = (sym or "").upper()
+            if s not in _fc:
+                try:
+                    _fc[s] = _fund.fundamentals(s, store.data_dir)
+                except Exception:  # noqa: BLE001
+                    _fc[s] = None
+            return _fc[s]
+
+        _cc: dict[str, list[float] | None] = {}
+        def closes_of(sym: str):
+            s = (sym or "").upper()
+            if s not in _cc:
+                data = store.load_bars(s) or {}
+                daily = data.get("daily") if isinstance(data, dict) else None
+                _cc[s] = [float(b["close"]) for b in daily
+                          if isinstance(b, dict) and b.get("close") is not None] if daily else None
+            return _cc[s]
+
+        ameta = {a.id: {"name": a.name, "broker": store.get_meta(f"broker:{a.id}"),
+                        "currency": a.currency, "taxable": a.taxable, "type": a.type}
+                 for a in dataset.accounts}
+        targets = {"usEquity": 70.0, "intlEquity": 10.0, "bonds": 15.0, "cash": 5.0}
+        alloc = engine.allocation(dataset.lots, snap.quotes, account, accounts=dataset.accounts)
+        by_class = {cls: {"value": v, "pct": (v / alloc.total * 100) if alloc.total else 0.0}
+                    for cls, v in alloc.by_class.items()}
+        dna = _pf.snapshot(positions, fund_of, closes_of, ameta.get,
+                           by_class, targets, alloc.total)
+        return envelope("portfolio_snapshot", snap, account=account, **dna)
+
+    @mcp.tool(
         name="vantage.wash_status",
         annotations=_READ_ONLY,
         description="Cross-account wash-sale status (30-day window, substantially-"
