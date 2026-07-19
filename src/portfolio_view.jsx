@@ -6,10 +6,11 @@
 // reads the DNA and returns recommended actions. One /api/portfolio/analyze call
 // feeds the cards; the account scope comes from the app rail, currency from a toggle.
 import { cls, LoadBar, StatTile, usd, signPct, dirCls } from "./util.jsx";
-import { useLive, portfolioAnalyze, portfolioPerformance, streamTurn } from "./live.js";
+import { useLive, portfolioAnalyze, portfolioPerformance } from "./live.js";
 import { MiraRender } from "./mira-render.jsx";
+import { useStreamTurn } from "./use_stream_turn.js";
 
-const { useState, useCallback, useRef, useEffect } = React;
+const { useState } = React;
 
 const pct = (n, d = 1) => (n == null ? "—" : `${Number(n).toFixed(d)}%`);
 // money in a bucket's own currency (INR gets lakh/crore grouping via toLocaleString).
@@ -214,29 +215,12 @@ function PerformanceCard({ account }) {
 // Mira reads the whole portfolio DNA and returns a health read + recommended ACTIONS.
 // Same streamTurn + PORTFOLIO_SNAPSHOT_REF pattern as the chart's forecast pane.
 function AnalyzePane({ account }) {
-  const [state, setState] = useState(null); // {loading} | {text} | {error}
-  const abortRef = useRef(null);
-  useEffect(() => () => { if (abortRef.current) abortRef.current(); }, []);
-  // a new account scope invalidates the prior read.
-  useEffect(() => { setState(null); }, [account]);
-
-  const run = useCallback(() => {
-    setState({ loading: true, text: "" });
+  const { state, run: runTurn } = useStreamTurn([account]);
+  const run = () => {
     const ref = `PORTFOLIO_SNAPSHOT_REF account=${account}`;
     const prompt = `Analyze my portfolio and give me recommended actions. Read the DNA — currencies are separate books, never combine them — and end in concrete, sized actions (trim / harvest / rebalance / diversify).\n${ref}`;
-    let text = "";
-    abortRef.current = streamTurn(prompt, `portfolio-${account}`, (evt) => {
-      if (evt.kind === "error") { setState({ error: evt.text || "Mira failed." }); abortRef.current = null; return; }
-      if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
-        text += evt.text; setState({ loading: true, text }); return;
-      }
-      if (evt.kind === "done") {
-        abortRef.current = null;
-        if (evt.text && !text) text = evt.text;
-        setState({ text });
-      }
-    });
-  }, [account]);
+    runTurn(prompt, `portfolio-${account}`);
+  };
 
   return (
     <div className="vg-card vg-pf-card vg-pf-analyze">

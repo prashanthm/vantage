@@ -11,9 +11,9 @@
 // calls Mira per step) is intentionally NOT here.
 import { cls, LoadBar } from "./util.jsx";
 import { useLive, getReplayRuns, getReplayRun, scoreSpxForecast,
-  planReplay, getSpxSnapshot, saveSpxForecast, scoreReplay, calibrateReplay,
-  streamTurn } from "./live.js";
-import { parseMira, MiraRender } from "./mira-render.jsx";
+  planReplay, getSpxSnapshot, saveSpxForecast, scoreReplay, calibrateReplay } from "./live.js";
+import { MiraRender } from "./mira-render.jsx";
+import { collectTurn } from "./use_stream_turn.js";
 
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -118,20 +118,15 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
     getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
       const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
       if (!snapshot) { resolve(false); return; }
-      let text = "";
       const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
       const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).\n${ref}`;
-      abortRef.current = streamTurn(prompt, `replay-${symbol}-${day}-${asOf}`, (evt) => {
-        if (evt.kind === "error") { resolve(false); return; }
-        if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) { text += evt.text; return; }
-        if (evt.kind === "done") {
-          abortRef.current = null;
-          if (evt.text && !text) text = evt.text;
-          const data = parseMira(text);
-          saveSpxForecast({ day, as_of: asOf, symbol, snapshot, forecast: data || null,
-            forecast_text: text, run_id: rid })
-            .then(() => resolve(true)).catch(() => resolve(false));
-        }
+      collectTurn(prompt, `replay-${symbol}-${day}-${asOf}`, {
+        setAbort: (fn) => { abortRef.current = fn; },
+      }).then(({ text, data, error }) => {
+        if (error && !text) { resolve(false); return; }
+        saveSpxForecast({ day, as_of: asOf, symbol, snapshot, forecast: data || null,
+          forecast_text: text, run_id: rid })
+          .then(() => resolve(true)).catch(() => resolve(false));
       });
     }).catch(() => resolve(false));
   }), [symbol]);
@@ -188,22 +183,16 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
     if (!runId) return;
     setGrade({ loading: true, text: "" }); setGradeOpen(true);
     calibrateReplay(runId).then(() => {
-      let text = "";
       const ref = `FORECAST_GRADE_REF run_id=${runId}`;
       const prompt = `Grade this replay forecast run — how did the analyst's read evolve through the day? Read the code-computed scores and narrate them.\n${ref}`;
-      abortRef.current = streamTurn(prompt, `grade-${runId}`, (evt) => {
-        if (evt.kind === "error") { setGrade({ error: evt.message || "Mira error" }); return; }
-        if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
-          text += evt.text; setGrade({ loading: true, text }); return;
-        }
-        if (evt.kind === "done") {
-          abortRef.current = null;
-          if (evt.text && !text) text = evt.text;
-          const data = parseMira(text);
-          setGrade({ text, data });
-          const narrative = (data && data.headline) || (text || "").replace(/\s+/g, " ").slice(0, 800) || null;
-          calibrateReplay(runId, { narrative }).then(() => setNonce((x) => x + 1)).catch(() => setNonce((x) => x + 1));
-        }
+      collectTurn(prompt, `grade-${runId}`, {
+        onToken: (text) => setGrade({ loading: true, text }),
+        setAbort: (fn) => { abortRef.current = fn; },
+      }).then(({ text, data, error }) => {
+        if (error && !text) { setGrade({ error }); return; }
+        setGrade({ text, data });
+        const narrative = (data && data.headline) || (text || "").replace(/\s+/g, " ").slice(0, 800) || null;
+        calibrateReplay(runId, { narrative }).then(() => setNonce((x) => x + 1)).catch(() => setNonce((x) => x + 1));
       });
     }).catch((e) => setGrade({ error: String((e && e.message) || e) }));
   }, [runId]);
