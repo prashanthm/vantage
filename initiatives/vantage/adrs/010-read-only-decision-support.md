@@ -118,3 +118,15 @@ amending this ADR first.
   ratchet) without operator initiation; it can never open exposure. Driven
   by swing-trading need + the live-verified Robinhood constraint that a stop
   and a take-profit cannot rest simultaneously (no OCO on the agentic API).
+- **v4 (2026-07-19):** autonomous strategy lifecycle on a SECOND broker
+  (Alpaca) — see [ADR-015](015-autonomous-strategy-lifecycle.md). This is the
+  first widening that sanctions **autonomous opening of exposure** (v2/v3 kept
+  entry operator-initiated). A registered strategy validated on Alpaca paper,
+  which beats its frozen backtest baseline, may be **manually promoted** to a
+  live cash/margin account where it opens AND closes real Alpaca orders
+  (incl. multi-leg options) autonomously — only within four hard gates
+  (kill switch + `VANTAGE_AUTONOMOUS_OK`, per-strategy caps, manual promotion,
+  immutable audit log). Robinhood's carve-out (v2/v3) is untouched and
+  independent; Alpaca's path is a separate module with its own frozen
+  allowlist. ADR-015 carries the full constraints; this entry records the
+  widening.
