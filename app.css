@@ -1136,6 +1136,14 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   border-radius: 5px; padding: 3px 6px; }
 .vg-rp-genprog { display: flex; align-items: center; gap: 10px; }
 .vg-rp-gennote { padding: 0; color: var(--vg-down); }
+/* forecast-now section (on-demand forecast + priors) atop the panel */
+.vg-rp-forecast { border-bottom: 1px solid var(--vg-hairline); padding: 8px 0; }
+.vg-rp-fchead { display: flex; align-items: center; gap: 8px; padding: 0 14px 6px; }
+.vg-rp-fclabel { font: 600 11px/1 var(--vg-font-ui); letter-spacing: 0.04em;
+  text-transform: uppercase; color: var(--vg-dim); }
+.vg-rp-fcread { padding: 2px 14px 8px; }
+.vg-rp-priors { display: flex; flex-direction: column; }
+.vg-rp-priorlbl { padding: 6px 14px 2px; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
 /* run-level analysis (grade) block atop the calls */
 .vg-rp-gradeblock { border-bottom: 1px solid var(--vg-hairline); }
 .vg-rp-gradehead { display: flex; align-items: center; gap: 8px; padding: 8px 14px; }

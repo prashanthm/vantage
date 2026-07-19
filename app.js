@@ -5054,6 +5054,53 @@ ${ref}`;
       stopRef.current = true;
       if (abortRef.current) abortRef.current();
     }, []);
+    const [fc, setFc] = useState9(null);
+    const canForecast = REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase());
+    const priorsQ = useLive(
+      () => canForecast ? getSpxForecasts(void 0, symbol, 20) : Promise.resolve(null),
+      null,
+      [symbol, nonce, canForecast]
+    );
+    const priors = priorsQ.data && priorsQ.data.forecasts || [];
+    const forecastNow = useCallback3(() => {
+      if (!canForecast) return;
+      setFc({ loading: true, text: "" });
+      refreshSpx(symbol).then((r) => {
+        const day = r && r.available && r.day || (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+        const asOf = r && r.available && r.as_of || void 0;
+        return getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
+          const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
+          if (!snapshot) {
+            setFc({ error: `No snapshot for ${symbol} \u2014 try again during market hours.` });
+            return;
+          }
+          const ref = `SPX_SNAPSHOT_REF day=${snapshot.day} as_of=${snapshot.as_of} underlying=${symbol}`;
+          const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
+${ref}`;
+          return collectTurn(prompt, `forecast-${symbol}-${snapshot.as_of}`, {
+            onToken: (text) => setFc({ loading: true, text }),
+            setAbort: (fn) => {
+              abortRef.current = fn;
+            }
+          }).then(({ text, data, error }) => {
+            if (error && !text) {
+              setFc({ error });
+              return;
+            }
+            setFc({ text, data });
+            saveSpxForecast({
+              day: snapshot.day,
+              as_of: snapshot.as_of,
+              symbol,
+              snapshot,
+              forecast: data || null,
+              forecast_text: text
+            }).then(() => setNonce((n) => n + 1)).catch(() => {
+            });
+          });
+        });
+      }).catch((e) => setFc({ error: String(e && e.message || e) }));
+    }, [symbol, canForecast]);
     const forecastStep = useCallback3((asOf, rid, day) => new Promise((resolve) => {
       getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
         const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
@@ -5178,6 +5225,26 @@ ${ref}`;
     }, [runId]);
     const genBusy = gen && (gen.status === "planning" || gen.status === "running");
     const gradeText = grade && grade.text || cal && cal.narrative || null;
+    const forecastControls = canForecast && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-forecast" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-fchead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-fclabel" }, "Forecast \xB7 ", symbol), fc && fc.loading ? /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto" } }, "forecasting\u2026") : /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm on",
+        style: { marginLeft: "auto" },
+        onClick: forecastNow,
+        title: `Forecast ${symbol} from now \u2014 calls Mira`
+      },
+      "\u{1F52E} Forecast now"
+    )), fc && fc.loading && !fc.text && /* @__PURE__ */ React.createElement(LoadBar, null), fc && fc.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gennote" }, fc.error), fc && fc.text && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-fcread" }, /* @__PURE__ */ React.createElement(MiraRender, { data: fc.data, text: fc.text })), priors.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-priors" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note vg-rp-priorlbl" }, "Prior forecasts"), priors.map((f) => /* @__PURE__ */ React.createElement(
+      CallRow,
+      {
+        key: f.id,
+        f,
+        onScore: score,
+        scoring,
+        active: activeCallId === f.id,
+        onActivate: setActiveCallId
+      }
+    ))));
     const genControls = /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gen" }, !showGen && !genBusy && /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setShowGen(true) }, "\uFF0B New replay"), showGen && !genBusy && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-genform" }, /* @__PURE__ */ React.createElement(
       "input",
       {
@@ -5197,7 +5264,7 @@ ${ref}`;
       "Generate"
     ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setShowGen(false) }, "cancel")), genBusy && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-genprog" }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, gen.status === "planning" ? "planning\u2026" : `forecasting ${gen.done}/${gen.total}${gen.at ? ` \xB7 ${gen.at}` : ""}`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: stopGen }, "Stop")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gennote" }, note));
     if (!runs.length) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Replay \xB7 ", symbol)), genControls, !REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "Replay needs a coach snapshot \u2014 SPX / QQQ / IWM."), REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && !genBusy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "No saved runs for ", symbol, ". Generate one \u2014 it steps the day and forecasts at each interval."));
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Chart \xB7 ", symbol)), forecastControls, genControls, !REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "Replay needs a coach snapshot \u2014 SPX / QQQ / IWM."), REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && !genBusy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "No saved runs for ", symbol, ". Generate one \u2014 it steps the day and forecasts at each interval."));
     }
     return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Replay \xB7 ", symbol), /* @__PURE__ */ React.createElement(
       "select",
@@ -5210,7 +5277,7 @@ ${ref}`;
         }
       },
       runs.map((r, i) => /* @__PURE__ */ React.createElement("option", { key: r.run_id, value: r.run_id }, r.day, i === 0 ? " (latest)" : "", " \xB7 ", r.n, " calls", r.n_scored ? ` \xB7 ${r.n_scored} scored` : ""))
-    )), genControls, runsQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), runId && runQ.loading && !genBusy && /* @__PURE__ */ React.createElement(LoadBar, null), detail && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-day" }, detail.forecasts[0] && detail.forecasts[0].day), /* @__PURE__ */ React.createElement("span", { className: "vg-rp-stat" }, forecasts.length, " calls \xB7 ", scored.length, " scored"), hitRate != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", hitRate >= 50 ? "good" : "bad") }, hitRate, "% hit")), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradeblock" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradehead" }, /* @__PURE__ */ React.createElement(
+    )), forecastControls, genControls, runsQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), runId && runQ.loading && !genBusy && /* @__PURE__ */ React.createElement(LoadBar, null), detail && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-day" }, detail.forecasts[0] && detail.forecasts[0].day), /* @__PURE__ */ React.createElement("span", { className: "vg-rp-stat" }, forecasts.length, " calls \xB7 ", scored.length, " scored"), hitRate != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", hitRate >= 50 ? "good" : "bad") }, hitRate, "% hit")), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradeblock" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradehead" }, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: "vg-rp-gradelabel",

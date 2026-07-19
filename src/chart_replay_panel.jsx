@@ -11,7 +11,8 @@
 // calls Mira per step) is intentionally NOT here.
 import { cls, LoadBar } from "./util.jsx";
 import { useLive, getReplayRuns, getReplayRun, scoreSpxForecast,
-  planReplay, getSpxSnapshot, saveSpxForecast, scoreReplay, calibrateReplay } from "./live.js";
+  planReplay, getSpxSnapshot, saveSpxForecast, scoreReplay, calibrateReplay,
+  getSpxForecasts, refreshSpx } from "./live.js";
 import { MiraRender } from "./mira-render.jsx";
 import { collectTurn } from "./use_stream_turn.js";
 
@@ -114,6 +115,44 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
   const abortRef = useRef(null);
   useEffect(() => () => { stopRef.current = true; if (abortRef.current) abortRef.current(); }, []);
 
+  // ── FORECAST NOW (one-shot, as_of=now) — ported from the 0DTE Playbook rail ──
+  // The chart-first counterpart to a whole-day replay: refresh today's bars, ask the
+  // analyst "what will price do from here?", save + score it. Priors accrue in a list
+  // (reusing CallRow). Only for symbols with a coach snapshot (REPLAY_SYMBOLS).
+  const [fc, setFc] = useState(null);   // {loading,text} | {text,data} | {error}
+  const canForecast = REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase());
+  const priorsQ = useLive(
+    () => (canForecast ? getSpxForecasts(undefined, symbol, 20) : Promise.resolve(null)),
+    null, [symbol, nonce, canForecast],
+  );
+  const priors = (priorsQ.data && priorsQ.data.forecasts) || [];
+
+  const forecastNow = useCallback(() => {
+    if (!canForecast) return;
+    setFc({ loading: true, text: "" });
+    // refresh-then-forecast so the read is current at the moment you ask.
+    refreshSpx(symbol).then((r) => {
+      const day = (r && r.available && r.day) || new Date().toISOString().slice(0, 10);
+      const asOf = (r && r.available && r.as_of) || undefined;
+      return getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
+        const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
+        if (!snapshot) { setFc({ error: `No snapshot for ${symbol} — try again during market hours.` }); return; }
+        const ref = `SPX_SNAPSHOT_REF day=${snapshot.day} as_of=${snapshot.as_of} underlying=${symbol}`;
+        const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).\n${ref}`;
+        return collectTurn(prompt, `forecast-${symbol}-${snapshot.as_of}`, {
+          onToken: (text) => setFc({ loading: true, text }),
+          setAbort: (fn) => { abortRef.current = fn; },
+        }).then(({ text, data, error }) => {
+          if (error && !text) { setFc({ error }); return; }
+          setFc({ text, data });
+          saveSpxForecast({ day: snapshot.day, as_of: snapshot.as_of, symbol, snapshot,
+            forecast: data || null, forecast_text: text })
+            .then(() => setNonce((n) => n + 1)).catch(() => {});
+        });
+      });
+    }).catch((e) => setFc({ error: String((e && e.message) || e) }));
+  }, [symbol, canForecast]);
+
   const forecastStep = useCallback((asOf, rid, day) => new Promise((resolve) => {
     getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
       const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
@@ -202,6 +241,33 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
   const gradeText = (grade && grade.text) || (cal && cal.narrative) || null;
 
   // the "new replay" controls + generate progress — shown whether or not runs exist.
+  // Forecast-now section: a one-shot "what will price do?" + the prior forecasts,
+  // each with its accuracy score (reusing CallRow). The chart-first home for the
+  // on-demand forecast the old Playbook rail used to own.
+  const forecastControls = canForecast && (
+    <div className="vg-rp-forecast">
+      <div className="vg-rp-fchead">
+        <span className="vg-rp-fclabel">Forecast · {symbol}</span>
+        {(fc && fc.loading)
+          ? <span className="vg-note" style={{ marginLeft: "auto" }}>forecasting…</span>
+          : <button className="vg-btn-sm on" style={{ marginLeft: "auto" }}
+              onClick={forecastNow} title={`Forecast ${symbol} from now — calls Mira`}>
+              🔮 Forecast now
+            </button>}
+      </div>
+      {fc && fc.loading && !fc.text && <LoadBar />}
+      {fc && fc.error && <p className="vg-note vg-rp-gennote">{fc.error}</p>}
+      {fc && fc.text && <div className="vg-rp-fcread"><MiraRender data={fc.data} text={fc.text} /></div>}
+      {priors.length > 0 && (
+        <div className="vg-rp-priors">
+          <div className="vg-note vg-rp-priorlbl">Prior forecasts</div>
+          {priors.map((f) => (
+            <CallRow key={f.id} f={f} onScore={score} scoring={scoring}
+              active={activeCallId === f.id} onActivate={setActiveCallId} />
+          ))}
+        </div>)}
+    </div>);
+
   const genControls = (
     <div className="vg-rp-gen">
       {!showGen && !genBusy && (
@@ -234,7 +300,8 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
   if (!runs.length) {
     return (
       <div className="vg-rp">
-        <div className="vg-rp-head"><span className="vg-rp-title">Replay · {symbol}</span></div>
+        <div className="vg-rp-head"><span className="vg-rp-title">Chart · {symbol}</span></div>
+        {forecastControls}
         {genControls}
         {!REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && (
           <p className="vg-note" style={{ padding: "4px 14px" }}>
@@ -260,6 +327,7 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
         </select>
       </div>
 
+      {forecastControls}
       {genControls}
       {runsQ.loading && <LoadBar />}
 
