@@ -695,6 +695,13 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-pb-tileval.bad { color: var(--vg-down); }
 .vg-pb-tileval.warn { color: var(--vg-warn); }
 .vg-pb-catalyst { padding: 8px 12px; border-radius: var(--vg-r-sm); background: var(--vg-warn-soft); color: var(--vg-warn); font-size: var(--vg-text-md); }
+/* Market context card — breadth / VIX term structure / sectors / intermarket */
+.vg-mc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.vg-mc-block { background: var(--vg-card); border-radius: var(--vg-r-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; }
+.vg-mc-hd { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--vg-note); }
+.vg-mc-big { font-size: 17px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.vg-mc-edge { font-size: 11px; line-height: 1.4; color: var(--vg-note); margin-top: 2px; border-top: 1px solid var(--vg-rule); padding-top: 4px; }
+.vg-mc-im { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
 .vg-pb-narrative { font-size: 14px; line-height: 1.6; margin-top: 8px; }
 .vg-pb-setup { border-left: 2px solid var(--vg-rule); padding: 6px 0 6px 10px; }
 .vg-pb-trigger { font-weight: 700; font-size: var(--vg-text-md); margin-bottom: 2px; }

@@ -138,6 +138,11 @@ export function PlaybookView({ refreshNonce }) {
         )}
       </div>
 
+      {/* ---- market context: breadth · VIX term structure · sectors · intermarket ---- */}
+      {p && (reg.breadth_pct_above_50ma != null || reg.vix != null || reg.intermarket) && (
+        <MarketContextCard reg={reg} sectors={(p && p.sectors) || []} />
+      )}
+
       {/* ---- plain-English explanation of today's regime + how to trade it ---- */}
       {p && reg.gamma && (
         <PlainEnglish reg={reg} keyLevels={keyLevels} />
@@ -325,6 +330,86 @@ function SummaryTile({ label, value, tone }) {
     <div className="vg-pb-tile">
       <div className="vg-note" style={{ fontSize: 11 }}>{label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
+    </div>
+  );
+}
+
+// Market context — the native breadth / VIX-term-structure / sector / intermarket
+// read (market_context.py). The two backtested edges (goal market-context-native)
+// ride along as one-line "what this implies for tomorrow" notes.
+function MarketContextCard({ reg, sectors }) {
+  const pct = (v) => (v == null ? "—" : `${v > 0 ? "+" : ""}${v.toFixed(2)}%`);
+  const breadth = reg.breadth_pct_above_50ma;
+  // edge (H4): low breadth <40% → wider next-day range + mean-reversion bounce.
+  const breadthNote = breadth == null ? null
+    : breadth < 40 ? "Narrow tape — backtests show a wider, mean-reversion-prone next day."
+      : breadth > 60 ? "Broad participation — historically a calmer, tighter next day."
+        : "Mixed breadth.";
+  const stance = reg.vix_term_stance;
+  // edge (H2): backwardation → ~2.3x wider next-day SPX range (mostly high-VIX).
+  const termNote = !stance ? null
+    : stance === "backwardation"
+      ? "Front-month stress — backtests show a materially wider next-day range."
+      : "Term structure calm (contango).";
+  const im = reg.intermarket || {};
+  const imRow = (label, o) => (o && typeof o === "object"
+    ? <div key={label} className="vg-mc-im">
+        <span className="vg-note" style={{ fontSize: 11 }}>{label}</span>
+        <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{o.level}</span>
+        <span className={cls("vg-badge", o.chg_pct >= 0 ? "good" : "bad")} style={{ fontSize: 11 }}>
+          {pct(o.chg_pct)}
+        </span>
+      </div> : null);
+  const lead = sectors && sectors[0];
+  const lag = sectors && sectors.length > 1 && sectors[sectors.length - 1];
+  return (
+    <div className="vg-card">
+      <div className="vg-kicker">Market context</div>
+      <div className="vg-note" style={{ fontSize: 11, margin: "2px 0 10px" }}>
+        The whole-market read behind today's bias — breadth, volatility term structure,
+        sector rotation, and the cross-asset backdrop. Context only (ADR-008).
+      </div>
+      <div className="vg-mc-grid">
+        {breadth != null && (
+          <div className="vg-mc-block">
+            <div className="vg-mc-hd">Breadth</div>
+            <div className="vg-mc-big">{breadth}% <span className="vg-note" style={{ fontSize: 11 }}>above 50-day</span></div>
+            <div className="vg-note" style={{ fontSize: 11 }}>
+              A/D {reg.breadth_ad_ratio ?? "—"}
+            </div>
+            {breadthNote && <div className="vg-mc-edge">{breadthNote}</div>}
+          </div>
+        )}
+        {reg.vix != null && (
+          <div className="vg-mc-block">
+            <div className="vg-mc-hd">Volatility</div>
+            <div className="vg-mc-big">VIX {fmtP(reg.vix)} <span className="vg-note" style={{ fontSize: 11 }}>{reg.vix_band || ""}</span></div>
+            {stance && (
+              <div className="vg-note" style={{ fontSize: 11 }}>
+                term structure {stance}{reg.vix_contango != null ? ` (${reg.vix_contango > 0 ? "+" : ""}${reg.vix_contango} vs VIX3M)` : ""}
+              </div>
+            )}
+            {termNote && <div className="vg-mc-edge">{termNote}</div>}
+          </div>
+        )}
+        {lead && (
+          <div className="vg-mc-block">
+            <div className="vg-mc-hd">Sector rotation</div>
+            <div style={{ fontSize: 13 }}>
+              ▲ {lead.name} <span className="vg-note">{lead.ret_20d_pct != null ? `+${lead.ret_20d_pct}% 20d` : ""}</span>
+            </div>
+            {lag && <div style={{ fontSize: 13 }}>
+              ▼ {lag.name} <span className="vg-note">{lag.ret_20d_pct != null ? `${lag.ret_20d_pct}% 20d` : ""}</span>
+            </div>}
+          </div>
+        )}
+        {im.available && (
+          <div className="vg-mc-block">
+            <div className="vg-mc-hd">Intermarket</div>
+            {[["DXY", im.dxy], ["10Y", im.tnx], ["Oil", im.oil], ["Gold", im.gold]].map(([l, o]) => imRow(l, o))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

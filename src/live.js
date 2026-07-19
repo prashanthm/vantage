@@ -1189,6 +1189,8 @@ export function mapPlaybook(p) {
     session: p.session || s.session || null,
     narrative: p.narrative || p.draft || null,
     regime: s.regime || {},
+    // sector rotation (market_context) — ranked by 20d return for the Market context card
+    sectors: Array.isArray(s.sectors) ? s.sectors : [],
     levelLadder: Array.isArray(s.level_ladder) ? s.level_ladder : [],
     setups: Array.isArray(s.setups) ? s.setups : [],
     // durable memory levels (respected across many sessions) + confluence zones
