@@ -1710,6 +1710,87 @@ class Store:
                 tuple(fields[k] for k in keys) + (pos_id,))
             return cur.rowcount > 0
 
+    # ── strategy lifecycle (ADR-015) ─────────────────────────────────────────
+
+    def load_lifecycle(self, strategy_id: str | None = None) -> list[dict]:
+        """Lifecycle rows (all, or one by id). JSON fields decoded to dicts."""
+        if not self.uses_sqlite:
+            return []
+        import json as _json
+        conn = self._backend._conn()
+        try:
+            if strategy_id:
+                rows = conn.execute(
+                    "SELECT * FROM strategy_lifecycle WHERE strategy_id=?",
+                    (strategy_id,)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM strategy_lifecycle ORDER BY strategy_id").fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["caps"] = _json.loads(d["caps"]) if d.get("caps") else {}
+            out.append(d)
+        return out
+
+    def upsert_lifecycle(self, strategy_id: str, **fields) -> None:
+        """Insert or update one strategy's lifecycle row. `caps` (a dict) is
+        JSON-encoded. `updated_at` is stamped by the caller (deterministic clock
+        discipline — no clock in the store)."""
+        import json as _json
+        if "caps" in fields and fields["caps"] is not None:
+            fields["caps"] = _json.dumps(fields["caps"])
+        cols = ["strategy_id"] + sorted(fields)
+        vals = [strategy_id] + [fields[k] for k in sorted(fields)]
+        placeholders = ", ".join("?" for _ in cols)
+        updates = ", ".join(f"{k}=excluded.{k}" for k in sorted(fields))
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                f"INSERT INTO strategy_lifecycle ({', '.join(cols)}) "
+                f"VALUES ({placeholders}) "
+                f"ON CONFLICT(strategy_id) DO UPDATE SET {updates}",
+                vals)
+
+    def append_audit(self, rec: dict) -> None:
+        """Append ONE row to the immutable strategy audit log (ADR-015 gate 4).
+        Never updates or deletes — append-only. `rec` carries at/strategy_id/
+        mode/reason/order/gates/order_id."""
+        import json as _json
+        with self._sqlite_txn() as conn:
+            conn.execute(
+                "INSERT INTO strategy_audit (at, strategy_id, mode, reason, "
+                "order_json, gates_json, order_id) VALUES (?,?,?,?,?,?,?)",
+                (rec.get("at"), rec.get("strategy_id"), rec.get("mode"),
+                 rec.get("reason"), _json.dumps(rec.get("order") or {}),
+                 _json.dumps(rec.get("gates") or {}), rec.get("order_id")))
+
+    def load_audit(self, strategy_id: str | None = None, limit: int = 200) -> list[dict]:
+        """The audit trail (newest first), optionally per strategy."""
+        if not self.uses_sqlite:
+            return []
+        import json as _json
+        conn = self._backend._conn()
+        try:
+            if strategy_id:
+                rows = conn.execute(
+                    "SELECT * FROM strategy_audit WHERE strategy_id=? "
+                    "ORDER BY id DESC LIMIT ?", (strategy_id, limit)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM strategy_audit ORDER BY id DESC LIMIT ?",
+                    (limit,)).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["order"] = _json.loads(d.pop("order_json") or "{}")
+            d["gates"] = _json.loads(d.pop("gates_json") or "{}")
+            out.append(d)
+        return out
+
     # ── nightly pipeline snapshots ───────────────────────────────────────────
 
     def record_nightly_run(self, run: dict) -> int:
