@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Reboot-persistent launcher for the autonomous strategy driver (ADR-015).
+  Mirrors the existing com.pmuniraju.vantage.signalbot LaunchAgent.
+
+  Install (starts now + on every login/reboot; KeepAlive restarts it if it dies):
+    cp deploy/com.pmuniraju.vantage.autonomous.plist ~/Library/LaunchAgents/
+    launchctl load  ~/Library/LaunchAgents/com.pmuniraju.vantage.autonomous.plist
+  Stop / uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.pmuniraju.vantage.autonomous.plist
+
+  Safety unchanged: the loop only drives PROMOTED-live strategies, and every
+  order is dry-run unless the backend's VANTAGE_LIVE_OK + VANTAGE_AUTONOMOUS_OK
+  are set and /data/AUTONOMOUS_KILL is absent.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pmuniraju.vantage.autonomous</string>
+  <key>ProgramArguments</key>
+  <array><string>/Users/pmuniraju/personal/vantage/deploy/autonomous-loop.sh</string></array>
+  <key>WorkingDirectory</key><string>/Users/pmuniraju/personal/vantage</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>30</integer>
+  <key>StandardOutPath</key><string>/Users/pmuniraju/personal/vantage/logs/autonomous-loop.log</string>
+  <key>StandardErrorPath</key><string>/Users/pmuniraju/personal/vantage/logs/autonomous-loop.log</string>
+</dict>
+</plist>
