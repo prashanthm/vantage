@@ -62,6 +62,45 @@ def _is_displacement(cl, op, formed_i, hatr):
     return hatr and abs(cl[mid] - op[mid]) > DISP_MULT * hatr
 
 
+def _draw_pool(hi, lo, i, direction, entry, piv=2):
+    """The draw-on-liquidity target: nearest unswept opposing pivot pool beyond
+    entry in the trade direction (buyside pool above for a long, sellside below
+    for a short). None if no pool sits on the profit side."""
+    bsl, ssl = _pivot_pools_before(hi, lo, i, piv)
+    if direction > 0:
+        above = [p for _, p in bsl if p > entry]
+        return min(above) if above else None
+    below = [p for _, p in ssl if p < entry]
+    return max(below) if below else None
+
+
+def _exit_ladder(hi, lo, i, direction, entry, stop):
+    """The validated exit ladder (see claudedocs/research/scanner-exit-ladder.md —
+    +1.28R expectancy, 62% positive on SPX hourly, beats any single target).
+      TP1 = 1R  (bank 50%, move stop → breakeven)
+      TP2 = 2R  (bank 25%)
+      TP3 = draw-on-liquidity pool, or 3R when no pool sits beyond 2R (runner, 25%)
+    Returns (targets, runner_is_pool) where targets = [{r, price, size, note}, ...]."""
+    risk = abs(entry - stop)
+    if risk == 0:
+        return [], False
+    tp1 = round(entry + direction * 1.0 * risk, 2)
+    tp2 = round(entry + direction * 2.0 * risk, 2)
+    pool = _draw_pool(hi, lo, i, direction, entry)
+    beyond2 = pool is not None and ((direction > 0 and pool > tp2) or (direction < 0 and pool < tp2))
+    if beyond2:
+        tp3, runner_pool = round(pool, 2), True
+    else:
+        tp3, runner_pool = round(entry + direction * 3.0 * risk, 2), False
+    targets = [
+        {"r": 1.0, "price": tp1, "size": 0.5, "note": "bank ½ · stop → breakeven"},
+        {"r": 2.0, "price": tp2, "size": 0.25, "note": "bank ¼"},
+        {"r": round(abs(tp3 - entry) / risk, 1), "price": tp3, "size": 0.25,
+         "note": "runner · liquidity draw" if runner_pool else "runner · 3R"},
+    ]
+    return targets, runner_pool
+
+
 def confluence_signals(hi, lo, cl, op, piv=2, look=LOOK_SWEEP):
     """The validated CONFLUENCE STACK (+0.59R). Within `look` bars AFTER a sweep of
     an unswept pivot pool, a DISPLACEMENT FVG forms in the reversal direction; enter
@@ -221,6 +260,7 @@ def htf_setup(hi, lo, cl, op, hour_of_day, active_obs=None, near_atr=3.0):
 
     direction = "long" if d > 0 else "short"
     invalid = far  # the far FVG edge is the structural invalidation reference
+    targets, runner_is_pool = _exit_ladder(hi, lo, ti, d, ce, invalid)
     return {
         "present": True,
         "tier": tier,
@@ -228,6 +268,10 @@ def htf_setup(hi, lo, cl, op, hour_of_day, active_obs=None, near_atr=3.0):
         "ce": round(ce, 2),
         "entry_zone": [round(min(ce, far), 2), round(max(ce, far), 2)],
         "invalid": round(invalid, 2),
+        # the validated exit ladder (scanner-exit-ladder.md): 3 rungs, size-weighted,
+        # BE after TP1. runner_is_pool = the runner target is a real liquidity draw.
+        "targets": targets,
+        "runner_is_pool": runner_is_pool,
         "ob_backed": ob_backed,
         "hour": hour_of_day,
         # how many hourly bars ago the setup TRIGGERED (0 = the last bar). Lets the

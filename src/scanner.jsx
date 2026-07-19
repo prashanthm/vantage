@@ -47,6 +47,21 @@ function SignalCard({ h, onOpen }) {
           <span className="vg-scan-numval down">{h.invalid ?? "—"}</span>
         </div>
       </div>
+      {Array.isArray(h.targets) && h.targets.length > 0 && (
+        <div className="vg-scan-ladder">
+          {h.targets.map((t, i) => {
+            const runner = i === h.targets.length - 1;
+            return (
+              <div key={i} className="vg-scan-rung">
+                <span className="vg-scan-rung-r">
+                  {runner ? (h.runner_is_pool ? "draw" : "3R") : `${t.r}R`}
+                </span>
+                <span className="vg-scan-rung-px">{t.price}</span>
+                <span className="vg-scan-rung-sz">{Math.round(t.size * 100)}%</span>
+              </div>);
+          })}
+        </div>
+      )}
       <div className="vg-scan-foot vg-note">
         @ {hhmm(h.as_of)}{h.bars_ago != null ? ` · ${h.bars_ago}h ago` : ""}
       </div>

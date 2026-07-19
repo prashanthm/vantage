@@ -2803,6 +2803,10 @@ ${ref}`;
       },
       /* @__PURE__ */ React.createElement("div", { className: "vg-scan-cardhead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-sym" }, h.symbol), /* @__PURE__ */ React.createElement("b", { className: cls("vg-scan-dir", dirCls(dir)) }, long ? "LONG" : "SHORT"), h.ob_backed && /* @__PURE__ */ React.createElement("span", { className: "vg-scan-ob", title: "order-block backed" }, "OB")),
       /* @__PURE__ */ React.createElement("div", { className: "vg-scan-nums" }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-num" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numlbl" }, "entry"), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numval" }, z ? `${z[0]}\u2013${z[1]}` : h.ce ?? "\u2014")), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-num" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numlbl" }, "invalid"), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numval down" }, h.invalid ?? "\u2014"))),
+      Array.isArray(h.targets) && h.targets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-ladder" }, h.targets.map((t, i) => {
+        const runner = i === h.targets.length - 1;
+        return /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-scan-rung" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-rung-r" }, runner ? h.runner_is_pool ? "draw" : "3R" : `${t.r}R`), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-rung-px" }, t.price), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-rung-sz" }, Math.round(t.size * 100), "%"));
+      })),
       /* @__PURE__ */ React.createElement("div", { className: "vg-scan-foot vg-note" }, "@ ", hhmm(h.as_of), h.bars_ago != null ? ` \xB7 ${h.bars_ago}h ago` : "")
     );
   }
