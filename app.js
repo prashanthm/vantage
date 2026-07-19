@@ -6658,10 +6658,33 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       const isOpen = !!expanded[g.key];
       const sleeve = !!g.sleeve && !g.equity && g.options.length === 0;
       const nOpts = g.options.length;
-      return /* @__PURE__ */ React.createElement(React.Fragment, { key: g.key }, /* @__PURE__ */ React.createElement("tr", { className: "click vg-grouprow", onClick: () => {
-        if (setSymbol && !sleeve) setSymbol(g.key);
-        setExpanded((e) => ({ ...e, [g.key]: !e[g.key] }));
-      } }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-caret" }, isOpen ? "\u25BE" : "\u25B8"), /* @__PURE__ */ React.createElement("b", null, g.key), nOpts > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-chip", style: { marginLeft: 6 }, title: `${nOpts} option leg(s)` }, nOpts, " OPT"), g.equity && g.equity.overlap && accountId === "all" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { marginLeft: 6 }, title: `Held as ${g.equity.overlap.symbols.join(", ")}` }, "Overlap"), g.equity && g.equity.weight > 7 && /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", style: { marginLeft: 6 } }, "Concentrated"), sleeve && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "sleeve \u2014 value via broker portfolio")), /* @__PURE__ */ React.createElement("td", { className: "num" }, money(g.value, g.currency)), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(g.dayPl)) }, g.dayPl ? signMoney(g.dayPl, g.currency) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(g.unrl)) }, signMoney(g.unrl, g.currency)), /* @__PURE__ */ React.createElement("td", { className: "num" }, g.weight.toFixed(1), "%"), /* @__PURE__ */ React.createElement("td", null, sleeve ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014") : /* @__PURE__ */ React.createElement(HoldingRec, { d: g._rec, onOpen: openChart }))), isOpen && g.equity && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { className: "vg-subrow vg-subhead" }, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { paddingLeft: 26 } }, "Equity \xB7 ", g.equity.shares, " sh")), g.equity.lots.map((l, i) => /* @__PURE__ */ React.createElement("tr", { className: "vg-subrow", key: `eq-${i}` }, /* @__PURE__ */ React.createElement("td", { style: { paddingLeft: 34 } }, "lot \xB7 ", fmtDate(l.date)), /* @__PURE__ */ React.createElement("td", { className: "num" }, usd(lotValue(l))), /* @__PURE__ */ React.createElement("td", { className: "num" }, `${l.shares} sh @ ${usd(l.costPerShare, 2)}`), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(lotUnrl(l))) }, signUsd(lotUnrl(l))), /* @__PURE__ */ React.createElement("td", { className: "num", colSpan: 2 }, daysAgo(l.date) > 365 ? "long-term" : "short-term")))), isOpen && nOpts > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { className: "vg-subrow vg-subhead" }, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { paddingLeft: 26 } }, "Options \xB7 ", nOpts, " leg(s)")), g.options.map((p) => {
+      return /* @__PURE__ */ React.createElement(React.Fragment, { key: g.key }, /* @__PURE__ */ React.createElement(
+        "tr",
+        {
+          className: "click vg-grouprow",
+          title: sleeve ? void 0 : `Open ${g.key} chart`,
+          onClick: () => {
+            if (!sleeve) openChart(g.key);
+          }
+        },
+        /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            className: "vg-caret",
+            title: isOpen ? "collapse" : "expand lots",
+            onClick: (e) => {
+              e.stopPropagation();
+              setExpanded((x) => ({ ...x, [g.key]: !x[g.key] }));
+            }
+          },
+          isOpen ? "\u25BE" : "\u25B8"
+        ), /* @__PURE__ */ React.createElement("b", null, g.key), nOpts > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-chip", style: { marginLeft: 6 }, title: `${nOpts} option leg(s)` }, nOpts, " OPT"), g.equity && g.equity.overlap && accountId === "all" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { marginLeft: 6 }, title: `Held as ${g.equity.overlap.symbols.join(", ")}` }, "Overlap"), g.equity && g.equity.weight > 7 && /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", style: { marginLeft: 6 } }, "Concentrated"), sleeve && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "sleeve \u2014 value via broker portfolio")),
+        /* @__PURE__ */ React.createElement("td", { className: "num" }, money(g.value, g.currency)),
+        /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(g.dayPl)) }, g.dayPl ? signMoney(g.dayPl, g.currency) : "\u2014"),
+        /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(g.unrl)) }, signMoney(g.unrl, g.currency)),
+        /* @__PURE__ */ React.createElement("td", { className: "num" }, g.weight.toFixed(1), "%"),
+        /* @__PURE__ */ React.createElement("td", null, sleeve ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014") : /* @__PURE__ */ React.createElement(HoldingRec, { d: g._rec, onOpen: openChart }))
+      ), isOpen && g.equity && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { className: "vg-subrow vg-subhead" }, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { paddingLeft: 26 } }, "Equity \xB7 ", g.equity.shares, " sh")), g.equity.lots.map((l, i) => /* @__PURE__ */ React.createElement("tr", { className: "vg-subrow", key: `eq-${i}` }, /* @__PURE__ */ React.createElement("td", { style: { paddingLeft: 34 } }, "lot \xB7 ", fmtDate(l.date)), /* @__PURE__ */ React.createElement("td", { className: "num" }, usd(lotValue(l))), /* @__PURE__ */ React.createElement("td", { className: "num" }, `${l.shares} sh @ ${usd(l.costPerShare, 2)}`), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(lotUnrl(l))) }, signUsd(lotUnrl(l))), /* @__PURE__ */ React.createElement("td", { className: "num", colSpan: 2 }, daysAgo(l.date) > 365 ? "long-term" : "short-term")))), isOpen && nOpts > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { className: "vg-subrow vg-subhead" }, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { paddingLeft: 26 } }, "Options \xB7 ", nOpts, " leg(s)")), g.options.map((p) => {
         const a = g._legActs[p.symbol.toUpperCase()] || g._legActs[optionMatchKey(p.symbol)] || null;
         return /* @__PURE__ */ React.createElement("tr", { className: "vg-subrow vg-legrow", key: p.symbol }, /* @__PURE__ */ React.createElement("td", { style: { paddingLeft: 34 } }, optionLegLabel(p.symbol)), /* @__PURE__ */ React.createElement("td", { className: "num" }, usd(p.value)), /* @__PURE__ */ React.createElement("td", { className: "num" }, "\u2014"), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(p.unrl)) }, signUsd(p.unrl)), /* @__PURE__ */ React.createElement("td", { className: "num" }), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement(LegActionChip, { a })));
       })));

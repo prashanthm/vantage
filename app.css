@@ -666,6 +666,11 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 
 /* ---------- Holdings grouped by ticker ---------- */
 .vg-caret { display: inline-block; width: 14px; color: var(--vg-faint); font-size: 11px; }
+/* in the holdings group row the caret is the ONLY expand affordance (the row itself
+   opens the chart), so give it a real hit target + hover cue. */
+.vg-grouprow .vg-caret { width: auto; padding: 4px 7px; margin: -4px 2px -4px -4px;
+  cursor: pointer; border-radius: 4px; }
+.vg-grouprow .vg-caret:hover { background: var(--vg-hairline); color: var(--vg-ink); }
 .vg-grouprow > td:first-child { font-weight: 600; }
 .vg-subhead td { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--vg-faint); background: var(--vg-zebra); padding-top: 6px; }

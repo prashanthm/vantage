@@ -1033,12 +1033,15 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
               const nOpts = g.options.length;
               return (
               <React.Fragment key={g.key}>
-                <tr className="click vg-grouprow" onClick={() => {
-                    if (setSymbol && !sleeve) setSymbol(g.key); // open the notebook
-                    setExpanded((e) => ({ ...e, [g.key]: !e[g.key] }));
-                  }}>
+                <tr className="click vg-grouprow"
+                  title={sleeve ? undefined : `Open ${g.key} chart`}
+                  onClick={() => { if (!sleeve) openChart(g.key); }}>
                   <td>
-                    <span className="vg-caret">{isOpen ? "▾" : "▸"}</span>
+                    {/* the caret owns expand (row-click now opens the chart) */}
+                    <span className="vg-caret" title={isOpen ? "collapse" : "expand lots"}
+                      onClick={(e) => { e.stopPropagation();
+                        setExpanded((x) => ({ ...x, [g.key]: !x[g.key] })); }}>
+                      {isOpen ? "▾" : "▸"}</span>
                     <b>{g.key}</b>
                     {nOpts > 0 && <span className="vg-chip" style={{ marginLeft: 6 }} title={`${nOpts} option leg(s)`}>{nOpts} OPT</span>}
                     {g.equity && g.equity.overlap && accountId === "all" && (
