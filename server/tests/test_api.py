@@ -530,6 +530,16 @@ ALLOWED_WRITE_ROUTES = {
     # idempotent). POST-only per convention ({delete:id} removes). Writes only our
     # own SQLite (chart_drawings); no broker/order path (ADR-010 holds).
     "/api/chart/{symbol}/drawings",
+    # ADR-015 strategy lifecycle. promote/pause/resume write only our own SQLite
+    # (the lifecycle stage machine) — no broker path. The tick route drives the
+    # autonomous order path (alpaca_execution) but is DRY-RUN unless the operator
+    # has armed VANTAGE_LIVE_OK + VANTAGE_AUTONOMOUS_OK + cleared the kill switch;
+    # its four gates + refusal tests live in test_alpaca_execution.py /
+    # test_lifecycle.py. Every autonomous decision is audited (gate 4).
+    "/api/lifecycle/{sid}/promote",
+    "/api/lifecycle/{sid}/pause",
+    "/api/lifecycle/{sid}/resume",
+    "/api/lifecycle/tick",
 }
 
 

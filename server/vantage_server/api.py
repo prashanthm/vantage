@@ -1454,6 +1454,96 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=ok,
                         note=None if ok else f"no managed position {pos_id}")
 
+    # ── ADR-015 strategy lifecycle ───────────────────────────────────────────
+    def _now_iso() -> str:
+        import datetime as _dt
+        return _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat(timespec="seconds")
+
+    @app.get("/api/lifecycle")
+    def lifecycle_list():
+        """Every registered strategy with its lifecycle stage, caps, measured
+        paper win-rate vs. the frozen backtest baseline, and whether the
+        promotion gate currently passes. Read-only; refreshes the gate first so
+        paper<->eligible reflects the latest paper record."""
+        from . import lifecycle
+        from .strategy import STRATEGIES
+        snap = state.snapshot()
+        if not store.uses_sqlite:
+            return envelope(snap, available=False, strategies=[],
+                            note="the strategy lifecycle needs the SQLite backend")
+        now = _now_iso()
+        rows = []
+        for sid in sorted(STRATEGIES):
+            row = lifecycle.refresh_stage(store, sid, now)   # paper<->eligible only
+            gate = lifecycle.evaluate_gate(store, sid)
+            strat = STRATEGIES[sid]
+            rows.append({**row, "display_name": strat.display_name,
+                         "universe": list(strat.universe), "gate": gate})
+        # gate flags for the whole autonomous surface (informational for the UI).
+        from .brokers import alpaca_execution as ax
+        gates = {"live_env": os.environ.get("VANTAGE_LIVE_OK", "") == "1",
+                 "autonomous_env": os.environ.get("VANTAGE_AUTONOMOUS_OK", "") == "1",
+                 "kill_switch": ax.kill_switch_engaged(),
+                 "armed": ax.autonomous_allowed()}
+        return envelope(snap, available=True, strategies=rows, gates=gates)
+
+    @app.post("/api/lifecycle/{sid}/promote")
+    def strategies_promote(sid: str, body: dict = Body(default={})):
+        """Operator-initiated promotion to LIVE (ADR-015 gate 3). Refuses unless
+        the gate passes. Body: {account, caps:{max_order_usd, max_positions,
+        max_daily_loss_usd}}. Writes only our lifecycle table — no order placed."""
+        from . import lifecycle
+        snap = state.snapshot()
+        try:
+            row = lifecycle.promote(store, sid, account=str(body.get("account") or ""),
+                                    caps=body.get("caps") or {}, now_iso=_now_iso())
+            return envelope(snap, available=True, strategy=row)
+        except ValueError as e:
+            return envelope(snap, available=False, note=str(e))
+
+    @app.post("/api/lifecycle/{sid}/pause")
+    def strategies_pause(sid: str, body: dict = Body(default={})):
+        """Operator pause — stop opening exposure (resting stops stay at the
+        broker). Writes only our lifecycle table."""
+        from . import lifecycle
+        snap = state.snapshot()
+        row = lifecycle.pause(store, sid, str(body.get("reason") or "operator"), _now_iso())
+        return envelope(snap, available=True, strategy=row)
+
+    @app.post("/api/lifecycle/{sid}/resume")
+    def strategies_resume(sid: str):
+        """Un-pause a promoted strategy back to live. Writes only our lifecycle table."""
+        from . import lifecycle
+        snap = state.snapshot()
+        try:
+            row = lifecycle.resume(store, sid, _now_iso())
+            return envelope(snap, available=True, strategy=row)
+        except ValueError as e:
+            return envelope(snap, available=False, note=str(e))
+
+    @app.post("/api/lifecycle/tick")
+    def strategies_tick(body: dict = Body(default={})):
+        """Run ONE autonomous driver pass over every LIVE strategy (ADR-015 T2.7).
+        DRY-RUN by default and whenever the env gates aren't armed — it records
+        what it WOULD do (audited). `live:true` in the body only takes effect when
+        VANTAGE_LIVE_OK + VANTAGE_AUTONOMOUS_OK are set and the kill switch is
+        clear; otherwise every order degrades to dry-run inside the gated path."""
+        from . import autonomous
+        snap = state.snapshot()
+        if not store.uses_sqlite:
+            return envelope(snap, available=False,
+                            note="the autonomous driver needs the SQLite backend")
+        out = autonomous.tick(store, _now_iso(), live=bool(body.get("live")))
+        return envelope(snap, available=True, **out)
+
+    @app.get("/api/lifecycle/{sid}/audit")
+    def strategies_audit(sid: str, limit: int = 200):
+        """The immutable autonomous-order audit trail for a strategy (ADR-015
+        gate 4), newest first. Read-only."""
+        snap = state.snapshot()
+        return envelope(snap, available=store.uses_sqlite,
+                        audit=store.load_audit(sid, limit=limit) if store.uses_sqlite else [])
+
     @app.post("/api/spx/playbook/recompute")
     def spx_playbook_recompute(body: dict = Body(default={})):
         """Regenerate the playbook NOW for the requested ``symbol`` (SPX|QQQ|IWM)
