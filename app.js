@@ -340,6 +340,7 @@
     getTradeablePositions: () => getTradeablePositions,
     health: () => health,
     importFutures: () => importFutures,
+    importPositions: () => importPositions,
     importTransactions: () => importTransactions,
     journalImageUrl: () => journalImageUrl,
     kiteLoginUrl: () => kiteLoginUrl,
@@ -444,17 +445,17 @@
   var editAccount = (id, body) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/edit`, body);
   var deleteAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/delete`, {});
   var syncAccount = (id) => postJson(`${backendBase()}/api/accounts/${encodeURIComponent(id)}/sync`, {});
-  async function importTransactions(file, account, broker = "fidelity") {
+  async function importCsv(kind, file, account, broker) {
     const base = backendBase();
     if (!base) return { available: false };
     const fd = new FormData();
-    fd.append("file", file, file.name || "transactions.csv");
+    fd.append("file", file, file.name || `${kind}.csv`);
     fd.append("account", account);
-    fd.append("broker", broker);
+    fd.append("broker", broker || "fidelity");
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 3e4);
     try {
-      const res = await fetch(`${base}/api/import/transactions`, {
+      const res = await fetch(`${base}/api/import/${kind}`, {
         method: "POST",
         body: fd,
         signal: ctrl.signal
@@ -466,6 +467,8 @@
       clearTimeout(t);
     }
   }
+  var importTransactions = (file, account, broker = "fidelity") => importCsv("transactions", file, account, broker);
+  var importPositions = (file, account, broker = "fidelity") => importCsv("positions", file, account, broker);
   var kiteLoginUrl = () => getJson(`${backendBase()}/api/kite/login-url`);
   var refreshAccount = (accountId) => postJson(`${backendBase()}/api/refresh`, { account: accountId });
   var refreshAll = () => postJson(`${backendBase()}/api/refresh`, {});
@@ -2040,15 +2043,18 @@
     const sharpeTone = thin ? "plain" : rk.sharpe == null ? "plain" : rk.sharpe >= 1 ? "good" : rk.sharpe >= 0.5 ? "warn" : "bad";
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Risk"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", sharpeTone) }, "Sharpe ", rk.sharpe == null ? "\u2014" : rk.sharpe)), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Annualized vol", value: pct(rk.vol_annual_pct) }), /* @__PURE__ */ React.createElement(StatTile, { label: "Sortino", value: rk.sortino == null ? "\u2014" : rk.sortino }), /* @__PURE__ */ React.createElement(StatTile, { label: "Max drawdown", value: pct(rk.max_drawdown_pct), deltaDir: dirCls(rk.max_drawdown_pct) })), thin ? /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note warn" }, "\u26A0 Only ", pct(rk.coverage_pct), " of the book has price bars \u2014 these figures cover a slice, not the whole portfolio. Scope to a US-equity account for a fuller read.") : /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, rk.days, "d window \xB7 ", pct(rk.coverage_pct), " of book has bars"));
   }
-  function UploadTxn({ acctId, broker, onDone }) {
+  function UploadCsv({ kind, acctId, broker, onDone }) {
     const ref = useRef2(null);
     const [state, setState] = useState3(null);
+    const isPos = kind === "positions";
+    const label = isPos ? "holdings" : "transactions";
     const pick = () => ref.current && ref.current.click();
     const onFile = (e) => {
       const f = e.target.files && e.target.files[0];
       if (!f) return;
       setState({ busy: true });
-      importTransactions(f, acctId, broker || "fidelity").then((r) => {
+      const call = isPos ? importPositions : importTransactions;
+      call(f, acctId, broker || "fidelity").then((r) => {
         if (!r || r.available === false) {
           setState({ error: r && r.note || "import failed" });
           return;
@@ -2059,24 +2065,17 @@
         if (ref.current) ref.current.value = "";
       });
     };
+    const summary = (r) => isPos ? `imported ${r.imported} holding${r.imported === 1 ? "" : "s"}` : `imported ${r.imported} (${r.buys} buy / ${r.sells} sell)`;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("input", { ref, type: "file", accept: ".csv", style: { display: "none" }, onChange: onFile }), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-linkbtn",
         onClick: pick,
         disabled: state?.busy,
-        title: "Upload a transaction-history CSV (Fidelity / Schwab) \u2192 buys/sells + realized gains"
+        title: isPos ? "Upload a POSITIONS/holdings CSV (Fidelity / Schwab) \u2192 what this account holds now (drives the analysis)" : "Upload a TRANSACTION-history CSV \u2192 buys/sells + realized gains (tax)"
       },
-      state?.busy ? "importing\u2026" : "\u2B06 transactions"
-    ), state?.result && /* @__PURE__ */ React.createElement("span", { className: "vg-note good", title: (state.result.warnings || []).join(" \xB7 ") }, " ", "\u2713 imported ", state.result.imported, " (", state.result.buys, " buy / ", state.result.sells, " sell)", (state.result.warnings || []).length ? ` \xB7 ${state.result.warnings.length} skipped` : "", /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: "vg-linkbtn",
-        style: { marginLeft: 4 },
-        onClick: () => setState(null)
-      },
-      "\xD7"
-    )), state?.error && /* @__PURE__ */ React.createElement("span", { className: "vg-note bad" }, " \u2715 ", state.error, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", style: { marginLeft: 4 }, onClick: () => setState(null) }, "\xD7")));
+      state?.busy ? "importing\u2026" : `\u2B06 ${label}`
+    ), state?.result && /* @__PURE__ */ React.createElement("span", { className: "vg-note good", title: (state.result.warnings || []).join(" \xB7 ") }, " ", "\u2713 ", summary(state.result), (state.result.warnings || []).length ? ` \xB7 ${state.result.warnings.length} skipped` : "", /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", style: { marginLeft: 4 }, onClick: () => setState(null) }, "\xD7")), state?.error && /* @__PURE__ */ React.createElement("span", { className: "vg-note bad" }, " \u2715 ", state.error, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", style: { marginLeft: 4 }, onClick: () => setState(null) }, "\xD7")));
   }
   function AddAccount({ onAdded }) {
     const [open, setOpen] = useState3(false);
@@ -2143,18 +2142,26 @@
           onClick: () => setAccountId && setAccountId(a.id),
           title: `Scope to ${a.short}`
         },
-        /* @__PURE__ */ React.createElement("span", { className: "vg-pf-acctname" }, /* @__PURE__ */ React.createElement("b", null, a.short), a.broker && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { marginLeft: 6 } }, a.broker)),
-        /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, a.type, a.lastSynced !== void 0 ? ` \xB7 synced ${syncedAgo(a.lastSynced)}` : "")
+        /* @__PURE__ */ React.createElement("span", { className: "vg-pf-acctname" }, /* @__PURE__ */ React.createElement("b", null, a.short), a.broker && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { marginLeft: 6 } }, a.broker), a.has_holdings === false && /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            className: "vg-badge warn",
+            style: { marginLeft: 6 },
+            title: "No holdings imported \u2014 this account is excluded from the analysis. Upload a positions/holdings CSV."
+          },
+          "no holdings"
+        )),
+        /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, a.type, a.lastSynced !== void 0 ? ` \xB7 synced ${syncedAgo(a.lastSynced)}` : "", a.has_transactions ? " \xB7 has transactions" : "")
       ), /* @__PURE__ */ React.createElement("span", { className: "vg-pf-acctval" }, money(a.value, a.currency || "USD")), /* @__PURE__ */ React.createElement("span", { className: "vg-pf-acctactions" }, !csvOnly && /* @__PURE__ */ React.createElement(
         "button",
         {
           className: "vg-linkbtn",
           disabled: pending,
           onClick: () => onRefreshAccount && onRefreshAccount(a.id),
-          title: `Refresh ${a.short} (re-pull holdings)`
+          title: `Refresh ${a.short} (re-pull holdings + transactions)`
         },
         pending ? "\u2026" : "\u27F3 sync"
-      ), /* @__PURE__ */ React.createElement(UploadTxn, { acctId: a.id, broker: a.broker, onDone: onChanged }), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn bad", onClick: () => remove(a), title: "Remove account" }, "\u2715")));
+      ), /* @__PURE__ */ React.createElement(UploadCsv, { kind: "positions", acctId: a.id, broker: a.broker, onDone: onChanged }), /* @__PURE__ */ React.createElement(UploadCsv, { kind: "transactions", acctId: a.id, broker: a.broker, onDone: onChanged }), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn bad", onClick: () => remove(a), title: "Remove account" }, "\u2715")));
     })), flags.map(([c, cc]) => /* @__PURE__ */ React.createElement("p", { key: c, className: "vg-note vg-pf-note" }, cc.top_account, " holds ", pct(cc.top_pct), " of the ", c, " book \u2014 single-account concentration.")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(AddAccount, { onAdded: onChanged })));
   }
   function AccountBar({
@@ -2303,7 +2310,11 @@ ${ref}`;
         onRefreshAccount,
         onChanged: onAccountsChanged
       }
-    ), q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), d && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-grid" }, /* @__PURE__ */ React.createElement(AnalyzePane, { account }), /* @__PURE__ */ React.createElement(DiversificationCard, { d: d.diversification }), /* @__PURE__ */ React.createElement(WinnersLosersCard, { wl: d.winners_losers, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RiskCard, { rk: d.risk }), /* @__PURE__ */ React.createElement(IncomeCard, { inc: d.income, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RebalanceCard, { rb: d.rebalance, targets: d.targets }), /* @__PURE__ */ React.createElement(CharacterCard, { ch: d.character }), /* @__PURE__ */ React.createElement(PerformanceCard, { account, accounts: scopeAccounts })), !q.loading && !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 14 } }, "No portfolio data."));
+    ), (() => {
+      const missing = (scopeAccounts || []).filter((a) => a.has_holdings === false && (account === "all" || a.id === account));
+      if (!missing.length) return null;
+      return /* @__PURE__ */ React.createElement("p", { className: "vg-pf-excluded vg-note" }, "\u26A0 ", missing.map((a) => a.short).join(", "), " ", missing.length === 1 ? "has" : "have", " no holdings imported \u2014 excluded from the analysis below. Upload a positions/holdings CSV (\u2699 Manage) or sync to include ", missing.length === 1 ? "it" : "them", ".");
+    })(), q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), d && /* @__PURE__ */ React.createElement("div", { className: "vg-pf-grid" }, /* @__PURE__ */ React.createElement(AnalyzePane, { account }), /* @__PURE__ */ React.createElement(DiversificationCard, { d: d.diversification }), /* @__PURE__ */ React.createElement(WinnersLosersCard, { wl: d.winners_losers, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RiskCard, { rk: d.risk }), /* @__PURE__ */ React.createElement(IncomeCard, { inc: d.income, ccy: activeCcy }), /* @__PURE__ */ React.createElement(RebalanceCard, { rb: d.rebalance, targets: d.targets }), /* @__PURE__ */ React.createElement(CharacterCard, { ch: d.character }), /* @__PURE__ */ React.createElement(PerformanceCard, { account, accounts: scopeAccounts })), !q.loading && !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 14 } }, "No portfolio data."));
   }
 
   // src/options.jsx
@@ -6415,7 +6426,9 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           currency: a.currency || "USD",
           lastSynced: a.last_synced,
           broker: a.broker,
-          refreshable: a.refreshable
+          refreshable: a.refreshable,
+          has_holdings: a.has_holdings,
+          has_transactions: a.has_transactions
         }));
       }),
       [],

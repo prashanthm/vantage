@@ -1366,6 +1366,9 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-pf-manage.on { background: var(--vg-accent); color: #fff; border-color: var(--vg-accent); }
 .vg-pf-managepanel { margin-top: 12px; border-top: 1px solid var(--vg-hairline); padding-top: 12px;
   display: flex; flex-direction: column; gap: 8px; }
+.vg-pf-excluded { margin: -6px 0 14px; padding: 8px 12px; border-radius: var(--vg-r-sm);
+  background: color-mix(in srgb, var(--vg-warn, #B97A16) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vg-warn, #B97A16) 35%, transparent); }
 .vg-pf-acctlist { display: flex; flex-direction: column; }
 .vg-pf-acctrow { display: flex; align-items: center; gap: 8px; padding: 7px 8px;
   border-radius: 6px; border: 1px solid transparent; text-align: left; }

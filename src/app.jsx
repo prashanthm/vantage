@@ -198,6 +198,7 @@ function App() {
         id: a.id, short: a.short, type: a.type, value: a.value,
         currency: a.currency || "USD",
         lastSynced: a.last_synced, broker: a.broker, refreshable: a.refreshable,
+        has_holdings: a.has_holdings, has_transactions: a.has_transactions,
       }));
     }),
     [],

@@ -544,6 +544,9 @@ ALLOWED_WRITE_ROUTES = {
     # table (realized_gains FIFO-matches them). Writes only our SQLite; no broker/
     # order path (ADR-010).
     "/api/import/transactions",
+    # Broker POSITIONS (holdings) CSV upload → replaces this account's lots (a
+    # fresh snapshot). Drives the portfolio analysis. Writes only our SQLite (lots).
+    "/api/import/positions",
 }
 
 

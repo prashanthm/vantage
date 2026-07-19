@@ -74,17 +74,19 @@ export const syncAccount = (id) => postJson(`${backendBase()}/api/accounts/${enc
 // Upload a broker transaction-history CSV → parsed buys/sells into our history
 // table (realized_gains FIFO-matches them). Multipart; returns {imported, buys,
 // sells, warnings} or {available:false}.
-export async function importTransactions(file, account, broker = "fidelity") {
+// Shared multipart CSV upload to an /api/import/* endpoint (positions or
+// transactions). Returns the JSON envelope, or {available:false, note}.
+async function importCsv(kind, file, account, broker) {
   const base = backendBase();
   if (!base) return { available: false };
   const fd = new FormData();
-  fd.append("file", file, file.name || "transactions.csv");
+  fd.append("file", file, file.name || `${kind}.csv`);
   fd.append("account", account);
-  fd.append("broker", broker);
+  fd.append("broker", broker || "fidelity");
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 30000);
   try {
-    const res = await fetch(`${base}/api/import/transactions`, {
+    const res = await fetch(`${base}/api/import/${kind}`, {
       method: "POST", body: fd, signal: ctrl.signal,
     });
     return res.ok ? await res.json() : { available: false, note: `HTTP ${res.status}` };
@@ -94,6 +96,12 @@ export async function importTransactions(file, account, broker = "fidelity") {
     clearTimeout(t);
   }
 }
+// Transaction history (buys/sells → realized gains). See importCsv.
+export const importTransactions = (file, account, broker = "fidelity") =>
+  importCsv("transactions", file, account, broker);
+// Positions (holdings snapshot → drives the whole portfolio analysis).
+export const importPositions = (file, account, broker = "fidelity") =>
+  importCsv("positions", file, account, broker);
 // Kite one-click re-auth: fetch the login URL to open (the backend catches the
 // redirect and saves the daily token; no copy-paste). Returns {login_url} or
 // {error}.

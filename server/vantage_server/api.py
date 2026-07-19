@@ -202,12 +202,25 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         acct_rows = store.load_accounts()
         lots = store.load_lots()
         snap = state.snapshot()
+        # which accounts have holdings (lots) vs transaction history — so the UI
+        # can flag a gap ("holdings not imported → excluded from analysis") and the
+        # analyzer can note excluded accounts. Non-CASH lots = real holdings.
+        holds = {l.account for l in lots if str(l.symbol).upper() != "CASH"}
+        txn = set()
+        try:
+            for h in store.load_history():
+                if h.get("account"):
+                    txn.add(h["account"])
+        except Exception:  # noqa: BLE001 — history is optional
+            pass
         rows = []
         for a in acct_rows:
             broker = resolve_broker(store, a.id)
             rows.append({
                 **to_jsonable(a),
                 "value": engine.account_value(lots, snap.quotes, a.id),
+                "has_holdings": a.id in holds,
+                "has_transactions": a.id in txn,
                 # last_synced from meta (SQLite only; None on JSON) so the UI can
                 # show "synced 5m ago". Falls back to the account's last_sync.
                 "last_synced": store.get_meta(f"last_synced:{a.id}") or a.last_sync,
@@ -1730,6 +1743,52 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         buys=sum(1 for r in rows if r["side"] == "buy"),
                         sells=sum(1 for r in rows if r["side"] == "sell"),
                         warnings=warnings)
+
+    @app.post("/api/import/positions")
+    async def import_positions(file: UploadFile = File(...),
+                               account: str = Form(...),
+                               broker: str = Form("fidelity"),
+                               as_of: str = Form("")):
+        """Upload a broker POSITIONS (holdings) CSV → replace this account's lots
+        (a fresh snapshot of what it holds NOW). Holdings drive the whole portfolio
+        analysis (diversification / risk / income / weights / value), so this is
+        how a CSV-only account (Fidelity / Schwab) becomes visible to the analyzer.
+        Writes ONLY our own SQLite (lots) — no broker path (ADR-010). `broker`
+        selects the positions parser; unknown brokers fall back to a generic
+        Symbol/Quantity/Cost parser. Returns imported lot count + warnings."""
+        from . import importer as _imp
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        acct = str(account or "").strip()
+        if not acct:
+            return JSONResponse({"error": "account is required"}, status_code=400)
+        check_account(acct)
+        raw = await file.read()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            text = raw.decode("latin-1", "replace")
+        # broker-specific positions parser (they differ), generic fallback.
+        b = str(broker).lower()
+        parser = (_imp.parse_schwab if "schwab" in b
+                  else _imp.parse_vanguard if "vanguard" in b
+                  else _imp.parse_fidelity if "fidelity" in b
+                  else _imp.parse_generic)
+        # positions files often lack a per-lot acquisition date; the parsers
+        # require an as_of to date those lots deterministically. Default to today.
+        import datetime as _dt2
+        eff_as_of = (as_of or "").strip() or _dt2.date.today().isoformat()
+        try:
+            lots, warnings = parser(text, acct, eff_as_of)
+        except Exception as e:  # noqa: BLE001 — a malformed CSV is user error, not a 500
+            return envelope(snap, available=False,
+                            note=f"couldn't parse the file: {type(e).__name__}: {e}")
+        if lots:
+            # merge-mode replaces ONLY this account's lots (a fresh holdings snapshot),
+            # keeping every other account intact.
+            store.upsert_lots({acct}, lots, mode="merge")
+        return envelope(snap, available=True, imported=len(lots), warnings=warnings)
 
     @app.post("/api/journal/upload")
     async def journal_upload(image: UploadFile = File(default=None),

@@ -8,7 +8,8 @@
 import { cls, LoadBar, StatTile, usd, signPct, dirCls, money, syncedAgo } from "./util.jsx";
 import {
   useLive, portfolioAnalyze, portfolioPerformance,
-  createAccount, editAccount, deleteAccount, syncAccount, importTransactions,
+  createAccount, editAccount, deleteAccount, syncAccount,
+  importTransactions, importPositions,
 } from "./live.js";
 import { MiraRender } from "./mira-render.jsx";
 import { useStreamTurn } from "./use_stream_turn.js";
@@ -157,41 +158,46 @@ function RiskCard({ rk }) {
 }
 
 // Per-account concentration — surfaces single-account / single-broker risk per currency.
-// Upload a transaction CSV for one account (hidden file input + a labeled button).
-// The result MUST survive the parent's list refresh — importing bumps the account
-// list, which would otherwise unmount this and wipe the confirmation (the "nothing
-// happened" bug). So we hold the result here and refresh the list on a short delay,
-// and show a persistent inline confirmation the user can dismiss.
-function UploadTxn({ acctId, broker, onDone }) {
+// Upload a CSV (holdings or transactions) for one account. The result MUST
+// survive the parent's list refresh — importing bumps the account list, which
+// would otherwise unmount this and wipe the confirmation (the "nothing happened"
+// bug). So we hold the result here, refresh the list on a short delay, and show a
+// persistent, dismissible inline confirmation. `kind` = "positions" | "transactions".
+function UploadCsv({ kind, acctId, broker, onDone }) {
   const ref = useRef(null);
   const [state, setState] = useState(null);   // null | {busy} | {result} | {error}
+  const isPos = kind === "positions";
+  const label = isPos ? "holdings" : "transactions";
   const pick = () => ref.current && ref.current.click();
   const onFile = (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
     setState({ busy: true });
-    importTransactions(f, acctId, broker || "fidelity").then((r) => {
+    const call = isPos ? importPositions : importTransactions;
+    call(f, acctId, broker || "fidelity").then((r) => {
       if (!r || r.available === false) { setState({ error: (r && r.note) || "import failed" }); return; }
       setState({ result: r });
-      // refresh the underlying data AFTER the confirmation is on screen (and give
-      // the user a beat to read it), so the result isn't torn down instantly.
-      setTimeout(() => onDone && onDone(), 2500);
+      setTimeout(() => onDone && onDone(), 2500);   // refresh after the result shows
     }).catch((err) => setState({ error: String(err && err.message || err) }))
       .finally(() => { if (ref.current) ref.current.value = ""; });
   };
+  const summary = (r) => isPos
+    ? `imported ${r.imported} holding${r.imported === 1 ? "" : "s"}`
+    : `imported ${r.imported} (${r.buys} buy / ${r.sells} sell)`;
   return (
     <>
       <input ref={ref} type="file" accept=".csv" style={{ display: "none" }} onChange={onFile} />
       <button className="vg-linkbtn" onClick={pick} disabled={state?.busy}
-        title="Upload a transaction-history CSV (Fidelity / Schwab) → buys/sells + realized gains">
-        {state?.busy ? "importing…" : "⬆ transactions"}
+        title={isPos
+          ? "Upload a POSITIONS/holdings CSV (Fidelity / Schwab) → what this account holds now (drives the analysis)"
+          : "Upload a TRANSACTION-history CSV → buys/sells + realized gains (tax)"}>
+        {state?.busy ? "importing…" : `⬆ ${label}`}
       </button>
       {state?.result && (
         <span className="vg-note good" title={(state.result.warnings || []).join(" · ")}>
-          {" "}✓ imported {state.result.imported} ({state.result.buys} buy / {state.result.sells} sell)
+          {" "}✓ {summary(state.result)}
           {(state.result.warnings || []).length ? ` · ${state.result.warnings.length} skipped` : ""}
-          <button className="vg-linkbtn" style={{ marginLeft: 4 }}
-            onClick={() => setState(null)}>×</button>
+          <button className="vg-linkbtn" style={{ marginLeft: 4 }} onClick={() => setState(null)}>×</button>
         </span>)}
       {state?.error && (
         <span className="vg-note bad"> ✕ {state.error}
@@ -269,16 +275,22 @@ function AccountManagerCard({ ba, accounts, accountId, setAccountId, refreshing,
               <button className="vg-pf-acctpick" onClick={() => setAccountId && setAccountId(a.id)}
                 title={`Scope to ${a.short}`}>
                 <span className="vg-pf-acctname"><b>{a.short}</b>
-                  {a.broker && <span className="vg-badge plain" style={{ marginLeft: 6 }}>{a.broker}</span>}</span>
-                <span className="vg-note">{a.type}{a.lastSynced !== undefined ? ` · synced ${syncedAgo(a.lastSynced)}` : ""}</span>
+                  {a.broker && <span className="vg-badge plain" style={{ marginLeft: 6 }}>{a.broker}</span>}
+                  {a.has_holdings === false && (
+                    <span className="vg-badge warn" style={{ marginLeft: 6 }}
+                      title="No holdings imported — this account is excluded from the analysis. Upload a positions/holdings CSV.">
+                      no holdings</span>)}</span>
+                <span className="vg-note">{a.type}{a.lastSynced !== undefined ? ` · synced ${syncedAgo(a.lastSynced)}` : ""}
+                  {a.has_transactions ? " · has transactions" : ""}</span>
               </button>
               <span className="vg-pf-acctval">{money(a.value, a.currency || "USD")}</span>
               <span className="vg-pf-acctactions">
                 {!csvOnly && (
                   <button className="vg-linkbtn" disabled={pending}
                     onClick={() => onRefreshAccount && onRefreshAccount(a.id)}
-                    title={`Refresh ${a.short} (re-pull holdings)`}>{pending ? "…" : "⟳ sync"}</button>)}
-                <UploadTxn acctId={a.id} broker={a.broker} onDone={onChanged} />
+                    title={`Refresh ${a.short} (re-pull holdings + transactions)`}>{pending ? "…" : "⟳ sync"}</button>)}
+                <UploadCsv kind="positions" acctId={a.id} broker={a.broker} onDone={onChanged} />
+                <UploadCsv kind="transactions" acctId={a.id} broker={a.broker} onDone={onChanged} />
                 <button className="vg-linkbtn bad" onClick={() => remove(a)} title="Remove account">✕</button>
               </span>
             </div>);
@@ -457,6 +469,19 @@ export function PortfolioView({ accountId, setAccountId, scopeAccounts,
       <AccountBar ba={d?.by_account} accounts={scopeAccounts} accountId={account}
         setAccountId={setAccountId} refreshing={refreshing}
         onRefreshAccount={onRefreshAccount} onChanged={onAccountsChanged} />
+      {/* honesty: accounts with no holdings imported are $0 → excluded from every
+          card. Say so, so the numbers are never silently partial. */}
+      {(() => {
+        const missing = (scopeAccounts || []).filter((a) => a.has_holdings === false
+          && (account === "all" || a.id === account));
+        if (!missing.length) return null;
+        return (
+          <p className="vg-pf-excluded vg-note">
+            ⚠ {missing.map((a) => a.short).join(", ")} {missing.length === 1 ? "has" : "have"} no
+            holdings imported — excluded from the analysis below. Upload a positions/holdings
+            CSV (⚙ Manage) or sync to include {missing.length === 1 ? "it" : "them"}.
+          </p>);
+      })()}
       {q.loading && <LoadBar />}
       {d && (
         <div className="vg-pf-grid">
