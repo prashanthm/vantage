@@ -6,7 +6,7 @@
 // Places NO real orders (ADR-010). Not financial advice.
 import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
-import { useLive, getPaper, openPaperTrade, settlePaper, closePaperTrade } from "./live.js";
+import { useLive, getPaper, openPaperTrade, settlePaper, closePaperTrade, getSpreadBook } from "./live.js";
 
 const { useState } = React;
 
@@ -215,9 +215,88 @@ export function PaperView({ refreshNonce }) {
 
       <GlossaryCard terms={["reclaim", "fade", "reward_risk", "win_rate", "profit_factor"]} />
 
+      {/* the scanner debit-spread book — its OWN record, never mixed with the
+          SPX reclaim win-rate above (different P&L basis). */}
+      <ScannerSpreadBook refreshNonce={refreshNonce} />
+
       <div className="vg-pb-caveats">
         <div>SPY is a proxy for SPX; P&L is on SPY shares. A simulation for learning + strategy validation.</div>
         <div>Places NO real orders and touches no broker or funds (ADR-010). Not financial advice.</div>
+      </div>
+    </div>
+  );
+}
+
+// A compact display of a scanner debit spread: "COP PUT 114/110 ×4".
+function spreadLabel(r) {
+  const kind = r.structure === "debit_call_spread" ? "CALL" : "PUT";
+  return `${r.underlying} ${kind} ${px(r.long_strike)}/${px(r.short_strike)} ×${r.contracts}`;
+}
+
+// The scanner debit-spread book: auto-logged A+ setups, settled on each
+// underlying's bars. Kept SEPARATE from the SPX reclaim record — the two have
+// different P&L bases, so blending their win-rate would be meaningless.
+function ScannerSpreadBook({ refreshNonce }) {
+  const q = useLive(() => getSpreadBook(), null, [refreshNonce]);
+  const d = q.data;
+  if (!d || d.available === false) return null;
+  const open = d.open || [];
+  const closed = d.closed || [];
+  const stats = d.stats || {};
+  if (!open.length && !closed.length) return null;
+  return (
+    <div className="vg-card" style={{ marginTop: 14 }}>
+      <div className="vg-spread" style={{ alignItems: "baseline" }}>
+        <div className="vg-kicker" style={{ marginBottom: 0 }}>Scanner spreads</div>
+        <span className="vg-note" style={{ fontSize: 11 }}>
+          auto-logged from A+ setups · debit spreads · separate from the reclaim record
+        </span>
+      </div>
+      {stats.n > 0 && (
+        <div className="vg-stats" style={{ marginTop: 10 }}>
+          <Tile label="Net P&L" value={usd(stats.total_pnl)} tone={stats.total_pnl >= 0 ? "good" : "bad"} />
+          <Tile label="Win rate" value={pct(stats.win_rate)} termKey="win_rate" />
+          <Tile label="Profit factor" value={stats.profit_factor != null ? stats.profit_factor.toFixed(2) : "—"} termKey="profit_factor" />
+          <Tile label="Closed" value={stats.n} />
+        </div>
+      )}
+      {open.length > 0 && (
+        <>
+          <div className="vg-note" style={{ fontSize: 11, margin: "12px 0 4px" }}>Open ({open.length})</div>
+          <div className="vg-pb-ladder">
+            {open.map((r) => (
+              <div key={r.id} className="vg-pb-lvl">
+                <span className={cls("vg-badge", r.side === "long" ? "good" : "bad")}
+                  style={{ minWidth: 44, textAlign: "center" }}>
+                  {r.side === "long" ? "CALL" : "PUT"}
+                </span>
+                <span style={{ fontSize: 13 }}>{spreadLabel(r)}</span>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                  target {px(r.short_strike)} · invalid {px(r.underlying_invalid)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {closed.length > 0 && (
+        <>
+          <div className="vg-note" style={{ fontSize: 11, margin: "12px 0 4px" }}>Track record ({closed.length})</div>
+          <div className="vg-pb-ladder">
+            {closed.slice(0, 12).map((r) => (
+              <div key={r.id} className="vg-pb-lvl">
+                <span className={cls("vg-badge", (r.pnl || 0) >= 0 ? "good" : "bad")}
+                  style={{ minWidth: 62, textAlign: "right" }}>{usd(r.pnl)}</span>
+                <span style={{ fontSize: 13 }}>{spreadLabel(r)}</span>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>{r.exit_reason}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <div className="vg-pb-caveats" style={{ marginTop: 10 }}>
+        <div>Debit spreads modeled from scanner setups (no live options chain — debit ≈ ½ width).
+          A simulation; places no orders (ADR-010).</div>
       </div>
     </div>
   );

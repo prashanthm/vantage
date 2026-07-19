@@ -724,6 +724,22 @@ def equity_curve(closed: list[dict]) -> list[dict]:
     return out
 
 
+def build_spread_book(store: Store) -> dict:
+    """The scanner debit-spread track record — its OWN book, never mixed with the
+    SPX reclaim record (different P&L basis). Returns open + closed + stats +
+    equity curve for the 'scanner-spread' book."""
+    rows = store.load_paper_trades(book="scanner-spread")
+    open_rows = [r for r in rows if r.get("status") == "open"]
+    closed = [r for r in rows if r.get("status") == "closed"]
+    return {
+        "book": "scanner-spread",
+        "open": open_rows,
+        "closed": sorted(closed, key=lambda r: (r.get("closed_at") or ""), reverse=True),
+        "stats": paper_stats(closed),
+        "equity_curve": equity_curve(closed),
+    }
+
+
 def build_analysis(store: Store, scaffold: dict | None = None,
                    underlying: str = "SPX") -> dict:
     """The full paper-trading view for ``underlying``: today's tickets (if a

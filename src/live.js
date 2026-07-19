@@ -1274,6 +1274,13 @@ export async function getPaper(symbol = "SPX") {
   return v && v.available ? v : { available: false, note: v && v.note };
 }
 
+// The scanner debit-spread book — its own track record, never mixed with the SPX
+// reclaim record (different P&L basis). Auto-logged from A+ scanner setups.
+export async function getSpreadBook() {
+  const v = await getJson(`${backendBase()}/api/paper/spreads`, { timeoutMs: 30000 });
+  return v && v.available ? v : { available: false, note: v && v.note };
+}
+
 async function _paperPost(path, body) {
   const base = backendBase();
   if (!base) return { available: false };

@@ -1657,6 +1657,19 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, session=(row or {}).get("session"),
                         **view)
 
+    @app.get("/api/paper/spreads")
+    def paper_spreads():
+        """The scanner debit-spread track record — its OWN book, never blended with
+        the SPX reclaim record (different P&L basis). Open + closed + stats. Rows are
+        auto-logged from A+ scanner setups; settled on each underlying's bars. No
+        orders (ADR-010)."""
+        from . import paper as _paper
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False,
+                            note="Paper trading requires the SQLite backend.")
+        return envelope(snap, available=True, **_paper.build_spread_book(store))
+
     @app.post("/api/paper/open")
     def paper_open(body: dict = Body(default={})):
         """Log a paper trade from a ticket (no real order — ADR-010). Body is the
