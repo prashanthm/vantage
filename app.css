@@ -1373,8 +1373,16 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
 .vg-pf-ccy .vg-chip.on { background: var(--vg-accent); color: #fff; border-color: var(--vg-accent); }
 /* winners/losers two-column */
 .vg-pf-wl { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.vg-pf-wl-col { min-width: 0; }          /* let the column shrink so tables can't overflow */
 .vg-pf-wl-h { font: 600 12px var(--vg-font-ui); margin-bottom: 3px; }
 .vg-pf-wl-h.up { color: var(--vg-up); }
 .vg-pf-wl-h.down { color: var(--vg-down); }
+/* fixed layout so the symbol column can't push the $ column off the card edge */
+.vg-pf-wl-table { table-layout: fixed; width: 100%; }
+.vg-pf-wl-table td { padding: 4px 4px; white-space: nowrap; }
+.vg-pf-wl-sym { overflow: hidden; text-overflow: ellipsis; }   /* long option names ellipsize */
+.vg-pf-wl-table td:nth-child(2) { width: 4.2em; text-align: right; }   /* gain % */
+.vg-pf-wl-table td:nth-child(3) { width: 5em; text-align: right; }     /* $ */
+@media (max-width: 640px) { .vg-pf-wl { grid-template-columns: 1fr; } }
 /* Mira analyze pane spans the full grid row so its action list has room */
 .vg-pf-analyze { grid-column: 1 / -1; }
