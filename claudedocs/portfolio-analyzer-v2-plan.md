@@ -1,5 +1,21 @@
 # Portfolio Analyzer v2 — currency-correct, insight-and-action driven
 
+## STATUS: SHIPPED (2026-07-18)
+
+Decisions: per-currency (no FX), account+currency filters, one big build.
+Built & browser-verified end-to-end on the real mixed INR+USD book:
+- portfolio.py: currency-scoped diversification/income/character + winners_losers
+  (gain %) + risk (Sharpe/vol/Sortino/drawdown, data-gated) + by_account + snapshot
+  DNA composer. USD book = $433K, INR = ₹3.62M — proven never cross-summed.
+- API: /api/portfolio/analyze?currency= + new /api/portfolio/snapshot.
+- MCP: vantage.portfolio_snapshot tool (the DNA).
+- Mira: portfolio_analyst specialist → health read + recommended ACTIONS (donext),
+  INR and USD as separate books, actions cited & sized.
+- SPA: currency toggle + Winners/Risk/ByAccount cards + Mira "Analyze my portfolio".
+- Bonus fix: model_adapter sanitizes dotted MCP tool names (was 400-ing every
+  vantage specialist on DeepSeek). Branches: vantage feat/portfolio-v2,
+  mira feat/portfolio-analyst. Not yet merged to main.
+
 ## The principle (yours)
 
 > Any feature without insights and actions is not worthwhile.
