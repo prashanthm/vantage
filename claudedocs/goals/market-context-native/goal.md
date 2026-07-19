@@ -1,7 +1,7 @@
 # Goal: native Market Context module
 
 **Started:** 2026-07-19
-**Status:** active
+**Status:** achieved (2026-07-19, 4/12 experiments)
 
 ## Outcome
 Vantage computes its own Market Context (breadth, VIX term structure, sector
