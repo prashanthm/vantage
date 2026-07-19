@@ -33,6 +33,7 @@ from vantage_server.brokers.base import (
 from vantage_server.brokers.robinhood import RobinhoodConnection
 from vantage_server.brokers.schwab import SchwabConnection
 from vantage_server.brokers.zerodha import ZerodhaConnection
+from vantage_server.brokers.alpaca_broker import AlpacaConnection
 
 AS_OF = "2026-07-05"
 
@@ -45,6 +46,7 @@ def test_registry_holds_all_connections():
         "schwab-api": SchwabConnection,
         "fidelity-api": AggregatorFidelityConnection,
         "zerodha": ZerodhaConnection,
+        "alpaca": AlpacaConnection,
     }
 
 

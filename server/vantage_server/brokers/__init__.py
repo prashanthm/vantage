@@ -28,3 +28,4 @@ from . import robinhood  # noqa: E402,F401  — broker_id "robinhood"
 from . import schwab  # noqa: E402,F401  — broker_id "schwab-api" (stub)
 from . import aggregator  # noqa: E402,F401  — broker_id "fidelity-api" (stub)
 from . import zerodha  # noqa: E402,F401  — broker_id "zerodha" (Kite, read-only, INR)
+from . import alpaca_broker  # noqa: E402,F401  — broker_id "alpaca" (read-only; lifecycle broker, ADR-015)
