@@ -112,8 +112,12 @@ function setInd(drawn, key, candles, th) {
   }
 }
 
+// symbols with a coach snapshot the analyst can forecast (mirror chart_replay_panel).
+const REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
+
 export function InstrumentChart({ symbol, tf, setTf, overlays, height,
-    replayRunId, replayActive, onReplayToggle, activeCallId, setActiveCallId, onOpenSymbol }) {
+    replayRunId, replayActive, onReplayToggle, onForecastNow,
+    activeCallId, setActiveCallId, onOpenSymbol }) {
   const elRef = useRef(null);
   const [symInput, setSymInput] = useState("");   // the ticker being typed in the header
   const chartRef = useRef(null);
@@ -601,6 +605,14 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
             </button>);
         })}
         {layerQ.loading && <span className="vg-ic-hint">…</span>}
+        {/* first-class Forecast-now: generate a fresh forward forecast from current
+            price to close (opens the analyst read in the right pane + draws the path
+            via the Forecast layer). Only for coach symbols (SPX/QQQ/IWM). */}
+        {REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && onForecastNow && (
+          <button className="vg-ic-chip vg-ic-forecast-now" onClick={() => onForecastNow(symbol)}
+            title={`Forecast ${symbol} forward from now to the close — asks the analyst`}>
+            🔮 Forecast now
+          </button>)}
         {layerData && !layerData.has_levels && (
           <span className="vg-ic-layers-note">bars-derived only (no coach chain)</span>)}
       </div>
@@ -676,9 +688,9 @@ function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
 
 // A self-contained wrapper that owns the timeframe state — for quick drop-in use.
 export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height,
-    replayActive, replayRunId, onReplayToggle, activeCallId, setActiveCallId, onOpenSymbol }) {
+    replayActive, replayRunId, onReplayToggle, onForecastNow, activeCallId, setActiveCallId, onOpenSymbol }) {
   const [tf, setTf] = useState(defaultTf);
   return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height}
-    replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle}
+    replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle} onForecastNow={onForecastNow}
     activeCallId={activeCallId} setActiveCallId={setActiveCallId} onOpenSymbol={onOpenSymbol} />;
 }

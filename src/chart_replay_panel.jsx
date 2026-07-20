@@ -55,7 +55,7 @@ function CallRow({ f, onScore, scoring, active, onActivate }) {
   );
 }
 
-export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId }) {
+export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId, forecastSignal }) {
   const [scoring, setScoring] = useState(null);
   const [nonce, setNonce] = useState(0);
   // declared up here so the auto-select effect can avoid fighting an in-flight
@@ -152,6 +152,14 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
       });
     }).catch((e) => setFc({ error: String((e && e.message) || e) }));
   }, [symbol, canForecast]);
+
+  // chart's "🔮 Forecast now" button bumps forecastSignal → auto-fire once (skip mount).
+  const fcSigRef = useRef(forecastSignal);
+  useEffect(() => {
+    if (forecastSignal === fcSigRef.current) return;
+    fcSigRef.current = forecastSignal;
+    if (canForecast) forecastNow();
+  }, [forecastSignal, canForecast, forecastNow]);
 
   const forecastStep = useCallback((asOf, rid, day) => new Promise((resolve) => {
     getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {

@@ -258,6 +258,9 @@ function App() {
   const [replayOn, setReplayOn] = useState(false);
   const [replayRunId, setReplayRunId] = useState(null);
   const [activeCallId, setActiveCallId] = useState(null);
+  // "Forecast now" from the chart shares the Replay panel: bumping this counter
+  // tells the panel to auto-fire a fresh forward forecast (see ReplayPanel).
+  const [forecastNowSignal, setForecastNowSignal] = useState(0);
   // the Replay panel takes over the right pane on the chart route when active.
   const showReplayPanel = route === "ic" && replayOn;
   // the chart-first route: the instrument the chart is showing (URL param → SPX).
@@ -401,6 +404,11 @@ function App() {
                   setReplayOn(next);
                   if (next) setRightOpen(true);          // reveal the panel
                   else { setReplayRunId(null); setActiveCallId(null); }
+                }}
+                onForecastNow={() => {
+                  // open the Replay panel and tell it to auto-run a live forecast
+                  setReplayOn(true); setRightOpen(true);
+                  setForecastNowSignal((n) => n + 1);
                 }} />
             </div>)}
         </main>
@@ -434,7 +442,8 @@ function App() {
           {!rightOpen && <span className="vg-sparkle" aria-hidden="true">✦</span>}
           {rightOpen && (showReplayPanel
             ? <ReplayPanel symbol={icSymbol} runId={replayRunId} setRunId={setReplayRunId}
-                activeCallId={activeCallId} setActiveCallId={setActiveCallId} />
+                activeCallId={activeCallId} setActiveCallId={setActiveCallId}
+                forecastSignal={forecastNowSignal} />
             : symbol
               ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
               : <ChatPanel docked settings={settings} />)}

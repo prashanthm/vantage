@@ -3509,6 +3509,7 @@ ${ref}`;
       ).bars);
     }
   }
+  var REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
   function InstrumentChart({
     symbol,
     tf,
@@ -3518,6 +3519,7 @@ ${ref}`;
     replayRunId,
     replayActive,
     onReplayToggle,
+    onForecastNow,
     activeCallId,
     setActiveCallId,
     onOpenSymbol
@@ -4119,7 +4121,15 @@ ${ref}`;
         },
         ly.label
       );
-    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => doRefresh(30), disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
+    }), layerQ.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-hint" }, "\u2026"), REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && onForecastNow && /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-ic-chip vg-ic-forecast-now",
+        onClick: () => onForecastNow(symbol),
+        title: `Forecast ${symbol} forward from now to the close \u2014 asks the analyst`
+      },
+      "\u{1F52E} Forecast now"
+    ), layerData && !layerData.has_levels && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-layers-note" }, "bars-derived only (no coach chain)")), replayShown && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-legend" }, /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: "rgba(124,92,255,0.95)" } }), " predicted path"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().upRgb.join(",")})` } }), " call hit"), /* @__PURE__ */ React.createElement("span", null, /* @__PURE__ */ React.createElement("i", { className: "vg-lg-sw", style: { background: `rgb(${chartTheme().downRgb.join(",")})` } }), " call missed")), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-body" }, q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), !hasLW() ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: 12 } }, "Chart engine didn't load.") : /* @__PURE__ */ React.createElement("div", { ref: elRef, className: "vg-ic-canvas", style: height ? { height } : void 0 }), !q.loading && !data && /* @__PURE__ */ React.createElement("div", { className: "vg-ic-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.data && q.data.note || `No chart data for ${symbol}.`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => doRefresh(30), disabled: refreshing }, refreshing ? `Loading ${symbol}\u2026` : `Load ${symbol} data`))), replayShown && replayData && replayData.forecasts.length > 0 && /* @__PURE__ */ React.createElement(
       ReplayCompareTable,
       {
         forecasts: replayData.forecasts,
@@ -4159,6 +4169,7 @@ ${ref}`;
     replayActive,
     replayRunId,
     onReplayToggle,
+    onForecastNow,
     activeCallId,
     setActiveCallId,
     onOpenSymbol
@@ -4175,6 +4186,7 @@ ${ref}`;
         replayActive,
         replayRunId,
         onReplayToggle,
+        onForecastNow,
         activeCallId,
         setActiveCallId,
         onOpenSymbol
@@ -4184,7 +4196,7 @@ ${ref}`;
 
   // src/chart_replay_panel.jsx
   var { useState: useState8, useEffect: useEffect6, useRef: useRef4, useCallback: useCallback3 } = React;
-  var REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
+  var REPLAY_SYMBOLS2 = ["SPX", "QQQ", "IWM"];
   function verdictTone(sc) {
     if (!sc) return "plain";
     if (sc.verdict === "hit target" || sc.verdict === "direction correct") return "good";
@@ -4230,7 +4242,7 @@ ${ref}`;
       )
     ), open && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-callbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
   }
-  function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId }) {
+  function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId, forecastSignal }) {
     const [scoring, setScoring] = useState8(null);
     const [nonce, setNonce] = useState8(0);
     const runningRef = useRef4(false);
@@ -4271,7 +4283,7 @@ ${ref}`;
       if (abortRef.current) abortRef.current();
     }, []);
     const [fc, setFc] = useState8(null);
-    const canForecast = REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase());
+    const canForecast = REPLAY_SYMBOLS2.includes(String(symbol || "").toUpperCase());
     const priorsQ = useLive(
       () => canForecast ? getSpxForecasts(void 0, symbol, 20) : Promise.resolve(null),
       null,
@@ -4317,6 +4329,12 @@ ${ref}`;
         });
       }).catch((e) => setFc({ error: String(e && e.message || e) }));
     }, [symbol, canForecast]);
+    const fcSigRef = useRef4(forecastSignal);
+    useEffect6(() => {
+      if (forecastSignal === fcSigRef.current) return;
+      fcSigRef.current = forecastSignal;
+      if (canForecast) forecastNow();
+    }, [forecastSignal, canForecast, forecastNow]);
     const forecastStep = useCallback3((asOf, rid, day) => new Promise((resolve) => {
       getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
         const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
@@ -4480,7 +4498,7 @@ ${ref}`;
       "Generate"
     ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setShowGen(false) }, "cancel")), genBusy && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-genprog" }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, gen.status === "planning" ? "planning\u2026" : `forecasting ${gen.done}/${gen.total}${gen.at ? ` \xB7 ${gen.at}` : ""}`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: stopGen }, "Stop")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gennote" }, note));
     if (!runs.length) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Chart \xB7 ", symbol)), forecastControls, genControls, !REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "Replay needs a coach snapshot \u2014 SPX / QQQ / IWM."), REPLAY_SYMBOLS.includes(String(symbol || "").toUpperCase()) && !genBusy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "No saved runs for ", symbol, ". Generate one \u2014 it steps the day and forecasts at each interval."));
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Chart \xB7 ", symbol)), forecastControls, genControls, !REPLAY_SYMBOLS2.includes(String(symbol || "").toUpperCase()) && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "Replay needs a coach snapshot \u2014 SPX / QQQ / IWM."), REPLAY_SYMBOLS2.includes(String(symbol || "").toUpperCase()) && !genBusy && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px 14px" } }, "No saved runs for ", symbol, ". Generate one \u2014 it steps the day and forecasts at each interval."));
     }
     return /* @__PURE__ */ React.createElement("div", { className: "vg-rp" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-title" }, "Replay \xB7 ", symbol), /* @__PURE__ */ React.createElement(
       "select",
@@ -6456,6 +6474,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [replayOn, setReplayOn] = useState14(false);
     const [replayRunId, setReplayRunId] = useState14(null);
     const [activeCallId, setActiveCallId] = useState14(null);
+    const [forecastNowSignal, setForecastNowSignal] = useState14(0);
     const showReplayPanel = route === "ic" && replayOn;
     const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
     useEffect10(() => {
@@ -6575,6 +6594,11 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
             setReplayRunId(null);
             setActiveCallId(null);
           }
+        },
+        onForecastNow: () => {
+          setReplayOn(true);
+          setRightOpen(true);
+          setForecastNowSignal((n) => n + 1);
         }
       }
     ))), /* @__PURE__ */ React.createElement(
@@ -6625,7 +6649,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           runId: replayRunId,
           setRunId: setReplayRunId,
           activeCallId,
-          setActiveCallId
+          setActiveCallId,
+          forecastSignal: forecastNowSignal
         }
       ) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
     )), !focus && /* @__PURE__ */ React.createElement("div", { className: "vg-mob-handles" }, /* @__PURE__ */ React.createElement(
