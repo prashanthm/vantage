@@ -705,6 +705,39 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-pb-tileval.good { color: var(--vg-up); }
 .vg-pb-tileval.bad { color: var(--vg-down); }
 .vg-pb-tileval.warn { color: var(--vg-warn); }
+
+/* ── Track record (paper.jsx redesign): equity curve hero + aligned trade table ── */
+.vg-tr-curve { margin: 12px -4px 4px; }
+.vg-tr-table { display: flex; flex-direction: column; margin-top: 8px; }
+/* a fixed grid so pnl / label / detail / reason align down the whole table */
+.vg-tr-row { display: grid; grid-template-columns: 10px 78px 1fr auto auto; align-items: baseline;
+  gap: 12px; padding: 7px 4px; border-top: 1px solid var(--vg-hairline); font-size: 13px; }
+.vg-tr-row:first-child { border-top: none; }
+.vg-tr-row:hover { background: var(--vg-zebra); }
+.vg-tr-dot { width: 7px; height: 7px; border-radius: 50%; align-self: center; }
+.vg-tr-dot.good { background: var(--vg-up); }
+.vg-tr-dot.bad { background: var(--vg-down); }
+.vg-tr-dot.flat { background: var(--vg-faint); }
+.vg-tr-pnl { text-align: right; font-family: var(--vg-font-data); font-variant-numeric: tabular-nums;
+  font-weight: 600; }
+.vg-tr-pnl.good { color: var(--vg-up); }
+.vg-tr-pnl.bad { color: var(--vg-down); }
+.vg-tr-pnl.flat { color: var(--vg-faint); }
+.vg-tr-label { color: var(--vg-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vg-tr-detail { color: var(--vg-dim); font-size: 12px; font-family: var(--vg-font-data);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* outcome tag, subtly toned by kind */
+.vg-tr-reason { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--vg-faint);
+  min-width: 62px; text-align: right; }
+.vg-tr-reason.target { color: var(--vg-up); }
+.vg-tr-reason.stop, .vg-tr-reason.invalidation, .vg-tr-reason.stop-loss { color: var(--vg-down); }
+.vg-tr-more { margin: 8px 0 2px; font-size: 12px; }
+.vg-tr-flat { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--vg-hairline);
+  font-size: 11px; color: var(--vg-faint); }
+@media (max-width: 640px) {
+  .vg-tr-row { grid-template-columns: 10px 70px 1fr; }
+  .vg-tr-detail, .vg-tr-reason { display: none; }
+}
 .vg-pb-catalyst { padding: 8px 12px; border-radius: var(--vg-r-sm); background: var(--vg-warn-soft); color: var(--vg-warn); font-size: var(--vg-text-md); }
 /* Market context card — breadth / VIX term structure / sectors / intermarket */
 .vg-mc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }

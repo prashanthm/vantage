@@ -20,21 +20,84 @@ const px = (v) => (v == null ? "—" : Number(v).toFixed(2));
 // react best"; durable cross-session memory (strong) is the real signal.
 const FRESH_TONE = { strong: "good", fresh: "plain", tested: "warn", weak: "bad" };
 
+// Cumulative-P&L area chart: a zero baseline, a faint peak line (the high-water
+// mark → visualizes drawdown), a gradient area fill under the equity line, and an
+// emphasized endpoint dot with the current value. Uniform aspect (no stretching).
+let _gradN = 0;
 function EquityCurve({ curve }) {
   if (!curve || curve.length < 2) return null;
-  const W = 640, H = 110, pad = 6;
+  const W = 720, H = 150, padX = 8, padT = 14, padB = 10;
   const xs = curve.map((p) => p.cum), peaks = curve.map((p) => p.peak);
-  const lo = Math.min(0, ...xs), hi = Math.max(...peaks, ...xs), range = hi - lo || 1;
-  const x = (i) => pad + (i / (curve.length - 1)) * (W - 2 * pad);
-  const y = (v) => H - pad - ((v - lo) / range) * (H - 2 * pad);
+  const lo = Math.min(0, ...xs), hi = Math.max(...peaks, ...xs, 0), range = hi - lo || 1;
+  const x = (i) => padX + (i / (curve.length - 1)) * (W - 2 * padX);
+  const y = (v) => H - padB - ((v - lo) / range) * (H - padT - padB);
   const line = (a) => a.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-  const up = xs[xs.length - 1] >= 0;
+  const last = xs[xs.length - 1];
+  const up = last >= 0;
+  const col = up ? "var(--vg-up)" : "var(--vg-down)";
+  const gid = `eq-grad-${(_gradN = (_gradN + 1) % 1000)}`;
+  const area = `${line(xs)} L${x(curve.length - 1).toFixed(1)},${y(lo).toFixed(1)} L${x(0).toFixed(1)},${y(lo).toFixed(1)} Z`;
+  const ex = x(curve.length - 1), ey = y(last);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" style={{ display: "block" }}>
-      <line x1={pad} y1={y(0)} x2={W - pad} y2={y(0)} stroke="currentColor" strokeOpacity="0.2" />
-      <path d={line(peaks)} fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1" strokeDasharray="3 3" />
-      <path d={line(xs)} fill="none" stroke={up ? "var(--vg-up)" : "var(--vg-down)"} strokeWidth="1.75" />
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="xMidYMid meet"
+      style={{ display: "block" }} role="img" aria-label="Cumulative P&L equity curve">
+      <defs>
+        <linearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={col} stopOpacity="0.22" />
+          <stop offset="100%" stopColor={col} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {/* zero baseline */}
+      <line x1={padX} y1={y(0)} x2={W - padX} y2={y(0)} stroke="var(--vg-rule)" strokeOpacity="0.6" strokeDasharray="2 3" />
+      {/* peak (high-water) line → the gap below it reads as drawdown */}
+      <path d={line(peaks)} fill="none" stroke="var(--vg-faint)" strokeOpacity="0.5" strokeWidth="1" strokeDasharray="3 3" />
+      <path d={area} fill={`url(#${gid})`} />
+      <path d={line(xs)} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round" />
+      {/* endpoint marker + current value */}
+      <circle cx={ex} cy={ey} r="3.5" fill={col} />
+      <text x={ex - 6} y={ey - 8} textAnchor="end" fontSize="12" fontWeight="600" fill={col}
+        style={{ fontVariantNumeric: "tabular-nums" }}>{usd(last)}</text>
     </svg>
+  );
+}
+
+// A clean, aligned closed-trades table shared by the reclaim + scanner-spread books.
+// Winners/losers first (the real record), then the no-fill/voided $0 rows folded into
+// a collapsed tail so they don't drown out the actual results. `label`/`detail`/`reason`
+// are accessors so each book supplies its own columns.
+function TrackRecordTable({ rows, label, detail, reason }) {
+  const [showAll, setShowAll] = React.useState(false);
+  const real = rows.filter((r) => (r.pnl || 0) !== 0);
+  const flat = rows.filter((r) => (r.pnl || 0) === 0);   // never_filled / voided
+  const shown = showAll ? real : real.slice(0, 15);
+  const Row = (r) => {
+    const pnl = r.pnl || 0;
+    const tone = pnl > 0 ? "good" : pnl < 0 ? "bad" : "flat";
+    return (
+      <div key={r.id} className="vg-tr-row">
+        <span className={cls("vg-tr-dot", tone)} aria-hidden="true" />
+        <span className={cls("vg-tr-pnl", tone)}>{pnl === 0 ? "—" : usd(pnl)}</span>
+        <span className="vg-tr-label">{label(r)}</span>
+        <span className="vg-tr-detail">{detail(r)}</span>
+        <span className={cls("vg-tr-reason", reason(r))}>{reason(r)}</span>
+      </div>
+    );
+  };
+  return (
+    <div className="vg-tr-table">
+      {shown.map(Row)}
+      {real.length > 15 && !showAll && (
+        <button className="vg-linkbtn vg-tr-more" onClick={() => setShowAll(true)}>
+          show {real.length - 15} more
+        </button>
+      )}
+      {flat.length > 0 && (
+        <div className="vg-tr-flat">
+          {flat.length} no-fill / voided ({flat.filter((r) => reason(r) === "never_filled").length} never filled ·
+          {" "}{flat.filter((r) => reason(r) === "voided").length} voided) — $0, excluded from win-rate
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -187,29 +250,23 @@ export function PaperView({ refreshNonce }) {
         </div>
       )}
 
-      {/* track record */}
+      {/* track record — equity curve hero + an aligned trade table */}
       {closed.length > 0 && (
-        <div className="vg-card">
-          <div className="vg-kicker">Track record ({closed.length} closed)</div>
-          <div style={{ marginTop: 6, color: "var(--color-text, #888)" }}>
+        <div className="vg-card vg-tr">
+          <div className="vg-spread" style={{ alignItems: "baseline" }}>
+            <div className="vg-kicker" style={{ marginBottom: 0 }}>Track record</div>
+            <span className="vg-note" style={{ fontSize: 11 }}>
+              {Object.entries(stats.by_exit || {}).map(([k, v]) => `${v} ${k}`).join(" · ")}
+            </span>
+          </div>
+          <div className="vg-tr-curve">
             <EquityCurve curve={d.equity_curve} />
           </div>
-          <div className="vg-note" style={{ fontSize: 11, margin: "4px 0 6px" }}>
-            {Object.entries(stats.by_exit || {}).map(([k, v]) => `${v} ${k}`).join(" · ")}
-          </div>
-          <div className="vg-pb-ladder">
-            {closed.slice(0, 12).map((r) => (
-              <div key={r.id} className="vg-pb-lvl">
-                <span className={cls("vg-badge", (r.pnl || 0) >= 0 ? "good" : "bad")} style={{ minWidth: 62, textAlign: "right" }}>
-                  {usd(r.pnl)}
-                </span>
-                <span style={{ fontSize: 13 }}>{r.signal}</span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
-                  {px(r.spy_entry)}→{px(r.spy_exit)} · {r.exit_reason}
-                </span>
-              </div>
-            ))}
-          </div>
+          <TrackRecordTable
+            rows={closed}
+            label={(r) => r.signal}
+            detail={(r) => `${px(r.spy_entry)} → ${px(r.spy_exit)}`}
+            reason={(r) => r.exit_reason} />
         </div>
       )}
 
@@ -309,17 +366,13 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
       )}
       {closed.length > 0 && (
         <>
-          <div className="vg-note" style={{ fontSize: 11, margin: "12px 0 4px" }}>Track record ({closed.length})</div>
-          <div className="vg-pb-ladder">
-            {closed.slice(0, 12).map((r) => (
-              <div key={r.id} className="vg-pb-lvl">
-                <span className={cls("vg-badge", (r.pnl || 0) >= 0 ? "good" : "bad")}
-                  style={{ minWidth: 62, textAlign: "right" }}>{usd(r.pnl)}</span>
-                <span style={{ fontSize: 13 }}>{spreadLabel(r)}</span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>{r.exit_reason}</span>
-              </div>
-            ))}
-          </div>
+          {d.equity_curve && d.equity_curve.length > 1 && (
+            <div className="vg-tr-curve"><EquityCurve curve={d.equity_curve} /></div>)}
+          <TrackRecordTable
+            rows={closed}
+            label={(r) => spreadLabel(r)}
+            detail={(r) => (r.exit_reason === "target" ? `→ ${px(r.short_strike)}` : `× ${px(r.underlying_invalid)}`)}
+            reason={(r) => r.exit_reason} />
         </>
       )}
       <div className="vg-pb-caveats" style={{ marginTop: 10 }}>

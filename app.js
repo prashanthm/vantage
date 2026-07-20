@@ -4530,16 +4530,64 @@ ${ref}`;
   var pct2 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var px = (v) => v == null ? "\u2014" : Number(v).toFixed(2);
   var FRESH_TONE = { strong: "good", fresh: "plain", tested: "warn", weak: "bad" };
+  var _gradN = 0;
   function EquityCurve({ curve }) {
     if (!curve || curve.length < 2) return null;
-    const W = 640, H = 110, pad = 6;
+    const W = 720, H = 150, padX = 8, padT = 14, padB = 10;
     const xs = curve.map((p) => p.cum), peaks = curve.map((p) => p.peak);
-    const lo = Math.min(0, ...xs), hi = Math.max(...peaks, ...xs), range = hi - lo || 1;
-    const x = (i) => pad + i / (curve.length - 1) * (W - 2 * pad);
-    const y = (v) => H - pad - (v - lo) / range * (H - 2 * pad);
+    const lo = Math.min(0, ...xs), hi = Math.max(...peaks, ...xs, 0), range = hi - lo || 1;
+    const x = (i) => padX + i / (curve.length - 1) * (W - 2 * padX);
+    const y = (v) => H - padB - (v - lo) / range * (H - padT - padB);
     const line2 = (a) => a.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
-    const up = xs[xs.length - 1] >= 0;
-    return /* @__PURE__ */ React.createElement("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", height: H, preserveAspectRatio: "none", style: { display: "block" } }, /* @__PURE__ */ React.createElement("line", { x1: pad, y1: y(0), x2: W - pad, y2: y(0), stroke: "currentColor", strokeOpacity: "0.2" }), /* @__PURE__ */ React.createElement("path", { d: line2(peaks), fill: "none", stroke: "currentColor", strokeOpacity: "0.25", strokeWidth: "1", strokeDasharray: "3 3" }), /* @__PURE__ */ React.createElement("path", { d: line2(xs), fill: "none", stroke: up ? "var(--vg-up)" : "var(--vg-down)", strokeWidth: "1.75" }));
+    const last = xs[xs.length - 1];
+    const up = last >= 0;
+    const col = up ? "var(--vg-up)" : "var(--vg-down)";
+    const gid = `eq-grad-${_gradN = (_gradN + 1) % 1e3}`;
+    const area = `${line2(xs)} L${x(curve.length - 1).toFixed(1)},${y(lo).toFixed(1)} L${x(0).toFixed(1)},${y(lo).toFixed(1)} Z`;
+    const ex = x(curve.length - 1), ey = y(last);
+    return /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        viewBox: `0 0 ${W} ${H}`,
+        width: "100%",
+        height: H,
+        preserveAspectRatio: "xMidYMid meet",
+        style: { display: "block" },
+        role: "img",
+        "aria-label": "Cumulative P&L equity curve"
+      },
+      /* @__PURE__ */ React.createElement("defs", null, /* @__PURE__ */ React.createElement("linearGradient", { id: gid, x1: "0", y1: "0", x2: "0", y2: "1" }, /* @__PURE__ */ React.createElement("stop", { offset: "0%", stopColor: col, stopOpacity: "0.22" }), /* @__PURE__ */ React.createElement("stop", { offset: "100%", stopColor: col, stopOpacity: "0" }))),
+      /* @__PURE__ */ React.createElement("line", { x1: padX, y1: y(0), x2: W - padX, y2: y(0), stroke: "var(--vg-rule)", strokeOpacity: "0.6", strokeDasharray: "2 3" }),
+      /* @__PURE__ */ React.createElement("path", { d: line2(peaks), fill: "none", stroke: "var(--vg-faint)", strokeOpacity: "0.5", strokeWidth: "1", strokeDasharray: "3 3" }),
+      /* @__PURE__ */ React.createElement("path", { d: area, fill: `url(#${gid})` }),
+      /* @__PURE__ */ React.createElement("path", { d: line2(xs), fill: "none", stroke: col, strokeWidth: "2", strokeLinejoin: "round" }),
+      /* @__PURE__ */ React.createElement("circle", { cx: ex, cy: ey, r: "3.5", fill: col }),
+      /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: ex - 6,
+          y: ey - 8,
+          textAnchor: "end",
+          fontSize: "12",
+          fontWeight: "600",
+          fill: col,
+          style: { fontVariantNumeric: "tabular-nums" }
+        },
+        usd2(last)
+      )
+    );
+  }
+  function TrackRecordTable({ rows, label, detail, reason }) {
+    const [showAll, setShowAll] = React.useState(false);
+    const real = rows.filter((r) => (r.pnl || 0) !== 0);
+    const flat = rows.filter((r) => (r.pnl || 0) === 0);
+    const shown = showAll ? real : real.slice(0, 15);
+    const Row = (r) => {
+      const pnl = r.pnl || 0;
+      const tone = pnl > 0 ? "good" : pnl < 0 ? "bad" : "flat";
+      return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-tr-row" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-tr-dot", tone), "aria-hidden": "true" }), /* @__PURE__ */ React.createElement("span", { className: cls("vg-tr-pnl", tone) }, pnl === 0 ? "\u2014" : usd2(pnl)), /* @__PURE__ */ React.createElement("span", { className: "vg-tr-label" }, label(r)), /* @__PURE__ */ React.createElement("span", { className: "vg-tr-detail" }, detail(r)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-tr-reason", reason(r)) }, reason(r)));
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-tr-table" }, shown.map(Row), real.length > 15 && !showAll && /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn vg-tr-more", onClick: () => setShowAll(true) }, "show ", real.length - 15, " more"), flat.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-tr-flat" }, flat.length, " no-fill / voided (", flat.filter((r) => reason(r) === "never_filled").length, " never filled \xB7", " ", flat.filter((r) => reason(r) === "voided").length, " voided) \u2014 $0, excluded from win-rate"));
   }
   function PaperView({ refreshNonce }) {
     const [nonce, setNonce] = useState9(0);
@@ -4596,7 +4644,15 @@ ${ref}`;
         onClick: () => doClose(r)
       },
       busy === `close${r.id}` ? "\u2026" : "close"
-    ))))), closed.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Track record (", closed.length, " closed)"), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, color: "var(--color-text, #888)" } }, /* @__PURE__ */ React.createElement(EquityCurve, { curve: d.equity_curve })), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "4px 0 6px" } }, Object.entries(stats.by_exit || {}).map(([k, v]) => `${v} ${k}`).join(" \xB7 ")), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, closed.slice(0, 12).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", (r.pnl || 0) >= 0 ? "good" : "bad"), style: { minWidth: 62, textAlign: "right" } }, usd2(r.pnl)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, r.signal), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, px(r.spy_entry), "\u2192", px(r.spy_exit), " \xB7 ", r.exit_reason))))), /* @__PURE__ */ React.createElement(GlossaryCard, { terms: ["reclaim", "fade", "reward_risk", "win_rate", "profit_factor"] }), /* @__PURE__ */ React.createElement(ScannerSpreadBook, { refreshNonce }), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "SPY is a proxy for SPX; P&L is on SPY shares. A simulation for learning + strategy validation."), /* @__PURE__ */ React.createElement("div", null, "Places NO real orders and touches no broker or funds (ADR-010). Not financial advice.")));
+    ))))), closed.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tr" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Track record"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, Object.entries(stats.by_exit || {}).map(([k, v]) => `${v} ${k}`).join(" \xB7 "))), /* @__PURE__ */ React.createElement("div", { className: "vg-tr-curve" }, /* @__PURE__ */ React.createElement(EquityCurve, { curve: d.equity_curve })), /* @__PURE__ */ React.createElement(
+      TrackRecordTable,
+      {
+        rows: closed,
+        label: (r) => r.signal,
+        detail: (r) => `${px(r.spy_entry)} \u2192 ${px(r.spy_exit)}`,
+        reason: (r) => r.exit_reason
+      }
+    )), /* @__PURE__ */ React.createElement(GlossaryCard, { terms: ["reclaim", "fade", "reward_risk", "win_rate", "profit_factor"] }), /* @__PURE__ */ React.createElement(ScannerSpreadBook, { refreshNonce }), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats" }, /* @__PURE__ */ React.createElement("div", null, "SPY is a proxy for SPX; P&L is on SPY shares. A simulation for learning + strategy validation."), /* @__PURE__ */ React.createElement("div", null, "Places NO real orders and touches no broker or funds (ADR-010). Not financial advice.")));
   }
   function spreadLabel(r) {
     const kind = r.structure === "debit_call_spread" ? "CALL" : "PUT";
@@ -4630,14 +4686,15 @@ ${ref}`;
         },
         r.side === "long" ? "CALL" : "PUT"
       ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, spreadLabel(r)), bs && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", bs.tone), style: { fontSize: 10 } }, bs.text), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, "target ", px(r.short_strike), " \xB7 invalid ", px(r.underlying_invalid)));
-    }))), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "12px 0 4px" } }, "Track record (", closed.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, closed.slice(0, 12).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
-      "span",
+    }))), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, d.equity_curve && d.equity_curve.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "vg-tr-curve" }, /* @__PURE__ */ React.createElement(EquityCurve, { curve: d.equity_curve })), /* @__PURE__ */ React.createElement(
+      TrackRecordTable,
       {
-        className: cls("vg-badge", (r.pnl || 0) >= 0 ? "good" : "bad"),
-        style: { minWidth: 62, textAlign: "right" }
-      },
-      usd2(r.pnl)
-    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, spreadLabel(r)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, r.exit_reason))))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats", style: { marginTop: 10 } }, onAlpaca ? /* @__PURE__ */ React.createElement("div", null, "Book of record: ", /* @__PURE__ */ React.createElement("b", null, "Alpaca paper"), " \u2014 real multi-leg fills, closed on the invalidation (stop-loss) or target. Paper account only, no real money.") : /* @__PURE__ */ React.createElement("div", null, "Debit spreads modeled from scanner setups (no live options chain \u2014 debit \u2248 \xBD width). A simulation; places no orders (ADR-010).")));
+        rows: closed,
+        label: (r) => spreadLabel(r),
+        detail: (r) => r.exit_reason === "target" ? `\u2192 ${px(r.short_strike)}` : `\xD7 ${px(r.underlying_invalid)}`,
+        reason: (r) => r.exit_reason
+      }
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats", style: { marginTop: 10 } }, onAlpaca ? /* @__PURE__ */ React.createElement("div", null, "Book of record: ", /* @__PURE__ */ React.createElement("b", null, "Alpaca paper"), " \u2014 real multi-leg fills, closed on the invalidation (stop-loss) or target. Paper account only, no real money.") : /* @__PURE__ */ React.createElement("div", null, "Debit spreads modeled from scanner setups (no live options chain \u2014 debit \u2248 \xBD width). A simulation; places no orders (ADR-010).")));
   }
   function Tile({ label, value, tone, termKey }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));
