@@ -236,14 +236,28 @@ function spreadLabel(r) {
 // The scanner debit-spread book: auto-logged A+ setups, settled on each
 // underlying's bars. Kept SEPARATE from the SPX reclaim record — the two have
 // different P&L bases, so blending their win-rate would be meaningless.
-function ScannerSpreadBook({ refreshNonce }) {
+export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
   const q = useLive(() => getSpreadBook(), null, [refreshNonce]);
   const d = q.data;
   if (!d || d.available === false) return null;
   const open = d.open || [];
   const closed = d.closed || [];
   const stats = d.stats || {};
-  if (!open.length && !closed.length) return null;
+  // alwaysShow (Positions page): render the section header + an empty-state even
+  // when nothing has fired yet, so paper trades have a permanent, findable home.
+  if (!open.length && !closed.length) {
+    if (!alwaysShow) return null;
+    return (
+      <div className="vg-card" style={{ marginTop: 14 }}>
+        <div className="vg-kicker">Paper trades — scanner spreads</div>
+        <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 12 }}>
+          No paper spreads yet. When an A+ scanner setup fires it opens a debit spread
+          here (on Alpaca paper when configured) — open positions + a closed track
+          record with win-rate. Separate from the SPX reclaim book.
+        </p>
+      </div>
+    );
+  }
   // any row on the real broker → show the "Alpaca paper" book-of-record note.
   const onAlpaca = [...open, ...closed].some((r) => r.broker === "alpaca-paper");
   // broker status → a short, readable label for an open row.

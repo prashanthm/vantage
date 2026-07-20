@@ -18,6 +18,7 @@ import { ScannerView } from "./scanner.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
 import { StrategiesView } from "./strategies_view.jsx";
+import { ScannerSpreadBook } from "./paper.jsx";
 import { TodayView } from "./today.jsx";
 import { FuturesView } from "./futures.jsx";
 import { JournalView } from "./journal.jsx";
@@ -1051,6 +1052,9 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
           </tbody>
         </table>
       </div>
+      {/* paper trades live here too — always visible on the Positions page, whether
+          or not a scanner setup has fired. Open positions + closed track record. */}
+      <ScannerSpreadBook refreshNonce={refreshNonce} alwaysShow />
     </div>
   );
 }

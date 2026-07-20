@@ -13,9 +13,7 @@ import {
   useLive, getLifecycle, promoteStrategy, pauseStrategy, resumeStrategy,
   lifecycleTick, getStrategyAudit,
 } from "./live.js";
-import { SignalBotView } from "./signalbot.jsx";
 import { PaperView } from "./paper.jsx";
-import { ExitsView } from "./exits.jsx";
 
 const { useState, useCallback, useEffect } = React;
 
@@ -211,16 +209,17 @@ function LifecycleTab() {
     </div>);
 }
 
-// The Strategies surface subsumes the former Signal Bot / Paper / Managed Exits
-// into ONE tabbed view — they were three windows onto one signal→paper→exit
-// pipeline; this is that pipeline as a lifecycle. Tabs deep-link via the route
-// param (#/strategies/signalbot), so the old #signalbot / #exits anchors elsewhere
-// still land here (app.jsx maps those legacy hashes to the right tab).
+// The Strategies surface is the ONE pipeline: strategy → triggers paper trade →
+// track paper performance → promote to live. Two tabs only — Lifecycle (the stage
+// machine + promote gate) and Track record (paper performance). The legacy Signal
+// Bot (reclaim Telegram bot) and Live book (Robinhood managed-exits monitor) tabs
+// were retired — they belonged to the pre-Alpaca reclaim/Robinhood path and don't
+// serve this flow. Their backends still run (signal_bot / execution_monitor loops)
+// but are no longer surfaced here. Legacy #signalbot/#exits anchors fall back to
+// lifecycle.
 const SL_TABS = [
   { key: "lifecycle", label: "Lifecycle" },
-  { key: "signalbot", label: "Signal Bot" },
   { key: "paper", label: "Track record" },
-  { key: "exits", label: "Live book" },
 ];
 
 export function StrategiesView({ tab, onTab, refreshNonce }) {
@@ -236,8 +235,6 @@ export function StrategiesView({ tab, onTab, refreshNonce }) {
         ))}
       </div>
       {active === "lifecycle" && <LifecycleTab />}
-      {active === "signalbot" && <SignalBotView refreshNonce={refreshNonce} />}
       {active === "paper" && <PaperView refreshNonce={refreshNonce} />}
-      {active === "exits" && <ExitsView refreshNonce={refreshNonce} />}
     </div>);
 }
