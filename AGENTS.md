@@ -14,15 +14,26 @@ GitHub, one feature → one branch → one merge.
 - **Context, not a signal.** The playbooks/analyses are decision-support for reading the
   tape or reviewing trades — not buy/sell signals. Surfaces carry this caveat + "not
   financial advice". Don't fabricate numbers; when data is incomplete, say so.
-- ADRs are authoritative: `initiatives/vantage/adrs/` (001–014). Read the relevant one
-  before changing architecture.
+- ADRs are authoritative: `initiatives/vantage/adrs/` (001–015; 015 = the Alpaca autonomous
+  order carve-out). Read the relevant one before changing architecture.
 
 ## External data sources
 
-Vantage consumes read-only data from outside the repo — it never writes to these. Notably
-the SPX playbook reads a separate market-intel source (Sentinel) via `sentinel_bridge.py`
-from a read-only mount; that source is not part of this repo and must never be modified.
-Treat all such upstreams as read-only inputs.
+Vantage consumes read-only market data (quotes/bars) via `quotes.py`/`bars*.py` (yfinance).
+**Sentinel is RETIRED** — the old `sentinel_bridge.py` market-context shim now delegates to
+the native `market_context.py` (breadth / VIX term structure / sector rotation / intermarket,
+computed from stored bars + a live yfinance fetch). Vantage owns its own market read now.
+
+## Execution: paper on Alpaca (ADR-015)
+
+Beyond the read-only doctrine, there is ONE sanctioned order surface — Alpaca (paper by
+default). `brokers/alpaca_execution.py` places multi-leg (`mleg`) orders; `alpaca_broker.py`
+reads positions/account/order-status. **Paper is NOT gated** (different account/URL, no real
+money): `submit_strategy_order(..., paper=True)` submits when `is_paper()` without the live
+gates; a paper request to the LIVE endpoint hard-refuses. **Live** requires all four ADR-015
+gates (`VANTAGE_LIVE_OK` + `VANTAGE_AUTONOMOUS_OK` + kill-switch + per-strategy caps) — never
+arm those in an agent session; the operator owns them. Alpaca order routes are allow-listed
+in `test_api.py` like every other write route.
 
 ## Architecture
 
@@ -72,6 +83,22 @@ Docker Compose stack (`deploy/docker-compose.yml`), 4 services + 1 volume:
   / `load_level_history` for new tables.
 
 ## Feature notes (recent, non-obvious)
+
+- **Scanner → paper-spread lifecycle** (the big recent build): the ICT hourly scanner
+  (`ict_htf.py` detector, `scanner.py` universe run) grades A+ by FVG SIZE (≥0.7 ATR;
+  thin <0.3 suppressed) with an ATR-floored stop and a validated exit ladder; setups are
+  backtested (`claudedocs/research/scanner-*.md`). Each A+ setup auto-logs a debit spread
+  and, when Alpaca-paper creds exist, SUBMITS a real mleg order (`arm_scanner_spreads` →
+  `scanner_spread.alpaca_order`). `scanner_exec.py` (a `tick`/`run_loop` clone of
+  `execution_monitor`) poll-reconciles fills + closes on the invalidation (stop-loss) or
+  target; sidecar = `deploy/scanner-exec-loop.sh` + plist → `POST /api/scanner/reconcile`.
+  Ledger = `paper_trades` (v25 cols: book/broker/entry_order_id/…). No creds → yfinance sim
+  fallback (`paper.settle_open`). Book shows on the Positions page + Strategies→Track record.
+  **The Pine chart (`coach_pine.py`) MIRRORS the ict_htf grade+floor** (same constants) so a
+  scanner setup is verifiable on TradingView — change one, change both.
+- **Strategies UI** = the pipeline only: Lifecycle (stage machine + promote gate) + Track
+  record (paper performance). Signal Bot + Live book tabs were retired (legacy reclaim/
+  Robinhood; backends still run, unlinked).
 
 - **0DTE SPX playbook**: `spx_playbook.build_playbook(today, store=)` fuses Sentinel GEX +
   chart dims + durable-level memory (`level_history` table, schema v3) into a scaffold;
