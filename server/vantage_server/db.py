@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 24  # v24: scanner debit-spread columns on paper_trades (book/strikes)
+SCHEMA_VERSION = 25  # v25: Alpaca-paper execution ledger cols on paper_trades (order ids/status)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -48,6 +48,16 @@ _PAPER_ADDED_COLUMNS = {
     "underlying_target": "REAL",    # runner target = short strike ref
     "underlying_invalid": "REAL",   # buffered thesis-invalidation
     "setup_key": "TEXT",            # dedup: symbol:as_of:long:short
+    # v25: Alpaca-paper execution ledger. When a scanner spread is submitted to
+    # Alpaca PAPER, `broker`='alpaca-paper' and the order ids/status/fill link the
+    # ledger row to the real order. NULL broker = the yfinance sim (fallback when
+    # no paper creds). Mirrors managed_positions.entry_order_id / stop_order_id.
+    "broker": "TEXT",               # 'alpaca-paper' | NULL (sim)
+    "entry_order_id": "TEXT",       # Alpaca order id of the opening mleg order
+    "exit_order_id": "TEXT",        # Alpaca order id of the reduce-only close
+    "broker_status": "TEXT",        # new|accepted|partially_filled|filled|canceled|rejected
+    "filled_avg": "REAL",           # real entry fill price from Alpaca
+    "alpaca_symbol": "TEXT",        # the OCC option symbol / leg reference
 }
 
 DB_FILENAME = "vantage.db"

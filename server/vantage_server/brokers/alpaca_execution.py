@@ -139,19 +139,26 @@ def _check_caps(caps: dict, *, order_usd: float, open_positions: int,
 
 
 def submit_strategy_order(order: dict, *, strategy: str, live_eligible: bool,
-                          caps: dict, context: dict, audit, live: bool = False) -> dict:
-    """Submit ONE strategy-recomputed order (equity or multi-leg options) under
-    all four ADR-015 gates. THE path that opens autonomous exposure.
+                          caps: dict, context: dict, audit, live: bool = False,
+                          paper: bool = False) -> dict:
+    """Submit ONE strategy-recomputed order (equity or multi-leg options).
 
     `order` is the server-recomputed order shape (validated here, never trusted
     from a client): {symbol, side, qty, type, limit_price?, order_class?, legs?,
-    est_usd}. `strategy` names the owning strategy; `live_eligible` MUST be True
-    (the lifecycle only sets it for a promoted-live strategy) or we refuse.
-    `caps` are that strategy's limits; `context` = {open_positions, day_pnl}
-    for the cap check. `audit(record)` is the append-only sink — called for
-    EVERY outcome (submit / dry_run / refusal / cap_breach). Returns
-    {mode, order_id?, order, gates}.
-    """
+    est_usd}. `strategy` names the owning strategy; `caps` are its limits;
+    `context` = {open_positions, day_pnl} for the cap check. `audit(record)` is
+    the append-only sink — called for EVERY outcome. Returns {mode, order_id?, ...}.
+
+    Two submit modes:
+    - **paper=True** (and the endpoint IS paper): PAPER carve-out — submits to the
+      Alpaca PAPER account WITHOUT the ADR-015 live-arming gates. Paper is a
+      different account/URL (`is_paper()` → PAPER_BASE) that moves no real money,
+      so it is not gated like live. Caps are still checked (a sanity bound) and
+      every outcome is audited with mode 'paper_submitted'.
+    - **live=True**: the four-gate ADR-015 path (kill switch + both env flags +
+      live-eligibility + caps) — THE path that opens REAL exposure. Unchanged.
+    Neither → dry_run. `paper` is refused if the endpoint is live (a guard so a
+    'paper' request can never hit LIVE_BASE)."""
     # shape validation — never trust a free-form order.
     for k in ("symbol", "side", "qty", "type"):
         if not order.get(k):
@@ -162,6 +169,7 @@ def submit_strategy_order(order: dict, *, strategy: str, live_eligible: bool,
 
     gates = {
         "live_requested": bool(live),
+        "paper_requested": bool(paper),
         "live_env": os.environ.get(LIVE_ENV, "") == "1",
         "autonomous_env": os.environ.get(AUTONOMOUS_ENV, "") == "1",
         "kill_switch": kill_switch_engaged(),
@@ -178,6 +186,29 @@ def submit_strategy_order(order: dict, *, strategy: str, live_eligible: bool,
             audit(rec)
         except Exception:  # noqa: BLE001 — audit must never break the order path,
             log.exception("audit sink failed for %s order", strategy)  # but is logged
+
+    # PAPER carve-out: paper account only, no live-arming gates. Guard: a 'paper'
+    # request while the endpoint is LIVE is a hard refusal (never route paper to
+    # real money). Caps still checked as a sanity bound.
+    if paper:
+        if not is_paper():
+            _audit("refused", {"reason": "paper submit requested but endpoint is LIVE"})
+            raise ExecutionViolation(
+                "paper=True but ALPACA_PAPER is off (endpoint is LIVE) — refusing to "
+                "route a paper order to the live account.")
+        try:
+            _check_caps(caps, order_usd=est_usd,
+                        open_positions=int(context.get("open_positions") or 0),
+                        day_pnl=float(context.get("day_pnl") or 0))
+        except CapBreach as cb:
+            _audit("cap_breach", {"cap": cb.cap, "limit": cb.limit, "attempted": cb.attempted})
+            raise
+        body = _alpaca_body(order)
+        result = _order_call("POST /v2/orders", body)
+        order_id = result.get("id")
+        _audit("paper_submitted", {"order_id": order_id, "result_status": result.get("status")})
+        return {"mode": "paper", "order_id": order_id, "order": order, "gates": gates,
+                "result": result}
 
     # GATE 3 (promotion): a non-live-eligible strategy can never submit live.
     if live and not live_eligible:
@@ -220,12 +251,18 @@ def submit_strategy_order(order: dict, *, strategy: str, live_eligible: bool,
 
 def place_exit(position_side: str, symbol: str, qty: int, *, strategy: str,
                audit, order_type: str = "market", limit_price: float | None = None,
-               stop_price: float | None = None, live: bool = False) -> dict:
+               stop_price: float | None = None, live: bool = False,
+               paper: bool = False) -> dict:
     """Reduce-only exit for a strategy position (ADR-015, mirrors ADR-010 v3).
     Side is DERIVED from the position side, so this can never open/increase
     exposure — structural, not conventional. Exits are NOT capped or
-    live-eligibility-gated (reducing risk is always allowed) but ARE kill-switch
-    + env gated for the actual live submit, and always audited."""
+    live-eligibility-gated (reducing risk is always allowed).
+
+    - **paper=True** (endpoint is paper): the PAPER carve-out — submits the
+      reduce-only close to Alpaca PAPER without the live-arming gates (the
+      scanner-spread stop-loss). Refused if the endpoint is LIVE.
+    - **live=True**: kill-switch + env gated for the real submit. Unchanged.
+    Always audited."""
     if position_side not in ("long", "short"):
         raise ValueError(f"position_side must be long|short, got {position_side!r}")
     order = {
@@ -236,7 +273,8 @@ def place_exit(position_side: str, symbol: str, qty: int, *, strategy: str,
         "time_in_force": "gtc",   # an exit that dies at the close protects nothing
         "reduce_only": True,
     }
-    gates = {"live_requested": bool(live), "autonomous_armed": autonomous_allowed()}
+    gates = {"live_requested": bool(live), "paper_requested": bool(paper),
+             "autonomous_armed": autonomous_allowed(), "paper_endpoint": is_paper()}
 
     def _audit(mode: str, extra: dict | None = None) -> None:
         rec = {"strategy": strategy, "mode": mode, "order": order, "exit": True, "gates": gates}
@@ -246,6 +284,14 @@ def place_exit(position_side: str, symbol: str, qty: int, *, strategy: str,
             audit(rec)
         except Exception:  # noqa: BLE001
             log.exception("audit sink failed for %s exit", strategy)
+
+    if paper:
+        if not is_paper():
+            _audit("refused", {"reason": "paper exit requested but endpoint is LIVE"})
+            raise ExecutionViolation("paper exit requested but ALPACA_PAPER is off (LIVE endpoint).")
+        result = _order_call("POST /v2/orders", _alpaca_body(order))
+        _audit("paper_submitted", {"order_id": result.get("id")})
+        return {"mode": "paper", "order_id": result.get("id"), "order": order, "result": result}
 
     if not (live and autonomous_allowed()):
         _audit("dry_run", {"reason": "exit dry-run (gate not armed or live not requested)"})
@@ -360,7 +406,38 @@ def _demo() -> None:
                                   {"symbol": "SPY260117C510", "side": "sell"}]})
     assert body["order_class"] == "mleg" and len(body["legs"]) == 2 and "symbol" not in body
 
-    print("ok — alpaca_execution gate self-check passed")
+    # PAPER carve-out — the safety-critical guard: a paper request while the endpoint
+    # is LIVE must REFUSE (never route paper to real money). Force the live endpoint.
+    import vantage_server.brokers.alpaca_broker as _ab
+    os.environ["ALPACA_PAPER"] = "0"   # is_paper() → False (LIVE endpoint)
+    try:
+        submit_strategy_order(base_order, strategy="scanner", live_eligible=False,
+                              caps={}, context={}, audit=audit, paper=True)
+        raise AssertionError("paper submit to LIVE endpoint was not refused")
+    except ExecutionViolation:
+        assert audited[-1]["mode"] == "refused"
+    try:
+        place_exit("long", "SPY", 4, strategy="scanner", audit=audit, paper=True)
+        raise AssertionError("paper exit to LIVE endpoint was not refused")
+    except ExecutionViolation:
+        pass
+    # on the PAPER endpoint the carve-out submits WITHOUT the live gates. Stub the
+    # network call so no real order is sent; assert it targets the paper submit path.
+    os.environ.pop("ALPACA_PAPER", None)   # is_paper() → True (paper default)
+    assert _ab.is_paper(), "paper must be the default endpoint"
+    _real_call = globals()["_order_call"]
+    globals()["_order_call"] = lambda op, payload, timeout=20.0: {"id": "paper-1", "status": "accepted"}
+    try:
+        r = submit_strategy_order(base_order, strategy="scanner", live_eligible=False,
+                                  caps={}, context={}, audit=audit, paper=True)
+        assert r["mode"] == "paper" and r["order_id"] == "paper-1", r
+        assert audited[-1]["mode"] == "paper_submitted"
+        # env gates were NEVER set — the paper path bypassed them by design.
+        assert os.environ.get(LIVE_ENV) is None and os.environ.get(AUTONOMOUS_ENV) is None
+    finally:
+        globals()["_order_call"] = _real_call
+
+    print("ok — alpaca_execution gate self-check passed (incl. paper carve-out)")
 
 
 if __name__ == "__main__":

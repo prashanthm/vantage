@@ -1569,7 +1569,10 @@ class Store:
                 # v24 scanner debit-spread fields (NULL for reclaim rows)
                 "book", "structure", "underlying", "long_strike", "short_strike",
                 "contracts", "est_debit", "underlying_entry", "underlying_target",
-                "underlying_invalid", "setup_key")
+                "underlying_invalid", "setup_key",
+                # v25 Alpaca-paper execution ledger (NULL for sim rows)
+                "broker", "entry_order_id", "exit_order_id", "broker_status",
+                "filled_avg", "alpaca_symbol")
         import json as _json
 
         def _val(c):
@@ -1588,12 +1591,12 @@ class Store:
             return int(cur.lastrowid)
 
     def load_paper_trades(self, status: str | None = None,
-                          book: str | None = None) -> list[dict]:
-        """Paper trades (optionally filtered by status and/or book), newest first.
-        ``spy_opposing`` is decoded back to a list of floats. ``book`` selects a
-        strategy record — 'scanner-spread' for the scanner spreads, or the special
-        value 'reclaim' to select the legacy rows where book IS NULL (so the two
-        strategies' win-rates never mix)."""
+                          book: str | None = None, broker: str | None = None) -> list[dict]:
+        """Paper trades (optionally filtered by status, book, and/or broker), newest
+        first. ``spy_opposing`` is decoded back to a list of floats. ``book`` selects
+        a strategy record — 'scanner-spread', or 'reclaim' for the legacy NULL-book
+        rows. ``broker`` selects execution venue — 'alpaca-paper' for the real
+        broker rows, or 'sim' for the yfinance-simulated rows (broker IS NULL)."""
         if not self.uses_sqlite:
             return []
         conn = self._backend._conn()
@@ -1607,6 +1610,10 @@ class Store:
                 where.append("book IS NULL")
             elif book is not None:
                 where.append("book=?"); params.append(book)
+            if broker == "sim":
+                where.append("broker IS NULL")
+            elif broker is not None:
+                where.append("broker=?"); params.append(broker)
             if where:
                 sql += " WHERE " + " AND ".join(where)
             sql += " ORDER BY opened_at DESC, id DESC"
@@ -1639,6 +1646,29 @@ class Store:
         finally:
             conn.close()
         return {r["setup_key"] for r in rows}
+
+    def set_broker_fill(self, trade_id: int, *, broker_status: str | None = None,
+                        filled_avg: float | None = None, entry_order_id: str | None = None,
+                        exit_order_id: str | None = None, fill_status: str | None = None,
+                        filled_at: str | None = None) -> bool:
+        """Update the Alpaca-paper execution fields on a ledger row during reconcile
+        (broker status / fill price / order ids). Only the passed fields are written.
+        Returns True if a row was updated."""
+        if not self.uses_sqlite:
+            return False
+        sets, params = [], []
+        for col, val in (("broker_status", broker_status), ("filled_avg", filled_avg),
+                         ("entry_order_id", entry_order_id), ("exit_order_id", exit_order_id),
+                         ("fill_status", fill_status), ("filled_at", filled_at)):
+            if val is not None:
+                sets.append(f"{col}=?"); params.append(val)
+        if not sets:
+            return False
+        params.append(trade_id)
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                f"UPDATE paper_trades SET {', '.join(sets)} WHERE id=?", params)
+            return cur.rowcount > 0
 
     def fill_paper_trade(self, trade_id: int, *, spy_entry: float,
                          filled_at: str, spy_target: float | None = None,

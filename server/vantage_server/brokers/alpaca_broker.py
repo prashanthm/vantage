@@ -31,6 +31,11 @@ READ_PATHS = frozenset({
     "/v2/account",
     "/v2/positions",
 })
+#: GET-only prefixes for parameterized reads — order STATUS (`/v2/orders/{id}` or
+#: `/v2/orders?status=...`). Read-only: the write verbs (POST/DELETE /v2/orders)
+#: live in alpaca_execution.py; this module only ever GETs. A prefix, not exact,
+#: because the order id is in the path.
+READ_PREFIXES = ("/v2/orders",)
 
 PAPER_BASE = "https://paper-api.alpaca.markets"
 LIVE_BASE = "https://api.alpaca.markets"
@@ -59,11 +64,16 @@ def _creds() -> tuple[str, str]:
 def _get(path: str, timeout: float = 15.0) -> dict | list:
     """The single read dispatcher. Refuses any path outside READ_PATHS BEFORE
     touching the network (the ADR-010 read-only guarantee, transport-layer)."""
-    if path not in READ_PATHS:
+    # exact allowlist OR a read-only prefix (order status). The prefix match is on
+    # the path BEFORE any query string, so only the allowed resource is reachable.
+    _base = path.split("?", 1)[0]
+    if path not in READ_PATHS and not any(
+            _base == p or _base.startswith(p + "/") for p in READ_PREFIXES):
         raise ReadOnlyViolation(
             f"path '{path}' is not in the Alpaca read allowlist "
-            f"{sorted(READ_PATHS)} — this connection is read-only (ADR-010); "
-            f"orders live in alpaca_execution.py (ADR-015)."
+            f"{sorted(READ_PATHS)} (+ read prefixes {READ_PREFIXES}) — this "
+            f"connection is read-only (ADR-010); orders live in "
+            f"alpaca_execution.py (ADR-015)."
         )
     key, secret = _creds()
     req = urllib.request.Request(
@@ -142,6 +152,25 @@ class AlpacaConnection:
             pnl += float(r.get("unrealized_intraday_pl") or 0)
         return round(pnl, 2), n
 
+    def order_status(self, order_id: str) -> dict:
+        """Read-only status of one order — what the scanner-spread reconcile loop
+        polls to detect a fill. Returns {id, status, filled_avg_price, filled_qty,
+        symbol, side}. status is Alpaca's order lifecycle (new / accepted /
+        partially_filled / filled / canceled / rejected / expired). GET only —
+        submission/cancel live in alpaca_execution.py (ADR-015)."""
+        o = _get(f"/v2/orders/{order_id}")
+        if not isinstance(o, dict):
+            return {"id": order_id, "status": "unknown"}
+        return {
+            "id": o.get("id"),
+            "status": str(o.get("status") or "unknown"),
+            "filled_avg_price": (float(o["filled_avg_price"])
+                                 if o.get("filled_avg_price") is not None else None),
+            "filled_qty": float(o.get("filled_qty") or 0),
+            "symbol": o.get("symbol"),
+            "side": o.get("side"),
+        }
+
     def interactive_auth(self) -> None:
         raise base.NotSupported(
             "Alpaca uses API keys (ALPACA_API_KEY / ALPACA_SECRET_KEY), "
@@ -158,19 +187,34 @@ class AlpacaConnection:
 def _demo() -> None:
     """assert-based self-check (run: python -m vantage_server.brokers.alpaca_broker).
     Proves the read-only refusal path without any network or credentials."""
-    # the refusal guarantee: a non-allowlisted path raises BEFORE any I/O.
-    try:
-        _get("/v2/orders")   # an ORDER path — must never be reachable here
-        raise AssertionError("read dispatcher did not refuse /v2/orders")
-    except ReadOnlyViolation:
-        pass
-    # placing/cancelling paths equally refused.
-    for bad in ("/v2/orders/123", "/v2/account/configurations", "DELETE /v2/positions"):
+    # the refusal guarantee: a non-allowlisted path raises BEFORE any I/O. Order
+    # STATUS (GET /v2/orders[/id]) is now an allowed READ prefix — but everything
+    # ELSE is still refused. (Writes to /v2/orders go through alpaca_execution's
+    # _order_call, a different module; this GET-only reader can never place/cancel.)
+    for bad in ("/v2/account/configurations", "/v2/assets", "/v2/watchlists",
+                "/v2/orderss", "/v2/order"):
         try:
             _get(bad)
             raise AssertionError(f"read dispatcher did not refuse {bad}")
         except ReadOnlyViolation:
             pass
+    # order-status reads ARE allowed — the guard must NOT raise ReadOnlyViolation
+    # for them (they'd degrade to a creds/network error, which is fine). Run with
+    # creds cleared so this never actually hits the network.
+    _pk = (os.environ.pop("ALPACA_API_KEY", None), os.environ.pop("ALPACA_SECRET_KEY", None))
+    try:
+        for ok in ("/v2/orders", "/v2/orders/abc-123", "/v2/orders?status=open"):
+            try:
+                _get(ok)
+            except ReadOnlyViolation:
+                raise AssertionError(f"read dispatcher wrongly refused allowed read {ok}")
+            except BrokerConnectionError:
+                pass   # expected — no creds → clear error, not a refusal
+    finally:
+        if _pk[0] is not None:
+            os.environ["ALPACA_API_KEY"] = _pk[0]
+        if _pk[1] is not None:
+            os.environ["ALPACA_SECRET_KEY"] = _pk[1]
     # an allowlisted path with NO creds degrades to a clear error (never a crash).
     saved = (os.environ.pop("ALPACA_API_KEY", None),
              os.environ.pop("ALPACA_SECRET_KEY", None))
