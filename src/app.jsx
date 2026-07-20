@@ -63,10 +63,9 @@ const NAV = [
 //   activity — per-position transactions, reached from a holding
 //   recs     — the full decision journal, reached from the Dashboard Actions "All →"
 //   markets  — live pattern signals, reached from Market read links
-// signalbot / paper / exits are now TABS inside Strategies, but kept as reachable
-// routes so legacy #signalbot / #exits anchors (today.jsx) still resolve — they
-// render the Strategies view opened to that tab (see the route block below).
-const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "signalbot", "paper", "exits"];
+// `paper` is a reachable drilldown route → the Strategies Track-record tab. (The
+// signalbot/exits tabs + views were retired in the pipeline-only refactor.)
+const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 // Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
@@ -383,8 +382,9 @@ function App() {
           {route === "strategies" && (
             <StrategiesView tab={routeParam} refreshNonce={refreshNonce}
               onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
-          {/* legacy hashes → the matching Strategies tab (nav items retired, anchors kept) */}
-          {(route === "signalbot" || route === "paper" || route === "exits") && (
+          {/* legacy #paper hash → the Strategies Track-record tab (signalbot/exits
+              tabs were retired; their views are gone). */}
+          {route === "paper" && (
             <StrategiesView tab={route} refreshNonce={refreshNonce}
               onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
           {route === "journal" && <JournalView refreshNonce={refreshNonce} />}

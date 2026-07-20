@@ -125,7 +125,6 @@ function SignalsCard({ live, armed, spot, onExecute }) {
         <div className="vg-kicker" style={{ marginBottom: 0 }}>
           Signals · {n} confirmed{armed.length ? `, ${armed.length} waiting` : ""}
         </div>
-        <a className="vg-linkbtn" href="#signalbot">history →</a>
       </div>
 
       {n === 0 && armed.length === 0 && (
@@ -216,7 +215,7 @@ function PositionsCard({ rows }) {
         <div className="vg-kicker" style={{ marginBottom: 0 }}>
           Positions · {rows.length} open
         </div>
-        <a className="vg-linkbtn" href="#exits">full book →</a>
+        <a className="vg-linkbtn" href="#holdings">full book →</a>
       </div>
       <PositionsTable rows={rows} warn={{
         verdict: true,
@@ -394,8 +393,7 @@ function MachineCard({ run }) {
         </p>
       ))}
       <p className="vg-note" style={{ marginTop: 8, fontSize: 11 }}>
-        last run {String(run.started_at || "").slice(0, 16).replace("T", " ")} ·{" "}
-        <a className="vg-linkbtn" href="#signalbot">all jobs →</a>
+        last run {String(run.started_at || "").slice(0, 16).replace("T", " ")}
       </p>
     </div>
   );

@@ -4868,7 +4868,7 @@ ${ref}`;
   }
   function SignalsCard({ live, armed, spot, onExecute }) {
     const n = live.length;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Signals \xB7 ", n, " confirmed", armed.length ? `, ${armed.length} waiting` : ""), /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#signalbot" }, "history \u2192")), n === 0 && armed.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, "Nothing armed yet \u2014 the bot arms each session's playbook levels at its next pass."), live.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, onExecute })), armed.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, armed: true })));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Signals \xB7 ", n, " confirmed", armed.length ? `, ${armed.length} waiting` : "")), n === 0 && armed.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, "Nothing armed yet \u2014 the bot arms each session's playbook levels at its next pass."), live.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, onExecute })), armed.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, armed: true })));
   }
   function SignalRow({ t, armed, onExecute }) {
     const long = t.side === "long";
@@ -4892,7 +4892,7 @@ ${ref}`;
       return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Positions \xB7 flat"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, "No SPY/QQQ/IWM position open \u2014 nothing at risk right now."));
     }
     const naked = rows.filter((p) => !p.managed);
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", naked.length && "vg-card-alarm"), style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Positions \xB7 ", rows.length, " open"), /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#exits" }, "full book \u2192")), /* @__PURE__ */ React.createElement(PositionsTable, { rows, warn: {
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", naked.length && "vg-card-alarm"), style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Positions \xB7 ", rows.length, " open"), /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#holdings" }, "full book \u2192")), /* @__PURE__ */ React.createElement(PositionsTable, { rows, warn: {
       verdict: true,
       text: (n) => `${n.map((p) => p.symbol).join(", ")} ${n.length === 1 ? "has" : "have"} no monitor stop \u2014 the exit monitor is not protecting ${n.length === 1 ? "it" : "them"}.`
     } }));
@@ -4973,7 +4973,7 @@ ${ref}`;
     const jobs = run.jobs || [];
     const bad = jobs.filter((j) => !j.ok);
     const total = jobs.reduce((a, j) => a + (j.duration_sec || 0), 0);
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", bad.length && "vg-card-alarm") }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the machine OK?"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 22, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Metric, { label: "jobs ok", value: `${jobs.length - bad.length}\u2713` }), /* @__PURE__ */ React.createElement(Metric, { label: "failed", value: `${bad.length}\u2717`, bad: bad.length > 0 }), /* @__PURE__ */ React.createElement(Metric, { label: "runtime", value: total >= 60 ? `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s` : `${total}s` })), bad.map((j, i) => /* @__PURE__ */ React.createElement("p", { key: i, className: "vg-note", style: { marginTop: 6, color: "var(--vg-down)" } }, "\u2717 ", /* @__PURE__ */ React.createElement("b", null, j.job), " \u2014 ", (j.tail || "").split("\n").slice(-1)[0].slice(0, 60))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 11 } }, "last run ", String(run.started_at || "").slice(0, 16).replace("T", " "), " \xB7", " ", /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#signalbot" }, "all jobs \u2192")));
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", bad.length && "vg-card-alarm") }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the machine OK?"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 22, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Metric, { label: "jobs ok", value: `${jobs.length - bad.length}\u2713` }), /* @__PURE__ */ React.createElement(Metric, { label: "failed", value: `${bad.length}\u2717`, bad: bad.length > 0 }), /* @__PURE__ */ React.createElement(Metric, { label: "runtime", value: total >= 60 ? `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s` : `${total}s` })), bad.map((j, i) => /* @__PURE__ */ React.createElement("p", { key: i, className: "vg-note", style: { marginTop: 6, color: "var(--vg-down)" } }, "\u2717 ", /* @__PURE__ */ React.createElement("b", null, j.job), " \u2014 ", (j.tail || "").split("\n").slice(-1)[0].slice(0, 60))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 11 } }, "last run ", String(run.started_at || "").slice(0, 16).replace("T", " ")));
   }
   function Metric({ label, value, bad }) {
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: {
@@ -6206,7 +6206,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       { id: "trades", label: "Performance", icon: "\u{1F9EE}" }
     ] }
   ];
-  var DRILLDOWN_ROUTES = ["activity", "recs", "markets", "signalbot", "paper", "exits"];
+  var DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper"];
   var ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
   function useHashRoute() {
     const parse = () => {
@@ -6493,7 +6493,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         refreshNonce,
         onTab: (k) => go("strategies", k === "lifecycle" ? "" : k)
       }
-    ), (route === "signalbot" || route === "paper" || route === "exits") && /* @__PURE__ */ React.createElement(
+    ), route === "paper" && /* @__PURE__ */ React.createElement(
       StrategiesView,
       {
         tab: route,
