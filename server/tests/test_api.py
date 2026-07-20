@@ -522,6 +522,11 @@ ALLOWED_WRITE_ROUTES = {
     # 60m bars, scanner_result); no broker/order path (ADR-010 holds).
     "/api/scanner/refresh",
     "/api/scanner/tickers",
+    # Scanner-spread reconcile: confirm Alpaca-PAPER fills + close on stop-loss/target.
+    # The ONLY order path here is the alpaca_execution PAPER carve-out (paper endpoint,
+    # no live gates, no real money — a different account/URL than live). Live orders
+    # still require every ADR-015 gate; this route can never reach the live account.
+    "/api/scanner/reconcile",
     # Manual chart refresh: force-refetch the source bars (1m/60m) for a symbol so
     # new candles appear. Writes only our own SQLite (intraday bars); no broker/order
     # path (ADR-010 holds).

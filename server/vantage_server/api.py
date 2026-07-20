@@ -1670,6 +1670,19 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note="Paper trading requires the SQLite backend.")
         return envelope(snap, available=True, **_paper.build_spread_book(store))
 
+    @app.post("/api/scanner/reconcile")
+    def scanner_reconcile():
+        """One reconcile pass over open Alpaca-PAPER scanner spreads: confirm entry
+        fills, and close on the invalidation (stop-loss) or target. Paper-only —
+        every submit goes through the alpaca_execution PAPER carve-out (no live
+        gates, no real money). Poked by the scanner-exec loop each minute."""
+        from . import scanner_exec as _se
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        actions = _se.tick(store)
+        return envelope(snap, available=True, actions=actions, n=len(actions))
+
     @app.post("/api/paper/open")
     def paper_open(body: dict = Body(default={})):
         """Log a paper trade from a ticket (no real order — ADR-010). Body is the

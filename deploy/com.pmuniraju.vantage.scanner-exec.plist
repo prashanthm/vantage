@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.pmuniraju.vantage.scanner-exec</string>
+  <key>ProgramArguments</key>
+  <array><string>/Users/pmuniraju/personal/vantage/deploy/scanner-exec-loop.sh</string></array>
+  <key>WorkingDirectory</key><string>/Users/pmuniraju/personal/vantage</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>TZ</key><string>America/New_York</string>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>VANTAGE_BACKEND</key><string>http://localhost:8641</string>
+    <key>INTERVAL</key><string>60</string>
+  </dict>
+  <!-- a persistent 60s loop (the script self-gates to RTH); relaunch if it dies -->
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/pmuniraju/personal/vantage/logs/scanner-exec-loop.log</string>
+  <key>StandardErrorPath</key><string>/Users/pmuniraju/personal/vantage/logs/scanner-exec-loop.log</string>
+</dict>
+</plist>
