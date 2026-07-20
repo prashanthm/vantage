@@ -5,6 +5,27 @@ Single-repo project: the code (static SPA + Python backend), the product layer
 here. Kadence (ai-sdlc-toolkit) conventions apply: durable intent in markdown, status in
 GitHub, one feature → one branch → one merge.
 
+## Navigate with the code graph (do this before grepping)
+
+This repo is indexed by **CodeGraph** — a local SQLite symbol/call graph
+(`.codegraph/`, gitignored). To locate code, prefer these over `grep`/reading whole
+files (they return a few lines instead of a 500-line file — much cheaper):
+
+```
+codegraph query <name>        # where a symbol/route/file is defined + its signature
+codegraph callers <symbol>    # who calls it
+codegraph callees <symbol>    # what it calls (a function's dependencies)
+codegraph impact <symbol>     # blast radius before editing (what breaks)
+codegraph explore "<phrase>"  # semantic context: relevant symbols + call flow + blast radius
+codegraph node <symbol|file>  # one symbol's source + callers, or read a file
+```
+
+Run from the repo root. It resolves both Python and JSX (incl. cross-file component
+usage). CLI-only — no MCP server. If a query returns nothing, the graph may be stale:
+`codegraph sync` (a git hook auto-syncs on commit); full rebuild is `codegraph index
+--force`. Fall back to grep/Read only when the graph can't answer. Eval + full command
+notes: `tools/codegraph-eval.md`.
+
 ## Doctrine (never violate)
 
 - **Read-only decision support (ADR-010): no order placement, no fund movement, ever.**
