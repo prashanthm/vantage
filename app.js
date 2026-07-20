@@ -303,6 +303,7 @@
     getChartForecast: () => getChartForecast,
     getCoachPine: () => getCoachPine,
     getDayPnl: () => getDayPnl,
+    getDayReviewBundle: () => getDayReviewBundle,
     getDrawings: () => getDrawings,
     getExits: () => getExits,
     getExplanation: () => getExplanation,
@@ -1182,6 +1183,7 @@
     { timeoutMs: 2e4 }
   );
   var saveJournalAnalysis = (body) => postJson(`${backendBase()}/api/journal/analysis`, body);
+  var getDayReviewBundle = (day, underlying = "SPX") => getJson(`${backendBase()}/api/journal/day-review-bundle?day=${encodeURIComponent(day)}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 18e4 });
   var getJournalAnalyses = (underlying = "SPX") => getJson(`${backendBase()}/api/journal/analysis?underlying=${encodeURIComponent(underlying)}`);
   var getChart = (symbol, tf = "5m", days = 15) => getJson(
     `${backendBase()}/api/chart/${encodeURIComponent(symbol)}?tf=${encodeURIComponent(tf)}&days=${days}`,
@@ -5662,6 +5664,7 @@ ${ref}`;
     const [open, setOpen] = useState13(null);
     const [batch, setBatch] = useState13(null);
     const [tk, setTk] = useState13("all");
+    const [daySyn, setDaySyn] = useState13(null);
     const day = String(snap.created_at || "").slice(0, 10);
     const load = async () => {
       setBusy(true);
@@ -5687,6 +5690,27 @@ ${ref}`;
       }
       setBatch({ done, total: targets.length, running: false });
       await load();
+      await synthesizeDay();
+    };
+    const synthesizeDay = async () => {
+      setDaySyn({ loading: true, text: "" });
+      try {
+        const res = await getDayReviewBundle(day, "SPX");
+        if (!res || !res.available || !res.prompt) {
+          setDaySyn({ error: res && res.note || "no completed trades to synthesize" });
+          return;
+        }
+        const { text, data: sdata, error } = await collectTurn(res.prompt, `day-${day}`, {
+          onToken: (t) => setDaySyn({ loading: true, text: t })
+        });
+        if (error && !text) {
+          setDaySyn({ error });
+          return;
+        }
+        setDaySyn({ text, data: sdata });
+      } catch (e) {
+        setDaySyn({ error: String(e && e.message || e) });
+      }
     };
     useEffect9(() => {
       setData(null);
@@ -5733,12 +5757,12 @@ ${ref}`;
       "button",
       {
         className: "vg-btn-sm",
-        disabled: busy || batch && batch.running,
+        disabled: busy || batch && batch.running || daySyn && daySyn.loading,
         onClick: analyzeToday,
-        title: "Run + record Mira's desk review for every closed trade that doesn't have one yet"
+        title: "Desk-review every closed trade, then a book-level day synthesis (direction / time / allocation)"
       },
-      batch && batch.running ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing ", batch.done, "/", batch.total, "\u2026") : "\u{1F9EC} Analyze today"
-    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "\u2026" : "\u27F3"))), batch && !batch.running && batch.total > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 11, color: "var(--vg-up)" } }, "\u2713 analyzed ", batch.total, " trade", batch.total === 1 ? "" : "s", " (already-analyzed ones skipped)"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money3(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money3(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money3(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money3(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, rows.map(({ t, i }) => {
+      batch && batch.running ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing ", batch.done, "/", batch.total, "\u2026") : daySyn && daySyn.loading ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Day synthesis\u2026") : "\u{1F9EC} Analyze today"
+    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: load, disabled: busy }, busy ? "\u2026" : "\u27F3"))), batch && !batch.running && batch.total > 0 && !daySyn && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 11, color: "var(--vg-up)" } }, "\u2713 analyzed ", batch.total, " trade", batch.total === 1 ? "" : "s", " (already-analyzed ones skipped)"), daySyn && (daySyn.loading || daySyn.data || daySyn.text || daySyn.error) && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-day-syn", style: { margin: "10px 0 0" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("h4", { style: { margin: 0, fontSize: 13, letterSpacing: "0.03em" } }, "\u{1F9EC} Day synthesis ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\u2014 the book, not the trades")), daySyn.loading && /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3")), daySyn.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, daySyn.error) : daySyn.data || daySyn.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: daySyn.data, text: daySyn.text })) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, "Reading the day\u2026")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money3(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money3(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money3(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money3(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, rows.map(({ t, i }) => {
       const key = `${t.account || ""}|${t.opened_at || i}|${t.label}`;
       return /* @__PURE__ */ React.createElement(
         TradeCard,

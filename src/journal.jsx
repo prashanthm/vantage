@@ -16,6 +16,7 @@ import {
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
   getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis,
   getJournalAnalysisBundle, saveJournalAnalysis, getJournalAnalyses,
+  getDayReviewBundle,
 } from "./live.js";
 
 const { useState, useRef, useEffect, useMemo } = React;
@@ -560,6 +561,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
   const [open, setOpen] = useState(null);          // expanded trade key
   const [batch, setBatch] = useState(null);        // {done, total, running} for Analyze-today
   const [tk, setTk] = useState("all");             // ticker filter (all | SPX | MU | …)
+  const [daySyn, setDaySyn] = useState(null);      // {loading|text|data|error} — the book-level synthesis
 
   const day = String(snap.created_at || "").slice(0, 10);
   const load = async () => {
@@ -594,6 +596,33 @@ function TradesPanel({ snap, thoughts, onThought }) {
     }
     setBatch({ done, total: targets.length, running: false });
     await load();   // re-pull so the freshly-saved reads show on the cards
+    await synthesizeDay();   // then the book-level read ON TOP of the per-trade reads
+  };
+
+  // The DAY SYNTHESIS: one pass over the whole book (direction / time /
+  // allocation) that a per-trade loop can't see. Reads the deterministic bundle
+  // (which includes the per-trade reads just saved) and streams Mira. Not
+  // persisted — it's a "today" view, cheap to regenerate and always current.
+  const synthesizeDay = async () => {
+    setDaySyn({ loading: true, text: "" });
+    try {
+      const res = await getDayReviewBundle(day, "SPX");
+      if (!res || !res.available || !res.prompt) {
+        setDaySyn({ error: (res && res.note) || "no completed trades to synthesize" });
+        return;
+      }
+      const { text, data: sdata, error } = await collectTurn(res.prompt, `day-${day}`, {
+        onToken: (t) => setDaySyn({ loading: true, text: t }),
+      });
+      if (error && !text) { setDaySyn({ error }); return; }
+      setDaySyn({ text, data: sdata });
+      // Not persisted: the day synthesis is a "today" view, cheap to regenerate
+      // (one Mira call) and always current. The per-trade reads persist; the
+      // weekly SWOT compounds. ponytail: add a dedicated table only if a
+      // compounding day-level history is actually wanted.
+    } catch (e) {
+      setDaySyn({ error: String((e && e.message) || e) });
+    }
   };
 
   // auto-load the day's trades on open (and when the day/underlying changes) —
@@ -661,20 +690,40 @@ function TradesPanel({ snap, thoughts, onThought }) {
               {tickers.map((x) => <option key={x} value={x}>{x}</option>)}
             </select>
           )}
-          <button className="vg-btn-sm" disabled={busy || (batch && batch.running)}
+          <button className="vg-btn-sm" disabled={busy || (batch && batch.running) || (daySyn && daySyn.loading)}
             onClick={analyzeToday}
-            title="Run + record Mira's desk review for every closed trade that doesn't have one yet">
+            title="Desk-review every closed trade, then a book-level day synthesis (direction / time / allocation)">
             {batch && batch.running
               ? <><span className="vg-spin" aria-hidden="true">⟳</span> Analyzing {batch.done}/{batch.total}…</>
-              : "🧬 Analyze today"}
+              : daySyn && daySyn.loading
+                ? <><span className="vg-spin" aria-hidden="true">⟳</span> Day synthesis…</>
+                : "🧬 Analyze today"}
           </button>
           <button className="vg-btn-sm" onClick={load} disabled={busy}>{busy ? "…" : "⟳"}</button>
         </div>
       </div>
-      {batch && !batch.running && batch.total > 0 && (
+      {batch && !batch.running && batch.total > 0 && !daySyn && (
         <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 11, color: "var(--vg-up)" }}>
           ✓ analyzed {batch.total} trade{batch.total === 1 ? "" : "s"} (already-analyzed ones skipped)
         </p>
+      )}
+
+      {/* the BOOK-level read, on top of the per-trade cards: the direction /
+          time / allocation pattern a per-trade loop can't see. */}
+      {daySyn && (daySyn.loading || daySyn.data || daySyn.text || daySyn.error) && (
+        <div className="vg-card vg-day-syn" style={{ margin: "10px 0 0" }}>
+          <div className="vg-spread" style={{ alignItems: "baseline" }}>
+            <h4 style={{ margin: 0, fontSize: 13, letterSpacing: "0.03em" }}>
+              🧬 Day synthesis <span className="vg-note" style={{ fontWeight: 400 }}>— the book, not the trades</span>
+            </h4>
+            {daySyn.loading && <span className="vg-spin" aria-hidden="true">⟳</span>}
+          </div>
+          {daySyn.error
+            ? <p className="vg-note" style={{ marginTop: 6 }}>{daySyn.error}</p>
+            : (daySyn.data || daySyn.text)
+              ? <div style={{ marginTop: 8 }}><MiraRender data={daySyn.data} text={daySyn.text} /></div>
+              : <p className="vg-note" style={{ marginTop: 6 }}>Reading the day…</p>}
+        </div>
       )}
 
       {/* the day, reconciled — including the money no fill showed */}

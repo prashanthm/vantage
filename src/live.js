@@ -1050,6 +1050,13 @@ export const getJournalAnalysisBundle = (from, to, underlying = "SPX") =>
 export const saveJournalAnalysis = (body) =>
   postJson(`${backendBase()}/api/journal/analysis`, body);
 
+// The DAY-synthesis bundle + Mira prompt for one day's whole book (direction /
+// time / allocation patterns a per-trade review can't see). The client streams
+// Mira with the prompt to render the book-level read (not persisted).
+export const getDayReviewBundle = (day, underlying = "SPX") =>
+  getJson(`${backendBase()}/api/journal/day-review-bundle?day=${encodeURIComponent(day)}` +
+          `&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 180000 });
+
 // Recorded Journal Analyses, newest window first (the history + score trend).
 export const getJournalAnalyses = (underlying = "SPX") =>
   getJson(`${backendBase()}/api/journal/analysis?underlying=${encodeURIComponent(underlying)}`);

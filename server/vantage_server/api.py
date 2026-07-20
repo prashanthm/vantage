@@ -2003,6 +2003,26 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         playbook_session=sess.get("playbook_session"),
                         settle_price=sess.get("settle_price"))
 
+    @app.get("/api/journal/day-review-bundle")
+    def journal_day_review_bundle(day: str = Query(...),
+                                  underlying: str = Query("SPX")):
+        """The DAY-level synthesis bundle + Mira prompt: the by-direction /
+        by-time / capital-allocation rollups (exact, from fills), the
+        held-to-expiry tail, the shared session DNA, and the day's per-trade
+        reads as supporting texts. The BOOK-level counterpart to per-trade DNA —
+        the pattern a per-trade review can't see. The client streams Mira with
+        the prompt to render the day's book-level read. Read-only."""
+        from . import day_review as _dr
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        bundle = _dr.gather(store, day, underlying or "SPX")
+        if not (bundle.get("counts") or {}).get("completed"):
+            return envelope(snap, available=False, day=day,
+                            note="no completed trades to synthesize yet")
+        return envelope(snap, available=True, bundle=bundle,
+                        prompt=_dr.build_prompt(bundle))
+
     @app.post("/api/journal/trade-analysis")
     def journal_trade_analysis(body: dict = Body(default={})):
         """Freeze a trade's DNA snapshot + Mira's read into the store, so the

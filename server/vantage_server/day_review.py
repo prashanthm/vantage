@@ -1,0 +1,227 @@
+"""Day-review bundle — the BOOK-level counterpart to per-trade analysis.
+
+`Analyze today` used to loop the single-trade review N times: 19 isolated reads,
+no synthesis. That misses what only exists across the whole book — direction,
+time-of-day, and capital allocation. This module computes those patterns
+deterministically from the day's session (exact, from fills), pulls the stored
+per-trade reads as supporting texts, and builds a Mira prompt that asks for a
+DAY THESIS + lessons — explicitly NOT a re-grade of each trade.
+
+Read-only. The client streams Mira with `build_prompt(bundle)` and persists the
+result via the existing journal-analysis store (period=daily, window=day..day).
+"""
+from __future__ import annotations
+
+import json
+
+
+def _direction(trade: dict) -> str:
+    """Net directional intent: long calls = bullish, long puts = bearish.
+    Spreads inherit the long leg's kind via the strategy name."""
+    strat = str(trade.get("strategy") or "")
+    if "put" in strat:
+        return "bearish"
+    if "call" in strat:
+        return "bullish"
+    kinds = [l.get("kind") for l in (trade.get("legs") or []) if l.get("side") == "buy"]
+    if "C" in kinds and "P" not in kinds:
+        return "bullish"
+    if "P" in kinds and "C" not in kinds:
+        return "bearish"
+    return "other"
+
+
+def _et_min(trade: dict) -> int:
+    s = str(trade.get("opened_et") or "00:00")
+    try:
+        h, m = s.split(":")
+        return int(h) * 60 + int(m)
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _r(x) -> float:
+    try:
+        return round(float(x), 2)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _bucket(trades: list[dict]) -> dict:
+    pnl = sum(_r(t.get("realized")) for t in trades)
+    wins = sum(1 for t in trades if _r(t.get("realized")) > 0)
+    losses = sum(1 for t in trades if _r(t.get("realized")) < 0)
+    return {"n": len(trades), "wins": wins, "losses": losses, "pnl": round(pnl, 2)}
+
+
+def gather(store, day: str, underlying: str = "SPX") -> dict:
+    """Assemble the deterministic day-book bundle: the by-direction / by-time /
+    allocation rollups, the held-to-expiry tail, the shared session DNA, and the
+    stored per-trade reads. No model here — this is what Mira narrates."""
+    from . import session_activity as _sa
+
+    und = (underlying or "SPX").upper()
+    # the FULL (all-ticker) session — the day's whole book, same list the UI shows
+    sess = _sa.session(store, day, None)
+    trades = sess.get("trades") or []
+    completed = [t for t in trades if t.get("status") != "open"]
+
+    # direction split (the headline pattern — invisible per-trade)
+    by_dir = {d: _bucket([t for t in completed if _direction(t) == d])
+              for d in ("bearish", "bullish", "other")}
+
+    # time-of-day split (AM open, midday trap, power hour)
+    am = [t for t in completed if _et_min(t) < 11 * 60]
+    mid = [t for t in completed if 11 * 60 <= _et_min(t) < 14 * 60]
+    pm = [t for t in completed if _et_min(t) >= 14 * 60]
+    by_time = {"open_0930_1100": _bucket(am), "midday_1100_1400": _bucket(mid),
+               "power_1400_1600": _bucket(pm)}
+
+    # the held-to-expiry tail (late lottos that decay to zero)
+    expired = [t for t in completed if "expired" in str(t.get("status") or "")]
+    tail = {**_bucket(expired),
+            "trades": [{"time": t.get("opened_et"), "label": t.get("label"),
+                        "realized": _r(t.get("realized"))} for t in expired]}
+
+    # capital allocation: where the size went (peak contracts × side)
+    def _size(t):
+        return abs(_r(t.get("peak_contracts")))
+    alloc = {"bearish_contracts": round(sum(_size(t) for t in completed
+                                            if _direction(t) == "bearish"), 1),
+             "bullish_contracts": round(sum(_size(t) for t in completed
+                                            if _direction(t) == "bullish"), 1),
+             "biggest": None}
+    if completed:
+        big = max(completed, key=_size)
+        alloc["biggest"] = {"label": big.get("label"), "dir": _direction(big),
+                            "contracts": _size(big), "realized": _r(big.get("realized"))}
+
+    # a compact per-trade line (time, dir, level role at entry, P&L) — the spine
+    rollup = []
+    for t in completed:
+        corr = (t.get("correlation") or {}).get("nearest") or {}
+        rollup.append({"time": t.get("opened_et"), "label": t.get("label"),
+                       "ticker": t.get("ticker"), "dir": _direction(t),
+                       "entry_level": corr.get("source"),
+                       "entry_role": corr.get("role"),
+                       "at_level": bool((t.get("correlation") or {}).get("at_level")),
+                       "realized": _r(t.get("realized"))})
+
+    # the stored per-trade reads (supporting texts — the microscope's findings)
+    reads = []
+    if getattr(store, "uses_sqlite", False):
+        rows = store.load_trade_analysis(day) or []
+        for r in rows:
+            reads.append({"label": r.get("label"),
+                          "read": (r.get("analysis") or "")[:400]})
+
+    s = sess.get("summary") or {}
+    return {
+        "day": day, "underlying": und,
+        "primary": sess.get("primary"),
+        "net_pnl": _r(s.get("realized")),
+        "counts": {"trades": len(trades), "completed": len(completed),
+                   "open": len(trades) - len(completed),
+                   "winners": s.get("winners"), "losers": s.get("losers")},
+        "discipline": {"entered_at_level": s.get("level_discipline"),
+                       "exited_at_level": s.get("exit_discipline")},
+        "by_direction": by_dir,
+        "by_time": by_time,
+        "expiry_tail": tail,
+        "allocation": alloc,
+        "trades": rollup,
+        "session_dna": {
+            "forecast_levels": sess.get("forecast_levels") or [],
+            "gex_anchors": sess.get("gex_anchors") or [],
+            "durable_levels": sess.get("durable_levels") or [],
+            "settle_price": sess.get("settle_price"),
+        },
+        "trade_reads": reads,
+        "analyzed": len(reads),
+    }
+
+
+# NOTE: sections use "kind" (not "type") — that's the key the SPA's MiraRender
+# switches on (mira-render.jsx isRenderableSection). keyvals→rows[{k,v}],
+# list/donext→items[], callout→text. Match it exactly or the card renders blank.
+OUTPUT_SCHEMA = {
+    "headline": "one sentence — the thesis of the day's BOOK (not any single trade)",
+    "sections": [
+        {"kind": "keyvals", "title": "The day in numbers",
+         "rows": [{"k": "label", "v": "value + one-line read"}]},
+        {"kind": "list", "title": "What the pattern says",
+         "items": [{"point": "a book-level pattern: direction, time, or allocation — cite the $ and counts"}]},
+        {"kind": "callout", "title": "The one thing that made (or cost) the day",
+         "text": "the single biggest driver of P&L, with the number", "tone": "good|bad|warn"},
+        {"kind": "donext", "title": "Carry into tomorrow",
+         "items": [{"title": "a rule", "detail": "why + the $ it would have saved/made"}]},
+    ],
+}
+
+
+def build_prompt(bundle: dict) -> str:
+    """The Mira prompt for a DAY SYNTHESIS. Deliberately frames the task as
+    book-level — direction, time-of-day, allocation — and forbids re-grading
+    individual trades (that's what the per-trade reads already did). Keyword
+    'day synthesis'/'book' routes to the analyst voice; the deterministic
+    numbers are given, so Mira narrates the thesis, not the arithmetic."""
+    b = bundle
+    dna = b.get("session_dna") or {}
+    return (
+        "You are a trading-desk coach writing a DAY SYNTHESIS of an SPX 0DTE "
+        f"session ({b['day']}, {b['counts']['completed']} completed trades, net "
+        f"${b['net_pnl']}). This is the BOOK-level read — NOT a re-grade of each "
+        "trade (that's already done). Your job: name the direction / time-of-day "
+        "/ capital-allocation pattern that a per-trade review CANNOT see, and give "
+        "the day's thesis + the lessons that follow from it. Use ONLY the data below.\n"
+        f"\nNET & COUNTS: {json.dumps(b['counts'])}, net ${b['net_pnl']}, "
+        f"discipline {json.dumps(b['discipline'])}.\n"
+        f"\nBY DIRECTION (the headline pattern — win/loss + $ per side): "
+        f"{json.dumps(b['by_direction'])}.\n"
+        f"\nBY TIME OF DAY: {json.dumps(b['by_time'])}.\n"
+        f"\nHELD-TO-EXPIRY TAIL (late lottos that decayed): {json.dumps(b['expiry_tail'])}.\n"
+        f"\nCAPITAL ALLOCATION (contracts per side + biggest ticket): "
+        f"{json.dumps(b['allocation'])}.\n"
+        f"\nSESSION DNA (the backdrop every trade shared) — forecast levels: "
+        f"{json.dumps(dna.get('forecast_levels'))}; GEX: {json.dumps(dna.get('gex_anchors'))}; "
+        f"durable: {json.dumps(dna.get('durable_levels'))}.\n"
+        f"\nPER-TRADE SPINE (time, dir, entry level role, $): {json.dumps(b['trades'])}.\n"
+        f"\nSupporting per-trade reads (already written — draw on them, don't repeat them): "
+        f"{json.dumps(b['trade_reads'])}\n"
+        "\nRESPOND WITH ONLY A SINGLE JSON OBJECT — no markdown, no prose before or "
+        "after — matching this shape EXACTLY (same keys):\n"
+        f"{json.dumps(OUTPUT_SCHEMA, indent=1)}\n"
+        "Rules: lead with the direction pattern if one side clearly carried the day. "
+        "Cite real numbers ($ and counts) from the data — never invent a trade. "
+        "'do_next' style items go under the donext section, most impactful first, "
+        "each naming the $ it would have saved or made. Be specific and direct. "
+        "Educational only — not financial advice. Output the JSON and nothing else."
+    )
+
+
+def _demo() -> None:
+    """Self-check: direction classification, bucket rollups, and time bins."""
+    trades = [
+        {"strategy": "long_put", "status": "closed", "realized": 1475.0,
+         "opened_et": "11:08", "peak_contracts": 25.0, "legs": [{"side": "buy", "kind": "P"}]},
+        {"strategy": "long_call", "status": "closed", "realized": -515.0,
+         "opened_et": "14:50", "peak_contracts": 4.0, "legs": [{"side": "buy", "kind": "C"}]},
+        {"strategy": "long_call", "status": "expired_unpriced", "realized": -45.0,
+         "opened_et": "15:54", "peak_contracts": 1.0, "legs": [{"side": "buy", "kind": "C"}]},
+        {"strategy": "single", "status": "open", "realized": None,  # excluded
+         "opened_et": "10:00", "peak_contracts": 2.0, "legs": [{"side": "buy", "kind": "C"}]},
+    ]
+    assert _direction(trades[0]) == "bearish"
+    assert _direction(trades[1]) == "bullish"
+    completed = [t for t in trades if t.get("status") != "open"]
+    assert len(completed) == 3
+    assert _bucket([t for t in completed if _direction(t) == "bearish"]) == \
+        {"n": 1, "wins": 1, "losses": 0, "pnl": 1475.0}
+    assert _bucket([t for t in completed if _direction(t) == "bullish"]) == \
+        {"n": 2, "wins": 0, "losses": 2, "pnl": -560.0}
+    assert _et_min(trades[0]) == 668 and _et_min(trades[1]) == 890
+    print("day_review._demo OK")
+
+
+if __name__ == "__main__":
+    _demo()
