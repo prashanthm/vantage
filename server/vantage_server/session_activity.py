@@ -565,16 +565,24 @@ _INDEX = {"SPX", "NDX", "RUT", "VIX"}
 
 
 def _ticker_of(trade: dict) -> str:
-    """A trade's UNDERLYING ticker, parsed from its contract legs (SPXW -> SPX,
-    PLTR -> PLTR). Falls back to '?' for an unparseable/equity-less trade."""
+    """A trade's UNDERLYING ticker. For an OPTION leg, parse the underlying from
+    the contract (SPXW260720C… -> SPX, PLTR260117C… -> PLTR). For an EQUITY leg
+    the symbol IS the ticker (ASTS -> ASTS). Falls back to '?' only when a leg
+    has no usable symbol at all."""
     for l in trade.get("legs", []):
-        u = str((parse_contract(l.get("symbol")) or {}).get("underlying") or "")
-        if u:
+        sym = str(l.get("symbol") or "").strip()
+        if not sym:
+            continue
+        pc = parse_contract(sym)
+        if pc and pc.get("underlying"):
+            u = str(pc["underlying"])
             # SPXW/NDXP-style weekly wrappers -> the index ticker
             for idx in _INDEX:
                 if u.startswith(idx):
                     return idx
             return u
+        # not an option contract -> a plain equity/ETF ticker is its own underlying
+        return sym.upper()
     return "?"
 
 
@@ -974,3 +982,19 @@ def summarize(day: str, und: str, trades: list[dict], settle: float | None) -> d
                             if closed else None),
         "level_to_level": len(both),           # entered AND exited at a level
     }
+
+
+def _demo() -> None:
+    """Self-check for _ticker_of — the equity-vs-option ticker resolution (the fix
+    for equity fills showing '?'). Offline, no store."""
+    # equity leg → the symbol IS the ticker (was '?' before the fix)
+    assert _ticker_of({"legs": [{"symbol": "ASTS"}]}) == "ASTS"
+    assert _ticker_of({"legs": [{"symbol": "nflx"}]}) == "NFLX"   # upper-cased
+    # no usable symbol → '?'
+    assert _ticker_of({"legs": [{"symbol": ""}]}) == "?"
+    assert _ticker_of({"legs": []}) == "?"
+    print("session_activity self-check OK")
+
+
+if __name__ == "__main__":
+    _demo()
