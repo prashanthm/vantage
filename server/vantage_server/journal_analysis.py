@@ -173,9 +173,14 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
     rows = [r for r in store.load_trade_analyses()
             if str(r.get("day")) in days and str(r.get("underlying", und)).upper() == und]
 
-    # realized P&L + trade count over the window (exact, from fills)
+    # realized P&L + trade count over the window (exact, from fills). Also
+    # aggregate the WIN/LOSS gross across days so we can report a WINDOWED win
+    # rate + profit factor (the "overall" performance the per-day strip can't
+    # show) — same deterministic formulas as summarize(), just pooled.
     net = 0.0
     n_trades = 0
+    tot_win = tot_loss = 0            # winner/loser COUNTS across the window
+    gross_win = gross_loss = 0.0     # winner/loser DOLLARS across the window
     per_day = []
     for d in sorted(days):
         try:
@@ -189,12 +194,26 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
         s = sess.get("summary", {})
         net += day_net
         n_trades += len(sess.get("trades", []))
+        tot_win += (s.get("winners") or 0)
+        tot_loss += (s.get("losers") or 0)
+        gross_win += (s.get("gross_win") or 0.0)
+        gross_loss += (s.get("gross_loss") or 0.0)   # negative
         per_day.append({
             "day": d, "net": day_net, "trades": len(sess.get("trades", [])),
             "entered_at_level": s.get("level_discipline"),
             "exited_at_level": s.get("exit_discipline"),
             "winners": s.get("winners"), "losers": s.get("losers"),
+            "win_rate": s.get("win_rate"), "profit_factor": s.get("profit_factor"),
         })
+
+    decided = tot_win + tot_loss
+    overall = {
+        "winners": tot_win, "losers": tot_loss,
+        "win_rate": round(tot_win / decided, 3) if decided else None,
+        "profit_factor": (round(gross_win / abs(gross_loss), 2)
+                          if gross_loss else None),
+        "gross_win": round(gross_win, 2), "gross_loss": round(gross_loss, 2),
+    }
 
     texts = [r.get("analysis") or "" for r in rows]
     scores = {dim: _score_dimension(spec, texts, len(rows))
@@ -207,6 +226,7 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
         "window_from": window_from, "window_to": window_to, "underlying": und,
         "rubric_version": RUBRIC_VERSION,
         "trades": n_trades, "analyzed": len(rows), "net_pnl": round(net, 2),
+        "overall": overall,   # windowed win rate + profit factor (deterministic)
         "scores": scores,
         "rubric": {dim: {"label": s["label"], "about": s["about"]} for dim, s in RUBRIC.items()},
         "patterns": _census(rows),
@@ -255,6 +275,10 @@ def build_prompt(bundle: dict) -> str:
         "You are a demanding trading-desk coach producing a JOURNAL ANALYSIS — an aggregate self-assessment "
         f"of an SPX 0DTE operator over {b['window_from']} to {b['window_to']} ({b['trades']} trades, "
         f"{b['analyzed']} with recorded reviews, net ${b['net_pnl']}). Use ONLY the data below.\n"
+        f"\nOVERALL PERFORMANCE (exact — cite verbatim, do NOT recompute): "
+        f"{json.dumps(b.get('overall'))}. profit_factor = gross wins / |gross losses| "
+        "over the whole window (>1 profitable, null = no losses); win_rate excludes "
+        "scratches. This is the windowed edge — anchor the assessment on it.\n"
         f"{prior_line}"
         f"\nRUBRIC SCORES (already computed — do NOT restate the numbers, read them): "
         f"{json.dumps(b['scores'])}. Dimensions: {json.dumps(b['rubric'])}.\n"

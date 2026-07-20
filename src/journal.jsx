@@ -986,6 +986,10 @@ function JournalAnalysisPanel({ sym }) {
             <div className="vg-kicker" style={{ margin: 0 }}>Scorecard · {b.window_from} → {b.window_to}</div>
             <span className="vg-note" style={{ fontSize: 12 }}>
               {b.trades} trades{b.analyzed != null ? ` · ${b.analyzed} reviewed` : ""} · net <b className={b.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(b.net_pnl)}</b>
+              {b.overall && b.overall.win_rate != null && <> · win rate <b>{Math.round(b.overall.win_rate * 100)}%</b></>}
+              {b.overall && b.overall.profit_factor != null && (
+                <> · PF <b className={b.overall.profit_factor >= 1 ? "vg-up" : "vg-down"}>{b.overall.profit_factor.toFixed(2)}</b></>
+              )}
               {" "}· rubric v{b.rubric_version}
             </span>
           </div>
