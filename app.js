@@ -4720,21 +4720,31 @@ ${ref}`;
     const closed = d.closed || [];
     const stats = d.stats || {};
     if (!open.length && !closed.length) return null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Scanner spreads"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, "auto-logged from A+ setups \xB7 debit spreads \xB7 separate from the reclaim record")), stats.n > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(Tile, { label: "Net P&L", value: usd2(stats.total_pnl), tone: stats.total_pnl >= 0 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile, { label: "Win rate", value: pct2(stats.win_rate), termKey: "win_rate" }), /* @__PURE__ */ React.createElement(Tile, { label: "Profit factor", value: stats.profit_factor != null ? stats.profit_factor.toFixed(2) : "\u2014", termKey: "profit_factor" }), /* @__PURE__ */ React.createElement(Tile, { label: "Closed", value: stats.n })), open.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "12px 0 4px" } }, "Open (", open.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, open.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
-      "span",
-      {
-        className: cls("vg-badge", r.side === "long" ? "good" : "bad"),
-        style: { minWidth: 44, textAlign: "center" }
-      },
-      r.side === "long" ? "CALL" : "PUT"
-    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, spreadLabel(r)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, "target ", px(r.short_strike), " \xB7 invalid ", px(r.underlying_invalid)))))), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "12px 0 4px" } }, "Track record (", closed.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, closed.slice(0, 12).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+    const onAlpaca = [...open, ...closed].some((r) => r.broker === "alpaca-paper");
+    const brokerLabel = (r) => {
+      if (r.broker !== "alpaca-paper") return null;
+      if (r.fill_status === "pending") return { text: "submitted", tone: "warn" };
+      if (r.broker_status === "filled" || r.fill_status === "filled") return { text: "filled", tone: "good" };
+      return { text: r.broker_status || "working", tone: "plain" };
+    };
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Scanner spreads"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, "auto-logged from A+ setups \xB7 debit spreads \xB7 separate from the reclaim record", onAlpaca && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("b", { style: { color: "var(--vg-up)" } }, "Alpaca paper"), " (real fills)"))), stats.n > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(Tile, { label: "Net P&L", value: usd2(stats.total_pnl), tone: stats.total_pnl >= 0 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile, { label: "Win rate", value: pct2(stats.win_rate), termKey: "win_rate" }), /* @__PURE__ */ React.createElement(Tile, { label: "Profit factor", value: stats.profit_factor != null ? stats.profit_factor.toFixed(2) : "\u2014", termKey: "profit_factor" }), /* @__PURE__ */ React.createElement(Tile, { label: "Closed", value: stats.n })), open.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "12px 0 4px" } }, "Open (", open.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, open.map((r) => {
+      const bs = brokerLabel(r);
+      return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          className: cls("vg-badge", r.side === "long" ? "good" : "bad"),
+          style: { minWidth: 44, textAlign: "center" }
+        },
+        r.side === "long" ? "CALL" : "PUT"
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, spreadLabel(r)), bs && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", bs.tone), style: { fontSize: 10 } }, bs.text), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, "target ", px(r.short_strike), " \xB7 invalid ", px(r.underlying_invalid)));
+    }))), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11, margin: "12px 0 4px" } }, "Track record (", closed.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, closed.slice(0, 12).map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", (r.pnl || 0) >= 0 ? "good" : "bad"),
         style: { minWidth: 62, textAlign: "right" }
       },
       usd2(r.pnl)
-    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, spreadLabel(r)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, r.exit_reason))))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", null, "Debit spreads modeled from scanner setups (no live options chain \u2014 debit \u2248 \xBD width). A simulation; places no orders (ADR-010).")));
+    ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, spreadLabel(r)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 11 } }, r.exit_reason))))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-caveats", style: { marginTop: 10 } }, onAlpaca ? /* @__PURE__ */ React.createElement("div", null, "Book of record: ", /* @__PURE__ */ React.createElement("b", null, "Alpaca paper"), " \u2014 real multi-leg fills, closed on the invalidation (stop-loss) or target. Paper account only, no real money.") : /* @__PURE__ */ React.createElement("div", null, "Debit spreads modeled from scanner setups (no live options chain \u2014 debit \u2248 \xBD width). A simulation; places no orders (ADR-010).")));
   }
   function Tile({ label, value, tone, termKey }) {
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 11 } }, termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value));

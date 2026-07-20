@@ -244,12 +244,22 @@ function ScannerSpreadBook({ refreshNonce }) {
   const closed = d.closed || [];
   const stats = d.stats || {};
   if (!open.length && !closed.length) return null;
+  // any row on the real broker → show the "Alpaca paper" book-of-record note.
+  const onAlpaca = [...open, ...closed].some((r) => r.broker === "alpaca-paper");
+  // broker status → a short, readable label for an open row.
+  const brokerLabel = (r) => {
+    if (r.broker !== "alpaca-paper") return null;
+    if (r.fill_status === "pending") return { text: "submitted", tone: "warn" };
+    if (r.broker_status === "filled" || r.fill_status === "filled") return { text: "filled", tone: "good" };
+    return { text: r.broker_status || "working", tone: "plain" };
+  };
   return (
     <div className="vg-card" style={{ marginTop: 14 }}>
       <div className="vg-spread" style={{ alignItems: "baseline" }}>
         <div className="vg-kicker" style={{ marginBottom: 0 }}>Scanner spreads</div>
         <span className="vg-note" style={{ fontSize: 11 }}>
           auto-logged from A+ setups · debit spreads · separate from the reclaim record
+          {onAlpaca && <> · <b style={{ color: "var(--vg-up)" }}>Alpaca paper</b> (real fills)</>}
         </span>
       </div>
       {stats.n > 0 && (
@@ -264,18 +274,22 @@ function ScannerSpreadBook({ refreshNonce }) {
         <>
           <div className="vg-note" style={{ fontSize: 11, margin: "12px 0 4px" }}>Open ({open.length})</div>
           <div className="vg-pb-ladder">
-            {open.map((r) => (
-              <div key={r.id} className="vg-pb-lvl">
-                <span className={cls("vg-badge", r.side === "long" ? "good" : "bad")}
-                  style={{ minWidth: 44, textAlign: "center" }}>
-                  {r.side === "long" ? "CALL" : "PUT"}
-                </span>
-                <span style={{ fontSize: 13 }}>{spreadLabel(r)}</span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
-                  target {px(r.short_strike)} · invalid {px(r.underlying_invalid)}
-                </span>
-              </div>
-            ))}
+            {open.map((r) => {
+              const bs = brokerLabel(r);
+              return (
+                <div key={r.id} className="vg-pb-lvl">
+                  <span className={cls("vg-badge", r.side === "long" ? "good" : "bad")}
+                    style={{ minWidth: 44, textAlign: "center" }}>
+                    {r.side === "long" ? "CALL" : "PUT"}
+                  </span>
+                  <span style={{ fontSize: 13 }}>{spreadLabel(r)}</span>
+                  {bs && <span className={cls("vg-badge", bs.tone)} style={{ fontSize: 10 }}>{bs.text}</span>}
+                  <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                    target {px(r.short_strike)} · invalid {px(r.underlying_invalid)}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </>
       )}
@@ -295,8 +309,11 @@ function ScannerSpreadBook({ refreshNonce }) {
         </>
       )}
       <div className="vg-pb-caveats" style={{ marginTop: 10 }}>
-        <div>Debit spreads modeled from scanner setups (no live options chain — debit ≈ ½ width).
-          A simulation; places no orders (ADR-010).</div>
+        {onAlpaca
+          ? <div>Book of record: <b>Alpaca paper</b> — real multi-leg fills, closed on the
+              invalidation (stop-loss) or target. Paper account only, no real money.</div>
+          : <div>Debit spreads modeled from scanner setups (no live options chain — debit ≈ ½ width).
+              A simulation; places no orders (ADR-010).</div>}
       </div>
     </div>
   );

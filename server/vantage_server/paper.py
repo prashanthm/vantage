@@ -582,6 +582,12 @@ def settle_open(store: Store) -> dict:
     bars_by_proxy: dict[str, object] = {}
     filled = expired = closed = 0
     for t in open_trades:
+        # Alpaca-PAPER scanner spreads are owned by the scanner_exec reconcile loop
+        # (real fills + broker stop-loss) — the yfinance sim must NOT double-settle
+        # them. The sim runs ONLY for the fallback rows that never reached the broker
+        # (no creds / submit failed → broker=NULL).
+        if t.get("book") == "scanner-spread" and t.get("broker") == "alpaca-paper":
+            continue
         # scanner debit spreads settle on their OWN underlying's daily bars, with
         # spread P&L — a different basis from the SPY-proxy reclaim trades.
         if t.get("book") == "scanner-spread":
