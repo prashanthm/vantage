@@ -13,8 +13,38 @@ representable in the track record. Context only (ADR-008) — never an order.
 """
 from __future__ import annotations
 
+import datetime as _dt
+
 CONTRACTS = 4          # ×4 so the 50/25/25 ladder is whole (2/1/1)
 DEBIT_FRAC = 0.5       # modeled debit ≈ half the spread width (no live chain)
+TARGET_DTE = 35        # aim ~35 days out for a swing spread; roll to the 3rd Friday
+
+
+def _third_friday(year: int, month: int) -> _dt.date:
+    """The standard monthly options expiration: the 3rd Friday of the month."""
+    d = _dt.date(year, month, 1)
+    # weekday(): Mon=0 … Fri=4. First Friday, then +2 weeks.
+    first_fri = d + _dt.timedelta(days=(4 - d.weekday()) % 7)
+    return first_fri + _dt.timedelta(days=14)
+
+
+def pick_expiration(today: _dt.date, target_dte: int = TARGET_DTE) -> _dt.date:
+    """Nearest monthly (3rd-Friday) expiration on/after today+target_dte. Standard
+    listed expiries — Alpaca rejects if the exact contract isn't listed, and the
+    submit is best-effort with a sim fallback, so this need only be plausible."""
+    aim = today + _dt.timedelta(days=target_dte)
+    exp = _third_friday(aim.year, aim.month)
+    if exp < aim:                      # this month's already past the aim → next month
+        ny, nm = (aim.year + (aim.month // 12), (aim.month % 12) + 1)
+        exp = _third_friday(ny, nm)
+    return exp
+
+
+def occ_symbol(underlying: str, expiry: _dt.date, right: str, strike: float) -> str:
+    """OCC-21 option symbol: ROOT + YYMMDD + C|P + strike×1000 zero-padded to 8.
+    e.g. AMAT, 2026-01-16, C, 540 → 'AMAT260116C00540000'."""
+    return (f"{underlying.upper()}{expiry:%y%m%d}{right.upper()}"
+            f"{int(round(strike * 1000)):08d}")
 
 
 def strike_step(price: float) -> float:
@@ -98,6 +128,38 @@ def spread_from_hit(hit: dict) -> dict | None:
     }
 
 
+def alpaca_order(spread: dict, today: _dt.date | None = None) -> dict | None:
+    """Build the Alpaca mleg order for a debit spread: buy_to_open the long leg,
+    sell_to_open the short leg, both at the picked monthly expiration. Returns the
+    internal order shape submit_strategy_order validates (symbol/side/qty/type +
+    legs), or None if the spread is missing fields. A debit spread is a net BUY
+    (you pay the debit), so order side = buy, type = limit at the modeled debit."""
+    if not spread or spread.get("structure") not in ("debit_call_spread", "debit_put_spread"):
+        return None
+    today = today or _dt.date.today()
+    exp = pick_expiration(today)
+    right = "C" if spread["structure"] == "debit_call_spread" else "P"
+    und = spread["underlying"]
+    long_sym = occ_symbol(und, exp, right, spread["long_strike"])
+    short_sym = occ_symbol(und, exp, right, spread["short_strike"])
+    n = int(spread.get("contracts") or CONTRACTS)
+    debit = float(spread.get("est_debit") or 0)
+    return {
+        "symbol": und,                     # underlying (informational; legs carry the contracts)
+        "side": "buy",                     # net debit paid → buy the spread
+        "qty": n,
+        "type": "limit",
+        "limit_price": round(debit, 2) or None,
+        "time_in_force": "day",
+        "est_usd": round(debit * n * 100, 2),   # debit × contracts × 100
+        "expiration": exp.isoformat(),
+        "legs": [
+            {"symbol": long_sym, "side": "buy", "position_intent": "buy_to_open", "ratio_qty": 1},
+            {"symbol": short_sym, "side": "sell", "position_intent": "sell_to_open", "ratio_qty": 1},
+        ],
+    }
+
+
 def _demo() -> None:
     """Self-check: long+short strike mapping, structure, dedup key, and the
     too-tight / inverted guards. Offline, no bars."""
@@ -130,6 +192,23 @@ def _demo() -> None:
 
     # missing fields → None
     assert spread_from_hit({"present": True, "symbol": "X"}) is None
+    # OCC symbol + expiration + alpaca order
+    exp = _dt.date(2026, 1, 16)   # a known 3rd Friday
+    assert _third_friday(2026, 1) == exp, _third_friday(2026, 1)
+    assert occ_symbol("AMAT", exp, "C", 540) == "AMAT260116C00540000"
+    assert occ_symbol("KO", exp, "P", 82.5) == "KO260116P00082500"
+    # pick_expiration lands on a 3rd Friday on/after today+35d
+    pe = pick_expiration(_dt.date(2026, 1, 1), 35)
+    assert pe.weekday() == 4 and pe >= _dt.date(2026, 2, 5), pe
+    # alpaca_order: debit call spread → 2 legs, long buy_to_open, short sell_to_open
+    o = alpaca_order(s, today=_dt.date(2026, 1, 1))
+    assert o["side"] == "buy" and o["type"] == "limit" and o["qty"] == 4, o
+    assert len(o["legs"]) == 2, o
+    assert o["legs"][0]["position_intent"] == "buy_to_open"   # long leg
+    assert o["legs"][1]["position_intent"] == "sell_to_open"  # short leg
+    assert o["legs"][0]["symbol"].startswith("AMAT") and "C" in o["legs"][0]["symbol"]
+    assert alpaca_order({"structure": "not_a_spread"}) is None
+
     print("scanner_spread self-check OK")
 
 

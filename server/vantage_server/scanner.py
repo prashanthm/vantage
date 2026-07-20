@@ -369,15 +369,50 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
     return result
 
 
+def _alpaca_paper_creds() -> bool:
+    """True when Alpaca PAPER submission is configured (paper keys + paper endpoint)."""
+    import os
+    if os.environ.get("ALPACA_PAPER", "1") == "0":
+        return False   # endpoint is LIVE — never route scanner spreads there
+    return bool(os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY"))
+
+
+def _submit_paper_spread(spread: dict) -> dict | None:
+    """Submit a debit spread to Alpaca PAPER (best-effort). Returns
+    {entry_order_id, broker_status, alpaca_symbol} on a submit, or None on any
+    failure (the caller then leaves the row as a yfinance-sim fallback)."""
+    from . import scanner_spread as _sp
+    try:
+        from .brokers import alpaca_execution as _ax
+        order = _sp.alpaca_order(spread)
+        if order is None:
+            return None
+        res = _ax.submit_strategy_order(
+            order, strategy="scanner-spread", live_eligible=False,
+            caps={}, context={}, audit=lambda r: log.info("scanner-spread order: %s", r.get("mode")),
+            paper=True)
+        if res.get("mode") != "paper" or not res.get("order_id"):
+            return None
+        return {"entry_order_id": res["order_id"],
+                "broker_status": (res.get("result") or {}).get("status") or "accepted",
+                "alpaca_symbol": order["legs"][0]["symbol"]}
+    except Exception as e:  # noqa: BLE001 — a broker failure must not break the scan
+        log.warning("scanner-spread Alpaca-paper submit failed for %s: %s",
+                    spread.get("underlying"), e)
+        return None
+
+
 def arm_scanner_spreads(store, scan_result: dict) -> int:
-    """Log each A+ scanner hit as a paper DEBIT SPREAD, deduped by setup_key so a
-    re-scan of unchanged data adds nothing. Mirrors signal_bot.arm_session. Returns
-    the count of newly logged spreads. Writes only our store — no order (ADR-010)."""
+    """Log each A+ scanner hit as a paper DEBIT SPREAD, deduped by setup_key. When
+    Alpaca PAPER is configured, SUBMIT the spread there (real fill) and tag the row
+    broker='alpaca-paper' + entry_order_id; otherwise the row is a yfinance-sim
+    fallback (broker=NULL). Mirrors signal_bot.arm_session. Returns the count logged."""
     if not getattr(store, "uses_sqlite", False):
         return 0
     from . import scanner_spread as _sp
     known = store.paper_setup_keys()
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    use_alpaca = _alpaca_paper_creds()
     logged = 0
     for hit in scan_result.get("hits") or []:
         if hit.get("tier") != "A+":
@@ -385,16 +420,23 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
         spread = _sp.spread_from_hit(hit)
         if spread is None or spread["setup_key"] in known:
             continue
-        store.record_paper_trade({
+        broker_fields = _submit_paper_spread(spread) if use_alpaca else None
+        row = {
             **spread,
             "opened_at": now,
             "session": (hit.get("as_of") or "")[:10] or None,
             "source": "scanner-auto",
             "status": "open",
-            "fill_status": "filled",
             "filled_at": now,
             "opened_price_src": "scanner A+ setup",
-        })
+        }
+        if broker_fields:
+            # real Alpaca-paper order: pending its fill (the reconcile loop confirms).
+            row.update({"broker": "alpaca-paper", "fill_status": "pending", **broker_fields})
+        else:
+            # sim fallback: treated as filled immediately (the yfinance settler owns it).
+            row["fill_status"] = "filled"
+        store.record_paper_trade(row)
         known.add(spread["setup_key"])
         logged += 1
     return logged
