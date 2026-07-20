@@ -1050,6 +1050,11 @@ export const getJournalAnalysisBundle = (from, to, underlying = "SPX") =>
 export const saveJournalAnalysis = (body) =>
   postJson(`${backendBase()}/api/journal/analysis`, body);
 
+// The trade_keys already analyzed for a day — so "Analyze today" can skip them
+// (and skip the costly per-trade DNA rebuild) instead of re-running every trade.
+export const getAnalyzedKeys = (day) =>
+  getJson(`${backendBase()}/api/journal/analyzed-keys?day=${encodeURIComponent(day)}`);
+
 // The DAY-synthesis bundle + Mira prompt for one day's whole book (direction /
 // time / allocation patterns a per-trade review can't see). The client streams
 // Mira with the prompt to render the book-level read (not persisted).

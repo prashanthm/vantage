@@ -295,6 +295,7 @@
     executeTicket: () => executeTicket,
     exitsTick: () => exitsTick,
     getAnalysis: () => getAnalysis,
+    getAnalyzedKeys: () => getAnalyzedKeys,
     getBars: () => getBars,
     getBarsOverlay: () => getBarsOverlay,
     getBotPerformance: () => getBotPerformance,
@@ -1183,6 +1184,7 @@
     { timeoutMs: 2e4 }
   );
   var saveJournalAnalysis = (body) => postJson(`${backendBase()}/api/journal/analysis`, body);
+  var getAnalyzedKeys = (day) => getJson(`${backendBase()}/api/journal/analyzed-keys?day=${encodeURIComponent(day)}`);
   var getDayReviewBundle = (day, underlying = "SPX") => getJson(`${backendBase()}/api/journal/day-review-bundle?day=${encodeURIComponent(day)}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 18e4 });
   var getJournalAnalyses = (underlying = "SPX") => getJson(`${backendBase()}/api/journal/analysis?underlying=${encodeURIComponent(underlying)}`);
   var getChart = (symbol, tf = "5m", days = 15) => getJson(
@@ -5674,8 +5676,19 @@ ${ref}`;
     };
     const analyzeToday = async () => {
       const trades = data && data.trades || [];
-      const targets = trades.map((t, i) => ({ t, i })).filter(({ t }) => t.status !== "open");
-      if (!targets.length) return;
+      const completed = trades.map((t, i) => ({ t, i })).filter(({ t }) => t.status !== "open");
+      if (!completed.length) return;
+      let analyzed = /* @__PURE__ */ new Set();
+      try {
+        const ak = await getAnalyzedKeys(day);
+        if (ak && ak.available) analyzed = new Set(ak.keys || []);
+      } catch (e) {
+      }
+      const targets = completed.filter(({ t, i }) => !analyzed.has(`${t.opened_at || i}|${t.label}`));
+      if (!targets.length) {
+        await synthesizeDay();
+        return;
+      }
       setBatch({ done: 0, total: targets.length, running: true });
       let done = 0;
       for (const { t, i } of targets) {

@@ -2003,6 +2003,19 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         playbook_session=sess.get("playbook_session"),
                         settle_price=sess.get("settle_price"))
 
+    @app.get("/api/journal/analyzed-keys")
+    def journal_analyzed_keys(day: str = Query(...)):
+        """The trade_keys that already have a stored analysis for ``day`` — so
+        the client can skip re-analyzing (and skip the costly per-trade DNA
+        rebuild) for trades already reviewed. Keys only, no payload. Read-only."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, keys=[])
+        rows = store.load_trade_analysis(day) or []
+        keys = [r.get("trade_key") for r in rows
+                if r.get("trade_key") and (r.get("analysis") or "").strip()]
+        return envelope(snap, available=True, day=day, keys=keys)
+
     @app.get("/api/journal/day-review-bundle")
     def journal_day_review_bundle(day: str = Query(...),
                                   underlying: str = Query("SPX")):

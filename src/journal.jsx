@@ -16,7 +16,7 @@ import {
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
   getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis,
   getJournalAnalysisBundle, saveJournalAnalysis, getJournalAnalyses,
-  getDayReviewBundle,
+  getDayReviewBundle, getAnalyzedKeys,
 } from "./live.js";
 
 const { useState, useRef, useEffect, useMemo } = React;
@@ -578,10 +578,23 @@ function TradesPanel({ snap, thoughts, onThought }) {
   // inference the card shows), so the read is grounded even without manual tags.
   const analyzeToday = async () => {
     const trades = (data && data.trades) || [];
-    const targets = trades
+    const completed = trades
       .map((t, i) => ({ t, i }))
       .filter(({ t }) => t.status !== "open");     // completed decisions only
-    if (!targets.length) return;
+    if (!completed.length) return;
+    // skip trades already analyzed — BEFORE the per-trade DNA rebuild (the slow
+    // part). The server's analysis trade_key is `${opened_at||index}|${label}`.
+    let analyzed = new Set();
+    try {
+      const ak = await getAnalyzedKeys(day);
+      if (ak && ak.available) analyzed = new Set(ak.keys || []);
+    } catch (e) { /* no keys → analyze all (correct, just slower) */ }
+    const targets = completed.filter(({ t, i }) =>
+      !analyzed.has(`${t.opened_at || i}|${t.label}`));
+    if (!targets.length) {   // everything already reviewed — go straight to synthesis
+      await synthesizeDay();
+      return;
+    }
     setBatch({ done: 0, total: targets.length, running: true });
     let done = 0;
     for (const { t, i } of targets) {
