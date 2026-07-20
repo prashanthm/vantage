@@ -40,6 +40,15 @@ def _et_min(trade: dict) -> int:
         return 0
 
 
+def _is_intraday(trade: dict, day: str) -> bool:
+    """True when the trade was OPENED on ``day`` — i.e. an intraday decision the
+    0DTE time-of-day analysis applies to. A trade opened earlier and closed today
+    is a SWING: its realized P&L belongs to today, but its entry time-of-day is a
+    prior session, so it must NOT pollute the intraday time/direction buckets."""
+    o = str(trade.get("opened_at") or "")[:10]
+    return bool(o) and o == day
+
+
 def _r(x) -> float:
     try:
         return round(float(x), 2)
@@ -74,40 +83,54 @@ def gather(store, day: str, underlying: str = "SPX") -> dict:
     sess = _sa.session(store, day, None)
     trades = sess.get("trades") or []
     completed = [t for t in trades if t.get("status") != "open"]
+    # split intraday (opened today — the 0DTE decisions) from swings (opened
+    # earlier, closed today). The time-of-day / direction / allocation analysis
+    # is a 0DTE-intraday story, so it runs on `intraday` ONLY; swings would put a
+    # prior-session entry time into today's power-hour bucket. Headline P&L and
+    # win-rate/PF stay ALL-IN (every realized close is real money today).
+    intraday = [t for t in completed if _is_intraday(t, day)]
+    swings = [t for t in completed if not _is_intraday(t, day)]
 
-    # direction split (the headline pattern — invisible per-trade)
-    by_dir = {d: _bucket([t for t in completed if _direction(t) == d])
+    # direction split (the headline pattern — invisible per-trade) — intraday only
+    by_dir = {d: _bucket([t for t in intraday if _direction(t) == d])
               for d in ("bearish", "bullish", "other")}
 
-    # time-of-day split (AM open, midday trap, power hour)
-    am = [t for t in completed if _et_min(t) < 11 * 60]
-    mid = [t for t in completed if 11 * 60 <= _et_min(t) < 14 * 60]
-    pm = [t for t in completed if _et_min(t) >= 14 * 60]
+    # time-of-day split (AM open, midday trap, power hour) — intraday only
+    am = [t for t in intraday if _et_min(t) < 11 * 60]
+    mid = [t for t in intraday if 11 * 60 <= _et_min(t) < 14 * 60]
+    pm = [t for t in intraday if _et_min(t) >= 14 * 60]
     by_time = {"open_0930_1100": _bucket(am), "midday_1100_1400": _bucket(mid),
                "power_1400_1600": _bucket(pm)}
 
-    # the held-to-expiry tail (late lottos that decay to zero)
-    expired = [t for t in completed if "expired" in str(t.get("status") or "")]
+    # swings closed today: real P&L, but not part of the intraday story — a
+    # separate line so Mira counts the money without misreading the time pattern.
+    swing_block = {**_bucket(swings),
+                   "trades": [{"opened": str(t.get("opened_at") or "")[:10],
+                               "label": t.get("label"), "ticker": t.get("ticker"),
+                               "realized": _r(t.get("realized"))} for t in swings]}
+
+    # the held-to-expiry tail (late lottos that decay to zero) — intraday only
+    expired = [t for t in intraday if "expired" in str(t.get("status") or "")]
     tail = {**_bucket(expired),
             "trades": [{"time": t.get("opened_et"), "label": t.get("label"),
                         "realized": _r(t.get("realized"))} for t in expired]}
 
-    # capital allocation: where the size went (peak contracts × side)
+    # capital allocation: where the size went (peak contracts × side) — intraday
     def _size(t):
         return abs(_r(t.get("peak_contracts")))
-    alloc = {"bearish_contracts": round(sum(_size(t) for t in completed
+    alloc = {"bearish_contracts": round(sum(_size(t) for t in intraday
                                             if _direction(t) == "bearish"), 1),
-             "bullish_contracts": round(sum(_size(t) for t in completed
+             "bullish_contracts": round(sum(_size(t) for t in intraday
                                             if _direction(t) == "bullish"), 1),
              "biggest": None}
-    if completed:
-        big = max(completed, key=_size)
+    if intraday:
+        big = max(intraday, key=_size)
         alloc["biggest"] = {"label": big.get("label"), "dir": _direction(big),
                             "contracts": _size(big), "realized": _r(big.get("realized"))}
 
-    # a compact per-trade line (time, dir, level role at entry, P&L) — the spine
+    # a compact per-trade line (time, dir, level role at entry, P&L) — intraday spine
     rollup = []
-    for t in completed:
+    for t in intraday:
         corr = (t.get("correlation") or {}).get("nearest") or {}
         rollup.append({"time": t.get("opened_et"), "label": t.get("label"),
                        "ticker": t.get("ticker"), "dir": _direction(t),
@@ -131,6 +154,7 @@ def gather(store, day: str, underlying: str = "SPX") -> dict:
         "net_pnl": _r(s.get("realized")),
         "counts": {"trades": len(trades), "completed": len(completed),
                    "open": len(trades) - len(completed),
+                   "intraday": len(intraday), "swings": len(swings),
                    "winners": s.get("winners"), "losers": s.get("losers")},
         # deterministic performance metrics (from summarize) — the LLM cites
         # these, never estimates them.
@@ -145,6 +169,7 @@ def gather(store, day: str, underlying: str = "SPX") -> dict:
         "by_time": by_time,
         "expiry_tail": tail,
         "allocation": alloc,
+        "swings": swing_block,   # multi-day trades closed today — P&L only, not intraday
         "trades": rollup,
         "session_dna": {
             "forecast_levels": sess.get("forecast_levels") or [],
@@ -186,22 +211,29 @@ def build_prompt(bundle: dict) -> str:
     dna = b.get("session_dna") or {}
     return (
         "You are a trading-desk coach writing a DAY SYNTHESIS of an SPX 0DTE "
-        f"session ({b['day']}, {b['counts']['completed']} completed trades, net "
-        f"${b['net_pnl']}). This is the BOOK-level read — NOT a re-grade of each "
-        "trade (that's already done). Your job: name the direction / time-of-day "
-        "/ capital-allocation pattern that a per-trade review CANNOT see, and give "
-        "the day's thesis + the lessons that follow from it. Use ONLY the data below.\n"
+        f"session ({b['day']}, {b['counts']['completed']} completed trades — "
+        f"{b['counts'].get('intraday', 0)} intraday 0DTE + {b['counts'].get('swings', 0)} "
+        f"multi-day swings closed today, net ${b['net_pnl']}). This is the BOOK-level "
+        "read — NOT a re-grade of each trade (that's already done). Your job: name the "
+        "direction / time-of-day / capital-allocation pattern that a per-trade review "
+        "CANNOT see, and give the day's thesis + the lessons. Use ONLY the data below.\n"
+        "\nIMPORTANT: the DIRECTION / TIME-OF-DAY / ALLOCATION blocks below cover the "
+        "INTRADAY 0DTE trades ONLY — swings opened on an earlier day are listed "
+        "separately (their entry time isn't part of today's intraday pattern). The "
+        "headline PERFORMANCE METRICS and net P&L are ALL-IN (every close today).\n"
         f"\nNET & COUNTS: {json.dumps(b['counts'])}, net ${b['net_pnl']}, "
         f"discipline {json.dumps(b['discipline'])}.\n"
-        f"\nPERFORMANCE METRICS (exact — cite verbatim, do NOT recompute): "
+        f"\nPERFORMANCE METRICS (all-in, exact — cite verbatim, do NOT recompute): "
         f"{json.dumps(b.get('metrics'))}. profit_factor = gross wins / |gross "
         "losses| (>1 profitable, null = no losses); win_rate excludes scratches; "
         "payoff_ratio = avg_win / |avg_loss|. Read them, don't do the arithmetic.\n"
-        f"\nBY DIRECTION (the headline pattern — win/loss + $ per side): "
+        f"\nBY DIRECTION (intraday 0DTE only — win/loss + $ per side): "
         f"{json.dumps(b['by_direction'])}.\n"
-        f"\nBY TIME OF DAY: {json.dumps(b['by_time'])}.\n"
-        f"\nHELD-TO-EXPIRY TAIL (late lottos that decayed): {json.dumps(b['expiry_tail'])}.\n"
-        f"\nCAPITAL ALLOCATION (contracts per side + biggest ticket): "
+        f"\nBY TIME OF DAY (intraday 0DTE only): {json.dumps(b['by_time'])}.\n"
+        f"\nSWINGS CLOSED TODAY (opened earlier — real P&L, NOT part of the intraday "
+        f"time/direction story): {json.dumps(b.get('swings'))}.\n"
+        f"\nHELD-TO-EXPIRY TAIL (intraday late lottos that decayed): {json.dumps(b['expiry_tail'])}.\n"
+        f"\nCAPITAL ALLOCATION (intraday contracts per side + biggest ticket): "
         f"{json.dumps(b['allocation'])}.\n"
         f"\nSESSION DNA (the backdrop every trade shared) — forecast levels: "
         f"{json.dumps(dna.get('forecast_levels'))}; GEX: {json.dumps(dna.get('gex_anchors'))}; "
@@ -243,6 +275,14 @@ def _demo() -> None:
     assert bull["n"] == 2 and bull["losses"] == 2 and bull["pnl"] == -560.0
     assert bull["win_rate"] == 0.0 and bull["profit_factor"] == 0.0     # 0 wins / losses
     assert _et_min(trades[0]) == 668 and _et_min(trades[1]) == 890
+
+    # intraday vs swing: opened today = intraday; opened earlier = swing
+    day = "2026-07-20"
+    intraday_t = {"opened_at": "2026-07-20T11:08", "status": "closed", "realized": 500.0}
+    swing_t = {"opened_at": "2026-07-17T14:00", "status": "closed", "realized": 59.0}
+    assert _is_intraday(intraday_t, day) is True
+    assert _is_intraday(swing_t, day) is False        # opened 3 days earlier
+    assert _is_intraday({"opened_at": "", "status": "closed"}, day) is False
     print("day_review._demo OK")
 
 
