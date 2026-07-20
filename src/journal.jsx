@@ -745,6 +745,13 @@ function TradesPanel({ snap, thoughts, onThought }) {
         <span className="vg-note">fills {money(s.realized_from_fills)}</span>
         {s.expired > 0 && <span className="vg-note">expiry {money(s.realized_from_expiry)} · {s.expired_worthless} worthless <b className="vg-down">{money(s.expired_loss)}</b></span>}
         <span className="vg-note">{s.winners}W / {s.losers}L</span>
+        {s.win_rate != null && (
+          <span className="vg-note">win rate <b>{Math.round(s.win_rate * 100)}%</b></span>
+        )}
+        {s.profit_factor != null && (
+          <span className="vg-note">profit factor{" "}
+            <b className={s.profit_factor >= 1 ? "vg-up" : "vg-down"}>{s.profit_factor.toFixed(2)}</b></span>
+        )}
         {s.settle_price && <span className="vg-note">SPX settled {fmtLvl(s.settle_price)}</span>}
         {s.level_discipline != null && (
           <span className="vg-note">entered at level <b>{Math.round(s.level_discipline * 100)}%</b></span>

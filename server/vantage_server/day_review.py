@@ -48,10 +48,19 @@ def _r(x) -> float:
 
 
 def _bucket(trades: list[dict]) -> dict:
+    """Count/P&L for a group, plus its own win rate + profit factor — so the
+    direction/time split carries the same deterministic metrics as the day."""
     pnl = sum(_r(t.get("realized")) for t in trades)
-    wins = sum(1 for t in trades if _r(t.get("realized")) > 0)
-    losses = sum(1 for t in trades if _r(t.get("realized")) < 0)
-    return {"n": len(trades), "wins": wins, "losses": losses, "pnl": round(pnl, 2)}
+    wins = [t for t in trades if _r(t.get("realized")) > 0]
+    losses = [t for t in trades if _r(t.get("realized")) < 0]
+    decided = len(wins) + len(losses)   # scratches (realized == 0) excluded
+    gross_win = sum(_r(t.get("realized")) for t in wins)
+    gross_loss = sum(_r(t.get("realized")) for t in losses)   # negative
+    return {"n": len(trades), "wins": len(wins), "losses": len(losses),
+            "pnl": round(pnl, 2),
+            "win_rate": round(len(wins) / decided, 3) if decided else None,
+            "profit_factor": (round(gross_win / abs(gross_loss), 2)
+                              if gross_loss else None)}
 
 
 def gather(store, day: str, underlying: str = "SPX") -> dict:
@@ -123,6 +132,13 @@ def gather(store, day: str, underlying: str = "SPX") -> dict:
         "counts": {"trades": len(trades), "completed": len(completed),
                    "open": len(trades) - len(completed),
                    "winners": s.get("winners"), "losers": s.get("losers")},
+        # deterministic performance metrics (from summarize) — the LLM cites
+        # these, never estimates them.
+        "metrics": {"win_rate": s.get("win_rate"),
+                    "profit_factor": s.get("profit_factor"),
+                    "gross_win": s.get("gross_win"), "gross_loss": s.get("gross_loss"),
+                    "avg_win": s.get("avg_win"), "avg_loss": s.get("avg_loss"),
+                    "payoff_ratio": s.get("payoff_ratio")},
         "discipline": {"entered_at_level": s.get("level_discipline"),
                        "exited_at_level": s.get("exit_discipline")},
         "by_direction": by_dir,
@@ -148,7 +164,8 @@ OUTPUT_SCHEMA = {
     "headline": "one sentence — the thesis of the day's BOOK (not any single trade)",
     "sections": [
         {"kind": "keyvals", "title": "The day in numbers",
-         "rows": [{"k": "label", "v": "value + one-line read"}]},
+         "rows": [{"k": "label (include Win rate and Profit factor verbatim)",
+                   "v": "value + one-line read"}]},
         {"kind": "list", "title": "What the pattern says",
          "items": [{"point": "a book-level pattern: direction, time, or allocation — cite the $ and counts"}]},
         {"kind": "callout", "title": "The one thing that made (or cost) the day",
@@ -176,6 +193,10 @@ def build_prompt(bundle: dict) -> str:
         "the day's thesis + the lessons that follow from it. Use ONLY the data below.\n"
         f"\nNET & COUNTS: {json.dumps(b['counts'])}, net ${b['net_pnl']}, "
         f"discipline {json.dumps(b['discipline'])}.\n"
+        f"\nPERFORMANCE METRICS (exact — cite verbatim, do NOT recompute): "
+        f"{json.dumps(b.get('metrics'))}. profit_factor = gross wins / |gross "
+        "losses| (>1 profitable, null = no losses); win_rate excludes scratches; "
+        "payoff_ratio = avg_win / |avg_loss|. Read them, don't do the arithmetic.\n"
         f"\nBY DIRECTION (the headline pattern — win/loss + $ per side): "
         f"{json.dumps(b['by_direction'])}.\n"
         f"\nBY TIME OF DAY: {json.dumps(b['by_time'])}.\n"
@@ -215,10 +236,12 @@ def _demo() -> None:
     assert _direction(trades[1]) == "bullish"
     completed = [t for t in trades if t.get("status") != "open"]
     assert len(completed) == 3
-    assert _bucket([t for t in completed if _direction(t) == "bearish"]) == \
-        {"n": 1, "wins": 1, "losses": 0, "pnl": 1475.0}
-    assert _bucket([t for t in completed if _direction(t) == "bullish"]) == \
-        {"n": 2, "wins": 0, "losses": 2, "pnl": -560.0}
+    bear = _bucket([t for t in completed if _direction(t) == "bearish"])
+    assert bear["n"] == 1 and bear["wins"] == 1 and bear["pnl"] == 1475.0
+    assert bear["win_rate"] == 1.0 and bear["profit_factor"] is None   # no losses
+    bull = _bucket([t for t in completed if _direction(t) == "bullish"])
+    assert bull["n"] == 2 and bull["losses"] == 2 and bull["pnl"] == -560.0
+    assert bull["win_rate"] == 0.0 and bull["profit_factor"] == 0.0     # 0 wins / losses
     assert _et_min(trades[0]) == 668 and _et_min(trades[1]) == 890
     print("day_review._demo OK")
 

@@ -952,6 +952,22 @@ def summarize(day: str, und: str, trades: list[dict], settle: float | None) -> d
     expired = [t for t in closed if t["status"].startswith("expired")]
     worthless = [t for t in expired if t["status"] == "expired_worthless"]
     winners = [t for t in closed if t["realized"] > 0]
+    losers = [t for t in closed if t["realized"] < 0]
+    # deterministic performance metrics — arithmetic, not the LLM's estimate.
+    #   win_rate    = winners / decided (excludes scratches, realized == 0)
+    #   profit_factor = gross wins / |gross losses| — >1 profitable, independent
+    #                   of win rate; None when there were no losses (undefined).
+    #   avg_win/avg_loss and their ratio (the payoff side of the edge).
+    decided = [t for t in closed if t["realized"] != 0]
+    gross_win = round(sum(t["realized"] for t in winners), 2)
+    gross_loss = round(sum(t["realized"] for t in losers), 2)   # negative
+    avg_win = round(gross_win / len(winners), 2) if winners else None
+    avg_loss = round(gross_loss / len(losers), 2) if losers else None
+    win_rate = round(len(winners) / len(decided), 3) if decided else None
+    profit_factor = (round(gross_win / abs(gross_loss), 2)
+                     if gross_loss else None)   # None = no losses (undefined)
+    payoff_ratio = (round(abs(avg_win / avg_loss), 2)
+                    if (avg_win and avg_loss) else None)
     entered_at = [t for t in trades
                   if (t.get("correlation") or {}).get("at_level")]
     exited_at = [t for t in trades
@@ -972,6 +988,14 @@ def summarize(day: str, und: str, trades: list[dict], settle: float | None) -> d
         "expired_loss": round(sum(t["realized"] for t in worthless), 2),
         "winners": len(winners),
         "losers": len(closed) - len(winners),
+        # deterministic performance metrics (see above) — facts, not estimates
+        "win_rate": win_rate,
+        "profit_factor": profit_factor,
+        "gross_win": gross_win,
+        "gross_loss": gross_loss,
+        "avg_win": avg_win,
+        "avg_loss": avg_loss,
+        "payoff_ratio": payoff_ratio,
         "settle_price": settle,
         # THE behavioral metric: did I trade the levels I forecast, or improvise?
         "traded_at_level": len(entered_at),
@@ -993,6 +1017,22 @@ def _demo() -> None:
     # no usable symbol → '?'
     assert _ticker_of({"legs": [{"symbol": ""}]}) == "?"
     assert _ticker_of({"legs": []}) == "?"
+
+    # summarize(): win rate + profit factor are exact arithmetic
+    def _t(r, status="closed"):
+        return {"status": status, "realized": r, "cost": 0.0, "proceeds": 0.0,
+                "settlement": 0.0, "correlation": {}, "exit_correlation": {}}
+    s = summarize("2026-07-20", "SPX",
+                  [_t(300), _t(200), _t(-100), _t(-100), _t(0),   # 2 win, 2 loss, 1 scratch
+                   {"status": "open", "realized": None}], None)
+    assert s["winners"] == 2 and s["win_rate"] == 0.5, s          # scratch excluded (2/4 decided)
+    assert s["gross_win"] == 500.0 and s["gross_loss"] == -200.0, s
+    assert s["profit_factor"] == 2.5, s                            # 500 / 200
+    assert s["avg_win"] == 250.0 and s["avg_loss"] == -100.0, s
+    assert s["payoff_ratio"] == 2.5, s
+    # no losses → profit_factor undefined (None), never a divide-by-zero
+    s2 = summarize("d", "SPX", [_t(100), _t(50)], None)
+    assert s2["profit_factor"] is None and s2["win_rate"] == 1.0, s2
     print("session_activity self-check OK")
 
 
