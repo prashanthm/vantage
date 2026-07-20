@@ -3520,6 +3520,7 @@ ${ref}`;
     replayActive,
     onReplayToggle,
     onForecastNow,
+    forecastNonce,
     activeCallId,
     setActiveCallId,
     onOpenSymbol
@@ -3560,9 +3561,19 @@ ${ref}`;
     const fcQ = useLive(
       () => symbol ? getChartForecast(symbol) : Promise.resolve(null),
       null,
-      [symbol]
+      [symbol, forecastNonce]
     );
     const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
+    useEffect5(() => {
+      if (!forecastNonce) return;
+      setActiveLayers((prev) => {
+        if (prev.has("forecast")) return prev;
+        const next = new Set(prev);
+        next.add("forecast");
+        saveLayerPref(next);
+        return next;
+      });
+    }, [forecastNonce]);
     const posQ = useLive(
       () => symbol ? getPosition(symbol) : Promise.resolve(null),
       null,
@@ -4170,6 +4181,7 @@ ${ref}`;
     replayRunId,
     onReplayToggle,
     onForecastNow,
+    forecastNonce,
     activeCallId,
     setActiveCallId,
     onOpenSymbol
@@ -4187,6 +4199,7 @@ ${ref}`;
         replayRunId,
         onReplayToggle,
         onForecastNow,
+        forecastNonce,
         activeCallId,
         setActiveCallId,
         onOpenSymbol
@@ -4242,11 +4255,14 @@ ${ref}`;
       )
     ), open && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-callbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
   }
-  function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId, forecastSignal }) {
+  function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId, forecastSignal, onForecastSaved }) {
     const [scoring, setScoring] = useState8(null);
     const [nonce, setNonce] = useState8(0);
     const runningRef = useRef4(false);
     const genRunRef = useRef4(null);
+    const forecastModeRef = useRef4(false);
+    const fcSigRef = useRef4(null);
+    if (forecastSignal && forecastSignal !== fcSigRef.current) forecastModeRef.current = true;
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
     useEffect6(() => {
       const onFocus = () => setNonce((n) => n + 1);
@@ -4256,6 +4272,7 @@ ${ref}`;
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
     useEffect6(() => {
       if (!runs.length || runId || runningRef.current || genRunRef.current) return;
+      if (forecastModeRef.current) return;
       setRunId(runs[0].run_id);
     }, [runs, runId]);
     const runQ = useLive(() => runId ? getReplayRun(runId) : Promise.resolve(null), null, [runId, nonce]);
@@ -4323,17 +4340,22 @@ ${ref}`;
               snapshot,
               forecast: data || null,
               forecast_text: text
-            }).then(() => setNonce((n) => n + 1)).catch(() => {
+            }).then(() => {
+              setNonce((n) => n + 1);
+              onForecastSaved && onForecastSaved();
+            }).catch(() => {
             });
           });
         });
       }).catch((e) => setFc({ error: String(e && e.message || e) }));
     }, [symbol, canForecast]);
-    const fcSigRef = useRef4(forecastSignal);
     useEffect6(() => {
-      if (forecastSignal === fcSigRef.current) return;
+      if (!forecastSignal || forecastSignal === fcSigRef.current) return;
       fcSigRef.current = forecastSignal;
-      if (canForecast) forecastNow();
+      if (!canForecast) return;
+      setRunId(null);
+      setActiveCallId(null);
+      forecastNow();
     }, [forecastSignal, canForecast, forecastNow]);
     const forecastStep = useCallback3((asOf, rid, day) => new Promise((resolve) => {
       getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
@@ -4506,6 +4528,7 @@ ${ref}`;
         className: "vg-rp-runpick",
         value: runId || "",
         onChange: (e) => {
+          forecastModeRef.current = false;
           setRunId(e.target.value || null);
           setActiveCallId(null);
         }
@@ -6475,6 +6498,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [replayRunId, setReplayRunId] = useState14(null);
     const [activeCallId, setActiveCallId] = useState14(null);
     const [forecastNowSignal, setForecastNowSignal] = useState14(0);
+    const [forecastSavedNonce, setForecastSavedNonce] = useState14(0);
     const showReplayPanel = route === "ic" && replayOn;
     const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
     useEffect10(() => {
@@ -6583,6 +6607,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         height: "100%",
         replayActive: replayOn,
         replayRunId,
+        forecastNonce: forecastSavedNonce,
         activeCallId,
         setActiveCallId,
         onOpenSymbol: (s) => go("ic", s),
@@ -6650,7 +6675,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           setRunId: setReplayRunId,
           activeCallId,
           setActiveCallId,
-          forecastSignal: forecastNowSignal
+          forecastSignal: forecastNowSignal,
+          onForecastSaved: () => setForecastSavedNonce((n) => n + 1)
         }
       ) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
     )), !focus && /* @__PURE__ */ React.createElement("div", { className: "vg-mob-handles" }, /* @__PURE__ */ React.createElement(

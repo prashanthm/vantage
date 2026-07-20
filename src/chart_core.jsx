@@ -116,7 +116,7 @@ function setInd(drawn, key, candles, th) {
 const REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
 
 export function InstrumentChart({ symbol, tf, setTf, overlays, height,
-    replayRunId, replayActive, onReplayToggle, onForecastNow,
+    replayRunId, replayActive, onReplayToggle, onForecastNow, forecastNonce,
     activeCallId, setActiveCallId, onOpenSymbol }) {
   const elRef = useRef(null);
   const [symInput, setSymInput] = useState("");   // the ticker being typed in the header
@@ -151,8 +151,17 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const layerData = layerQ.data && layerQ.data.available ? layerQ.data : null;
   // the analyst's latest forecast (target/invalidation/path) for the Forecast layer.
   const fcQ = useLive(() => (symbol ? getChartForecast(symbol) : Promise.resolve(null)),
-    null, [symbol]);
+    null, [symbol, forecastNonce]);
   const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
+  // a fresh "Forecast now" just saved (forecastNonce bumped) → auto-enable the
+  // Forecast layer so the projected path draws without a manual chip toggle.
+  useEffect(() => {
+    if (!forecastNonce) return;
+    setActiveLayers((prev) => {
+      if (prev.has("forecast")) return prev;
+      const next = new Set(prev); next.add("forecast"); saveLayerPref(next); return next;
+    });
+  }, [forecastNonce]);
   // the investor's own context (cost basis + plan target/stop) for the Position layer.
   const posQ = useLive(() => (symbol ? getPosition(symbol) : Promise.resolve(null)),
     null, [symbol]);
@@ -688,9 +697,11 @@ function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
 
 // A self-contained wrapper that owns the timeframe state — for quick drop-in use.
 export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height,
-    replayActive, replayRunId, onReplayToggle, onForecastNow, activeCallId, setActiveCallId, onOpenSymbol }) {
+    replayActive, replayRunId, onReplayToggle, onForecastNow, forecastNonce,
+    activeCallId, setActiveCallId, onOpenSymbol }) {
   const [tf, setTf] = useState(defaultTf);
   return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height}
-    replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle} onForecastNow={onForecastNow}
+    replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle}
+    onForecastNow={onForecastNow} forecastNonce={forecastNonce}
     activeCallId={activeCallId} setActiveCallId={setActiveCallId} onOpenSymbol={onOpenSymbol} />;
 }

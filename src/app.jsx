@@ -261,6 +261,9 @@ function App() {
   // "Forecast now" from the chart shares the Replay panel: bumping this counter
   // tells the panel to auto-fire a fresh forward forecast (see ReplayPanel).
   const [forecastNowSignal, setForecastNowSignal] = useState(0);
+  // bumped by the panel once a forecast is saved → the chart re-fetches its latest
+  // forecast and enables the Forecast layer so the projected path draws.
+  const [forecastSavedNonce, setForecastSavedNonce] = useState(0);
   // the Replay panel takes over the right pane on the chart route when active.
   const showReplayPanel = route === "ic" && replayOn;
   // the chart-first route: the instrument the chart is showing (URL param → SPX).
@@ -397,6 +400,7 @@ function App() {
             <div className="vg-ic-route">
               <InstrumentChartCard symbol={icSymbol} height="100%"
                 replayActive={replayOn} replayRunId={replayRunId}
+                forecastNonce={forecastSavedNonce}
                 activeCallId={activeCallId} setActiveCallId={setActiveCallId}
                 onOpenSymbol={(s) => go("ic", s)}
                 onReplayToggle={() => {
@@ -443,7 +447,8 @@ function App() {
           {rightOpen && (showReplayPanel
             ? <ReplayPanel symbol={icSymbol} runId={replayRunId} setRunId={setReplayRunId}
                 activeCallId={activeCallId} setActiveCallId={setActiveCallId}
-                forecastSignal={forecastNowSignal} />
+                forecastSignal={forecastNowSignal}
+                onForecastSaved={() => setForecastSavedNonce((n) => n + 1)} />
             : symbol
               ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
               : <ChatPanel docked settings={settings} />)}

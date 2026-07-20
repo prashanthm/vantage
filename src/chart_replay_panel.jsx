@@ -55,13 +55,19 @@ function CallRow({ f, onScore, scoring, active, onActivate }) {
   );
 }
 
-export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId, forecastSignal }) {
+export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId, forecastSignal, onForecastSaved }) {
   const [scoring, setScoring] = useState(null);
   const [nonce, setNonce] = useState(0);
   // declared up here so the auto-select effect can avoid fighting an in-flight
   // generate (a just-minted run isn't in the runs list yet).
   const runningRef = useRef(false);
   const genRunRef = useRef(null);   // the run_id currently being generated (if any)
+  // opened via chart "Forecast now" → suppress the historical run overlay. Set during
+  // RENDER (not an effect) so the auto-select effect below — which runs first — already
+  // sees it true on the mount triggered by the Forecast-now click.
+  const forecastModeRef = useRef(false);
+  const fcSigRef = useRef(null);
+  if (forecastSignal && forecastSignal !== fcSigRef.current) forecastModeRef.current = true;
 
   const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
   // refresh the runs list when the tab regains focus, so a run generated in another
@@ -80,6 +86,7 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
   // explicit selection; only fill the initial blank.
   useEffect(() => {
     if (!runs.length || runId || runningRef.current || genRunRef.current) return;
+    if (forecastModeRef.current) return;   // Forecast-now: no historical run overlay
     setRunId(runs[0].run_id);
   }, [runs, runId]);
 
@@ -147,18 +154,25 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
           setFc({ text, data });
           saveSpxForecast({ day: snapshot.day, as_of: snapshot.as_of, symbol, snapshot,
             forecast: data || null, forecast_text: text })
-            .then(() => setNonce((n) => n + 1)).catch(() => {});
+            .then(() => { setNonce((n) => n + 1); onForecastSaved && onForecastSaved(); })
+            .catch(() => {});
         });
       });
     }).catch((e) => setFc({ error: String((e && e.message) || e) }));
   }, [symbol, canForecast]);
 
-  // chart's "🔮 Forecast now" button bumps forecastSignal → auto-fire once (skip mount).
-  const fcSigRef = useRef(forecastSignal);
+  // chart's "🔮 Forecast now" button bumps forecastSignal → auto-fire once. The panel
+  // usually MOUNTS in response to that click (replayOn flips true), so seed the ref
+  // to null (not the initial value) — a null→N transition must count as "changed" so
+  // the fire happens on that first mount, not only on a re-signal of an open panel.
+  // Also enter "forecast mode" (set during render above): clear any auto-selected
+  // replay run so the chart shows ONLY the clean forward projection.
   useEffect(() => {
-    if (forecastSignal === fcSigRef.current) return;
+    if (!forecastSignal || forecastSignal === fcSigRef.current) return;
     fcSigRef.current = forecastSignal;
-    if (canForecast) forecastNow();
+    if (!canForecast) return;
+    setRunId(null); setActiveCallId(null);   // drop the historical run overlay
+    forecastNow();
   }, [forecastSignal, canForecast, forecastNow]);
 
   const forecastStep = useCallback((asOf, rid, day) => new Promise((resolve) => {
@@ -327,7 +341,8 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
       <div className="vg-rp-head">
         <span className="vg-rp-title">Replay · {symbol}</span>
         <select className="vg-rp-runpick" value={runId || ""}
-          onChange={(e) => { setRunId(e.target.value || null); setActiveCallId(null); }}>
+          onChange={(e) => { forecastModeRef.current = false;
+            setRunId(e.target.value || null); setActiveCallId(null); }}>
           {runs.map((r, i) => (
             <option key={r.run_id} value={r.run_id}>
               {r.day}{i === 0 ? " (latest)" : ""} · {r.n} calls{r.n_scored ? ` · ${r.n_scored} scored` : ""}
