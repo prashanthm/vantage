@@ -614,12 +614,35 @@ def fetch_option_orders(account_number: str, *, limit: int = 200) -> list[dict]:
     return _option_orders(account_number, limit=limit)
 
 
+def _resolve_account_number(account_number: str) -> str:
+    """The FULL Robinhood account number the orders API requires. A masked
+    ``...NNNN`` (all the history table stores) 404s against get_equity_orders /
+    get_option_orders — so resolve it to the full number via list_accounts()
+    by matching the last four digits. Returns the input unchanged when it's
+    already full or can't be resolved (best-effort)."""
+    an = str(account_number or "")
+    if not an.startswith("...") and an.isdigit():
+        return an   # already a full number
+    last4 = an[-4:]
+    try:
+        for a in list_accounts():
+            full = str(a.get("account_number") or "")
+            if full.endswith(last4):
+                return full
+    except Exception:  # noqa: BLE001 — resolution is best-effort; fall back to input
+        log.warning("could not resolve full account number for %s", an)
+    return an
+
+
 def fetch_history(account_number: str, *, limit: int = 200) -> list[dict]:
     """Combined equity + option order history, newest first, normalized to
     the history-row contract (see _history_row). ``account`` is left empty —
     the importer fills the Vantage account id; ``broker_account`` is always
-    masked to the last four digits."""
+    masked to the last four digits. The orders API needs the FULL account
+    number, so a masked input is resolved first (else it 404s — the bug where
+    equities synced but options 404'd, live 2026-07-20)."""
     masked = f"...{str(account_number)[-4:]}"
+    account_number = _resolve_account_number(account_number)
     rows: list[dict] = []
     equity = _dedupe_orders(_paged("get_equity_orders",
                                    {"account_number": account_number},
