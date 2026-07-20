@@ -2821,6 +2821,23 @@ ${ref}`;
     const side = (name, list) => list.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-side" }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-sidehd" }, name, " \xB7 ", list.length), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grid" }, list.map((h) => /* @__PURE__ */ React.createElement(SignalCard, { key: h.symbol, h, onOpen }))));
     return /* @__PURE__ */ React.createElement("div", { className: "vg-scan-group" }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grouphead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-kicker" }, label, " \xB7 ", hits.length), hits[0].reason && /* @__PURE__ */ React.createElement("span", { className: "vg-scan-rationale" }, hits[0].reason)), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-sides" }, side("Long", longs), side("Short", shorts)));
   }
+  function HistoryTable({ rows, onOpen }) {
+    const tone = (o) => o === "target" ? "good" : o === "invalidated" ? "bad" : "plain";
+    const lbl = (o) => o === "target" ? "\u2713 target" : o === "invalidated" ? "\u2715 invalid" : "\xB7 open";
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-scan-group", style: { marginTop: 20 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grouphead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-kicker" }, "History \xB7 ", rows.length), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-rationale" }, "setups that aged past current \u2014 how they played out")), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-histlist" }, rows.map((h) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: h.symbol,
+        className: "vg-scan-histrow",
+        onClick: () => onOpen && onOpen(h.symbol),
+        title: `open ${h.symbol} chart`
+      },
+      /* @__PURE__ */ React.createElement("span", { className: "vg-scan-sym", style: { fontSize: 13 } }, h.symbol),
+      /* @__PURE__ */ React.createElement("b", { className: cls("vg-scan-dir", dirCls(h.dir === "long" ? 1 : -1)) }, h.tier, " ", h.dir === "long" ? "LONG" : "SHORT"),
+      /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 11 } }, h.bars_ago, "h ago"),
+      /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone(h.outcome)), style: { marginLeft: "auto", fontSize: 10 } }, lbl(h.outcome))
+    ))));
+  }
   function ScannerView({ onOpenSymbol }) {
     const [scanner, setScanner] = useState6("ict_htf");
     const [nonce, setNonce] = useState6(0);
@@ -2833,7 +2850,11 @@ ${ref}`;
     const hits = d && d.hits || [];
     const aplus = hits.filter((h) => h.tier === "A+");
     const bs = hits.filter((h) => h.tier !== "A+");
+    const history = d && d.history || [];
     const manual = d && d.manual_tickers || [];
+    const dataThrough = d && d.data_through;
+    const staleHrs = dataThrough ? (Date.now() - new Date(dataThrough).getTime()) / 36e5 : 0;
+    const isStaleData = staleHrs > 20;
     useEffect4(() => {
       if (!running) return void 0;
       const id = setInterval(() => setNonce((n) => n + 1), 3e3);
@@ -2865,7 +2886,7 @@ ${ref}`;
         style: { width: "auto" }
       },
       SCANNERS.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.label))
-    ), running ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, prog ? `${prog.phase}\u2026 ${prog.done}/${prog.total}` : "scanning\u2026") : d ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "covered ", /* @__PURE__ */ React.createElement("b", null, d.covered_n), "/", /* @__PURE__ */ React.createElement("b", null, d.universe_n), " \xB7 ", aplus.length, " A+ \xB7 ", bs.length, " B \xB7 last run ", ago(d.ran_at)) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "no scan yet \u2014 run a refresh to seed data + scan"), /* @__PURE__ */ React.createElement(
+    ), running ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, prog ? `${prog.phase}\u2026 ${prog.done}/${prog.total}` : "scanning\u2026") : d ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "covered ", /* @__PURE__ */ React.createElement("b", null, d.covered_n), "/", /* @__PURE__ */ React.createElement("b", null, d.universe_n), " \xB7 ", aplus.length, " A+ \xB7 ", bs.length, " B \xB7 last run ", ago(d.ran_at), isStaleData && dataThrough && /* @__PURE__ */ React.createElement("span", { className: "vg-scan-stale" }, " \xB7 \u26A0 data through ", hhmm(dataThrough), " ", String(dataThrough).slice(5, 10), " (market closed \u2014 setups as of then)")) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "no scan yet \u2014 run a refresh to seed data + scan"), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",
@@ -2896,7 +2917,7 @@ ${ref}`;
         }
       ),
       /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "\uFF0B add")
-    ), manual.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-chips" }, manual.map((s) => /* @__PURE__ */ React.createElement("span", { key: s, className: "vg-scan-chip" }, s, /* @__PURE__ */ React.createElement("button", { className: "vg-scan-chip-x", title: "remove", onClick: () => removeTicker(s) }, "\u2715")))), manual.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "none \u2014 add ad-hoc names to always scan them.")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { color: "var(--vg-down)", marginBottom: 10 } }, note), aplus.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "A+ setups", hits: aplus, onOpen: onOpenSymbol }), bs.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "B setups", hits: bs, onOpen: onOpenSymbol }), d && hits.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 18 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No hourly setups right now across ", d.covered_n, " covered tickers. A+ is a high-conviction, deliberately rare tier \u2014 a quiet scan is normal.")), d && (d.no_data || []).length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12, fontSize: 11, color: "var(--vg-dim)" } }, "no data (", d.no_data.length, "): ", d.no_data.join(", "), " \u2014 hourly bars not fetched yet; refresh to seed."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 11, color: "var(--vg-dim)" } }, "Hourly ICT setups (validated timeframe) \xB7 a heads-up to drop to a lower timeframe for entry \xB7 not advice."));
+    ), manual.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-chips" }, manual.map((s) => /* @__PURE__ */ React.createElement("span", { key: s, className: "vg-scan-chip" }, s, /* @__PURE__ */ React.createElement("button", { className: "vg-scan-chip-x", title: "remove", onClick: () => removeTicker(s) }, "\u2715")))), manual.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "none \u2014 add ad-hoc names to always scan them.")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { color: "var(--vg-down)", marginBottom: 10 } }, note), aplus.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "A+ setups", hits: aplus, onOpen: onOpenSymbol }), bs.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "B setups", hits: bs, onOpen: onOpenSymbol }), d && hits.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 18 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No CURRENT hourly setups across ", d.covered_n, " covered tickers. A+ is a high-conviction, deliberately rare tier \u2014 a quiet scan is normal.", history.length > 0 && " Recently-played-out setups are in history below.")), history.length > 0 && /* @__PURE__ */ React.createElement(HistoryTable, { rows: history, onOpen: onOpenSymbol }), d && (d.no_data || []).length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12, fontSize: 11, color: "var(--vg-dim)" } }, "no data (", d.no_data.length, "): ", d.no_data.join(", "), " \u2014 hourly bars not fetched yet; refresh to seed."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 11, color: "var(--vg-dim)" } }, "Hourly ICT setups (validated timeframe) \xB7 a heads-up to drop to a lower timeframe for entry \xB7 not advice."));
   }
 
   // src/indicators.js

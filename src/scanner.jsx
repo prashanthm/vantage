@@ -95,6 +95,33 @@ function TierGroup({ label, hits, onOpen }) {
     </div>);
 }
 
+// Stale setups (aged past 'current'), each with how it resolved — target hit,
+// invalidated, or still open. A track record, not a live signal; compact rows.
+function HistoryTable({ rows, onOpen }) {
+  const tone = (o) => (o === "target" ? "good" : o === "invalidated" ? "bad" : "plain");
+  const lbl = (o) => (o === "target" ? "✓ target" : o === "invalidated" ? "✕ invalid" : "· open");
+  return (
+    <div className="vg-scan-group" style={{ marginTop: 20 }}>
+      <div className="vg-scan-grouphead">
+        <span className="vg-kicker">History · {rows.length}</span>
+        <span className="vg-scan-rationale">setups that aged past current — how they played out</span>
+      </div>
+      <div className="vg-scan-histlist">
+        {rows.map((h) => (
+          <button key={h.symbol} className="vg-scan-histrow" onClick={() => onOpen && onOpen(h.symbol)}
+            title={`open ${h.symbol} chart`}>
+            <span className="vg-scan-sym" style={{ fontSize: 13 }}>{h.symbol}</span>
+            <b className={cls("vg-scan-dir", dirCls(h.dir === "long" ? 1 : -1))}>
+              {h.tier} {h.dir === "long" ? "LONG" : "SHORT"}</b>
+            <span className="vg-note" style={{ fontSize: 11 }}>{h.bars_ago}h ago</span>
+            <span className={cls("vg-badge", tone(h.outcome))} style={{ marginLeft: "auto", fontSize: 10 }}>
+              {lbl(h.outcome)}</span>
+          </button>
+        ))}
+      </div>
+    </div>);
+}
+
 export function ScannerView({ onOpenSymbol }) {
   const [scanner, setScanner] = useState("ict_htf");
   const [nonce, setNonce] = useState(0);
@@ -108,7 +135,13 @@ export function ScannerView({ onOpenSymbol }) {
   const hits = (d && d.hits) || [];
   const aplus = hits.filter((h) => h.tier === "A+");
   const bs = hits.filter((h) => h.tier !== "A+");
+  const history = (d && d.history) || [];
   const manual = (d && d.manual_tickers) || [];
+  // data staleness: the last stored bar vs now. If the data is behind the live
+  // market (weekend / pre-market), say so — the setups are "as of" that bar.
+  const dataThrough = d && d.data_through;
+  const staleHrs = dataThrough ? (Date.now() - new Date(dataThrough).getTime()) / 3.6e6 : 0;
+  const isStaleData = staleHrs > 20;   // ~ beyond an overnight gap
 
   // while a background scan runs, poll the status every 3s until it completes.
   useEffect(() => {
@@ -165,6 +198,9 @@ export function ScannerView({ onOpenSymbol }) {
           <span className="vg-note">
             covered <b>{d.covered_n}</b>/<b>{d.universe_n}</b> · {aplus.length} A+ · {bs.length} B ·
             last run {ago(d.ran_at)}
+            {isStaleData && dataThrough && (
+              <span className="vg-scan-stale"> · ⚠ data through {hhmm(dataThrough)} {String(dataThrough).slice(5, 10)} (market closed — setups as of then)</span>
+            )}
           </span>
         ) : <span className="vg-note">no scan yet — run a refresh to seed data + scan</span>}
         <button className="vg-btn-sm" disabled={running} onClick={() => refresh(false)}
@@ -204,10 +240,15 @@ export function ScannerView({ onOpenSymbol }) {
       {d && hits.length === 0 && (
         <div className="vg-card" style={{ padding: 18 }}>
           <p className="vg-note" style={{ margin: 0 }}>
-            No hourly setups right now across {d.covered_n} covered tickers. A+ is a
+            No CURRENT hourly setups across {d.covered_n} covered tickers. A+ is a
             high-conviction, deliberately rare tier — a quiet scan is normal.
+            {history.length > 0 && " Recently-played-out setups are in history below."}
           </p>
         </div>)}
+
+      {/* history — setups that aged past 'current' (played out), with outcome.
+          Keeps the live grid current while showing what happened. */}
+      {history.length > 0 && <HistoryTable rows={history} onOpen={onOpenSymbol} />}
 
       {/* honest coverage tail */}
       {d && (d.no_data || []).length > 0 && (

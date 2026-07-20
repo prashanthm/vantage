@@ -1259,6 +1259,14 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-scan-rung-px { font-family: var(--vg-font-data); color: var(--vg-ink); }
 .vg-scan-rung-sz { color: var(--vg-faint); font-size: 10px; }
 .vg-scan-foot { font-size: 10.5px; }
+.vg-scan-stale { color: var(--vg-warn); }
+/* history — stale setups with their outcome, compact single-column rows */
+.vg-scan-histlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 6px; margin-top: 10px; }
+.vg-scan-histrow { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px;
+  padding: 6px 10px; border-radius: var(--vg-r-sm); border: 1px solid var(--vg-hairline);
+  background: var(--vg-card); color: var(--vg-dim); }
+.vg-scan-histrow:hover { background: var(--vg-raised); border-color: var(--vg-rule); }
 .vg-scan-manual { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .vg-scan-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .vg-scan-chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px;

@@ -62,11 +62,12 @@ _UNIVERSE_CAP = 170
 ET_OPEN = 9 * 60 + 30
 ET_CLOSE = 16 * 60
 
-#: a setup is "current" if it triggered within this many hourly bars of the latest
-#: bar (~1 trading session of RTH hours). Older setups are stale — the detector
-#: surfaces the most-recent-near one over the whole loaded series, so without this
-#: gate a multi-day scan would show days-old signals as if live.
-_FRESH_BARS = 7
+#: a setup is "current" only if it triggered within this many hourly bars of the
+#: latest bar. Beyond this it's STALE — the move has usually already played out — so
+#: it's retired to the scanner's `history` (with its resolved outcome), NOT shown as
+#: a live signal. Tightened from 7 (~a full session — too loose, surfaced played-out
+#: setups) to 3 so "current" means the last few hours.
+_FRESH_BARS = 3
 
 
 # ── universe ─────────────────────────────────────────────────────────────────
@@ -226,9 +227,28 @@ def load_hourly_series(store, symbol: str, days: int = 15) -> dict | None:
 
 # ── the scan engine (pluggable) ──────────────────────────────────────────────
 
+def _resolve_outcome(hi, lo, ti, setup) -> dict:
+    """Walk the bars AFTER a setup triggered — did price reach the runner target or
+    the invalidation first? Returns {outcome, resolved_at_bar}. Used to grade a
+    STALE setup for the history section so you see how it played out."""
+    d = 1 if setup.get("dir") == "long" else -1
+    invalid = setup.get("invalid")
+    tgts = setup.get("targets") or []
+    target = tgts[-1].get("price") if tgts else None
+    for m in range(ti + 1, len(hi)):
+        if invalid is not None and ((lo[m] <= invalid) if d > 0 else (hi[m] >= invalid)):
+            return {"outcome": "invalidated", "resolved_bar": m}
+        if target is not None and ((hi[m] >= target) if d > 0 else (lo[m] <= target)):
+            return {"outcome": "target", "resolved_bar": m}
+    return {"outcome": "open"}   # neither hit in the loaded window
+
+
 def _scan_ict_htf(store, symbol: str) -> dict | None:
     """Run the A+/B hourly ICT setup detector for one symbol from its stored 60m
-    bars. Returns the htf_setup dict + {symbol, as_of, bars}, or None if no data."""
+    bars. Returns the htf_setup dict + {symbol, as_of, bars}, or None if no data.
+    A setup older than _FRESH_BARS is tagged ``stale`` and carries its resolved
+    outcome (target / invalidated / open) so run_scan can retire it to history
+    instead of surfacing a played-out signal as if it were live."""
     ser = load_hourly_series(store, symbol, days=15)
     if not ser or not ser.get("ts") or len(ser["ts"]) < 32:
         return None
@@ -236,11 +256,14 @@ def _scan_ict_htf(store, symbol: str) -> dict | None:
     obs = ict.active_obs(hi, lo, cl, op)
     last_hour = _dt.datetime.fromisoformat(ser["ts"][-1]).strftime("%H:%M")
     setup = dict(_htf.htf_setup(hi, lo, cl, op, last_hour, active_obs=obs))
-    # FRESHNESS gate: only surface a setup that TRIGGERED recently — a scanner wants
-    # current signals, not the most-recent-near one from days ago in the series.
     if setup.get("present") and setup.get("bars_ago", 0) > _FRESH_BARS:
-        setup = {"present": False, "stale_bars_ago": setup.get("bars_ago")}
-    setup.update({"symbol": symbol, "as_of": ser["ts"][-1], "bars": len(ser["ts"])})
+        # STALE — not a live signal. Keep it, tag it, and resolve how it played out.
+        ti = setup.get("trigger_i")
+        outcome = _resolve_outcome(hi, lo, ti, setup) if ti is not None else {"outcome": "open"}
+        setup["stale"] = True
+        setup.update(outcome)
+    setup.update({"symbol": symbol, "as_of": ser["ts"][-1], "bars": len(ser["ts"]),
+                  "last_bar": ser["ts"][-1]})
     return setup
 
 
@@ -292,7 +315,8 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
                              progress=lambda d, t: _save_progress(store, scanner, "seeding", d, t))
 
     _save_progress(store, scanner, "detecting", 0, total)
-    hits, no_setup, no_data = [], [], []
+    hits, history, no_setup, no_data = [], [], [], []
+    latest_bar = None
     for i, sym in enumerate(symbols):
         try:
             s = detector(store, sym)
@@ -302,7 +326,10 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
         if s is None:
             no_data.append(sym)
         elif s.get("present"):
-            hits.append(s)
+            if s.get("last_bar") and (latest_bar is None or s["last_bar"] > latest_bar):
+                latest_bar = s["last_bar"]
+            # STALE setups are retired to history (with their outcome), not live hits
+            (history if s.get("stale") else hits).append(s)
         else:
             no_setup.append(sym)
         if (i + 1) % 10 == 0 or i + 1 == total:
@@ -310,15 +337,21 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
 
     hits.sort(key=lambda h: (_TIER_RANK.get(h.get("tier"), 9),
                              h.get("as_of") or ""), reverse=False)
+    history.sort(key=lambda h: h.get("as_of") or "", reverse=True)   # most-recent first
     result = {
         "scanner": scanner,
         "status": "complete",
         "ran_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        # the latest STORED bar the scan ran on — so the UI can flag when the data is
+        # behind the live market (weekend / pre-market) instead of silently showing
+        # setups as current.
+        "data_through": latest_bar,
         "universe_source": uni.get("source"),
         "universe_n": total,
         "covered_n": total - len(no_data),
         "manual_tickers": uni.get("manual", []),
         "hits": hits,
+        "history": history,
         "no_setup": sorted(no_setup),
         "no_data": sorted(no_data),
         "seeded": seeded,
