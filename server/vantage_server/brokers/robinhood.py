@@ -103,27 +103,13 @@ def _unwrap(parsed: dict) -> dict:
     return parsed
 
 
-async def _acall(tool_name: str, payload: dict) -> dict:
-    global _server_tools
-    ClientSession, streamablehttp_client = _require_mcp()
-    token = get_access_token()
-    headers = {"Authorization": f"Bearer {token}"}
-    async with streamablehttp_client(MCP_URL, headers=headers) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            if _server_tools is None:
-                listed = await session.list_tools()
-                _server_tools = {t.name for t in listed.tools}
-                log.debug("MCP server tools: %s", sorted(_server_tools))
-            resolved = _resolve_tool(tool_name, _server_tools)
-            result = await session.call_tool(resolved, payload)
-
+def _parse_result(resolved: str, result) -> dict:
+    """Turn one MCP call_tool result into the unwrapped dict our readers expect."""
     text = " ".join(
         block.text for block in result.content if getattr(block, "type", "") == "text"
     ).strip()
     if result.isError:
         raise RobinhoodError(f"MCP tool {resolved} returned error: {text[:500]}")
-
     structured = getattr(result, "structuredContent", None)
     if isinstance(structured, dict):
         return _unwrap(structured)
@@ -134,6 +120,52 @@ async def _acall(tool_name: str, payload: dict) -> dict:
         return {"results": parsed}
     except (json.JSONDecodeError, ValueError):
         return {"text_response": text}
+
+
+async def _session_call(session, tool_name: str, payload: dict) -> dict:
+    """One tool call on an already-open session (tools listed once, cached)."""
+    global _server_tools
+    if _server_tools is None:
+        listed = await session.list_tools()
+        _server_tools = {t.name for t in listed.tools}
+        log.debug("MCP server tools: %s", sorted(_server_tools))
+    resolved = _resolve_tool(tool_name, _server_tools)
+    return _parse_result(resolved, await session.call_tool(resolved, payload))
+
+
+async def _acall(tool_name: str, payload: dict) -> dict:
+    """Open a session, make ONE call, close. For single reads; paging uses
+    _apaged so it doesn't reopen a session (and re-eat the ~45s) per page."""
+    ClientSession, streamablehttp_client = _require_mcp()
+    headers = {"Authorization": f"Bearer {get_access_token()}"}
+    async with streamablehttp_client(MCP_URL, headers=headers) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            return await _session_call(session, tool_name, payload)
+
+
+async def _apaged(tool: str, payload: dict, rows_key: str, *, max_rows: int,
+                  max_pages: int) -> list[dict]:
+    """Cursor-follow ALL pages on ONE session — the big speedup: one connect/
+    init/teardown per fetch instead of per page (the ~45s → a few seconds)."""
+    ClientSession, streamablehttp_client = _require_mcp()
+    headers = {"Authorization": f"Bearer {get_access_token()}"}
+    rows: list[dict] = []
+    cursor: str | None = None
+    async with streamablehttp_client(MCP_URL, headers=headers) as (read, write, _):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            for _ in range(max_pages):
+                page_payload = dict(payload)
+                if cursor:
+                    page_payload["cursor"] = cursor
+                result = await _session_call(session, tool, page_payload)
+                batch = result.get(rows_key) or result.get("results") or []
+                rows.extend(r for r in batch if isinstance(r, dict))
+                cursor = _cursor_from_next(result.get("next"))
+                if not cursor or len(rows) >= max_rows:
+                    break
+    return rows
 
 
 def _call(tool_name: str, payload: dict, max_retries: int = 3) -> dict:
@@ -246,21 +278,30 @@ def _cursor_from_next(next_url) -> str | None:
 
 
 def _paged(tool: str, payload: dict, rows_key: str, *, max_rows: int,
-           max_pages: int = 25) -> list[dict]:
-    """Follow the cursor until max_rows rows, no next page, or max_pages."""
-    rows: list[dict] = []
-    cursor: str | None = None
-    for _ in range(max_pages):
-        page_payload = dict(payload)
-        if cursor:
-            page_payload["cursor"] = cursor
-        result = _call(tool, page_payload)
-        batch = result.get(rows_key) or result.get("results") or []
-        rows.extend(r for r in batch if isinstance(r, dict))
-        cursor = _cursor_from_next(result.get("next"))
-        if not cursor or len(rows) >= max_rows:
-            break
-    return rows
+           max_pages: int = 25, max_retries: int = 3) -> list[dict]:
+    """Follow the cursor until max_rows rows, no next page, or max_pages — all on
+    ONE MCP session (see _apaged). Enforces the read-only allowlist before any I/O
+    and reuses _call's transient-error retry/backoff."""
+    if tool not in READ_TOOLS:
+        raise ReadOnlyViolation(
+            f"tool '{tool}' is not in the read-only allowlist "
+            f"{sorted(READ_TOOLS)} — Vantage never mutates broker state (ADR-010)"
+        )
+    for attempt in range(1, max_retries + 1):
+        try:
+            return asyncio.run(_apaged(tool, payload, rows_key,
+                                       max_rows=max_rows, max_pages=max_pages))
+        except (AuthError, RobinhoodError, ReadOnlyViolation):
+            raise
+        except Exception as e:  # noqa: BLE001 — transient MCP/network → retry
+            if attempt == max_retries:
+                raise RobinhoodError(
+                    f"MCP paged {tool} failed after {max_retries} attempts: {e}") from e
+            wait = 2 ** attempt
+            log.warning("Transient MCP error paging %s (attempt %d/%d): %s. "
+                        "Retrying in %ds...", tool, attempt, max_retries, e, wait)
+            time.sleep(wait)
+    raise RuntimeError("unreachable")
 
 
 def _chunks(items: list, size: int):
