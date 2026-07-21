@@ -186,8 +186,19 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
             "atr": round(a, 1),
         },
         "levels": levels,
+        # gamma is legitimately overnight (computed from OI at plan time) and is
+        # LABELED as such; vwap_regime must be LIVE — the scaffold's copy froze
+        # last night's "below VWAP (sellers in control)" into every snapshot all
+        # day, and on 2026-07-21 the analyst shorted a +19.5-above-VWAP tape
+        # because the stale label contradicted the live vs_vwap_pt beside it.
         "regime": {"gamma": (scaf.get("regime") or {}).get("gamma"),
-                   "vwap_regime": (scaf.get("regime") or {}).get("vwap_regime")},
+                   "gamma_note": "overnight OI — blind to 0DTE positioning; "
+                                 "negative gamma amplifies moves in BOTH directions",
+                   "vwap_regime": (
+                       None if not vwap else
+                       f"{'above' if price >= vwap else 'below'} VWAP "
+                       f"({'buyers' if price >= vwap else 'sellers'} in control, "
+                       f"{price - vwap:+.1f}pt)")},
         "ict": {
             "unswept_liquidity": liq,          # {bsl:[...], ssl:[...]}
             "active_order_blocks": obs,        # [{side, top, bottom}]
