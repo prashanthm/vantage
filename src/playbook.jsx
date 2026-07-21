@@ -128,7 +128,12 @@ export function PlaybookView({ refreshNonce }) {
       <div className="vg-card">
         <div className="vg-kicker">Today's read</div>
         {p && p.narrative
-          ? <div className="vg-pb-narrative" style={{ whiteSpace: "pre-wrap" }}>{p.narrative}</div>
+          ? (() => {
+              const parsed = parseRead(p.narrative);
+              return parsed
+                ? <ReadCards parsed={parsed} />
+                : <div className="vg-pb-narrative" style={{ whiteSpace: "pre-wrap" }}>{p.narrative}</div>;
+            })()
           : <p className="vg-note" style={{ margin: "6px 0 0" }}>
               {pb.loading ? "Generating the read…" : "No narrative available."}
             </p>}
@@ -289,6 +294,64 @@ export function PlaybookView({ refreshNonce }) {
   );
 }
 
+// Parse the narrator's strict format (provenance line · key-levels block ·
+// "**SETUP — name**" blocks with `· Key: value` rows · right-now · caveats)
+// into renderable structure. Returns null when the text doesn't match — the
+// caller falls back to prose, so a format drift never blanks the read.
+function parseRead(text) {
+  if (!text) return null;
+  const lines = String(text).split("\n").map((l) => l.trim());
+  const setups = [];
+  let cur = null;
+  let provenance = null;
+  for (const l of lines) {
+    const setup = l.match(/^\*{0,2}SETUP\s*—\s*(.+?)\*{0,2}$/i);
+    if (setup) { cur = { name: setup[1].replace(/\*+/g, ""), rows: [] }; setups.push(cur); continue; }
+    const row = l.match(/^[·\-•]\s*(Trigger|Idea|Wrong if|Targets|Watch)\s*:\s*(.+)$/i);
+    if (row && cur) { cur.rows.push({ k: row[1], v: row[2] }); continue; }
+    if (!provenance && /^Computed/i.test(l)) provenance = l;
+    if (cur && l.startsWith("**")) cur = null;   // next bold section ends the block
+  }
+  if (setups.length === 0 || !setups.every((s) => s.rows.length >= 3)) return null;
+  // provenance → chips: split sentences, keep the short informative ones
+  const chips = (provenance || "").split(/\.\s+|\.$/).map((s) => s.trim())
+    .filter((s) => s && s.length < 90);
+  return { chips, setups };
+}
+
+// The read as UI (A2UI): regime chips + setup cards. The key-levels text block
+// is intentionally NOT rendered (the level ladder below is the better view),
+// the model's "right now" line is dropped (the live NowBanner above is truer),
+// and the caveat pile collapses to one fixed line.
+function ReadCards({ parsed }) {
+  const tone = (k) => (k === "Wrong if" ? "vg-down" : k === "Targets" ? "vg-up" : undefined);
+  return (
+    <div>
+      <div className="vg-row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        {parsed.chips.map((c, i) => (
+          <span key={i} className="vg-badge plain" style={{ fontSize: "var(--vg-text-xs)" }}>{c}</span>
+        ))}
+      </div>
+      <div className="vg-pb-setupgrid">
+        {parsed.setups.map((s) => (
+          <div key={s.name} className="vg-pb-setupcard">
+            <div className="vg-kicker" style={{ marginBottom: 6 }}>{s.name}</div>
+            {s.rows.map((r) => (
+              <div key={r.k} className="vg-pb-setuprow">
+                <span className="vg-note vg-pb-setupkey">{r.k}</span>
+                <span className={tone(r.k)} style={{ fontSize: "var(--vg-text-sm)" }}>{r.v}</span>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div className="vg-note" style={{ marginTop: 8, fontSize: "var(--vg-text-xs)", opacity: 0.75 }}>
+        GEX uses overnight OI — blind to 0DTE (~half of volume) · context, not a signal (ADR-008) · no orders (ADR-010) · not financial advice · full level ladder below
+      </div>
+    </div>
+  );
+}
+
 // RIGHT NOW — deterministic: live 1m close vs the plan's pivot decides which
 // conditional setup is currently ACTIVE, with the distance to flipping. Also
 // flags plan staleness (live spot vs the spot the plan was written at) so the
@@ -411,7 +474,7 @@ function VolReadCard() {
       <div className="vg-row" style={{ gap: 20, margin: "8px 0 4px", flexWrap: "wrap", fontVariantNumeric: "tabular-nums" }}>
         <span className="vg-note">implied <b style={{ color: "var(--vg-ink)" }}>{d.implied_move_pct}%</b>
           {" "}(${d.straddle_usd} straddle @ {d.atm_strike})</span>
-        <span className="vg-note">delivered (20d med) <b style={{ color: "var(--vg-ink)" }}>{d.realized_med_pct ?? "—"}%</b></span>
+        <span className="vg-note">delivered baseline <b style={{ color: "var(--vg-ink)" }}>{d.realized_scaled_pct ?? d.realized_med_pct ?? "—"}%</b>{d.session_fraction_remaining != null && d.session_fraction_remaining < 1 ? ` (√t-scaled, ${Math.round(d.session_fraction_remaining * 100)}% of session left)` : " (20d med)"}</span>
         {d.ratio != null && <span className="vg-note">ratio <b style={{ color: "var(--vg-ink)" }}>{d.ratio}×</b></span>}
         {d.atm_iv != null && <span className="vg-note">ATM IV {(d.atm_iv * 100).toFixed(1)}%</span>}
       </div>

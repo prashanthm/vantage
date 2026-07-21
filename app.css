@@ -1592,3 +1592,11 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
 
 /* Daily plan — the deterministic "right now" strip above the narrative */
 .vg-pb-now { padding: 10px 16px; margin-bottom: 10px; }
+
+/* Daily plan — the read as UI (setup cards replace the prose wall) */
+.vg-pb-setupgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+.vg-pb-setupcard { border: 1px solid var(--vg-hairline); border-radius: var(--vg-r-md);
+  padding: 12px 14px; background: var(--vg-ground); }
+.vg-pb-setuprow { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; }
+.vg-pb-setupkey { flex: 0 0 64px; font-size: var(--vg-text-xs); text-transform: uppercase;
+  letter-spacing: 0.04em; }
