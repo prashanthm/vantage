@@ -130,7 +130,7 @@ export function TodayView({ refreshNonce }) {
 // against). Pure arithmetic from /api/coach/tone; refreshes every 3 min while
 // the market is open. Born from 2026-07-21: 0/11, −$9,035, nine puts into a
 // rising tape — the mismatch was never on one screen.
-export function ToneCompareCard({ marketOpen, day }) {
+export function ToneCompareCard({ marketOpen, day, slim }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!marketOpen) return undefined;
@@ -192,10 +192,10 @@ export function ToneCompareCard({ marketOpen, day }) {
       <div className="vg-note" style={{ marginTop: 6, fontSize: "var(--vg-text-xs)" }}>
         dot = your entry (green long · red short) · amber ring = against the session tone at entry
       </div>
-      {d.verdict && (
+      {d.verdict && !slim && (
         <div className="vg-tone-verdict">⚠ {d.verdict}</div>
       )}
-      {(d.commentary || []).length > 0 && (
+      {(d.commentary || []).length > 0 && !slim && (
         <div style={{ marginTop: 8 }}>
           {d.commentary.map((c, i) => (
             <div key={i} className="vg-tone-note">

@@ -10,7 +10,7 @@
 // from GET /api/chart/{symbol}?tf=, not the SPX-only snapshot.
 import { cls, LoadBar, dirCls } from "./util.jsx";
 import { chartTheme } from "./chart_theme.jsx";
-import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRun, getPosition } from "./live.js";
+import { useLive, getChart, refreshChart, getDrawings, saveDrawing, deleteDrawing, getLayers, getChartForecast, getReplayRun, getPosition, getSpxForecasts } from "./live.js";
 import { sma, vwap, rsi, volumeProfile } from "./indicators.js";
 import { drawOne, removeOne } from "./chart_drawings.jsx";
 import { LAYERS, LAYER_DRAWERS, removeLayerHandle } from "./chart_layers.jsx";
@@ -117,7 +117,7 @@ const REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
 
 export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     replayRunId, replayActive, onReplayToggle, onForecastNow, forecastNonce,
-    activeCallId, setActiveCallId, onOpenSymbol }) {
+    activeCallId, setActiveCallId, onOpenSymbol, initialLayers, compact }) {
   const elRef = useRef(null);
   const [symInput, setSymInput] = useState("");   // the ticker being typed in the header
   const chartRef = useRef(null);
@@ -137,7 +137,10 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const [tool, setTool] = useState("cursor");       // active drawing tool
   const [drawings, setDrawings] = useState([]);     // persisted drawings for this symbol
   const [pendingN, setPendingN] = useState(0);      // clicks captured so far (UI hint)
-  const [activeLayers, setActiveLayers] = useState(loadLayerPref);  // active DNA layers
+  // embeds seed their own layer set and never write the shared localStorage pref
+  const [activeLayers, setActiveLayers] = useState(
+    () => (initialLayers ? new Set(initialLayers) : loadLayerPref()));
+  const persistLayers = initialLayers ? () => {} : saveLayerPref;
   const [selectedLevel, setSelectedLevel] = useState(null);         // clicked level price (anchor + focus)
   const selectedLevelRef = useRef(null);                            // live copy for the click cb
   selectedLevelRef.current = selectedLevel;
@@ -159,7 +162,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     if (!forecastNonce) return;
     setActiveLayers((prev) => {
       if (prev.has("forecast")) return prev;
-      const next = new Set(prev); next.add("forecast"); saveLayerPref(next); return next;
+      const next = new Set(prev); next.add("forecast"); persistLayers(next); return next;
     });
   }, [forecastNonce]);
   // the investor's own context (cost basis + plan target/stop) for the Position layer.
@@ -191,11 +194,37 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     return { run_id: d.run_id, forecasts, activeCallId };
   }, [runDetailQ.data, activeCallId]);
 
+  // the Calls layer: ALL of today's stored analyst forecasts (not just the
+  // latest) with their graded verdicts — the cockpit's calls, plotted on price.
+  const callsOn = activeLayers.has("calls");
+  const todayEt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  const dayCallsQ = useLive(
+    () => (callsOn && symbol ? getSpxForecasts(todayEt, symbol, 40) : Promise.resolve(null)),
+    null, [callsOn, symbol, forecastNonce]);
+  const dayCallsData = React.useMemo(() => {
+    const d = dayCallsQ.data;
+    if (!d || !d.available || !Array.isArray(d.forecasts)) return null;
+    const forecasts = d.forecasts.map((f) => {
+      let fc = f.forecast || {};
+      if (typeof fc === "string") { try { fc = JSON.parse(fc); } catch (e) { fc = {}; } }
+      const plot = fc.plot || {};
+      let sc = f.score;
+      if (typeof sc === "string") { try { sc = JSON.parse(sc); } catch (e) { sc = null; } }
+      const t = f.as_of ? Math.floor(new Date(f.as_of).getTime() / 1000) : null;
+      return { id: f.id, as_of: f.as_of, as_of_ts: t, price_at: f.price_at,
+               bias: plot.bias || "", path: Array.isArray(plot.path) ? plot.path : [],
+               target: plot.target != null ? plot.target : null,
+               invalidation: plot.invalidation != null ? plot.invalidation : null,
+               verdict: (sc && sc.verdict) || null };
+    }).filter((f) => f.as_of_ts != null);
+    return forecasts.length ? { forecasts, activeCallId: null } : null;
+  }, [dayCallsQ.data]);
+
   const toggleLayer = useCallback((key) => {
     setActiveLayers((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key); else next.add(key);
-      saveLayerPref(next);
+      persistLayers(next);
       return next;
     });
   }, []);
@@ -496,6 +525,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     const ctx = { chart, candle, LW: window.LightweightCharts, candles,
                   layers: (layerData && layerData.layers) || {}, forecast: forecastData,
                   replay: replayData, position: positionData, selectedLevel,
+                  dayCalls: dayCallsData,
                   price: (layerData && layerData.layers && layerData.layers.price)
                     || candles[candles.length - 1].close };
     // draw each active layer. replay is special: it draws only when a run is
@@ -504,14 +534,14 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     if (!replayShown) keysToDraw.delete("replay");
     else keysToDraw.add("replay");
     for (const key of keysToDraw) {
-      // forecast/replay/position draw from their own data; the rest need layerData.
-      if (key !== "forecast" && key !== "replay" && key !== "position" && !layerData) continue;
+      // forecast/replay/position/calls draw from their own data; the rest need layerData.
+      if (!["forecast", "replay", "position", "calls"].includes(key) && !layerData) continue;
       const drawer = LAYER_DRAWERS[key];
       if (!drawer) continue;
       try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
     }
     return undefined;
-  }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, selectedLevel, candles]);
+  }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, dayCallsData, selectedLevel, candles]);
 
   // scroll the chart to the selected replay run's day so its markers are in view
   // (a run is day-specific; without this, picking an older day draws markers
@@ -519,8 +549,11 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   // clamped to the candles we actually have. Only when Replay is active.
   useEffect(() => {
     const chart = chartRef.current;
-    if (!chart || !replayShown || !replayData || !candles.length) return;
-    const ts = replayData.forecasts.map((f) => f.as_of_ts).filter((t) => t != null);
+    // frame the forecast day for a replay run OR the live Calls layer — without
+    // this, a month of 5m candles crushes today's markers into the right edge.
+    const src = (replayShown && replayData) || (callsOn && dayCallsData) || null;
+    if (!chart || !src || !candles.length) return;
+    const ts = src.forecasts.map((f) => f.as_of_ts).filter((t) => t != null);
     if (!ts.length) return;
     const first = Math.min(...ts), lastT = Math.max(...ts);
     const c0 = candles[0].time, cN = candles[candles.length - 1].time;
@@ -532,7 +565,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         try { chart.timeScale().setVisibleRange({ from, to }); } catch (e) { /* */ }
       });
     }
-  }, [replayData, replayShown, candles]);
+  }, [replayData, replayShown, callsOn, dayCallsData, candles]);
 
   const last = candles.length ? candles[candles.length - 1].close : null;
 
@@ -566,7 +599,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
           onClick={() => doRefresh(1)} disabled={refreshing} title={`Refresh ${symbol} bars`}
           aria-label={`Refresh ${symbol} bars`}>⟳</button>
       </div>
-      <div className="vg-ic-inds">
+      {!compact && <div className="vg-ic-inds">
         {INDICATORS.map((ind) => {
           const disabled = ind.needsVol && !TF_HAS_VOLUME(tf);
           const on = active.has(ind.key) && !disabled;
@@ -590,8 +623,8 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
           <button className="vg-ic-tool" onClick={clearDrawings} disabled={!drawings.length}
             title="Clear all drawings" aria-label="Clear all drawings">✕</button>
         </div>
-      </div>
-      <div className="vg-ic-layers">
+      </div>}
+      {!compact && <div className="vg-ic-layers">
         <span className="vg-ic-layers-tag">DNA</span>
         {LAYERS.map((ly) => {
           const gatedLevels = ly.needsLevels && layerData && !layerData.has_levels;
@@ -624,8 +657,8 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
           </button>)}
         {layerData && !layerData.has_levels && (
           <span className="vg-ic-layers-note">bars-derived only (no coach chain)</span>)}
-      </div>
-      {replayShown && (
+      </div>}
+      {(replayShown || (callsOn && dayCallsData)) && (
         <div className="vg-ic-legend">
           <span><i className="vg-lg-sw" style={{ background: "rgba(124,92,255,0.95)" }} /> predicted path</span>
           <span><i className="vg-lg-sw" style={{ background: `rgb(${chartTheme().upRgb.join(",")})` }} /> call hit</span>
@@ -698,10 +731,11 @@ function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
 // A self-contained wrapper that owns the timeframe state — for quick drop-in use.
 export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height,
     replayActive, replayRunId, onReplayToggle, onForecastNow, forecastNonce,
-    activeCallId, setActiveCallId, onOpenSymbol }) {
+    activeCallId, setActiveCallId, onOpenSymbol, initialLayers, compact }) {
   const [tf, setTf] = useState(defaultTf);
   return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height}
     replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle}
     onForecastNow={onForecastNow} forecastNonce={forecastNonce}
-    activeCallId={activeCallId} setActiveCallId={setActiveCallId} onOpenSymbol={onOpenSymbol} />;
+    activeCallId={activeCallId} setActiveCallId={setActiveCallId} onOpenSymbol={onOpenSymbol}
+    initialLayers={initialLayers} compact={compact} />;
 }

@@ -10,7 +10,7 @@ import {
   useTheme, THEME_ICON, LoadBar,
 } from "./util.jsx";
 import { Icon } from "./icons.jsx";
-import { CockpitView } from "./cockpit.jsx";
+import { CockpitView, CockpitPanel } from "./cockpit.jsx";
 import { MiraRender } from "./mira-render.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { PortfolioView } from "./portfolio_view.jsx";
@@ -382,6 +382,13 @@ function App() {
   const [forecastSavedNonce, setForecastSavedNonce] = useState(0);
   // the Replay panel takes over the right pane on the chart route when active.
   const showReplayPanel = route === "ic" && replayOn;
+  // Cockpit: the right pane becomes the cockpit's instrument panel (NOW state /
+  // a clicked frame's briefing) — same lifted-state pattern as Replay.
+  const homeFace = route === "home"
+    ? (HOME_FACES.some((f) => f.key === routeParam) ? routeParam : clockFace()) : null;
+  const showCockpitPanel = homeFace === "cockpit";
+  const [cockpitSel, setCockpitSel] = useState(null);   // selected frame or null
+  useEffect(() => { if (!showCockpitPanel) setCockpitSel(null); }, [showCockpitPanel]);
   // the chart-first route: the instrument the chart is showing (URL param → SPX).
   const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
   // keep the shared `symbol` in sync with the chart route so the right-pane
@@ -495,7 +502,9 @@ function App() {
           {route === "home" && (
             <HomeView face={routeParam} onFace={(f) => go("home", f)}
               renderFace={(face) => (
-                face === "cockpit" ? <CockpitView refreshNonce={refreshNonce} />
+                face === "cockpit"
+                  ? <CockpitView refreshNonce={refreshNonce}
+                      selectedFrame={cockpitSel} onSelectFrame={setCockpitSel} />
                 : face === "debrief" ? <JournalView refreshNonce={refreshNonce} />
                 : <DashboardView {...viewProps} {...dashProps} notifs={notifs} />
               )} />
@@ -564,7 +573,8 @@ function App() {
             </button>
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
-                {showReplayPanel ? "⟲ Replay" : symbol ? "Notebook" : "Vantage AI"}
+                {showReplayPanel ? "⟲ Replay" : showCockpitPanel ? "Cockpit"
+                  : symbol ? "Notebook" : "Vantage AI"}
               </span>
             )}
             {rightOpen && showReplayPanel && (
@@ -580,6 +590,9 @@ function App() {
                 activeCallId={activeCallId} setActiveCallId={setActiveCallId}
                 forecastSignal={forecastNowSignal}
                 onForecastSaved={() => setForecastSavedNonce((n) => n + 1)} />
+            : showCockpitPanel
+              ? <CockpitPanel sel={cockpitSel} onClear={() => setCockpitSel(null)}
+                  refreshNonce={refreshNonce} />
             : symbol
               ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
               : <ChatPanel docked settings={settings} />)}

@@ -219,8 +219,10 @@ export const LAYER_DRAWERS = {
       markers.push({ time: f.as_of_ts,
         position: up ? "aboveBar" : "belowBar",
         shape: up ? "arrowUp" : "arrowDown", color,
+        // terse (the live Calls layer): color alone grades 26 markers — the
+        // verdict text on every arrow is noise. Replay keeps the labels.
         text: isActive ? `${f.target != null ? "→" + f.target : ""} ${f.verdict || ""}`.trim().slice(0, 24)
-          : (f.verdict || "") });
+          : rp.terse ? "" : (f.verdict || "") });
       if (f.target != null) {
         const tt = f.as_of_ts <= lastT ? lastT + 1 : f.as_of_ts;   // LW needs ascending, unique time
         pts.push({ time: tt, value: f.target });
@@ -245,6 +247,14 @@ export const LAYER_DRAWERS = {
   },
 };
 
+// the Calls layer: ALL of today's analyst forecasts with graded verdicts —
+// identical rendering to a replay run, fed from ctx.dayCalls instead of a
+// saved run. (Enabling both on the ic route: last setMarkers call wins.)
+LAYER_DRAWERS.calls = (ctx) =>
+  (ctx.dayCalls
+    ? LAYER_DRAWERS.replay({ ...ctx, replay: { ...ctx.dayCalls, terse: true } })
+    : []);
+
 // the toggleable layer chips (order = draw order top→bottom in the toolbar).
 // `needsLevels` marks the ones that require a playbook symbol (coach/GEX).
 export const LAYERS = [
@@ -257,6 +267,7 @@ export const LAYERS = [
   { key: "gex", label: "GEX", needsLevels: true },
   { key: "position", label: "Position", needsLevels: false, needsPosition: true },
   { key: "forecast", label: "Forecast", needsLevels: false, needsForecast: true },
+  { key: "calls", label: "Calls", needsLevels: true },
   { key: "replay", label: "Replay", needsLevels: false, needsReplay: true },
 ];
 

@@ -141,6 +141,7 @@ def build(store, day: str, symbol: str = "SPX") -> dict:
             if t.get("status") != "open" else None
         placed.append({
             "time": f"{m // 60:02d}:{m % 60:02d}", "start_min": m,
+            "opened_at": t.get("opened_at"),   # trade_key = "{opened_at}|{label}"
             "label": t.get("label") or "{} ×{:g}".format(
                 t.get("strategy") or "?", abs(t.get("open_contracts") or
                                               t.get("peak_contracts") or 0) or 0), "dir": d,
