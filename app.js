@@ -2363,6 +2363,27 @@ ${ref}`;
       "pt)"
     )))))));
   }
+  function LevelsWatch({ d }) {
+    const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, []);
+    const rows = ((q.data && q.data.available && q.data.scaffold || {}).table || {}).rows || [];
+    const buckets = d.buckets || [];
+    const price = buckets.length ? buckets[buckets.length - 1].close : null;
+    const sr = rows.filter((r) => r.role === "support" || r.role === "resistance");
+    if (!sr.length || price == null) return null;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Levels watch", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " ", "\u2014 pre-market plan vs how price treats each level now (last ", price, ")")), /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Level"), /* @__PURE__ */ React.createElement("th", null, "Plan said"), /* @__PURE__ */ React.createElement("th", null, "Now acting as"), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, sr.map((r, i) => {
+      const now = r.price > price ? "resistance" : "support";
+      const flip = now !== r.role;
+      return /* @__PURE__ */ React.createElement("tr", { key: i, style: flip ? { background: "var(--vg-raised)" } : void 0 }, /* @__PURE__ */ React.createElement("td", { className: "num", style: { textAlign: "left" } }, r.price), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.role === "support" ? "good" : "bad") }, r.role), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, String(r.label || "").replace(/^(resistance|support)\s*/i, ""))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", now === "support" ? "good" : "bad") }, now)), /* @__PURE__ */ React.createElement("td", null, flip && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          className: "vg-badge warn",
+          style: { fontWeight: 700 },
+          title: "price crossed this level \u2014 the plan's role has inverted"
+        },
+        "FLIP"
+      )));
+    }))));
+  }
   function NowCard({ d, isToday }) {
     const frames = d.frames || [];
     const latest = frames.find((f) => f.call);
@@ -2435,7 +2456,7 @@ ${ref}`;
         onChange: (e) => setDay(e.target.value || todayET()),
         "aria-label": "Cockpit day"
       }
-    ))), isToday && etMinNow() < 570 ? /* @__PURE__ */ React.createElement(PlanCard, null) : d && /* @__PURE__ */ React.createElement(NowCard, { d, isToday }), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day }), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Every 15 minutes", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 click a row for the call path + fills \xB7 \u2713 with / \u2717 against the call")), d && d.frames.length > 0 && /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Time"), /* @__PURE__ */ React.createElement("th", null, "Call"), /* @__PURE__ */ React.createElement("th", null, "Action"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Target"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Wrong if"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Market"), /* @__PURE__ */ React.createElement("th", null, "Resolved"), /* @__PURE__ */ React.createElement("th", null, "You"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "P&L"))), /* @__PURE__ */ React.createElement("tbody", null, d.frames.map((f) => /* @__PURE__ */ React.createElement(FrameTr, { key: f.t, f })))), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the briefing\u2026" : "Cockpit needs the SQLite backend.")));
+    ))), isToday && etMinNow() < 570 ? /* @__PURE__ */ React.createElement(PlanCard, null) : d && /* @__PURE__ */ React.createElement(NowCard, { d, isToday }), isToday && d && /* @__PURE__ */ React.createElement(LevelsWatch, { d }), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day }), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Every 15 minutes", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 click a row for the call path + fills \xB7 \u2713 with / \u2717 against the call")), d && d.frames.length > 0 && /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Time"), /* @__PURE__ */ React.createElement("th", null, "Call"), /* @__PURE__ */ React.createElement("th", null, "Action"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Target"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Wrong if"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Market"), /* @__PURE__ */ React.createElement("th", null, "Resolved"), /* @__PURE__ */ React.createElement("th", null, "You"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "P&L"))), /* @__PURE__ */ React.createElement("tbody", null, d.frames.map((f) => /* @__PURE__ */ React.createElement(FrameTr, { key: f.t, f })))), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the briefing\u2026" : "Cockpit needs the SQLite backend.")));
   }
 
   // src/chart_theme.jsx
@@ -3768,9 +3789,17 @@ ${ref}`;
       const out = [];
       const sel = ctx.selectedLevel;
       for (const lv of ctx.layers.levels || []) {
-        const lbl = String(lv.label || "");
-        const isRes = /resist|call wall/i.test(lbl);
-        const isSup = /support|put wall|max pain/i.test(lbl);
+        let lbl = String(lv.label || "");
+        let isRes = /resist|call wall/i.test(lbl);
+        let isSup = /support|put wall|max pain/i.test(lbl);
+        const sr = /^(resistance|support)/i.exec(lbl);
+        if (sr && ctx.price != null) {
+          const live = lv.price > ctx.price ? "resistance" : "support";
+          isRes = live === "resistance";
+          isSup = !isRes;
+          if (live !== sr[1].toLowerCase())
+            lbl = `${live} \xB7flip${lbl.slice(sr[1].length)}`;
+        }
         const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
         const isSel = sel != null && Math.abs(lv.price - sel) < 0.01;
         const alpha = sel == null ? 0.6 : isSel ? 0.95 : 0.18;

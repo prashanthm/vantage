@@ -24,6 +24,7 @@ assembly) but reads the Vantage scaffold. Sentinel is never touched.
 """
 from __future__ import annotations
 
+import re as _re
 from typing import Any
 
 # level kind (substring, lowercased) -> (base pine color, line style). First match
@@ -136,6 +137,24 @@ def _role_col(role: str) -> str:
     return f"(isDark ? #{d.lstrip('#')} : #{l.lstrip('#')})"
 
 
+def _sr_col_expr(price: float) -> str:
+    """A Pine color expression that derives the S/R role from LIVE price: the
+    level above ``close`` is resistance (red), below is support (green). Roles
+    baked at generation go stale the moment price gaps across a level."""
+    return f"(close < {price:.1f} ? {_role_col('resistance')} : {_role_col('support')})"
+
+
+def _sr_label_expr(price: float, plan_role: str, rest: str, prefix: str = "") -> str:
+    """A Pine string expression for an S/R row label: the role word follows LIVE
+    price; when it disagrees with the plan's role the ``·flip`` marker shows the
+    inversion (e.g. plan resistance now under price → 'support ·flip (2x)')."""
+    rest = (" " + rest.strip()) if rest.strip() else ""
+    res_txt = prefix + "resistance" + ("" if plan_role == "resistance" else " ·flip")
+    sup_txt = prefix + "support" + ("" if plan_role == "support" else " ·flip")
+    return (f"(close < {price:.1f} ? \"{_sanitize(res_txt + rest)}\" "
+            f": \"{_sanitize(sup_txt + rest)}\")")
+
+
 def _pine_conf_box(z: dict) -> list[str]:
     """A confluence zone as a faint shaded box (lo–hi) + one short tag. Theme-safe
     fill/border. role → color."""
@@ -211,19 +230,27 @@ def _pine_table(scaffold: dict, session: str, sym: str = "SPX") -> list[str]:
     for i, r in enumerate(rows):
         rr = 2 + i
         role = r.get("role", "pivot")
-        col = _role_col("support" if role == "support" else
-                        "resistance" if role == "resistance" else "pivot")
+        p_f = float(r["price"])
+        is_sr = role in ("support", "resistance")
+        # S/R rows: color AND label word follow LIVE close (a plan-time
+        # resistance now under price reads "support ·flip"); others static.
+        col = _sr_col_expr(p_f) if is_sr else _role_col("pivot")
         key = _sanitize(str(r.get("key", "")))
         star = "✦ " if r.get("confluence") else ""
-        price = f"{float(r['price']):.0f}"
-        lab = _sanitize(star + str(r.get("label", "")))
+        price = f"{p_f:.0f}"
+        raw_lab = str(r.get("label", ""))
+        m = _re.match(r"^(resistance|support)\s*(.*)$", raw_lab, _re.I)
+        if is_sr and m:
+            lab_arg = _sr_label_expr(p_f, role, m.group(2), prefix=star)
+        else:
+            lab_arg = f"\"{_sanitize(star + raw_lab)}\""
         exp = _sanitize(str(r.get("expect", "")))
         out += [
             f"    table.cell(pb, 0, {rr}, \"{key}\", text_color={col}, "
             "text_size=size.normal, text_halign=text.align_center)",
             f"    table.cell(pb, 1, {rr}, \"{price}\", text_color={col}, "
             "text_size=size.normal, text_halign=text.align_right)",
-            f"    table.cell(pb, 2, {rr}, \"{lab}\", text_color=tblTx, "
+            f"    table.cell(pb, 2, {rr}, {lab_arg}, text_color=tblTx, "
             "text_size=size.normal, text_halign=text.align_left)",
             f"    table.cell(pb, 3, {rr}, \"{exp}\", text_color=tblTx, "
             "text_size=size.normal, text_halign=text.align_left)",
@@ -304,8 +331,9 @@ def _pine_row_markers(rows: list[dict]) -> list[str]:
     for r in rows:
         price = float(r["price"])
         role = r.get("role", "pivot")
-        col = _role_col("support" if role == "support" else
-                        "resistance" if role == "resistance" else "pivot")
+        # S/R roles follow LIVE close at draw time, not the generation snapshot
+        col = (_sr_col_expr(price) if role in ("support", "resistance")
+               else _role_col("pivot"))
         key = _sanitize(str(r.get("key", "")))
         conf = r.get("confluence")
         durable = r.get("durable")
@@ -432,6 +460,11 @@ def build_playbook_pine(scaffold: dict[str, Any]) -> str:
         "OI-based and BLIND",
         "//    to 0DTE flow. Context, not a signal (ADR-008). "
         f"Apply on a {sym} chart.",
+        "// S/R level colors + labels re-derive their role from LIVE close (a "
+        "gapped-over resistance",
+        "//   reads 'support ·flip'). BUY/SELL reclaim arrows keep their PLAN-time "
+        "roles — the validated",
+        "//   reclaim discipline was backtested against those semantics.",
         "",
         "// ── theme (Auto uses the chart background; override with the input) ──",
         "themeIn = input.string(\"Auto\", \"Theme\", options=[\"Auto\", \"Dark\", \"Light\"])",

@@ -31,9 +31,19 @@ export const LAYER_DRAWERS = {
     const out = [];
     const sel = ctx.selectedLevel;
     for (const lv of ctx.layers.levels || []) {
-      const lbl = String(lv.label || "");
-      const isRes = /resist|call wall/i.test(lbl);
-      const isSup = /support|put wall|max pain/i.test(lbl);
+      let lbl = String(lv.label || "");
+      let isRes = /resist|call wall/i.test(lbl);
+      let isSup = /support|put wall|max pain/i.test(lbl);
+      // S/R shelf roles are a function of LIVE price, not of the side price was
+      // on when the plan generated — broken resistance acts as support. Identity
+      // levels (walls, max pain, fib, round, PoC) keep their names.
+      const sr = /^(resistance|support)/i.exec(lbl);
+      if (sr && ctx.price != null) {
+        const live = lv.price > ctx.price ? "resistance" : "support";
+        isRes = live === "resistance"; isSup = !isRes;
+        if (live !== sr[1].toLowerCase())
+          lbl = `${live} ·flip${lbl.slice(sr[1].length)}`;
+      }
       const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
       // a selected level (from a chart click) draws bold + labeled; the rest dim so
       // it stands out. No selection → all at the normal 0.6.

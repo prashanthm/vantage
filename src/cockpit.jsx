@@ -152,6 +152,50 @@ function PlanCard() {
   );
 }
 
+// ── LEVELS WATCH: what the plan identified pre-market vs how price is
+//    treating each level NOW. Role = side of live price; disagreement = FLIP
+//    (broken resistance acting as support, and vice versa). ─────────────────
+function LevelsWatch({ d }) {
+  const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, []);
+  const rows = (((q.data && q.data.available && q.data.scaffold) || {}).table || {}).rows || [];
+  const buckets = d.buckets || [];
+  const price = buckets.length ? buckets[buckets.length - 1].close : null;
+  const sr = rows.filter((r) => r.role === "support" || r.role === "resistance");
+  if (!sr.length || price == null) return null;
+  return (
+    <div className="vg-card vg-tablewrap" style={{ marginTop: 14, padding: "10px 14px" }}>
+      <div className="vg-kicker" style={{ marginBottom: 6 }}>
+        Levels watch
+        <span className="vg-note" style={{ fontWeight: 400 }}>
+          {" "}— pre-market plan vs how price treats each level now (last {price})</span>
+      </div>
+      <table className="vg-table">
+        <thead>
+          <tr><th>Level</th><th>Plan said</th><th>Now acting as</th><th /></tr>
+        </thead>
+        <tbody>
+          {sr.map((r, i) => {
+            const now = r.price > price ? "resistance" : "support";
+            const flip = now !== r.role;
+            return (
+              <tr key={i} style={flip ? { background: "var(--vg-raised)" } : undefined}>
+                <td className="num" style={{ textAlign: "left" }}>{r.price}</td>
+                <td>
+                  <span className={cls("vg-badge", r.role === "support" ? "good" : "bad")}>{r.role}</span>
+                  {" "}<span className="vg-note">{String(r.label || "").replace(/^(resistance|support)\s*/i, "")}</span>
+                </td>
+                <td><span className={cls("vg-badge", now === "support" ? "good" : "bad")}>{now}</span></td>
+                <td>{flip && <span className="vg-badge warn" style={{ fontWeight: 700 }}
+                  title="price crossed this level — the plan's role has inverted">FLIP</span>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 // ── NEXT 15 MINUTES ─────────────────────────────────────────────────────────
 function NowCard({ d, isToday }) {
   const frames = d.frames || [];
@@ -333,6 +377,8 @@ export function CockpitView({ refreshNonce }) {
       </div>
 
       {isToday && etMinNow() < 570 ? <PlanCard /> : d && <NowCard d={d} isToday={isToday} />}
+
+      {isToday && d && <LevelsWatch d={d} />}
 
       <ToneCompareCard marketOpen={isToday} day={isToday ? undefined : day} />
 
