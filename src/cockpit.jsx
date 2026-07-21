@@ -1,15 +1,15 @@
-// CockpitView — the 15-minute playbook ledger.
+// CockpitView — the 15-minute briefing.
 //
-// Not a summary: the session as a sequence of 15-minute FRAMES, newest first.
-// Each frame: the standing analyst CALL (bias/target/invalidation + whether it
-// was made in this frame), what the MARKET did, how the call RESOLVED (the
-// deterministic score, applied by the auto-loop once the frame elapsed), and
-// what YOU did (fills + alignment + frame P&L). A date picker recalls any
-// stored day — the ledger is fully derived from persisted forecasts, bars and
-// fills, so history replays exactly.
+// Two questions, answered deterministically from stored data (ADR-008):
+//   NEXT 15 MINUTES — the standing analyst call: sentiment, the forecast
+//     levels to watch, and a proposed action. Position-aware: with an open
+//     trade the action becomes HOLD / SELL / ADD against the call.
+//   EVERY 15 MINUTES (history) — per frame: what the sentiment was, the key
+//     levels, the action the call implied, what the market actually did, the
+//     trades logged in the window, and whether each aligned with the
+//     narrative. A date picker recalls any stored day.
 //
-// Signals/health stay on #/today; the tone strips + discipline commentary ride
-// on top via ToneCompareCard. Deterministic renders only (ADR-008).
+// Tone strips + discipline commentary ride on top via ToneCompareCard.
 import { cls } from "./util.jsx";
 import { useLive, getJson } from "./live.js";
 import { ToneCompareCard } from "./today.jsx";
@@ -26,248 +26,229 @@ const todayET = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
 const money = (v) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
 
-function biasTone(b) {
-  const s = String(b || "").toLowerCase();
-  if (s.includes("up") || s.includes("bull") || s.includes("long")) return "good";
-  if (s.includes("down") || s.includes("bear") || s.includes("short")) return "bad";
-  return "plain";
+// call bias → "bullish" | "bearish" | null
+function callSide(bias) {
+  const s = String(bias || "").toLowerCase();
+  if (s.includes("up") || s.includes("bull") || s.includes("long")) return "bullish";
+  if (s.includes("down") || s.includes("bear") || s.includes("short")) return "bearish";
+  return null;
 }
+const sideTone = (side) => (side === "bullish" ? "good" : side === "bearish" ? "bad" : "plain");
 function verdictTone(v) {
   const s = String(v || "").toLowerCase();
   if (s.includes("hit") || s.includes("correct")) return "good";
   if (s.includes("invalid") || s.includes("wrong")) return "bad";
   return "plain";
 }
+const ageMin = (iso) => {
+  try { return Math.round((Date.now() - new Date(iso).getTime()) / 60000); }
+  catch { return null; }
+};
 
+// Where does price stand vs the call's levels?  → "target" | "invalidated" | null
+function levelState(call, price) {
+  const side = callSide(call && call.bias);
+  if (!side || price == null) return null;
+  if (call.target != null
+      && (side === "bullish" ? price >= call.target : price <= call.target)) return "target";
+  if (call.invalidation != null
+      && (side === "bullish" ? price <= call.invalidation : price >= call.invalidation)) return "invalidated";
+  return null;
+}
 
-// The session map — the ledger drawn instead of written. One SVG:
-//   · 15-min candles (from bucket closes), toned bull/bear/flat
-//   · each standing call's TARGET (green dash) and INVALIDATION (red dash)
-//     drawn across the frames it governed — price vs the call, visibly
-//   · a bias arrow where each fresh call was made
-//   · your entries as dots on the price path (amber ring = against the tape)
-//   · a ✓/✗ lane underneath: how the frame's call resolved
-function SessionMap({ d }) {
-  const frames = [...(d.frames || [])].reverse();          // chronological
-  const buckets = d.buckets || [];
-  if (!buckets.length) return null;
-  const W = 980, H = 300, PAD_L = 54, PAD_R = 12, PAD_T = 10, LANE = 26;
-  const plotH = H - PAD_T - LANE - 24;
-  const n = 26;
-  const x = (i) => PAD_L + (i + 0.5) * ((W - PAD_L - PAD_R) / n);
-  const slotOf = (sm) => Math.max(0, Math.min(n - 1, Math.floor((sm - 570) / 15)));
-
-  // y-scale from closes + near-range call levels (far walls clamp to edge)
-  const closes = buckets.map((b) => b.close);
-  let lo = Math.min(...closes), hi = Math.max(...closes);
-  for (const f of frames) {
-    const c = f.call || {};
-    for (const v of [c.target, c.invalidation]) {
-      if (v != null && v > lo - 40 && v < hi + 40) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
-    }
-  }
-  const span = Math.max(hi - lo, 1);
-  lo -= span * 0.06; hi += span * 0.06;
-  const y = (p) => PAD_T + (hi - p) / (hi - lo) * plotH;
-  const yc = (p) => Math.max(PAD_T, Math.min(PAD_T + plotH, y(p)));   // clamped
-
-  const toneCol = (t) => (t === "bull" ? "var(--vg-up)" : t === "bear" ? "var(--vg-down)" : "var(--vg-faint)");
-  const biasCol = (b) => {
-    const t = String(b || "").toLowerCase();
-    return t.includes("up") || t.includes("bull") ? "var(--vg-up)"
-      : t.includes("down") || t.includes("bear") ? "var(--vg-down)" : "var(--vg-faint)";
+// The proposed action for a frame WITHOUT a position — sentiment + levels → verb.
+function flatAction(call, price) {
+  const side = callSide(call && call.bias);
+  if (!call) return { verb: "WAIT", tone: "plain", detail: "no analyst call yet" };
+  if (call.born_invalid) return { verb: "WAIT", tone: "warn", detail: "call was invalid at birth — stand down" };
+  if (!side) return { verb: "WAIT", tone: "plain", detail: "no directional edge in the call" };
+  const st = levelState(call, price);
+  if (st === "invalidated") return { verb: "WAIT", tone: "warn", detail: `call broken — ${call.invalidation} gave way` };
+  if (st === "target") return { verb: "WAIT", tone: "warn", detail: `target ${call.target} already met — chasing is late` };
+  return {
+    verb: side === "bullish" ? "LOOK LONG" : "LOOK SHORT", tone: sideTone(side),
+    detail: `toward ${call.target ?? "?"} · wrong beyond ${call.invalidation ?? "?"}`,
   };
+}
 
-  // candles: open = previous close (first = its own close)
-  const candles = buckets.map((b, i) => ({
-    i: slotOf(b.start_min), o: i > 0 ? buckets[i - 1].close : b.close,
-    c: b.close, tone: b.tone,
-  }));
+// Position-aware action for ONE open trade vs the standing call.
+function positionAction(call, trade, price) {
+  const side = callSide(call && call.bias);
+  const aligned = side != null && trade.dir === side;
+  if (!call || !side) return { verb: "HOLD", tone: "plain", detail: "no standing call to judge against" };
+  if (!aligned) return { verb: "SELL", tone: "bad", detail: `call is ${side.toUpperCase()} — against your ${trade.dir} position` };
+  const st = levelState(call, price);
+  if (st === "invalidated") return { verb: "SELL", tone: "bad", detail: `invalidation ${call.invalidation} broke — thesis dead` };
+  if (st === "target") return { verb: "SELL", tone: "good", detail: `target ${call.target} met — take the win` };
+  if (call.fresh) return { verb: "HOLD / ADD", tone: "good", detail: `fresh call reaffirms ${side} — room to ${call.target ?? "?"}` };
+  return { verb: "HOLD", tone: "good", detail: `aligned with the call — room to ${call.target ?? "?"}, out beyond ${call.invalidation ?? "?"}` };
+}
 
-  // call spans: consecutive frames governed by the same call id
-  const spans = [];
-  for (const f of frames) {
-    const c = f.call;
-    if (!c) continue;
-    const slot = slotOf(f.start_min);
-    const last = spans[spans.length - 1];
-    if (last && last.id === c.id) last.to = slot;
-    else spans.push({ id: c.id, from: slot, to: slot, call: c });
-  }
+const actionBadge = (a, big) => (
+  <span className={cls("vg-badge", a.tone)}
+    style={{ fontWeight: 700, ...(big ? { fontSize: "var(--vg-text-md)", padding: "4px 10px" } : {}) }}>
+    {a.verb}
+  </span>
+);
 
-  // resolution ticks: placed at the frame where the call was MADE
-  const ticks = frames.filter((f) => f.call && f.call.fresh && f.call.score)
-    .map((f) => ({ slot: slotOf(f.start_min), v: String(f.call.score.verdict || "") }));
-
-  // trades: dot at (entry frame, bucket close)
-  const byStart = Object.fromEntries(buckets.map((b) => [slotOf(b.start_min), b]));
-  const dots = [];
-  for (const f of frames) for (const t of f.trades || []) {
-    const slot = slotOf(t.start_min);
-    const b = byStart[slot];
-    if (b) dots.push({ slot, price: b.close, t });
-  }
-
-  const half = (W - PAD_L - PAD_R) / n / 2 - 2;
+function LevelChips({ call, price }) {
+  if (!call) return null;
+  const dist = (v) => (price != null && v != null ? ` (${(v - price) >= 0 ? "+" : ""}${(v - price).toFixed(1)}pt)` : "");
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto", display: "block" }}
-      role="img" aria-label="Session map — price, calls and your trades per 15-minute frame">
-      {/* y grid + labels */}
-      {[0, 0.25, 0.5, 0.75, 1].map((f) => {
-        const p = hi - f * (hi - lo);
-        return (
-          <g key={f}>
-            <line x1={PAD_L} x2={W - PAD_R} y1={y(p)} y2={y(p)} stroke="var(--vg-hairline)" strokeWidth="1" />
-            <text x={PAD_L - 6} y={y(p) + 3} textAnchor="end" fontSize="10"
-              fill="var(--vg-faint)" fontFamily="var(--vg-font-data)">{p.toFixed(0)}</text>
-          </g>
-        );
-      })}
-      {/* call target / invalidation bands */}
-      {spans.map((sp, k) => {
-        const c = sp.call;
-        const x1 = x(sp.from) - half, x2 = x(sp.to) + half;
-        return (
-          <g key={k}>
-            {c.target != null && (
-              <line x1={x1} x2={x2} y1={yc(c.target)} y2={yc(c.target)}
-                stroke="var(--vg-up)" strokeWidth="1.6" strokeDasharray="5 3" opacity="0.8">
-                <title>{`call @ ${c.minute}: target ${c.target}`}</title>
-              </line>)}
-            {c.invalidation != null && (
-              <line x1={x1} x2={x2} y1={yc(c.invalidation)} y2={yc(c.invalidation)}
-                stroke="var(--vg-down)" strokeWidth="1.6" strokeDasharray="5 3" opacity="0.8">
-                <title>{`call @ ${c.minute}: wrong beyond ${c.invalidation}`}</title>
-              </line>)}
-          </g>
-        );
-      })}
-      {/* candles */}
-      {candles.map((c, k) => (
-        <g key={k}>
-          <line x1={x(c.i)} x2={x(c.i)} y1={y(Math.max(c.o, c.c))} y2={y(Math.min(c.o, c.c))}
-            stroke={toneCol(c.tone)} strokeWidth={Math.max(4, half)} strokeLinecap="butt" opacity="0.85">
-            <title>{`${buckets[k].t} · ${c.o.toFixed(1)}→${c.c.toFixed(1)} (${buckets[k].ret_pct > 0 ? "+" : ""}${buckets[k].ret_pct}%)`}</title>
-          </line>
-        </g>
-      ))}
-      {/* fresh-call bias arrows above the price */}
-      {frames.filter((f) => f.call && f.call.fresh).map((f, k) => {
-        const slot = slotOf(f.start_min);
-        const b = byStart[slot];
-        const py = b ? y(b.close) - 14 : PAD_T + 12;
-        const col = biasCol(f.call.bias);
-        const up = String(f.call.bias || "").toLowerCase().match(/up|bull/);
-        const dn = String(f.call.bias || "").toLowerCase().match(/down|bear/);
-        return (
-          <g key={k}>
-            <path d={up ? `M ${x(slot) - 5} ${py + 5} L ${x(slot)} ${py - 3} L ${x(slot) + 5} ${py + 5} Z`
-              : dn ? `M ${x(slot) - 5} ${py - 3} L ${x(slot)} ${py + 5} L ${x(slot) + 5} ${py - 3} Z`
-                : `M ${x(slot) - 4} ${py} L ${x(slot)} ${py - 4} L ${x(slot) + 4} ${py} L ${x(slot)} ${py + 4} Z`}
-              fill={col}>
-              <title>{`${f.call.minute} call: ${String(f.call.bias || "?").toUpperCase()}${f.call.target != null ? ` · T ${f.call.target}` : ""}${f.call.invalidation != null ? ` · ✕ ${f.call.invalidation}` : ""}`}</title>
-            </path>
-          </g>
-        );
-      })}
-      {/* your entries */}
-      {dots.map((dd, k) => (
-        <circle key={k} cx={x(dd.slot)} cy={y(dd.price)} r="5"
-          fill={dd.t.dir === "bullish" ? "var(--vg-up)" : "var(--vg-down)"}
-          stroke={dd.t.with_trend === false ? "var(--vg-warn)" : "var(--vg-card)"} strokeWidth="2.5">
-          <title>{`${dd.t.time} ${dd.t.label} · ${dd.t.dir}${dd.t.with_trend === false ? " · AGAINST" : ""}${dd.t.realized != null ? ` · ${dd.t.realized >= 0 ? "+" : "−"}$${Math.abs(dd.t.realized)}` : ""}`}</title>
-        </circle>
-      ))}
-      {/* resolution lane */}
-      <text x={PAD_L - 6} y={H - LANE + 8} textAnchor="end" fontSize="9" fill="var(--vg-faint)"
-        style={{ textTransform: "uppercase", letterSpacing: "0.05em" }}>calls</text>
-      {ticks.map((tk, k) => {
-        const good = /hit|correct/.test(tk.v);
-        const bad = /invalid|wrong/.test(tk.v);
-        return (
-          <text key={k} x={x(tk.slot)} y={H - LANE + 10} textAnchor="middle" fontSize="12"
-            fill={good ? "var(--vg-up)" : bad ? "var(--vg-down)" : "var(--vg-faint)"}>
-            {good ? "✓" : bad ? "✗" : "·"}<title>{tk.v}</title>
-          </text>
-        );
-      })}
-      {/* x labels */}
-      {[0, 4, 8, 12, 16, 20, 25].map((i) => (
-        <text key={i} x={x(i)} y={H - 4} textAnchor="middle" fontSize="10"
-          fill="var(--vg-faint)" fontFamily="var(--vg-font-data)">
-          {`${Math.floor((570 + i * 15) / 60)}:${String((570 + i * 15) % 60).padStart(2, "0")}`}
-        </text>
-      ))}
-    </svg>
+    <span className="vg-row" style={{ gap: 6, flexWrap: "wrap" }}>
+      {call.target != null && (
+        <span className="vg-badge good" style={{ fontVariantNumeric: "tabular-nums" }}>
+          target {call.target}{dist(call.target)}</span>)}
+      {call.invalidation != null && (
+        <span className="vg-badge bad" style={{ fontVariantNumeric: "tabular-nums" }}>
+          wrong {call.invalidation}{dist(call.invalidation)}</span>)}
+      {(call.path || []).map((s, i) => (
+        <span key={i} className="vg-badge plain" style={{ fontVariantNumeric: "tabular-nums" }}
+          title={s.note || ""}>{i + 1}· {s.price}</span>))}
+    </span>
   );
 }
 
-function FrameRow({ f }) {
+// ── NEXT 15 MINUTES ─────────────────────────────────────────────────────────
+function NowCard({ d, isToday }) {
+  const frames = d.frames || [];
+  const latest = frames.find((f) => f.call);          // newest-first
+  const call = latest && latest.call;
+  const buckets = d.buckets || [];
+  const price = buckets.length ? buckets[buckets.length - 1].close : null;
+  const openTrades = (d.trades || []).filter((t) => t.realized == null);
+  const side = callSide(call && call.bias);
+  const age = call ? ageMin(call.as_of) : null;
+  const etMin = (() => {
+    const [h, m] = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).format(new Date()).split(":");
+    return Number(h) * 60 + Number(m);
+  })();
+  const closed = !isToday || etMin >= 960 || etMin < 570;   // outside 09:30–16:00 ET
+  const stale = isToday && !closed && age != null && age > 20;
+  const flat = flatAction(call, price);
+  return (
+    <div className="vg-card" style={{ marginTop: 14, borderLeft: `3px solid var(${side === "bullish" ? "--vg-up" : side === "bearish" ? "--vg-down" : "--vg-hairline"})` }}>
+      <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <div className="vg-kicker">{closed ? "Session closed — final call" : "Next 15 minutes"}</div>
+        <span className="vg-note">
+          {call ? `call @ ${call.minute} from ${call.price_at ?? "?"}` : "no call yet"}
+          {!closed && age != null ? ` · ${age}m ago` : ""}
+          {stale && <b className="vg-down"> · STALE — refresh due</b>}
+        </span>
+      </div>
+      {call ? (
+        <>
+          <div className="vg-row" style={{ gap: 10, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span className={cls("vg-badge", sideTone(side))}
+              style={{ fontSize: "var(--vg-text-lg)", fontWeight: 800, padding: "5px 12px" }}>
+              {side ? side.toUpperCase() : "NEUTRAL"}
+            </span>
+            {call.born_invalid && <span className="vg-badge bad">BORN-INVALID</span>}
+            {price != null && <span className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>last {price}</span>}
+          </div>
+          <div style={{ marginTop: 8 }}><LevelChips call={call} price={price} /></div>
+          <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+            {closed ? (
+              <span className="vg-note">Market closed — nothing to act on. The frame-by-frame review is below.</span>
+            ) : openTrades.length === 0 ? (
+              <div className="vg-row" style={{ gap: 8, alignItems: "baseline" }}>
+                {actionBadge(flat, true)}
+                <span className="vg-note">{flat.detail}</span>
+              </div>
+            ) : openTrades.map((t, i) => {
+              const a = positionAction(call, t, price);
+              return (
+                <div key={i} className="vg-row" style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                  {actionBadge(a, true)}
+                  <b style={{ fontSize: "var(--vg-text-sm)" }}>{t.label}</b>
+                  <span className={cls("vg-badge", t.dir === "bullish" ? "good" : "bad")}>{t.dir}</span>
+                  <span className="vg-note">{a.detail}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : <p className="vg-note" style={{ marginTop: 6 }}>Waiting for the first analyst call of the session.</p>}
+    </div>
+  );
+}
+
+// ── EVERY 15 MINUTES (history) ──────────────────────────────────────────────
+function FrameCard({ f }) {
   const [open, setOpen] = useState(false);
   const c = f.call, m = f.market;
+  const side = callSide(c && c.bias);
+  const act = flatAction(c, m ? m.close : null);
+  const trades = f.trades || [];
   return (
     <div className={cls("vg-fr", open && "open")}>
-      <div className="vg-fr-head" onClick={() => setOpen(!open)}>
+      <div className="vg-fr-head" onClick={() => setOpen(!open)}
+        style={{ display: "grid", gridTemplateColumns: "46px 96px 1fr 170px 16px", gap: 10, alignItems: "start" }}>
         <span className="vg-fr-t">{f.t}</span>
-        <span className="vg-fr-mkt">
+        {/* sentiment */}
+        <span>
+          {c ? (
+            <span className={cls("vg-badge", sideTone(side))} style={{ fontWeight: 700 }}>
+              {side ? side.toUpperCase() : "NEUTRAL"}{c.fresh ? "" : " ·"}
+            </span>
+          ) : <span className="vg-note">no call</span>}
+        </span>
+        {/* levels + proposed action + trades w/ narrative alignment */}
+        <span style={{ display: "grid", gap: 4 }}>
+          <span className="vg-row" style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+            {c && actionBadge(act)}
+            {c && <span className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>{act.detail}</span>}
+          </span>
+          {trades.length > 0 && (
+            <span className="vg-row" style={{ gap: 6, flexWrap: "wrap" }}>
+              {trades.map((t, i) => {
+                const aligned = side != null ? t.dir === side : null;
+                return (
+                  <span key={i} className={cls("vg-badge", aligned === false ? "bad" : aligned ? "good" : "plain")}
+                    title={`${t.time} · ${t.dir}${t.realized != null ? ` · ${money(t.realized)}` : " · open"}`}>
+                    {aligned === false ? "✗" : aligned ? "✓" : "·"} {t.label}
+                    {t.realized != null ? ` ${money(t.realized)}` : ""}
+                  </span>
+                );
+              })}
+              {f.frame_pnl != null && f.frame_pnl !== 0 && (
+                <b className={f.frame_pnl >= 0 ? "vg-up" : "vg-down"} style={{ fontSize: "var(--vg-text-sm)" }}>
+                  {money(f.frame_pnl)}</b>)}
+            </span>
+          )}
+        </span>
+        {/* what the market did + how the call resolved */}
+        <span style={{ display: "grid", gap: 3, justifyItems: "end" }}>
           {m ? (
-            <>
+            <span className="vg-row" style={{ gap: 5, alignItems: "center" }}>
               <span className={cls("vg-tone-cellmini", m.tone)} />
               <span className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>
-                {m.ret_pct > 0 ? "+" : ""}{m.ret_pct}% · {m.close}
-              </span>
-            </>
+                {m.ret_pct > 0 ? "+" : ""}{m.ret_pct}% · {m.close}</span>
+            </span>
           ) : <span className="vg-note">—</span>}
-        </span>
-        <span className="vg-fr-call">
-          {c ? (
-            <>
-              <span className={cls("vg-badge", biasTone(c.bias))} style={{ fontWeight: 700 }}>
-                {String(c.bias || "?").toUpperCase()}{c.fresh ? "" : " ·"}
-              </span>
-              {c.fresh && <span className="vg-fr-fresh" title={`new call this frame @ ${c.minute}`} />}
-              {c.target != null && <span className="vg-note">T {c.target}</span>}
-              {c.invalidation != null && <span className="vg-note">✕ {c.invalidation}</span>}
-              {c.born_invalid && <span className="vg-badge bad" style={{ fontSize: "var(--vg-text-xs)" }}>BORN-INVALID</span>}
-            </>
-          ) : <span className="vg-note">no call yet</span>}
-        </span>
-        <span className="vg-fr-res">
           {c && c.score
             ? <span className={cls("vg-badge", verdictTone(c.score.verdict))} style={{ fontSize: "var(--vg-text-xs)" }}>
                 {c.score.verdict}{c.score.moved_pt != null ? ` ${c.score.moved_pt > 0 ? "+" : ""}${c.score.moved_pt}pt` : ""}
               </span>
             : c && c.fresh ? <span className="vg-note" style={{ fontSize: "var(--vg-text-xs)" }}>resolving…</span> : null}
         </span>
-        <span className="vg-fr-you">
-          {(f.trades || []).map((t, i) => (
-            <span key={i} className="vg-tone-dot" title={`${t.time} ${t.label} · ${t.dir}${t.with_trend === false ? " · AGAINST" : t.with_trend ? " · with" : ""}${t.realized != null ? ` · ${money(t.realized)}` : ""}`}
-              style={{ background: t.dir === "bullish" ? "var(--vg-up)" : "var(--vg-down)",
-                       boxShadow: t.with_trend === false ? "0 0 0 2px var(--vg-warn)" : "none" }} />
-          ))}
-          {f.frame_pnl != null && f.frame_pnl !== 0 && (
-            <b className={f.frame_pnl >= 0 ? "vg-up" : "vg-down"} style={{ fontSize: "var(--vg-text-sm)" }}>
-              {money(f.frame_pnl)}</b>
-          )}
-        </span>
         <span className="vg-note">{open ? "▾" : "▸"}</span>
       </div>
       {open && (
         <div className="vg-fr-body">
-          {c && (c.path || []).length > 0 && (
-            <div className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>
-              call path: {c.path.map((s, i) => `${i + 1}·${s.price}${s.note ? ` ${String(s.note).slice(0, 24)}` : ""}`).join("  →  ")}
-              {c.minute ? `  (made ${c.minute} @ ${c.price_at})` : ""}
-            </div>
+          {c && <div style={{ marginBottom: 4 }}><LevelChips call={c} price={m ? m.close : null} /></div>}
+          {c && c.minute && (
+            <div className="vg-note">call made {c.minute} @ {c.price_at}{c.born_invalid ? " — BORN-INVALID" : ""}</div>
           )}
-          {(f.trades || []).map((t, i) => (
+          {trades.map((t, i) => (
             <div key={i} className="vg-note" style={{ marginTop: 3 }}>
               {t.time} — {t.label} · {t.dir}
-              {t.with_trend === false ? " · AGAINST the tape" : t.with_trend ? " · with the tape" : ""}
+              {side != null ? (t.dir === side ? " · WITH the call" : " · AGAINST the call") : ""}
+              {t.with_trend === false ? " · against the session tape" : ""}
               {t.realized != null ? ` · ${money(t.realized)}` : " · open"}
             </div>
           ))}
-          {!c && !(f.trades || []).length && <span className="vg-note">quiet frame</span>}
+          {!c && !trades.length && <span className="vg-note">quiet frame</span>}
         </div>
       )}
     </div>
@@ -290,7 +271,7 @@ export function CockpitView({ refreshNonce }) {
       <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 19 }}>Cockpit</h2>
-          <p className="vg-sub">The session, 15 minutes at a time — call · market · resolution · you</p>
+          <p className="vg-sub">Every 15 minutes: sentiment · levels · action · your trades vs the narrative</p>
         </div>
         <div className="vg-row" style={{ gap: 10, alignItems: "baseline" }}>
           {d && d.day_pnl != null && (
@@ -301,33 +282,19 @@ export function CockpitView({ refreshNonce }) {
         </div>
       </div>
 
+      {d && <NowCard d={d} isToday={isToday} />}
+
       <ToneCompareCard marketOpen={isToday} day={isToday ? undefined : day} />
 
-      {d && (
-        <div className="vg-card" style={{ marginTop: 14 }}>
-          <div className="vg-kicker" style={{ marginBottom: 8 }}>
-            Session map
-            <span className="vg-note" style={{ fontWeight: 400 }}>
-              {" "}— candles per 15m · dashed = the standing call's target (green) / invalidation (red) ·
-              arrows = fresh calls · dots = your entries · ✓✗ = how each call resolved
-            </span>
-          </div>
-          <SessionMap d={d} />
+      <div className="vg-card" style={{ marginTop: 14, padding: "10px 14px" }}>
+        <div className="vg-kicker" style={{ marginBottom: 6 }}>
+          Every 15 minutes{d ? ` · ${d.frames.length} frames` : ""}
+          <span className="vg-note" style={{ fontWeight: 400 }}> — newest first · sentiment → action → market → your trades (✓ with / ✗ against the call)</span>
         </div>
-      )}
-
-      <details className="vg-card" style={{ marginTop: 14, padding: "10px 14px" }}>
-        <summary className="vg-kicker" style={{ cursor: "pointer", marginBottom: 6 }}>
-          Frame details{d ? ` · ${d.frames.length} frames` : ""}
-          <span className="vg-note" style={{ fontWeight: 400 }}> — newest first · ▸ for the call path + fills</span>
-        </summary>
-        <div className="vg-fr-cols vg-note">
-          <span>time</span><span>market</span><span>call (next 15)</span><span>resolved</span><span>you</span><span />
-        </div>
-        {(d ? d.frames : []).map((f) => <FrameRow key={f.t} f={f} />)}
+        {(d ? d.frames : []).map((f) => <FrameCard key={f.t} f={f} />)}
         {d && !d.frames.length && <p className="vg-note">No frames for {day} — no stored bars or fills.</p>}
-        {!d && <p className="vg-note">{q.loading ? "Building the ledger…" : "Cockpit needs the SQLite backend."}</p>}
-      </details>
+        {!d && <p className="vg-note">{q.loading ? "Building the briefing…" : "Cockpit needs the SQLite backend."}</p>}
+      </div>
     </div>
   );
 }
