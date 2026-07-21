@@ -157,7 +157,7 @@ export function FuturesView({ refreshNonce }) {
           <div className="vg-kicker">Recommendations to improve your win rate</div>
           {recs.rules.length > 0 && (
             <div style={{ marginTop: 6 }}>
-              <div className="vg-note" style={{ fontSize: 11, marginBottom: 4 }}>RULES (from your numbers)</div>
+              <div className="vg-note" style={{ fontSize: 12, marginBottom: 4 }}>RULES (from your numbers)</div>
               <div style={{ display: "grid", gap: 8 }}>
                 {recs.rules.map((r, i) => <RecRow key={i} r={r} icon="→" />)}
               </div>
@@ -165,7 +165,7 @@ export function FuturesView({ refreshNonce }) {
           )}
           {recs.coaching.length > 0 && (
             <div style={{ marginTop: 12 }}>
-              <div className="vg-note" style={{ fontSize: 11, marginBottom: 4 }}>DO MORE / DO LESS</div>
+              <div className="vg-note" style={{ fontSize: 12, marginBottom: 4 }}>DO MORE / DO LESS</div>
               <div style={{ display: "grid", gap: 8 }}>
                 {recs.coaching.map((r, i) => <RecRow key={i} r={r} icon="•" />)}
               </div>
@@ -194,7 +194,7 @@ export function FuturesView({ refreshNonce }) {
       {recs.watch && recs.watch.length > 0 && (
         <div className="vg-card">
           <div className="vg-kicker">Next-session watch (generic NQ playbook)</div>
-          <div style={{ display: "grid", gap: 4, marginTop: 6, fontSize: 13, lineHeight: 1.5 }}>
+          <div style={{ display: "grid", gap: 4, marginTop: 6, fontSize: 14, lineHeight: 1.5 }}>
             {recs.watch.map((w, i) => (
               <div key={i} className={i === recs.watch.length - 1 ? "vg-note" : ""}>{w.text}</div>
             ))}
@@ -213,16 +213,16 @@ export function FuturesView({ refreshNonce }) {
               <div key={i} className="vg-pb-lvl">
                 <span className={cls("vg-badge", z.role === "resistance" ? "bad" : z.role === "support" ? "good" : "plain")}
                   style={{ minWidth: 74, textAlign: "center" }}>{z.role}</span>
-                <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>
+                <span style={{ fontSize: 14, fontVariantNumeric: "tabular-nums" }}>
                   {Math.round(z.lo)}–{Math.round(z.hi)}
                 </span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                   {(z.kinds || []).join(" · ")}
                 </span>
               </div>
             ))}
           </div>
-          <div className="vg-note" style={{ fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
+          <div className="vg-note" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
             {proj.note}
           </div>
         </div>
@@ -237,8 +237,8 @@ export function FuturesView({ refreshNonce }) {
               <div key={i} className="vg-pb-lvl">
                 <span className={cls("vg-badge", b.win_rate >= (baseline || 0.5) ? "good" : "bad")}
                   style={{ minWidth: 46, textAlign: "center" }}>{pct(b.win_rate)}</span>
-                <span style={{ fontSize: 13 }}>{relabel(b.value)}</span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                <span style={{ fontSize: 14 }}>{relabel(b.value)}</span>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                   n={b.n} · net {usd(b.total_pnl)}{b.n < 5 ? " · thin" : ""}
                 </span>
               </div>
@@ -251,7 +251,7 @@ export function FuturesView({ refreshNonce }) {
       {ob.available && (
         <div className="vg-card">
           <div className="vg-kicker">Order behavior</div>
-          <div style={{ fontSize: 13, lineHeight: 1.6, marginTop: 4 }}>
+          <div style={{ fontSize: 14, lineHeight: 1.6, marginTop: 4 }}>
             <div><b>Cancel rate:</b> {pct(ob.cancel_rate)} ({ob.cancelled} of {ob.total_orders} orders)</div>
             <div><b>Filled:</b> {ob.filled} · <b>Stop orders:</b> {ob.stop_orders}</div>
           </div>
@@ -273,10 +273,10 @@ export function FuturesView({ refreshNonce }) {
 function RecRow({ r, icon }) {
   return (
     <div className="vg-row" style={{ gap: 8, alignItems: "baseline" }}>
-      <span style={{ opacity: 0.6, fontSize: 13 }}>{icon}</span>
+      <span style={{ opacity: 0.6, fontSize: 14 }}>{icon}</span>
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: 13, lineHeight: 1.45 }}>{r.text}</div>
-        {r.evidence && <div className="vg-note" style={{ fontSize: 11 }}>{r.evidence}</div>}
+        <div style={{ fontSize: 14, lineHeight: 1.45 }}>{r.text}</div>
+        {r.evidence && <div className="vg-note" style={{ fontSize: 12 }}>{r.evidence}</div>}
       </div>
     </div>
   );
@@ -285,9 +285,9 @@ function RecRow({ r, icon }) {
 function RiskRow({ label, value, note, bad }) {
   return (
     <div className="vg-pb-lvl">
-      <span style={{ fontSize: 13, minWidth: 150 }}>{label}</span>
+      <span style={{ fontSize: 14, minWidth: 150 }}>{label}</span>
       <span className={cls("vg-badge", bad ? "bad" : "plain")} style={{ textAlign: "center" }}>{value}</span>
-      {note && <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>{note}</span>}
+      {note && <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>{note}</span>}
     </div>
   );
 }
@@ -295,11 +295,11 @@ function RiskRow({ label, value, note, bad }) {
 function SummaryTile({ label, value, sub, tone, termKey }) {
   return (
     <div className="vg-pb-tile">
-      <div className="vg-note" style={{ fontSize: 11 }}>
+      <div className="vg-note" style={{ fontSize: 12 }}>
         {termKey ? <Term k={termKey}>{label}</Term> : label}
       </div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
-      {sub && <div className="vg-note" style={{ fontSize: 10 }}>{sub}</div>}
+      {sub && <div className="vg-note" style={{ fontSize: 12 }}>{sub}</div>}
     </div>
   );
 }

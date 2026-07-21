@@ -127,12 +127,12 @@ export function PlaybookView({ refreshNonce }) {
               {pb.loading ? "Generating the read…" : "No narrative available."}
             </p>}
         {p && p.structureNote && (
-          <div className="vg-note" style={{ marginTop: 8, fontSize: 12 }}>
+          <div className="vg-note" style={{ marginTop: 8, fontSize: 13 }}>
             <b>Structure:</b> {p.structureNote}
           </div>
         )}
         {p && p.volumeNote && (
-          <div className="vg-note" style={{ marginTop: 2, fontSize: 12 }}>
+          <div className="vg-note" style={{ marginTop: 2, fontSize: 13 }}>
             <b>Volume:</b> {p.volumeNote}
           </div>
         )}
@@ -152,7 +152,7 @@ export function PlaybookView({ refreshNonce }) {
       {p && p.durable && p.durable.length > 0 && (
         <div className="vg-card">
           <div className="vg-kicker">Durable levels ★ (memory)</div>
-          <div className="vg-note" style={{ fontSize: 11, margin: "2px 0 8px" }}>
+          <div className="vg-note" style={{ fontSize: 12, margin: "2px 0 8px" }}>
             Levels the tape kept respecting across many sessions — the "traces back weeks" levels.
           </div>
           <div className="vg-pb-ladder">
@@ -162,8 +162,8 @@ export function PlaybookView({ refreshNonce }) {
                   style={{ minWidth: 62, textAlign: "right" }}>
                   {fmtP(z.price)}
                 </span>
-                <span style={{ fontSize: 13 }}>{z.kind || `durable ${z.role}`}</span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                <span style={{ fontSize: 14 }}>{z.kind || `durable ${z.role}`}</span>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                   {z.sessions}× sessions{z.respected ? ` · respected ${z.respected}` : ""}
                 </span>
               </div>
@@ -176,7 +176,7 @@ export function PlaybookView({ refreshNonce }) {
       {p && p.confluence && p.confluence.length > 0 && (
         <div className="vg-card">
           <div className="vg-kicker">Confluence zones ✦</div>
-          <div className="vg-note" style={{ fontSize: 11, margin: "2px 0 8px" }}>
+          <div className="vg-note" style={{ fontSize: 12, margin: "2px 0 8px" }}>
             Bands where 2+ dimensions (GEX wall / fib / PoC / S-R) line up — the high-signal levels.
           </div>
           <div className="vg-pb-ladder">
@@ -186,11 +186,11 @@ export function PlaybookView({ refreshNonce }) {
                   style={{ minWidth: 62, textAlign: "right" }}>
                   {fmtP(z.price)}
                 </span>
-                <span style={{ fontSize: 13 }}>{(z.kinds || []).slice(0, 3).join(" + ")}</span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                <span style={{ fontSize: 14 }}>{(z.kinds || []).slice(0, 3).join(" + ")}</span>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                   {z.role}{z.strength ? ` · ${z.strength} dims` : ""}
                 </span>
-                <button className="vg-linkbtn" style={{ fontSize: 11 }}
+                <button className="vg-linkbtn" style={{ fontSize: 12 }}
                   onClick={() => setTicket({ level: z.price, kind: (z.kinds || []).join(" + "), role: z.role })}>
                   ticket
                 </button>
@@ -209,7 +209,7 @@ export function PlaybookView({ refreshNonce }) {
               <div key={i} className="vg-pb-setup">
                 <div className="vg-pb-trigger">IF {su.trigger}</div>
                 {su.bias && <div className="vg-note" style={{ marginBottom: 2 }}>{su.bias}</div>}
-                <div style={{ fontSize: 13, lineHeight: 1.5 }}>{su.structure}</div>
+                <div style={{ fontSize: 14, lineHeight: 1.5 }}>{su.structure}</div>
               </div>
             ))}
           </div>
@@ -228,9 +228,9 @@ export function PlaybookView({ refreshNonce }) {
                 <span className={cls("vg-badge", levelTone(r.kind))} style={{ minWidth: 62, textAlign: "right" }}>
                   {fmtP(r.price)}
                 </span>
-                <span style={{ fontSize: 13 }}>{r.kind}</span>
-                {r.source && <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>{r.source}</span>}
-                <button className="vg-linkbtn" style={{ fontSize: 11, marginLeft: r.source ? 0 : "auto" }}
+                <span style={{ fontSize: 14 }}>{r.kind}</span>
+                {r.source && <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>{r.source}</span>}
+                <button className="vg-linkbtn" style={{ fontSize: 12, marginLeft: r.source ? 0 : "auto" }}
                   onClick={() => setTicket({ level: r.price, kind: r.kind, role: levelTone(r.kind) === "good" ? "support" : levelTone(r.kind) === "bad" ? "resistance" : null })}>
                   ticket
                 </button>
@@ -244,7 +244,7 @@ export function PlaybookView({ refreshNonce }) {
       {p && p.edges && (p.edges.gex_regime_next_day_range || p.edges.day_time) && (
         <details className="vg-card">
           <summary className="vg-kicker" style={{ cursor: "pointer" }}>Lookback edges</summary>
-          <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.6 }}>
+          <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.6 }}>
             {p.edges.gex_regime_next_day_range && p.edges.gex_regime_next_day_range.read && (
               <div><b>Gamma → next-day range:</b> {p.edges.gex_regime_next_day_range.read}</div>
             )}
@@ -289,7 +289,7 @@ function PlainEnglish({ reg, keyLevels }) {
   return (
     <div className="vg-card">
       <div className="vg-kicker">Today, in plain English</div>
-      <div style={{ fontSize: 13.5, lineHeight: 1.6, marginTop: 6 }}>
+      <div style={{ fontSize: 14, lineHeight: 1.6, marginTop: 6 }}>
         <p style={{ margin: "0 0 8px" }}>
           Dealers are in{" "}
           <b><Term k={pos ? "positive_gamma" : "negative_gamma"}>{pos ? "positive gamma" : "negative gamma"}</Term></b>{" "}
@@ -328,7 +328,7 @@ function PlainEnglish({ reg, keyLevels }) {
 function SummaryTile({ label, value, tone }) {
   return (
     <div className="vg-pb-tile">
-      <div className="vg-note" style={{ fontSize: 11 }}>{label}</div>
+      <div className="vg-note" style={{ fontSize: 12 }}>{label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
     </div>
   );
@@ -354,9 +354,9 @@ function MarketContextCard({ reg, sectors }) {
   const im = reg.intermarket || {};
   const imRow = (label, o) => (o && typeof o === "object"
     ? <div key={label} className="vg-mc-im">
-        <span className="vg-note" style={{ fontSize: 11 }}>{label}</span>
-        <span style={{ fontSize: 13, fontVariantNumeric: "tabular-nums" }}>{o.level}</span>
-        <span className={cls("vg-badge", o.chg_pct >= 0 ? "good" : "bad")} style={{ fontSize: 11 }}>
+        <span className="vg-note" style={{ fontSize: 12 }}>{label}</span>
+        <span style={{ fontSize: 14, fontVariantNumeric: "tabular-nums" }}>{o.level}</span>
+        <span className={cls("vg-badge", o.chg_pct >= 0 ? "good" : "bad")} style={{ fontSize: 12 }}>
           {pct(o.chg_pct)}
         </span>
       </div> : null);
@@ -365,7 +365,7 @@ function MarketContextCard({ reg, sectors }) {
   return (
     <div className="vg-card">
       <div className="vg-kicker">Market context</div>
-      <div className="vg-note" style={{ fontSize: 11, margin: "2px 0 10px" }}>
+      <div className="vg-note" style={{ fontSize: 12, margin: "2px 0 10px" }}>
         The whole-market read behind today's bias — breadth, volatility term structure,
         sector rotation, and the cross-asset backdrop. Context only (ADR-008).
       </div>
@@ -373,8 +373,8 @@ function MarketContextCard({ reg, sectors }) {
         {breadth != null && (
           <div className="vg-mc-block">
             <div className="vg-mc-hd">Breadth</div>
-            <div className="vg-mc-big">{breadth}% <span className="vg-note" style={{ fontSize: 11 }}>above 50-day</span></div>
-            <div className="vg-note" style={{ fontSize: 11 }}>
+            <div className="vg-mc-big">{breadth}% <span className="vg-note" style={{ fontSize: 12 }}>above 50-day</span></div>
+            <div className="vg-note" style={{ fontSize: 12 }}>
               A/D {reg.breadth_ad_ratio ?? "—"}
             </div>
             {breadthNote && <div className="vg-mc-edge">{breadthNote}</div>}
@@ -383,9 +383,9 @@ function MarketContextCard({ reg, sectors }) {
         {reg.vix != null && (
           <div className="vg-mc-block">
             <div className="vg-mc-hd">Volatility</div>
-            <div className="vg-mc-big">VIX {fmtP(reg.vix)} <span className="vg-note" style={{ fontSize: 11 }}>{reg.vix_band || ""}</span></div>
+            <div className="vg-mc-big">VIX {fmtP(reg.vix)} <span className="vg-note" style={{ fontSize: 12 }}>{reg.vix_band || ""}</span></div>
             {stance && (
-              <div className="vg-note" style={{ fontSize: 11 }}>
+              <div className="vg-note" style={{ fontSize: 12 }}>
                 term structure {stance}{reg.vix_contango != null ? ` (${reg.vix_contango > 0 ? "+" : ""}${reg.vix_contango} vs VIX3M)` : ""}
               </div>
             )}
@@ -395,10 +395,10 @@ function MarketContextCard({ reg, sectors }) {
         {lead && (
           <div className="vg-mc-block">
             <div className="vg-mc-hd">Sector rotation</div>
-            <div style={{ fontSize: 13 }}>
+            <div style={{ fontSize: 14 }}>
               ▲ {lead.name} <span className="vg-note">{lead.ret_20d_pct != null ? `+${lead.ret_20d_pct}% 20d` : ""}</span>
             </div>
-            {lag && <div style={{ fontSize: 13 }}>
+            {lag && <div style={{ fontSize: 14 }}>
               ▼ {lag.name} <span className="vg-note">{lag.ret_20d_pct != null ? `${lag.ret_20d_pct}% 20d` : ""}</span>
             </div>}
           </div>
@@ -488,7 +488,7 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
                 onClick={() => setSide(s)}>{s === "long" ? "Long (reclaim)" : "Short (fade)"}</button>
             ))}
           </div>
-          <label className="vg-note" style={{ fontSize: 12 }}>
+          <label className="vg-note" style={{ fontSize: 13 }}>
             risk $<input type="number" min="1" step="50" value={risk}
               style={{ width: 70, marginLeft: 4 }}
               onChange={(e) => setRisk(Number(e.target.value))} />
@@ -503,12 +503,12 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
         {tk && (
           <>
             {tk.derived_from && (
-              <p className="vg-note" style={{ margin: "10px 0 0", fontSize: 12 }}>
+              <p className="vg-note" style={{ margin: "10px 0 0", fontSize: 13 }}>
                 {tk.derived_from.index} is an index — staged in <b>{tk.symbol}</b> at the
                 live ratio {tk.derived_from.ratio.toFixed(5)}.
               </p>
             )}
-            <table className="vg-table" style={{ marginTop: 8, fontSize: 13 }}>
+            <table className="vg-table" style={{ marginTop: 8, fontSize: 14 }}>
               <tbody>
                 <tr><td>Entry</td>
                   <td>{o.entry.action} <b>{o.entry.qty}</b> @ <b>{o.entry.price}</b> limit</td></tr>
@@ -527,7 +527,7 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
                 Risk budget too small for 1 share at this stop distance.
               </p>
             )}
-            <p className="vg-note" style={{ margin: "8px 0", fontSize: 11 }}>
+            <p className="vg-note" style={{ margin: "8px 0", fontSize: 12 }}>
               Staged. Place manually (Copy as text), or execute below — the gated
               ADR-010 v2 path: the server recomputes this ticket and submits entry +
               GTC stop to Robinhood; targets/trailing are managed by the exit monitor.
@@ -537,9 +537,9 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
             </div>
 
             <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--lk-border, #333)" }}>
-              <div className="vg-kicker" style={{ margin: "0 0 8px", fontSize: 11 }}>Execute · Robinhood</div>
+              <div className="vg-kicker" style={{ margin: "0 0 8px", fontSize: 12 }}>Execute · Robinhood</div>
               <div className="vg-row" style={{ gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <label className="vg-note" style={{ fontSize: 12 }}>
+                <label className="vg-note" style={{ fontSize: 13 }}>
                   account #<input value={account} placeholder="agentic-allowed acct"
                     style={{ width: 110, marginLeft: 4 }}
                     onChange={(e) => setAccount(e.target.value.trim())} />
@@ -572,13 +572,13 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
               )}
               {exec && exec.execution && (
                 <div style={{ marginTop: 8 }}>
-                  <p className="vg-note" style={{ margin: 0, fontSize: 12 }}>
+                  <p className="vg-note" style={{ margin: 0, fontSize: 13 }}>
                     <b>{exec.execution.mode === "live" ? "LIVE" : "dry run"}</b>
                     {" · "}{exec.execution.legs.length} leg(s)
                     {exec.execution.managed_position_id != null &&
                       <> · managed position #{exec.execution.managed_position_id} → see Managed Exits</>}
                   </p>
-                  <table className="vg-table" style={{ marginTop: 6, fontSize: 12 }}>
+                  <table className="vg-table" style={{ marginTop: 6, fontSize: 13 }}>
                     <tbody>
                       {exec.execution.legs.map((l, i) => (
                         <tr key={i}><td>{l.leg}</td>
@@ -590,11 +590,11 @@ export function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
                     </tbody>
                   </table>
                   {(exec.execution.warnings || []).map((w, i) => (
-                    <p key={i} className="vg-note" style={{ margin: "4px 0 0", fontSize: 11 }}>⚠ {w}</p>
+                    <p key={i} className="vg-note" style={{ margin: "4px 0 0", fontSize: 12 }}>⚠ {w}</p>
                   ))}
                 </div>
               )}
-              <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 11 }}>
+              <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 12 }}>
                 Dry-run always; live needs the confirm AND server env VANTAGE_LIVE_OK=1.
                 Keep the exit monitor running while a live position is open.
               </p>

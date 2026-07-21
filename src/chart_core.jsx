@@ -295,7 +295,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     const th = chartTheme();
     const chart = LW.createChart(el, {
       autoSize: true,
-      layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 11 },
+      layout: { background: { color: "transparent" }, textColor: th.text, fontSize: 12 },
       grid: { vertLines: { color: th.grid }, horzLines: { color: th.grid } },
       // render all times in Eastern (US market time), not the viewer's timezone.
       localization: { timeFormatter: etTimeFormatter },
@@ -564,7 +564,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         </div>
         <button className={cls("vg-ic-refresh", refreshing && "spin")}
           onClick={() => doRefresh(1)} disabled={refreshing} title={`Refresh ${symbol} bars`}
-          aria-label={`Refresh ${symbol} bars`}>↻</button>
+          aria-label={`Refresh ${symbol} bars`}>⟳</button>
       </div>
       <div className="vg-ic-inds">
         {INDICATORS.map((ind) => {
@@ -685,7 +685,7 @@ function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
                 <td>{f.target != null ? f.target : "—"}</td>
                 <td>{f.invalidation != null ? f.invalidation : "—"}</td>
                 <td>{f.verdict
-                  ? <span className={cls("vg-badge", tone(f.verdict))} style={{ fontSize: 10 }}>{f.verdict}</span>
+                  ? <span className={cls("vg-badge", tone(f.verdict))} style={{ fontSize: 12 }}>{f.verdict}</span>
                   : <span className="vg-note">—</span>}</td>
               </tr>);
           })}

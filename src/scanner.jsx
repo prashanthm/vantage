@@ -110,11 +110,11 @@ function HistoryTable({ rows, onOpen }) {
         {rows.map((h) => (
           <button key={h.symbol} className="vg-scan-histrow" onClick={() => onOpen && onOpen(h.symbol)}
             title={`open ${h.symbol} chart`}>
-            <span className="vg-scan-sym" style={{ fontSize: 13 }}>{h.symbol}</span>
+            <span className="vg-scan-sym" style={{ fontSize: 14 }}>{h.symbol}</span>
             <b className={cls("vg-scan-dir", dirCls(h.dir === "long" ? 1 : -1))}>
               {h.tier} {h.dir === "long" ? "LONG" : "SHORT"}</b>
-            <span className="vg-note" style={{ fontSize: 11 }}>{h.bars_ago}h ago</span>
-            <span className={cls("vg-badge", tone(h.outcome))} style={{ marginLeft: "auto", fontSize: 10 }}>
+            <span className="vg-note" style={{ fontSize: 12 }}>{h.bars_ago}h ago</span>
+            <span className={cls("vg-badge", tone(h.outcome))} style={{ marginLeft: "auto", fontSize: 12 }}>
               {lbl(h.outcome)}</span>
           </button>
         ))}
@@ -203,9 +203,9 @@ export function ScannerView({ onOpenSymbol }) {
             )}
           </span>
         ) : <span className="vg-note">no scan yet — run a refresh to seed data + scan</span>}
-        <button className="vg-btn-sm" disabled={running} onClick={() => refresh(false)}
+        <button className="vg-btn-sm vg-btn-primary" disabled={running} onClick={() => refresh(false)}
           style={{ marginLeft: "auto" }}>
-          {running ? <><span className="vg-spin" aria-hidden="true">⟳</span> Scanning… ({pct}%)</> : "↻ Refresh scan"}
+          {running ? <><span className="vg-spin" aria-hidden="true">⟳</span> Scanning… ({pct}%)</> : "⟳ Refresh scan"}
         </button>
       </div>
       {running && <div className="vg-fc-progress" style={{ marginBottom: 12 }}>
@@ -252,10 +252,10 @@ export function ScannerView({ onOpenSymbol }) {
 
       {/* honest coverage tail */}
       {d && (d.no_data || []).length > 0 && (
-        <p className="vg-note" style={{ marginTop: 12, fontSize: 11, color: "var(--vg-dim)" }}>
+        <p className="vg-note" style={{ marginTop: 12, fontSize: 12, color: "var(--vg-dim)" }}>
           no data ({d.no_data.length}): {d.no_data.join(", ")} — hourly bars not fetched yet; refresh to seed.
         </p>)}
-      <p className="vg-note" style={{ marginTop: 8, fontSize: 11, color: "var(--vg-dim)" }}>
+      <p className="vg-note" style={{ marginTop: 8, fontSize: 12, color: "var(--vg-dim)" }}>
         Hourly ICT setups (validated timeframe) · a heads-up to drop to a lower timeframe for entry · not advice.
       </p>
     </div>

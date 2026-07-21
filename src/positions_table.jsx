@@ -23,7 +23,7 @@ export function PositionsTable({ rows, dayPl = false, warn }) {
   const naked = held.filter((p) => !p.managed);
   return (
     <div style={{ overflowX: "auto" }}>
-      <table className="vg-table" style={{ fontSize: 13 }}>
+      <table className="vg-table" style={{ fontSize: 14 }}>
         <thead>
           <tr>
             <th>symbol</th><th>shares</th><th>cost</th><th>value</th><th>unrealized</th>

@@ -128,7 +128,7 @@ function SwotQuad({ kind, title, tag, items }) {
             </li>
           ))}
         </ul>
-      ) : <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 12 }}>none noted this window</p>}
+      ) : <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 13 }}>none noted this window</p>}
     </div>
   );
 }
@@ -228,7 +228,7 @@ function Section({ s }) {
           {s.rows.map((r, i) => (
             <div key={i} className="vg-score">
               <div className="vg-spread" style={{ alignItems: "baseline" }}>
-                <span style={{ fontSize: 13 }}>{r.label}</span>
+                <span style={{ fontSize: 14 }}>{r.label}</span>
                 <b className={cls("vg-score-n", `vg-${tone(r.score)}`)}>{r.score}</b>
               </div>
               <div className="vg-score-track"><div className={cls("vg-score-fill", `bg-${tone(r.score)}`)} style={{ width: `${Math.max(0, Math.min(100, r.score))}%` }} /></div>

@@ -40,7 +40,7 @@ function CallRow({ f, onScore, scoring, active, onActivate }) {
         <span className="vg-rp-time">{String(f.as_of || "").slice(11, 16)}</span>
         <span className="vg-rp-px">@ {f.price_at}</span>
         {sc
-          ? <span className={cls("vg-badge", tone)} style={{ fontSize: 11 }}>
+          ? <span className={cls("vg-badge", tone)} style={{ fontSize: 12 }}>
               {sc.verdict}{sc.moved_pt != null ? ` · ${sc.moved_pt >= 0 ? "+" : ""}${sc.moved_pt}pt` : ""}
             </span>
           : <button className="vg-btn-sm" disabled={scoring === f.id}

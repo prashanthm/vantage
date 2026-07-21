@@ -180,7 +180,7 @@ function LifecycleTab() {
       <div className="vg-sl-topbar">
         <h2 className="vg-sl-h2">Strategies</h2>
         <span className="vg-note">Paper → gate → promote → autonomous · one lifecycle</span>
-        <button className="vg-btn sm" style={{ marginLeft: "auto" }} onClick={runTick} disabled={ticking}>
+        <button className="vg-btn sm vg-btn-primary" style={{ marginLeft: "auto" }} onClick={runTick} disabled={ticking}>
           {ticking ? "Running…" : "Run driver pass (dry-run)"}
         </button>
       </div>

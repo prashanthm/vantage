@@ -136,7 +136,7 @@ export function PaperView({ refreshNonce }) {
     <div className="vg-pane-body vg-playbook">
       <div className="vg-pb-head">
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Paper trading <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}>· no money</span></h2>
+          <h2 style={{ margin: 0, fontSize: 19 }}>Paper trading <span className="vg-note" style={{ fontSize: 13, fontWeight: 400 }}>· no money</span></h2>
           <div className="vg-row" style={{ gap: 10, marginTop: 6, marginBottom: 4, alignItems: "center" }}>
             <SymbolSwitcher value={sym} onChange={setSym} />
           </div>
@@ -161,7 +161,7 @@ export function PaperView({ refreshNonce }) {
       </div>
 
       {/* how it works */}
-      <div className="vg-note" style={{ fontSize: 12, margin: "2px 0 4px" }}>
+      <div className="vg-note" style={{ fontSize: 13, margin: "2px 0 4px" }}>
         Signals from today's playbook, priced on SPY. Wait for the{" "}
         <Term k="reclaim">reclaim trigger</Term> — never enter on the touch — then log
         the trade and it auto-closes when it hits the <Term k="fade">target or stop</Term>.
@@ -172,7 +172,7 @@ export function PaperView({ refreshNonce }) {
       {d && d.ticket_note && (
         <div className="vg-card">
           <div className="vg-kicker">No tradeable tickets</div>
-          <div className="vg-note" style={{ fontSize: 12, marginTop: 6 }}>{d.ticket_note}</div>
+          <div className="vg-note" style={{ fontSize: 13, marginTop: 6 }}>{d.ticket_note}</div>
         </div>
       )}
 
@@ -191,21 +191,21 @@ export function PaperView({ refreshNonce }) {
                     </span>{" "}
                     <b>{t.signal}</b>
                     {t.setup === "break" && (
-                      <span className="vg-badge warn" style={{ marginLeft: 6, fontSize: 10 }}>BREAK — experts</span>
+                      <span className="vg-badge warn" style={{ marginLeft: 6, fontSize: 12 }}>BREAK — experts</span>
                     )}
                     {t.counter_trend && (
-                      <span className="vg-badge bad" style={{ marginLeft: 6, fontSize: 10 }}>⚠ counter-trend</span>
+                      <span className="vg-badge bad" style={{ marginLeft: 6, fontSize: 12 }}>⚠ counter-trend</span>
                     )}
                     {t.freshness && (
                       <span className={cls("vg-badge", FRESH_TONE[t.freshness] || "plain")}
-                        style={{ marginLeft: 6, fontSize: 10 }}>{t.freshness}</span>
+                        style={{ marginLeft: 6, fontSize: 12 }}>{t.freshness}</span>
                     )}
                   </div>
                   <button className="vg-btn-sm" disabled={busy === "open"} onClick={() => doOpen(t)}>
                     Paper trade
                   </button>
                 </div>
-                <div className="vg-note" style={{ fontSize: 12, marginTop: 4 }}>
+                <div className="vg-note" style={{ fontSize: 13, marginTop: 4 }}>
                   Entry <b>{px(t.spy_entry)}</b> · target <b>{px(t.spy_target)}</b> · stop <b>{px(t.spy_stop)}</b>
                   {t.reward_risk != null && <> · <Term k="reward_risk">R:R</Term> {t.reward_risk}</>}
                   {" · "}~{px(t.ref_strike)} 0DTE
@@ -213,12 +213,12 @@ export function PaperView({ refreshNonce }) {
                   {t.spx_level ? ` · ${t.underlying || "SPX"} ${Math.round(t.spx_level)}` : ""}
                 </div>
                 {t.entry_note && (
-                  <div className="vg-note" style={{ fontSize: 11, marginTop: 3 }}>
+                  <div className="vg-note" style={{ fontSize: 12, marginTop: 3 }}>
                     <b><Term k="reclaim">Trigger</Term>:</b> {t.entry_note}
                   </div>
                 )}
                 {(t.freshness_note || t.trend_note || t.otm_note) && (
-                  <div className="vg-note" style={{ fontSize: 11, marginTop: 2, opacity: 0.85 }}>
+                  <div className="vg-note" style={{ fontSize: 12, marginTop: 2, opacity: 0.85 }}>
                     {[t.trend_note, t.freshness_note, t.otm_note].filter(Boolean).join(" · ")}
                   </div>
                 )}
@@ -238,8 +238,8 @@ export function PaperView({ refreshNonce }) {
                 <span className={cls("vg-badge", r.side === "long" ? "good" : "bad")} style={{ minWidth: 44, textAlign: "center" }}>
                   {r.side === "long" ? "BUY" : "SELL"}
                 </span>
-                <span style={{ fontSize: 13 }}>{r.signal}</span>
-                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                <span style={{ fontSize: 14 }}>{r.signal}</span>
+                <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                   entry {px(r.spy_entry)} · tgt {px(r.spy_target)} · stop {px(r.spy_stop)}
                 </span>
                 <button className="vg-linkbtn" style={{ marginLeft: 8 }} disabled={busy === `close${r.id}`}
@@ -255,7 +255,7 @@ export function PaperView({ refreshNonce }) {
         <div className="vg-card vg-tr">
           <div className="vg-spread" style={{ alignItems: "baseline" }}>
             <div className="vg-kicker" style={{ marginBottom: 0 }}>Track record</div>
-            <span className="vg-note" style={{ fontSize: 11 }}>
+            <span className="vg-note" style={{ fontSize: 12 }}>
               {Object.entries(stats.by_exit || {}).map(([k, v]) => `${v} ${k}`).join(" · ")}
             </span>
           </div>
@@ -307,7 +307,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
     return (
       <div className="vg-card" style={{ marginTop: 14 }}>
         <div className="vg-kicker">Paper trades — scanner spreads</div>
-        <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 12 }}>
+        <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 13 }}>
           No paper spreads yet. When an A+ scanner setup fires it opens a debit spread
           here (on Alpaca paper when configured) — open positions + a closed track
           record with win-rate. Separate from the SPX reclaim book.
@@ -328,7 +328,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
     <div className="vg-card" style={{ marginTop: 14 }}>
       <div className="vg-spread" style={{ alignItems: "baseline" }}>
         <div className="vg-kicker" style={{ marginBottom: 0 }}>Scanner spreads</div>
-        <span className="vg-note" style={{ fontSize: 11 }}>
+        <span className="vg-note" style={{ fontSize: 12 }}>
           auto-logged from A+ setups · debit spreads · separate from the reclaim record
           {onAlpaca && <> · <b style={{ color: "var(--vg-up)" }}>Alpaca paper</b> (real fills)</>}
         </span>
@@ -343,7 +343,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
       )}
       {open.length > 0 && (
         <>
-          <div className="vg-note" style={{ fontSize: 11, margin: "12px 0 4px" }}>Open ({open.length})</div>
+          <div className="vg-note" style={{ fontSize: 12, margin: "12px 0 4px" }}>Open ({open.length})</div>
           <div className="vg-pb-ladder">
             {open.map((r) => {
               const bs = brokerLabel(r);
@@ -353,9 +353,9 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
                     style={{ minWidth: 44, textAlign: "center" }}>
                     {r.side === "long" ? "CALL" : "PUT"}
                   </span>
-                  <span style={{ fontSize: 13 }}>{spreadLabel(r)}</span>
-                  {bs && <span className={cls("vg-badge", bs.tone)} style={{ fontSize: 10 }}>{bs.text}</span>}
-                  <span className="vg-note" style={{ marginLeft: "auto", fontSize: 11 }}>
+                  <span style={{ fontSize: 14 }}>{spreadLabel(r)}</span>
+                  {bs && <span className={cls("vg-badge", bs.tone)} style={{ fontSize: 12 }}>{bs.text}</span>}
+                  <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                     target {px(r.short_strike)} · invalid {px(r.underlying_invalid)}
                   </span>
                 </div>
@@ -389,7 +389,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
 function Tile({ label, value, tone, termKey }) {
   return (
     <div className="vg-pb-tile">
-      <div className="vg-note" style={{ fontSize: 11 }}>{termKey ? <Term k={termKey}>{label}</Term> : label}</div>
+      <div className="vg-note" style={{ fontSize: 12 }}>{termKey ? <Term k={termKey}>{label}</Term> : label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
     </div>
   );

@@ -38,7 +38,11 @@ const ENTRY_FIELDS = [
 ];
 
 const dayOf = (s) => (s && s.created_at ? s.created_at.slice(0, 10) : "");
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// the TRADING day (ET), not the UTC date — after 8pm ET the UTC date rolls to
+// tomorrow and the journal would select a day that doesn't exist yet ("Setting
+// up today's entry…" forever). en-CA locale formats as YYYY-MM-DD.
+const todayISO = () => new Intl.DateTimeFormat("en-CA",
+  { timeZone: "America/New_York" }).format(new Date());
 
 // a day's overall tone from its scorecard: good (regime right + levels ok),
 // bad (regime wrong or levels poor), warn (mixed), or null (not scored).
@@ -350,7 +354,7 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
       <div className="vg-jr-dayhead">
         <div>
           <div className="vg-jr-dayname">{dayLabel === todayISO() ? "Today" : dayLabel}</div>
-          <span className="vg-note" style={{ fontSize: 12 }}>
+          <span className="vg-note" style={{ fontSize: 13 }}>
             {s.session ? `${s.session} playbook · ` : ""}vs. {kindLabel}
             {sc && sc.regime && <> · <span className={sc.regime.correct ? "vg-up" : "vg-down"}>
               {sc.regime.correct ? "forecast held ✓" : "forecast missed ✗"}</span></>}
@@ -418,7 +422,7 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
           <button className="vg-btn-sm" disabled={busy === `entry${s.id}` || !dirty} onClick={save}>
             {busy === `entry${s.id}` ? "Saving…" : "Save"}
           </button>
-          {dirty && <span className="vg-note" style={{ fontSize: 11 }}>unsaved changes</span>}
+          {dirty && <span className="vg-note" style={{ fontSize: 12 }}>unsaved changes</span>}
         </div>
       </div>
 
@@ -429,7 +433,7 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
             <img src={journalImageUrl(s.id)} alt="reference chart"
               onError={(e) => { e.target.style.display = "none"; }} />
             <div className="vg-row" style={{ justifyContent: "space-between", marginTop: 6 }}>
-              <span className="vg-note" style={{ fontSize: 11 }}>reference chart · never analyzed</span>
+              <span className="vg-note" style={{ fontSize: 12 }}>reference chart · never analyzed</span>
               <button className="vg-linkbtn" onClick={() => fileRef.current && fileRef.current.click()}>replace</button>
             </div>
             <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
@@ -440,7 +444,7 @@ function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
             onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
             onDragLeave={() => setDrag(false)} onDrop={onDrop}
             onClick={() => fileRef.current && fileRef.current.click()}>
-            <span className="vg-note" style={{ fontSize: 12 }}>
+            <span className="vg-note" style={{ fontSize: 13 }}>
               {busy === "upload" ? "Saving…" : "📎 Attach a reference chart — drop, paste (⌘V), or click (never analyzed)"}
             </span>
             <input ref={fileRef} type="file" accept="image/*" style={{ display: "none" }}
@@ -506,7 +510,7 @@ function LevelTable({ forecast, scorecard }) {
               <tr key={lv.key} className={muted ? "muted" : ""}>
                 <td className="lvl-price">
                   <b>{Math.round(lv.price)}</b>
-                  <span className="vg-note" style={{ marginLeft: 4, fontSize: 10 }}>{lv.key}</span>
+                  <span className="vg-note" style={{ marginLeft: 4, fontSize: 12 }}>{lv.key}</span>
                 </td>
                 <td>{lv.role}{lv.confluence ? " ✦" : ""}{lv.durable ? " ★" : ""}</td>
                 <td className="lvl-expect">{lv.expect || lv.label || "—"}</td>
@@ -529,7 +533,7 @@ function LevelTable({ forecast, scorecard }) {
 function Tile({ label, value, tone }) {
   return (
     <div className="vg-pb-tile">
-      <div className="vg-note" style={{ fontSize: 11 }}>{label}</div>
+      <div className="vg-note" style={{ fontSize: 12 }}>{label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
     </div>
   );
@@ -658,7 +662,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
         <div className="vg-spread">
           <div>
             <h3 style={{ margin: 0, fontSize: 16 }}>My trades — what I actually did</h3>
-            <p className="vg-note" style={{ marginTop: 4, fontSize: 12 }}>
+            <p className="vg-note" style={{ marginTop: 4, fontSize: 13 }}>
               Every decision reconstructed from your broker fills — pinned to the underlying's
               price at the minute you submitted it, correlated to the levels you forecast,
               expiries settled against the print.
@@ -691,7 +695,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
     <div className="vg-card" style={{ marginTop: 14 }}>
       <div className="vg-spread">
         <h3 style={{ margin: 0, fontSize: 16 }}>My trades — {rows.length}{tk !== "all" ? ` of ${s.trades}` : ""} decisions
-          <span className="vg-note" style={{ fontSize: 12, fontWeight: 400 }}>
+          <span className="vg-note" style={{ fontSize: 13, fontWeight: 400 }}>
             {" "}· click a trade to correlate it to the plan
           </span>
         </h3>
@@ -703,20 +707,20 @@ function TradesPanel({ snap, thoughts, onThought }) {
               {tickers.map((x) => <option key={x} value={x}>{x}</option>)}
             </select>
           )}
-          <button className="vg-btn-sm" disabled={busy || (batch && batch.running) || (daySyn && daySyn.loading)}
+          <button className="vg-btn-sm vg-btn-primary" disabled={busy || (batch && batch.running) || (daySyn && daySyn.loading)}
             onClick={analyzeToday}
             title="Desk-review every closed trade, then a book-level day synthesis (direction / time / allocation)">
             {batch && batch.running
               ? <><span className="vg-spin" aria-hidden="true">⟳</span> Analyzing {batch.done}/{batch.total}…</>
               : daySyn && daySyn.loading
                 ? <><span className="vg-spin" aria-hidden="true">⟳</span> Day synthesis…</>
-                : "🧬 Analyze today"}
+                : "Analyze today"}
           </button>
           <button className="vg-btn-sm" onClick={load} disabled={busy}>{busy ? "…" : "⟳"}</button>
         </div>
       </div>
       {batch && !batch.running && batch.total > 0 && !daySyn && (
-        <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 11, color: "var(--vg-up)" }}>
+        <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 12, color: "var(--vg-up)" }}>
           ✓ analyzed {batch.total} trade{batch.total === 1 ? "" : "s"} (already-analyzed ones skipped)
         </p>
       )}
@@ -726,7 +730,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
       {daySyn && (daySyn.loading || daySyn.data || daySyn.text || daySyn.error) && (
         <div className="vg-card vg-day-syn" style={{ margin: "10px 0 0" }}>
           <div className="vg-spread" style={{ alignItems: "baseline" }}>
-            <h4 style={{ margin: 0, fontSize: 13, letterSpacing: "0.03em" }}>
+            <h4 style={{ margin: 0, fontSize: 14, letterSpacing: "0.03em" }}>
               🧬 Day synthesis <span className="vg-note" style={{ fontWeight: 400 }}>— the book, not the trades</span>
             </h4>
             {daySyn.loading && <span className="vg-spin" aria-hidden="true">⟳</span>}
@@ -740,7 +744,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
       )}
 
       {/* the day, reconciled — including the money no fill showed */}
-      <div className="vg-row" style={{ gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 13 }}>
+      <div className="vg-row" style={{ gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 14 }}>
         <span>P&L <b className={s.realized >= 0 ? "vg-up" : "vg-down"}>{money(s.realized)}</b></span>
         <span className="vg-note">fills {money(s.realized_from_fills)}</span>
         {s.expired > 0 && <span className="vg-note">expiry {money(s.realized_from_expiry)} · {s.expired_worthless} worthless <b className="vg-down">{money(s.expired_loss)}</b></span>}
@@ -784,7 +788,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
           );
         })}
       </div>
-      <p className="vg-note" style={{ fontSize: 11, marginTop: 8 }}>
+      <p className="vg-note" style={{ fontSize: 12, marginTop: 8 }}>
         Price is the 1-minute print at submission, per the trade's own ticker. Tag the level
         you were trading — the broker says WHAT you did; only you can say WHY. Saves with the entry.
       </p>
@@ -824,7 +828,7 @@ function AnalysisDetail({ h }) {
     <div className="vg-ja-detail">
       <div className="vg-spread">
         <div className="vg-kicker" style={{ margin: 0 }}>Scorecard</div>
-        <span className="vg-note" style={{ fontSize: 12 }}>
+        <span className="vg-note" style={{ fontSize: 13 }}>
           {h.trades} trades · net <b className={h.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(h.net_pnl)}</b> · rubric v{h.rubric_version}
         </span>
       </div>
@@ -832,13 +836,13 @@ function AnalysisDetail({ h }) {
         {recs.map((r) => (
           <div key={r.dimension} className="vg-score">
             <div className="vg-spread" style={{ alignItems: "baseline" }}>
-              <span style={{ fontSize: 13 }}>{r.label}</span>
+              <span style={{ fontSize: 14 }}>{r.label}</span>
               <span className="vg-row" style={{ gap: 6, alignItems: "baseline" }}>
                 <b className={cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`)}>{r.score}</b>
                 {r.delta != null
-                  ? <span className={cls("vg-badge", REC_TONE[r.status])} style={{ fontSize: 10 }}>
+                  ? <span className={cls("vg-badge", REC_TONE[r.status])} style={{ fontSize: 12 }}>
                       {r.delta > 0 ? "▲" : r.delta < 0 ? "▼" : "—"}{Math.abs(r.delta)} · {r.status}</span>
-                  : <span className="vg-badge plain" style={{ fontSize: 10 }}>baseline</span>}
+                  : <span className="vg-badge plain" style={{ fontSize: 12 }}>baseline</span>}
               </span>
             </div>
             <div className="vg-score-track"><div className={cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`)} style={{ width: `${r.score}%` }} /></div>
@@ -851,7 +855,7 @@ function AnalysisDetail({ h }) {
           {h.patterns.map((p, i) => (
             <tr key={i}>
               <td style={{ width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 }}>{p.count}×</td>
-              <td>{p.pattern}<span className="vg-note" style={{ fontSize: 11 }}> · {(p.cites || []).length} trades</span></td>
+              <td>{p.pattern}<span className="vg-note" style={{ fontSize: 12 }}> · {(p.cites || []).length} trades</span></td>
             </tr>
           ))}
         </tbody></table>
@@ -965,13 +969,13 @@ function JournalAnalysisPanel({ sym }) {
               ))}
             </div>
           </div>
-          <button className="vg-btn" disabled={busy || streaming} onClick={generate}>
+          <button className="vg-btn vg-btn-primary" disabled={busy || streaming} onClick={generate}>
             {busy || streaming
               ? <><span className="vg-spin" aria-hidden="true">⟳</span> Analyzing…</>
-              : "🧠 Generate analysis"}
+              : "Generate analysis"}
           </button>
         </div>
-        <p className="vg-note" style={{ marginTop: 8, fontSize: 12 }}>
+        <p className="vg-note" style={{ marginTop: 8, fontSize: 13 }}>
           Scores the window against a rubric, aggregates every recorded trade review into a SWOT,
           and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days → Analyze today).
         </p>
@@ -984,7 +988,7 @@ function JournalAnalysisPanel({ sym }) {
         <div className="vg-card" style={{ marginTop: 12 }}>
           <div className="vg-spread">
             <div className="vg-kicker" style={{ margin: 0 }}>Scorecard · {b.window_from} → {b.window_to}</div>
-            <span className="vg-note" style={{ fontSize: 12 }}>
+            <span className="vg-note" style={{ fontSize: 13 }}>
               {b.trades} trades{b.analyzed != null ? ` · ${b.analyzed} reviewed` : ""} · net <b className={b.net_pnl >= 0 ? "vg-up" : "vg-down"}>{money(b.net_pnl)}</b>
               {b.overall && b.overall.win_rate != null && <> · win rate <b>{Math.round(b.overall.win_rate * 100)}%</b></>}
               {b.overall && b.overall.profit_factor != null && (
@@ -997,15 +1001,15 @@ function JournalAnalysisPanel({ sym }) {
             {b.recommendations.map((r) => (
               <div key={r.dimension} className="vg-score">
                 <div className="vg-spread" style={{ alignItems: "baseline" }}>
-                  <span style={{ fontSize: 13 }}>{r.label}</span>
+                  <span style={{ fontSize: 14 }}>{r.label}</span>
                   <span className="vg-row" style={{ gap: 6, alignItems: "baseline" }}>
                     <b className={cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`)}>{r.score}</b>
                     {r.delta != null && (
-                      <span className={cls("vg-badge", REC_TONE[r.status])} style={{ fontSize: 10 }}>
+                      <span className={cls("vg-badge", REC_TONE[r.status])} style={{ fontSize: 12 }}>
                         {r.delta > 0 ? "▲" : r.delta < 0 ? "▼" : "—"}{Math.abs(r.delta)} · {r.status}
                       </span>
                     )}
-                    {r.delta == null && <span className="vg-badge plain" style={{ fontSize: 10 }}>baseline</span>}
+                    {r.delta == null && <span className="vg-badge plain" style={{ fontSize: 12 }}>baseline</span>}
                   </span>
                 </div>
                 <div className="vg-score-track"><div className={cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`)} style={{ width: `${r.score}%` }} /></div>
@@ -1018,7 +1022,7 @@ function JournalAnalysisPanel({ sym }) {
             {b.patterns.map((p, i) => (
               <tr key={i}>
                 <td style={{ width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 }}>{p.count}×</td>
-                <td>{p.pattern}<span className="vg-note" style={{ fontSize: 11 }}> · {p.cites.length} trades</span></td>
+                <td>{p.pattern}<span className="vg-note" style={{ fontSize: 12 }}> · {p.cites.length} trades</span></td>
               </tr>
             ))}
           </tbody></table>
@@ -1032,10 +1036,10 @@ function JournalAnalysisPanel({ sym }) {
         <div className="vg-card" style={{ marginTop: 12 }}>
           <div className="vg-spread">
             <div className="vg-kicker" style={{ margin: 0 }}>
-              SWOT &amp; read {saved && <span className="vg-up" style={{ fontSize: 11 }}>✓ saved</span>}
+              SWOT &amp; read {saved && <span className="vg-up" style={{ fontSize: 12 }}>✓ saved</span>}
             </div>
             {read.mode === "prose" && (
-              <span className="vg-note" style={{ fontSize: 10 }} title="the model's output wasn't structured JSON — showing the prose read">
+              <span className="vg-note" style={{ fontSize: 12 }} title="the model's output wasn't structured JSON — showing the prose read">
                 prose fallback
               </span>
             )}
@@ -1079,7 +1083,7 @@ function JournalAnalysisPanel({ sym }) {
                     onClick={() => toggleStored(h)}
                     title={isOpen ? "Collapse" : "Expand this analysis"}>
                     <span className="c-win">{isOpen ? "▾ " : "▸ "}{h.window_from} → {h.window_to}</span>
-                    <span className="c-tag"><span className="vg-badge plain" style={{ fontSize: 10 }}>{h.period}</span></span>
+                    <span className="c-tag"><span className="vg-badge plain" style={{ fontSize: 12 }}>{h.period}</span></span>
                     <span className={cls("c-sc", `vg-${SCORE_TONE(s.entry_discipline || 0)}`)}>{s.entry_discipline ?? "—"}</span>
                     <span className={cls("c-sc", `vg-${SCORE_TONE(s.exit_discipline || 0)}`)}>{s.exit_discipline ?? "—"}</span>
                     <span className={cls("c-sc", `vg-${SCORE_TONE(s.risk_sizing || 0)}`)}>{s.risk_sizing ?? "—"}</span>
@@ -1147,7 +1151,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
           )}
           <b className={long ? "vg-up" : "vg-down"}>{t.label}</b>
           {t.account_label && (
-            <span className="vg-badge plain" style={{ marginLeft: 6, fontSize: 10 }}
+            <span className="vg-badge plain" style={{ marginLeft: 6, fontSize: 12 }}
               title={`account: ${t.account_label}`}>{t.account_label}</span>
           )}
         </span>
@@ -1205,7 +1209,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
             <div>
               {/* the arc: where price was in vs. out */}
               <div className="vg-kicker">The arc</div>
-              <div style={{ fontSize: 13, margin: "2px 0 10px", fontVariantNumeric: "tabular-nums" }}>
+              <div style={{ fontSize: 14, margin: "2px 0 10px", fontVariantNumeric: "tabular-nums" }}>
                 in <b>{fmtLvl(t.spot_at_entry)}</b>
                 {nearest && <span className={cls("vg-badge", corr.at_level ? "good" : "plain")} style={{ marginLeft: 4 }}>{fmtLvl(nearest.level)}</span>}
                 <span className="vg-note" style={{ margin: "0 6px" }}>→</span>
@@ -1380,13 +1384,13 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
         {/* the structured DNA read — always shown; this IS the full picture */}
         {state.dna && <DnaReadout dna={state.dna} />}
         {state.modelUnavailable && (
-          <p className="vg-note" style={{ fontSize: 11, marginTop: 6 }}>
+          <p className="vg-note" style={{ fontSize: 12, marginTop: 6 }}>
             The narrative read is pending Mira's turn-path model synthesis; the full
             structured DNA above is the complete record.
           </p>
         )}
         {state.saved && (
-          <p className="vg-note" style={{ fontSize: 11, marginTop: 4 }}>
+          <p className="vg-note" style={{ fontSize: 12, marginTop: 4 }}>
             ✓ saved to this trade's record{state.analyzedAt ? ` · ${String(state.analyzedAt).slice(0, 16).replace("T", " ")}` : ""}
           </p>
         )}
@@ -1508,7 +1512,7 @@ function CorrTable({ title, corr, openSpace }) {
   const nearest = corr && corr.nearest;
   return (
     <div>
-      <div className="vg-kicker" style={{ fontSize: 10 }}>{title}</div>
+      <div className="vg-kicker" style={{ fontSize: 12 }}>{title}</div>
       {corr && corr.nearby && corr.nearby.length ? (
         <table className="vg-mini"><tbody>
           {corr.nearby.map((c, i) => (
@@ -1521,7 +1525,7 @@ function CorrTable({ title, corr, openSpace }) {
           ))}
         </tbody></table>
       ) : (
-        <p className="vg-note" style={{ fontSize: 12, margin: "2px 0" }}>No forecast level within range — {openSpace}.</p>
+        <p className="vg-note" style={{ fontSize: 13, margin: "2px 0" }}>No forecast level within range — {openSpace}.</p>
       )}
     </div>
   );
@@ -1537,8 +1541,8 @@ function FillLadder({ fills, scale }) {
   const svg = (n) => (n == null ? "—" : `$${Number(n).toFixed(2)}`);
   return (
     <div style={{ marginTop: 8 }}>
-      <div className="vg-kicker" style={{ fontSize: 10 }}>The ladder — {scale.peak_contracts}× peak</div>
-      <p className="vg-note" style={{ fontSize: 12, margin: "2px 0 4px" }}>
+      <div className="vg-kicker" style={{ fontSize: 12 }}>The ladder — {scale.peak_contracts}× peak</div>
+      <p className="vg-note" style={{ fontSize: 13, margin: "2px 0 4px" }}>
         {scale.entries} {scale.entries === 1 ? "entry" : "entries"} @ avg {svg(scale.avg_entry)}
         {" → "}{scale.exits} {scale.exits === 1 ? "exit" : "exits"} @ avg {svg(scale.avg_exit)}
         {scale.add_behavior ? <span> · <b>{scale.add_behavior}</b></span> : null}
@@ -1549,7 +1553,7 @@ function FillLadder({ fills, scale }) {
       </button>
       {open && (
         <table className="vg-mini" style={{ marginTop: 4 }}><tbody>
-          <tr><td colSpan={5} className="vg-note" style={{ fontSize: 10, paddingBottom: 2 }}>times in ET (market hours)</td></tr>
+          <tr><td colSpan={5} className="vg-note" style={{ fontSize: 12, paddingBottom: 2 }}>times in ET (market hours)</td></tr>
           {fills.map((r, i) => (
             <tr key={i}>
               <td>{r.at_et || (r.at || "").slice(11, 16)}</td>

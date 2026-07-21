@@ -105,7 +105,7 @@ export function GlossaryCard({ terms, title = "What these terms mean" }) {
       <summary className="vg-kicker" style={{ cursor: "pointer" }}>{title}</summary>
       <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
         {items.map((g, i) => (
-          <div key={i} style={{ fontSize: 13, lineHeight: 1.5 }}>
+          <div key={i} style={{ fontSize: 14, lineHeight: 1.5 }}>
             <b>{g.label}</b> — {g.long}
           </div>
         ))}

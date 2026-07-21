@@ -183,7 +183,7 @@ function ClosedStrategyRow({ s, expanded, onToggle }) {
           {s.cash != null ? signUsd(s.cash) : "—"}
         </td>
         <td>
-          {s.state === "filled" && <span style={{ fontSize: 12.5 }}>filled</span>}
+          {s.state === "filled" && <span style={{ fontSize: 13 }}>filled</span>}
           {s.state === "cancelled" && <span className="vg-badge plain">cancelled</span>}
           {s.state === "rejected" && <span className="vg-badge bad">rejected</span>}
           {s.state && !["filled", "cancelled", "rejected"].includes(s.state) && (

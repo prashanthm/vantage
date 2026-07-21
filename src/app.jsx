@@ -34,26 +34,31 @@ const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.Looke
 const EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
 
 /* ---------------- navigation ---------------- */
+// IA: three cadence groups (not personas) — Desk is the fast clock (intraday),
+// Book is the slow clock (what I own), Review is the loop (what happened → is it
+// an edge → promote). Route ids are UNCHANGED so every bookmark keeps working.
 const NAV = [
-  { group: "Portfolio", items: [
-    { id: "portfolio", label: "Portfolio", icon: "🧭" },
-    { id: "dashboard", label: "Dashboard", icon: "◫" },
-    { id: "holdings", label: "Positions", icon: "▤" },
-    { id: "tax", label: "Tax", icon: "🌾" },
-  ]},
-  { group: "Intelligence", items: [
-    // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
-    { id: "ic", label: "Chart", icon: "📈" },
+  { group: "Desk", items: [
     // Today is the trading half's front door: signals + why + honest record +
     // machine health, one screen (see claudedocs/goals/ux-feature-value).
     { id: "today", label: "Today", icon: "🎯" },
-    { id: "options", label: "Options", icon: "◎" },
     { id: "playbook", label: "Daily plan", icon: "📐" },
     { id: "scanner", label: "Scanner", icon: "🔭" },
-    { id: "strategies", label: "Strategies", icon: "🤖" },
+    // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
+    { id: "ic", label: "Chart", icon: "📈" },
+  ]},
+  { group: "Book", items: [
+    { id: "dashboard", label: "Dashboard", icon: "◫" },
+    { id: "portfolio", label: "Portfolio", icon: "🧭" },
+    { id: "holdings", label: "Positions", icon: "▤" },
+    { id: "options", label: "Options", icon: "◎" },
+    { id: "tax", label: "Tax", icon: "🌾" },
+  ]},
+  { group: "Review", items: [
     { id: "journal", label: "Trading Journal", icon: "📓" },
-    { id: "futures", label: "Futures", icon: "📉" },
     { id: "trades", label: "Performance", icon: "🧮" },
+    { id: "futures", label: "Futures", icon: "📉" },
+    { id: "strategies", label: "Strategies", icon: "🤖" },
   ]},
 ];
 // Nav lists the five top-level views. These extra routes stay reachable as
@@ -68,6 +73,24 @@ const NAV = [
 const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
+// Time-aware landing: with no hash, the app opens where the market clock says the
+// operator is — pre-market → the morning brief, RTH → the cockpit, post-close →
+// the review. The clock is state the app already has; the operator never manages
+// a "mode". Explicit hashes always win (this only decides the EMPTY default).
+function defaultRoute() {
+  try {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York", weekday: "short",
+      hour: "2-digit", minute: "2-digit", hour12: false,
+    }).formatToParts(new Date()).map((p) => [p.type, p.value]));
+    if (parts.weekday === "Sat" || parts.weekday === "Sun") return "dashboard";
+    const mins = (+parts.hour) * 60 + (+parts.minute);
+    if (mins < 9 * 60 + 30) return "dashboard";   // pre-market → brief
+    if (mins < 16 * 60) return "today";           // RTH → cockpit
+    return "journal";                             // post-close → review
+  } catch (e) { return "dashboard"; }
+}
+
 // Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
 // Deep-linkable: bookmark or share a specific symbol's chart. `param` is the raw
 // second segment (uppercased for tickers); routes with no param get param=null.
@@ -75,7 +98,7 @@ function useHashRoute() {
   const parse = () => {
     const h = window.location.hash.replace(/^#\/?/, "");
     const [r, ...rest] = h.split("/");
-    const route = ROUTES.includes(r) ? r : "dashboard";
+    const route = ROUTES.includes(r) ? r : defaultRoute();
     const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
     return { route, param };
   };
@@ -95,6 +118,52 @@ function useHashRoute() {
 }
 
 /* ---------------- app shell ---------------- */
+// ⌘K command palette — jump to any screen or any symbol's chart without hunting
+// the sidebar. Solo-operator speed feature: taxonomy matters less when everything
+// is two keystrokes away. Pure client-side; no new routes.
+function CommandPalette({ open, onClose, go }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(0);
+  const inputRef = useRef(null);
+  useEffect(() => { if (open) { setQ(""); setSel(0); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); } }, [open]);
+  if (!open) return null;
+  const needle = q.trim().toLowerCase();
+  const navItems = NAV.flatMap((g) => g.items.map((i) => ({
+    key: i.id, label: i.label, note: g.group, run: () => go(i.id),
+  }))).filter((i) => !needle || i.label.toLowerCase().includes(needle));
+  // a short all-letters query that isn't a nav match reads as a ticker → open its chart
+  const items = [...navItems];
+  if (/^[a-z.\-]{1,10}$/i.test(needle) && needle.length >= 1) {
+    items.push({ key: `tk-${needle}`, label: `Open chart · ${needle.toUpperCase()}`,
+      note: "symbol", run: () => go("ic", needle.toUpperCase()) });
+  }
+  const pick = (it) => { it.run(); onClose(); };
+  const onKey = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); setSel((s) => Math.min(s + 1, items.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setSel((s) => Math.max(s - 1, 0)); }
+    else if (e.key === "Enter" && items[sel]) { e.preventDefault(); pick(items[sel]); }
+  };
+  return (
+    <div className="vg-pal-scrim" onClick={onClose}>
+      <div className="vg-pal" onClick={(e) => e.stopPropagation()} onKeyDown={onKey}>
+        <input ref={inputRef} className="vg-pal-input" value={q} placeholder="Jump to a screen, or type a ticker…"
+          onChange={(e) => { setQ(e.target.value); setSel(0); }} aria-label="Command palette" />
+        <div className="vg-pal-list" role="listbox">
+          {items.map((it, i) => (
+            <div key={it.key} role="option" aria-selected={i === sel}
+              className={cls("vg-pal-item", i === sel && "on")}
+              onMouseEnter={() => setSel(i)} onClick={() => pick(it)}>
+              <span>{it.label}</span><span className="vg-pal-note">{it.note}</span>
+            </div>
+          ))}
+          {!items.length && <div className="vg-pal-empty">no match</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [settings, setSettings] = useState(loadSettings);
   const [accountId, setAccountId] = useState(settings.defaultAccount);
@@ -131,6 +200,17 @@ function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleFocus, exitFocus, focus]);
+  // ⌘K / Ctrl+K: command palette (works even while typing — it's a global jump).
+  const [palOpen, setPalOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault(); setPalOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // Resizable right pane: user-dragged width persisted to localStorage. Clamped
   // to a sane range; the .clps collapse rule (48px) still wins when collapsed.
   // Max is ~half the viewport (the Replay panel + comparison table want room).
@@ -280,6 +360,7 @@ function App() {
 
   return (
     <div className="vg-app">
+      <CommandPalette open={palOpen} onClose={() => setPalOpen(false)} go={go} />
       <div className="vg-compliance">
         AI-generated analysis · Educational purposes only — not financial, investment, or tax advice
       </div>
@@ -290,7 +371,7 @@ function App() {
         <div className="vg-ticker" style={{ flex: 1, borderBottom: "none" }}>
           {marketBand && marketBand.indexes.map((t) => (
             <span className="vg-tick" key={t.sym}>
-              <span className="vg-note" style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 10 }}>{t.label}</span>
+              <span className="vg-note" style={{ textTransform: "uppercase", letterSpacing: ".06em", fontSize: 12 }}>{t.label}</span>
               <b>{t.price != null ? t.price.toFixed(2) : "—"}</b>
               <span className={dirCls(t.dayPct)}>{signPct(t.dayPct)}</span>
             </span>
@@ -720,7 +801,7 @@ function DashboardView({
 
       <div className="vg-card" style={{ marginTop: 14 }}>
         <div className="vg-spread">
-          <strong style={{ fontSize: 14.5 }}>Allocation by asset class</strong>
+          <strong style={{ fontSize: 14 }}>Allocation by asset class</strong>
           <span className="vg-note">target 70 / 10 / 15 / 5</span>
         </div>
         <div className="vg-allocbar" style={{ marginTop: 12 }} role="img" aria-label="Asset allocation">
@@ -751,7 +832,7 @@ function DashboardView({
         <div className="vg-kicker" style={{ marginBottom: 0 }}>Accounts today</div>
         <button className={cls("vg-refresh", refreshing.all && "spinning")} title="Refresh all accounts"
           aria-label="Refresh all accounts" disabled={!!refreshing.all} onClick={onRefreshAll}>
-          <span className="ic">⟳</span> <span style={{ fontSize: 12 }}>refresh all</span>
+          <span className="ic">⟳</span> <span style={{ fontSize: 13 }}>refresh all</span>
         </button>
       </div>
       {scopeAccounts.length === 0 ? (
@@ -1123,7 +1204,7 @@ function ActivityView({ accountId, settings, refreshNonce }) {
           </p>
           <pre style={{
             background: "var(--color-light)", border: "1px solid var(--color-border)", borderRadius: 8,
-            padding: "10px 12px", margin: "10px 0 0", fontSize: 12, lineHeight: 1.5, overflowX: "auto",
+            padding: "10px 12px", margin: "10px 0 0", fontSize: 13, lineHeight: 1.5, overflowX: "auto",
           }}>
             <code>{"cd server\n.venv/bin/python -m vantage_server.importer \\\n    --broker robinhood --account rh-margin --with-history"}</code>
           </pre>
@@ -1175,7 +1256,7 @@ function ActivityView({ accountId, settings, refreshNonce }) {
                         {r.amount != null ? signedAmt(r.amount) : "—"}
                       </td>
                       <td>
-                        {r.state === "filled" && <span style={{ fontSize: 12.5 }}>filled</span>}
+                        {r.state === "filled" && <span style={{ fontSize: 13 }}>filled</span>}
                         {r.state === "open" && <span className="vg-badge info">open</span>}
                         {r.state === "cancelled" && <span className="vg-badge plain">cancelled</span>}
                         {r.state && !["filled", "open", "cancelled"].includes(r.state) && (
@@ -1375,7 +1456,7 @@ function RecRow({ d, onJump }) {
         <td onClick={() => onJump(d.symbol)}><b>{d.symbol}</b></td>
         <td><span className={cls("vg-badge", conv.cls)}>{conv.text}</span></td>
         <td><span className={cls("vg-badge", rec.cls)}>{rec.text}</span></td>
-        <td style={{ fontSize: 13 }}>{recDetail(d)}</td>
+        <td style={{ fontSize: 14 }}>{recDetail(d)}</td>
         <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
           <button className="vg-linkbtn" onClick={() => setOpen(!open)}>{open ? "hide" : "evidence"}</button>
           {" · "}
@@ -1385,7 +1466,7 @@ function RecRow({ d, onJump }) {
       {open && (
         <tr>
           <td colSpan={5} style={{ background: "var(--color-light)", padding: "12px 14px" }}>
-            <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 14, lineHeight: 1.6 }}>
               <p style={{ margin: "0 0 8px" }}>{d.rationale}</p>
               <div className="vg-row" style={{ gap: 18, flexWrap: "wrap", color: "var(--color-grey)" }}>
                 <span>{tfTrend(ev.perTf, "daily")}</span>
@@ -1437,7 +1518,7 @@ function RecsView({ settings, setSymbol, go }) {
         <div className="vg-card" style={{ marginTop: 8, padding: 0, overflowX: "auto" }}>
           <table className="vg-table" style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ textAlign: "left", fontSize: 12, color: "var(--color-grey)" }}>
+              <tr style={{ textAlign: "left", fontSize: 13, color: "var(--color-grey)" }}>
                 <th style={{ padding: "10px 14px" }}>Symbol</th>
                 <th style={{ padding: "10px 14px" }}>Conviction</th>
                 <th style={{ padding: "10px 14px" }}>Recommendation</th>
@@ -1667,7 +1748,7 @@ function ChatPanel({ settings, onClose, docked }) {
           {msgs.map((m, i) => (
             <div key={i} className={cls("vg-msg", m.who)}>
               {m.plan && m.plan.length > 0 && (
-                <div style={{ fontSize: 11.5, opacity: 0.65, marginBottom: 6 }}>
+                <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 6 }}>
                   {m.plan.map((s, j) => <div key={j}>· {s}</div>)}
                 </div>
               )}
@@ -1679,7 +1760,7 @@ function ChatPanel({ settings, onClose, docked }) {
               )}
               {m.who === "ai" && m.corr && (
                 <div style={{ marginTop: 6 }}>
-                  <button className="vg-linkbtn" style={{ fontSize: 11.5 }} onClick={() => toggleExplain(i)}>
+                  <button className="vg-linkbtn" style={{ fontSize: 12 }} onClick={() => toggleExplain(i)}>
                     {m.explainOpen ? "hide explanation" : "explain"}
                   </button>
                   {m.explainOpen && <ExplainBlock explain={m.explain} />}
@@ -1721,8 +1802,8 @@ function ExplainBlock({ explain }) {
   const u = explain.uncertainty || {};
   const ratio = typeof u.grounded_ratio === "number" ? u.grounded_ratio : null;
   return (
-    <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)", fontSize: 12, lineHeight: 1.5 }}>
-      <div className="vg-note" style={{ fontSize: 11.5, marginBottom: 4 }}>
+    <div style={{ marginTop: 6, paddingTop: 6, borderTop: "1px solid var(--color-border)", fontSize: 13, lineHeight: 1.5 }}>
+      <div className="vg-note" style={{ fontSize: 12, marginBottom: 4 }}>
         {ratio != null && <>grounded {Math.round(ratio * 100)}% · </>}
         {steps} plan step{steps === 1 ? "" : "s"} · {claims.length} claim{claims.length === 1 ? "" : "s"}
       </div>
@@ -1825,7 +1906,7 @@ function AccountsSettings() {
 
   return (
     <div>
-      <table className="vg-table" style={{ width: "100%", fontSize: 13 }}>
+      <table className="vg-table" style={{ width: "100%", fontSize: 14 }}>
         <thead><tr>
           <th style={{ textAlign: "left" }}>Account</th>
           <th style={{ textAlign: "left" }}>Broker</th>
@@ -1863,11 +1944,11 @@ function AccountsSettings() {
       </table>
 
       {rows.some((a) => a.auth_hint) && (
-        <div className="vg-note" style={{ marginTop: 8, fontSize: 12 }}>
+        <div className="vg-note" style={{ marginTop: 8, fontSize: 13 }}>
           API brokers need a one-time host-side auth (your secret never enters the browser). Run:
           <ul style={{ margin: "4px 0 0 0", paddingLeft: 18 }}>
             {[...new Set(rows.filter((a) => a.auth_hint).map((a) => a.auth_hint))].map((h) => (
-              <li key={h}><code style={{ fontSize: 11 }}>{h}</code></li>
+              <li key={h}><code style={{ fontSize: 12 }}>{h}</code></li>
             ))}
           </ul>
         </div>
@@ -1906,7 +1987,7 @@ function AccountsSettings() {
             <input type="checkbox" checked={form.taxable}
               onChange={(e) => setForm({ ...form, taxable: e.target.checked })} /> Taxable account
           </label>
-          {err && <div className="vg-neg" style={{ fontSize: 12, marginBottom: 8 }}>{err}</div>}
+          {err && <div className="vg-neg" style={{ fontSize: 13, marginBottom: 8 }}>{err}</div>}
           <div className="vg-row" style={{ justifyContent: "flex-end", gap: 8 }}>
             <Button variant="outline" onClick={() => setAdding(false)}>Cancel</Button>
             <Button variant="primary" disabled={busy === "save"} onClick={save}>
@@ -1915,7 +1996,7 @@ function AccountsSettings() {
           </div>
         </div>
       )}
-      {err && !adding && <div className="vg-neg" style={{ fontSize: 12, marginTop: 8 }}>{err}</div>}
+      {err && !adding && <div className="vg-neg" style={{ fontSize: 13, marginTop: 8 }}>{err}</div>}
     </div>
   );
 }

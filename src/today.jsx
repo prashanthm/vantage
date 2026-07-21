@@ -285,7 +285,7 @@ function WhyCard({ pb, onReload }) {
             title="Live discipline coach — WAIT/ENTER/EXIT/HOLD/WARN with your GEX levels baked in">🎯 Coach Pine</button>
         </div>
       </div>
-      {note && <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 11,
+      {note && <p className="vg-note" style={{ margin: "4px 0 0", fontSize: 12,
         color: note.includes("fail") ? "var(--vg-down)" : "var(--vg-up)" }}>✓ {note}</p>}
       <p className="vg-note" style={{ marginTop: 6, color: "var(--vg-dim)" }}>
         {lede || (
@@ -311,7 +311,7 @@ function WhyCard({ pb, onReload }) {
         <summary className="vg-note" style={{ cursor: "pointer", fontWeight: 600 }}>
           levels &amp; full playbook
         </summary>
-        <table className="vg-table" style={{ marginTop: 8, fontSize: 12.5 }}>
+        <table className="vg-table" style={{ marginTop: 8, fontSize: 13 }}>
           <tbody>
             {levels.map((z, i) => (
               <tr key={i}>
@@ -357,7 +357,7 @@ function StrategyCard({ perf }) {
           {thin ? " Small sample — but do not size up." : " Stop and re-validate before taking more."}
         </p>
       )}
-      <p className="vg-note" style={{ marginTop: 8, fontSize: 11 }}>
+      <p className="vg-note" style={{ marginTop: 8, fontSize: 12 }}>
         The bot's OWN trades, every underlying, losses included.
         {s.live_taken > 0 && <> Live: {s.live_taken} taken · {money(s.live_pnl)}.</>}
       </p>
@@ -392,7 +392,7 @@ function MachineCard({ run }) {
           ✗ <b>{j.job}</b> — {(j.tail || "").split("\n").slice(-1)[0].slice(0, 60)}
         </p>
       ))}
-      <p className="vg-note" style={{ marginTop: 8, fontSize: 11 }}>
+      <p className="vg-note" style={{ marginTop: 8, fontSize: 12 }}>
         last run {String(run.started_at || "").slice(0, 16).replace("T", " ")}
       </p>
     </div>
@@ -404,7 +404,7 @@ function Metric({ label, value, bad }) {
     <div>
       <div style={{ fontSize: 20, fontWeight: 650, letterSpacing: "-.01em",
         fontVariantNumeric: "tabular-nums", color: bad ? "var(--vg-down)" : undefined }}>{value}</div>
-      <div className="vg-note" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em" }}>{label}</div>
+      <div className="vg-note" style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em" }}>{label}</div>
     </div>
   );
 }

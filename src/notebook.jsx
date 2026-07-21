@@ -149,7 +149,7 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
           summary={decision ? decision.recommendation : "not journaled"}>
           {decision ? (
             <>
-              {decision.rationale && <p style={{ fontSize: 13, lineHeight: 1.5, margin: "0 0 0" }}>{decision.rationale}</p>}
+              {decision.rationale && <p style={{ fontSize: 14, lineHeight: 1.5, margin: "0 0 0" }}>{decision.rationale}</p>}
               {hasLegs && (
                 <div style={{ marginTop: 12 }}>
                   <div className="vg-note" style={{ fontWeight: 600, marginBottom: 6 }}>Option legs</div>
@@ -158,7 +158,7 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
                       <div key={i} className="vg-nb-leg">
                         <div className="vg-row" style={{ gap: 6, flexWrap: "wrap" }}>
                           <span className={cls("vg-badge", LEG_TONE[a.action] || "plain")}>{LEG_TEXT[a.action] || a.action}</span>
-                          <span style={{ fontSize: 13 }}>
+                          <span style={{ fontSize: 14 }}>
                             {a.side} ${Number(a.strike).toFixed(0)}{(a.optionType || "")[0].toUpperCase()} · {a.dte}DTE · {a.moneyness}
                           </span>
                         </div>
@@ -179,7 +179,7 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
         <Section title="Valuation"
           summary={f && f.pe != null ? `P/E ${f.pe.toFixed(1)}` : (price != null ? "levels" : "—")}>
           {price != null ? (
-            <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 14, lineHeight: 1.6 }}>
               {res
                 ? <div>Nearest resistance <b>{usd(res.price, 2)}</b> (str {res.strength}) — {signPct(((res.price - price) / price) * 100, 1)} away</div>
                 : <div className="vg-note">No resistance above current price.</div>}
@@ -220,7 +220,7 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
           )}
 
           {ex && ex.implied && ex.implied.status === "ok" && ex.implied.fcf_growth_10y != null && (
-            <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+            <div style={{ fontSize: 13, lineHeight: 1.5, marginTop: 8 }}>
               <span className="vg-note">Market implies</span>{" "}
               <b>{pct0(ex.implied.fcf_growth_10y)}</b> FCF growth/yr for 10y
               {ex.assumptions && ` (r ${pct0(ex.assumptions.discount_rate)}, term ${pct1(ex.assumptions.terminal_growth)})`}
@@ -230,13 +230,13 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
             </div>
           )}
           {ex && ex.implied && ex.implied.status === "negative_fcf" && (
-            <div className="vg-note" style={{ fontSize: 12, marginTop: 8 }}>
+            <div className="vg-note" style={{ fontSize: 13, marginTop: 8 }}>
               Implied growth undefined (negative FCF).
             </div>
           )}
 
           {rs && rs.idio_r_1m != null && (
-            <div style={{ fontSize: 12, lineHeight: 1.5, marginTop: 8 }}>
+            <div style={{ fontSize: 13, lineHeight: 1.5, marginTop: 8 }}>
               <span className="vg-note">1m move</span>{" "}
               <b className={rs.r_1m >= 0 ? "vg-pos" : "vg-neg"}>{signPct(rs.r_1m * 100, 1)}</b>
               {rs.beta_spy != null && <span className="vg-note"> · β {rs.beta_spy.toFixed(2)}</span>}
@@ -255,7 +255,7 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
         <Section title="My plan"
           summary={rr && rr.rr_ratio != null ? `R:R ${rr.rr_ratio.toFixed(2)}` : (nbData && nbData.plan && nbData.plan.thesis ? "set" : "empty")} plain>
           {rr && rr.status === "ok" && rr.rr_ratio != null && (
-            <div style={{ fontSize: 12, lineHeight: 1.6, marginBottom: 8 }}>
+            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 8 }}>
               <span className="vg-note">Risk/reward</span>{" "}
               <b>{rr.rr_ratio.toFixed(2)}:1</b>
               {rr.direction === "short" && <span className="vg-note"> (short)</span>}
@@ -265,7 +265,7 @@ export function NotebookPanel({ symbol, accountId = "all", refreshNonce }) {
             </div>
           )}
           {rr && (rr.status === "stop_breached" || rr.status === "target_reached") && (
-            <div className="vg-note" style={{ fontSize: 12, marginBottom: 8 }}>
+            <div className="vg-note" style={{ fontSize: 13, marginBottom: 8 }}>
               Plan {rr.status === "stop_breached" ? "stop breached" : "target reached"} at current price.
             </div>
           )}
@@ -697,7 +697,7 @@ function ExplainToggle({ corr }) {
   const claims = rec && Array.isArray(rec.claims) ? rec.claims : [];
   return (
     <div style={{ marginTop: 6 }}>
-      <button className="vg-linkbtn" style={{ fontSize: 11.5 }} onClick={toggle}>
+      <button className="vg-linkbtn" style={{ fontSize: 12 }} onClick={toggle}>
         {open ? "hide sources" : "sources"}
       </button>
       {open && (

@@ -420,7 +420,7 @@ function AnalyzePane({ account }) {
     <div className="vg-card vg-pf-card vg-pf-analyze">
       <div className="vg-pf-head">
         <span className="vg-pf-title">Mira · portfolio actions</span>
-        <button className="vg-btn sm" onClick={run} disabled={state?.loading}>
+        <button className="vg-btn sm vg-btn-primary" onClick={run} disabled={state?.loading}>
           {state?.loading ? "Analyzing…" : state ? "Re-analyze" : "Analyze my portfolio"}
         </button>
       </div>

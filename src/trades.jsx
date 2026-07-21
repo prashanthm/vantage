@@ -51,7 +51,7 @@ function CiBar({ ciLow, ciHigh, winRate, baseline, kind }) {
           }} />
         )}
       </div>
-      <div className="vg-note" style={{ marginTop: 4, fontSize: 11.5 }}>
+      <div className="vg-note" style={{ marginTop: 4, fontSize: 12 }}>
         CI {pct1(ciLow)}–{pct1(ciHigh)} · baseline {pct1(baseline)}
       </div>
     </div>
@@ -117,7 +117,7 @@ function NotableCards({ notable, baseline }) {
       {significant.map((b) => (
         <div key={`${b.dimension}:${b.value}`} className="vg-card">
           <div className="vg-spread">
-            <strong style={{ fontSize: 14.5 }}>{b.value}</strong>
+            <strong style={{ fontSize: 14 }}>{b.value}</strong>
             <span className={cls("vg-badge", b.kind === "leak" ? "bad" : "good")}>
               {b.kind === "leak" ? "▼ leak" : "▲ edge"}
             </span>
@@ -146,7 +146,7 @@ function ConditionTable({ buckets, baseline }) {
     <div className="vg-card vg-tablewrap" style={{ marginTop: 8, padding: "8px 12px" }}>
       <table className="vg-table" style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ textAlign: "left", fontSize: 12, color: "var(--color-grey)" }}>
+          <tr style={{ textAlign: "left", fontSize: 13, color: "var(--color-grey)" }}>
             <th style={{ padding: "10px 12px" }}>Condition</th>
             <th style={{ padding: "10px 12px", textAlign: "right" }}>n</th>
             <th style={{ padding: "10px 12px", textAlign: "right" }}>Win rate</th>
@@ -197,7 +197,7 @@ function RoundtripsTable({ roundtrips, setSymbol, go }) {
     <div className="vg-card vg-tablewrap" style={{ marginTop: 8, padding: "8px 12px" }}>
       <table className="vg-table" style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
-          <tr style={{ textAlign: "left", fontSize: 12, color: "var(--color-grey)" }}>
+          <tr style={{ textAlign: "left", fontSize: 13, color: "var(--color-grey)" }}>
             <th style={{ padding: "10px 12px" }}>Symbol</th>
             <th style={{ padding: "10px 12px" }}>Kind</th>
             <th style={{ padding: "10px 12px" }}>Open → Close</th>
@@ -262,7 +262,7 @@ export function TradeAnalyticsView({ accountId, settings, setSymbol, go }) {
           </p>
           <pre style={{
             background: "var(--color-light)", border: "1px solid var(--color-border)", borderRadius: 8,
-            padding: "10px 12px", margin: "10px 0 0", fontSize: 12, lineHeight: 1.5, overflowX: "auto",
+            padding: "10px 12px", margin: "10px 0 0", fontSize: 13, lineHeight: 1.5, overflowX: "auto",
           }}>
             <code>{"cd server\n.venv/bin/python -m vantage_server.ml.build_roundtrips --account rh-margin --broker-account <N>\n.venv/bin/python -m vantage_server.ml.build_features --account rh-margin --from-roundtrips"}</code>
           </pre>
