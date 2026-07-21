@@ -144,6 +144,29 @@ Docker Compose stack (`deploy/docker-compose.yml`), 4 services + 1 volume:
 - ADRs in `initiatives/vantage/adrs/`; product docs in `initiatives/vantage/`; specs in
   `specs/`.
 
+## UI component gate (check BEFORE writing any new UI)
+
+Every feature that invents a local pattern erodes the app. Before shipping UI,
+answer these; "no" to any = fix it, don't ship around it:
+
+1. **Reuse first.** Stat number → `StatTile` (util.jsx; has `tone`, node labels).
+   Icon → `Icon` from `icons.jsx` (add a glyph there; NEVER emoji in controls —
+   emoji are content only, e.g. day-strip mood). Status chip → `.vg-badge` with
+   the grammar below. New CSS class = justify why no existing component fits.
+2. **Type tokens only.** Font sizes come from `--vg-text-*` (12px floor — xs).
+   No raw px font-size, no inline `fontSize:` below 12. Numerals: `--vg-font-data`
+   + `tabular-nums`.
+3. **One filled button per screen.** The screen's main verb gets
+   `vg-btn-primary`; everything else is outline/link. Refresh glyph is `⟳`.
+4. **Chip grammar.** STATES are UPPERCASE (`OPEN`, `CLOSED`, `GATE NOT MET`);
+   outcomes are lowercase + glyph (`✓ target`, `✕ invalid`). Green/red mean
+   P&L/direction only; amber accent ≤ 3 uses per screen.
+5. **Honesty affordances.** Data gaps, staleness (with age), and "educational
+   only" framings render inline, next to the number they qualify — never
+   omitted to look cleaner.
+6. **Both themes.** Anything styled must read in light AND dark (tokens do this
+   for free — verify if you hardcoded a color).
+
 ## Routing table
 
 | Initiative | Purpose | INDEX.md |
