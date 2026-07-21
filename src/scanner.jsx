@@ -100,24 +100,82 @@ function TierGroup({ label, hits, onOpen }) {
 function HistoryTable({ rows, onOpen }) {
   const tone = (o) => (o === "target" ? "good" : o === "invalidated" ? "bad" : "plain");
   const lbl = (o) => (o === "target" ? "✓ target" : o === "invalidated" ? "✕ invalid" : "· open");
+  // filters — a scan history is unreadable as an unfiltered wall of chips.
+  const [fq, setFq] = useState("");          // ticker search
+  const [fTier, setFTier] = useState("all"); // all | A+ | B
+  const [fDir, setFDir] = useState("all");   // all | long | short
+  const [fOut, setFOut] = useState("all");   // all | open | target | invalidated
+  const [open, setOpen] = useState(null);    // expanded row key
+  const shown = rows.filter((h) =>
+    (!fq || String(h.symbol || "").toUpperCase().includes(fq.toUpperCase()))
+    && (fTier === "all" || h.tier === fTier)
+    && (fDir === "all" || h.dir === fDir)
+    && (fOut === "all" || (h.outcome || "open") === fOut));
+  const zone = (h) => (Array.isArray(h.entry_zone) && h.entry_zone.length === 2
+    ? `${h.entry_zone[0]}–${h.entry_zone[1]}` : h.ce ?? "—");
   return (
     <div className="vg-scan-group" style={{ marginTop: 20 }}>
-      <div className="vg-scan-grouphead">
-        <span className="vg-kicker">History · {rows.length}</span>
+      <div className="vg-scan-grouphead" style={{ flexWrap: "wrap", gap: 8 }}>
+        <span className="vg-kicker">History · {shown.length}{shown.length !== rows.length ? ` of ${rows.length}` : ""}</span>
         <span className="vg-scan-rationale">setups that aged past current — how they played out</span>
+        <span className="vg-row" style={{ gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
+          <input className="vg-scan-filter" value={fq} placeholder="ticker…"
+            onChange={(e) => setFq(e.target.value)} aria-label="Filter by ticker" />
+          <select className="vg-scan-filter" value={fTier} onChange={(e) => setFTier(e.target.value)}>
+            <option value="all">tier: all</option><option value="A+">A+</option><option value="B">B</option>
+          </select>
+          <select className="vg-scan-filter" value={fDir} onChange={(e) => setFDir(e.target.value)}>
+            <option value="all">side: all</option><option value="long">long</option><option value="short">short</option>
+          </select>
+          <select className="vg-scan-filter" value={fOut} onChange={(e) => setFOut(e.target.value)}>
+            <option value="all">outcome: all</option><option value="open">open</option>
+            <option value="target">target</option><option value="invalidated">invalidated</option>
+          </select>
+        </span>
       </div>
       <div className="vg-scan-histlist">
-        {rows.map((h) => (
-          <button key={h.symbol} className="vg-scan-histrow" onClick={() => onOpen && onOpen(h.symbol)}
-            title={`open ${h.symbol} chart`}>
-            <span className="vg-scan-sym" style={{ fontSize: 14 }}>{h.symbol}</span>
-            <b className={cls("vg-scan-dir", dirCls(h.dir === "long" ? 1 : -1))}>
-              {h.tier} {h.dir === "long" ? "LONG" : "SHORT"}</b>
-            <span className="vg-note" style={{ fontSize: 12 }}>{h.bars_ago}h ago</span>
-            <span className={cls("vg-badge", tone(h.outcome))} style={{ marginLeft: "auto", fontSize: 12 }}>
-              {lbl(h.outcome)}</span>
-          </button>
-        ))}
+        {shown.map((h) => {
+          const key = `${h.symbol}|${h.as_of}`;
+          const expanded = open === key;
+          return (
+            <div key={key} className={cls("vg-scan-histrow", expanded && "open")}>
+              <div className="vg-scan-histhead" onClick={() => setOpen(expanded ? null : key)}
+                title={expanded ? "collapse" : "show full setup"}>
+                <span className="vg-scan-sym" style={{ fontSize: 14, cursor: "pointer" }}
+                  onClick={(e) => { e.stopPropagation(); onOpen && onOpen(h.symbol); }}
+                  title={`open ${h.symbol} chart`}>{h.symbol}</span>
+                <b className={cls("vg-scan-dir", dirCls(h.dir === "long" ? 1 : -1))}>
+                  {h.tier} {h.dir === "long" ? "LONG" : "SHORT"}</b>
+                <span className="vg-note vg-scan-histdetail">
+                  entry {zone(h)} · stop {h.invalid ?? "—"}
+                  {Array.isArray(h.targets) && h.targets.length
+                    ? ` · runner ${h.targets[h.targets.length - 1].price}` : ""}
+                </span>
+                <span className="vg-note" style={{ fontSize: "var(--vg-text-xs)" }}>{h.bars_ago}h ago</span>
+                <span className={cls("vg-badge", tone(h.outcome))} style={{ fontSize: "var(--vg-text-xs)" }}>
+                  {lbl(h.outcome)}</span>
+                <span className="vg-note">{expanded ? "▾" : "▸"}</span>
+              </div>
+              {expanded && (
+                <div className="vg-scan-histbody">
+                  <div className="vg-note" style={{ marginBottom: 4 }}>
+                    triggered {h.hour || String(h.as_of || "").slice(11, 16)} ·
+                    {" "}{h.ob_backed ? "OB-backed" : "no OB"} ·
+                    {" "}{h.runner_is_pool ? "runner = liquidity pool" : "runner = fixed R"}
+                  </div>
+                  {(h.targets || []).map((t, i) => (
+                    <div key={i} className="vg-scan-histtgt">
+                      <span className="vg-note">T{i + 1} · {t.r}R</span>
+                      <b>{t.price}</b>
+                      <span className="vg-note">{Math.round((t.size || 0) * 100)}%{t.note ? ` · ${t.note}` : ""}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {!shown.length && <div className="vg-note" style={{ padding: 12 }}>no setups match the filters</div>}
       </div>
     </div>);
 }

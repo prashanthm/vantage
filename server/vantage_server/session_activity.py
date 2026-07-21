@@ -760,20 +760,28 @@ def day_pnl_range(store, days: list[str], underlying: str | None = None) -> dict
     want = set(days)
     all_tk = underlying in (None, "", "all", "ALL", "All")
     u = None if all_tk else underlying.upper()
-    # one pass over history, bucketed by day
+    # one pass over history: keep ALL filled rows (sorted) so each day can pull
+    # the PRIOR opening legs of positions it closes — without them, a swing sold
+    # today counts as pure cash-in with no cost basis (live: Jul 20 read +$18.6k
+    # on a +$3,683 day). Bucket the per-day rows in the same pass.
+    hist: list[dict] = []
     by_day: dict[str, list[dict]] = {}
     for r in store.load_history():
-        d = str(r.get("date") or "")[:10]
-        if d not in want or str(r.get("state") or "").lower() != "filled":
+        if str(r.get("state") or "").lower() != "filled":
             continue
         if str(r.get("kind") or "") not in ("option", "equity"):
             continue
         sym = str(r.get("symbol") or "").upper()
         if u is not None and not (sym.startswith(u) or sym.startswith(u + "W")):
             continue
-        by_day.setdefault(d, []).append(r)
+        hist.append(r)
+        d = str(r.get("date") or "")[:10]
+        if d in want:
+            by_day.setdefault(d, []).append(r)
+    hist.sort(key=lambda r: str(r.get("date") or ""))
     for d in days:
-        rows = by_day.get(d, [])
+        today = by_day.get(d, [])
+        rows = _prior_opens_for_closes(hist, today, d) + today
         # per-account (same reason as session(): no cross-account netting)
         per_acct: dict[str, list[dict]] = defaultdict(list)
         for r in rows:
@@ -781,9 +789,29 @@ def day_pnl_range(store, days: list[str], underlying: str | None = None) -> dict
         trades = []
         for arows in per_acct.values():
             trades.extend(build_trades(group_orders(arows)))
-        realized = round(sum(t["cost"] + t["proceeds"] for t in trades), 2)
+        # realized = round-tripped decisions PLUS options that expired by date
+        # (a 0DTE held to expiry is a realized loss of its debit even with no
+        # closing fill — the four "late lotto" trades). Still no bars: ITM
+        # settlement stays excluded (rare; the day panel is authoritative).
+        now_et = _dt.datetime.now(_dt.timezone.utc).astimezone(
+            _dt.timezone(_dt.timedelta(hours=-4)))
+        today_et = now_et.date().isoformat()
+        # same-day expiries become bookable once the session is over (~16:15 ET)
+        session_over = (now_et.hour, now_et.minute) >= (16, 15)
+
+        def _counts(t):
+            if t.get("status") != "open":
+                return True
+            if d > today_et or (d == today_et and not session_over):
+                return False              # live session — an open 0DTE isn't a loss yet
+            legs = t.get("legs") or []
+            exps = [l.get("expiration") for l in legs if l.get("expiration")]
+            return bool(exps) and len(exps) == len(legs) and max(exps) <= d
+
+        realized = round(sum(t["cost"] + t["proceeds"] for t in trades
+                             if _counts(t)), 2)
         out[d] = {"realized": realized, "trades": len(trades),
-                  "has_fills": bool(rows)}
+                  "has_fills": bool(today)}
     return out
 
 

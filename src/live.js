@@ -1056,6 +1056,12 @@ export const getOdteRead = (underlying = "SPY") =>
   getJson(`${backendBase()}/api/odte/read?underlying=${encodeURIComponent(underlying)}`,
           { timeoutMs: 30000 });
 
+// Persisted Analyze-today day syntheses: save one, list a day's history.
+export const saveDayReview = (body) =>
+  postJson(`${backendBase()}/api/journal/day-review`, body);
+export const getDayReviews = (day) =>
+  getJson(`${backendBase()}/api/journal/day-review?day=${encodeURIComponent(day)}`);
+
 // The trade_keys already analyzed for a day — so "Analyze today" can skip them
 // (and skip the costly per-trade DNA rebuild) instead of re-running every trade.
 export const getAnalyzedKeys = (day) =>

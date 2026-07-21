@@ -472,6 +472,8 @@ ALLOWED_WRITE_ROUTES = {
     # market data from the Alpaca DATA host (no order endpoints exist there),
     # writes only our SQLite (ADR-010 holds).
     "/api/chains/snapshot",
+    # Persist one Analyze-today day synthesis (day_review table) — store-only.
+    "/api/journal/day-review",
     # Store one Journal Analysis run (aggregate self-assessment) — writes only
     # our own SQLite so the periodic analysis compounds; no broker/order path.
     "/api/journal/analysis",

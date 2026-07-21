@@ -1890,6 +1890,44 @@ class Store:
 
     # ── persisted trade analysis (DNA snapshot + Mira's read) ───────────────
 
+    def save_day_review(self, *, day: str, underlying: str,
+                        narrative: str, metrics: dict | None) -> int:
+        """Persist one Analyze-today day synthesis (append — history per day)."""
+        if not self.uses_sqlite:
+            raise RuntimeError("save_day_review requires the SQLite backend")
+        import datetime as _dt
+        import json as _json
+        now = _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat()
+        with self._sqlite_txn() as conn:
+            cur = conn.execute(
+                "INSERT INTO day_review(day, generated_at, underlying, narrative, metrics)"
+                " VALUES(?,?,?,?,?)",
+                (day, now, underlying.upper(), narrative,
+                 _json.dumps(metrics) if metrics else None))
+            return int(cur.lastrowid)
+
+    def load_day_reviews(self, day: str) -> list[dict]:
+        """All persisted syntheses for ``day``, newest first."""
+        if not self.uses_sqlite:
+            return []
+        import json as _json
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM day_review WHERE day=? ORDER BY generated_at DESC",
+                (day,)).fetchall()
+        finally:
+            conn.close()
+        out = []
+        for r in rows:
+            d = dict(r)
+            try:
+                d["metrics"] = _json.loads(d.get("metrics") or "null")
+            except (ValueError, TypeError):
+                d["metrics"] = None
+            out.append(d)
+        return out
+
     def save_chain_snaps(self, rows: list[tuple]) -> int:
         """Append option-chain snapshot rows (chain_recorder tuples, column order
         matching the chain_snaps schema after id). Append-only archive."""

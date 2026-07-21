@@ -42,10 +42,9 @@ const NAV = [
   { group: "Desk", items: [
     // Home: one route, three faces (brief / cockpit / debrief) picked by the
     // market clock — the landing surface. Faces render the existing screens.
+    // Today folded INTO Home (the Cockpit face IS TodayView); #/today still
+    // resolves as a drilldown for old links.
     { id: "home", label: "Home", icon: "home" },
-    // Today is the trading half's front door: signals + why + honest record +
-    // machine health, one screen (see claudedocs/goals/ux-feature-value).
-    { id: "today", label: "Today", icon: "today" },
     { id: "playbook", label: "Daily plan", icon: "plan" },
     { id: "scanner", label: "Scanner", icon: "scanner" },
     // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
@@ -60,8 +59,7 @@ const NAV = [
   ]},
   { group: "Review", items: [
     { id: "journal", label: "Trading Journal", icon: "journal" },
-    { id: "trades", label: "Performance", icon: "performance" },
-    { id: "futures", label: "Futures", icon: "futures" },
+    { id: "trades", label: "Track record", icon: "performance" },
     { id: "strategies", label: "Strategies", icon: "strategies" },
   ]},
 ];
@@ -74,7 +72,7 @@ const NAV = [
 //   markets  — live pattern signals, reached from Market read links
 // `paper` is a reachable drilldown route → the Strategies Track-record tab. (The
 // signalbot/exits tabs + views were retired in the pipeline-only refactor.)
-const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper"];
+const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper", "today", "futures"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 // The market clock decides which FACE of Home the operator needs: pre-market →
@@ -105,23 +103,25 @@ const HOME_FACES = [
   { key: "cockpit", label: "Cockpit" },
   { key: "debrief", label: "Debrief" },
 ];
-function HomeView({ renderFace }) {
-  const [face, setFace] = useState(clockFace);
+function HomeView({ face, onFace, renderFace }) {
+  // face comes from the hash (#/home/cockpit) so it's linkable + back-button
+  // friendly; with no param the market clock picks.
+  const active = HOME_FACES.some((f) => f.key === face) ? face : clockFace();
   return (
     <div className="vg-home">
       <div className="vg-row" style={{ gap: 4, marginBottom: 10 }}>
         {HOME_FACES.map((f) => (
-          <button key={f.key} className={cls("vg-seg-btn", face === f.key && "on")}
-            onClick={() => setFace(f.key)}
-            title={face === f.key ? "current face" : `switch to the ${f.label.toLowerCase()}`}>
+          <button key={f.key} className={cls("vg-seg-btn", active === f.key && "on")}
+            onClick={() => onFace(f.key)}
+            title={active === f.key ? "current face" : `switch to the ${f.label.toLowerCase()}`}>
             {f.label}
           </button>
         ))}
         <span className="vg-note" style={{ marginLeft: 8, fontSize: "var(--vg-text-xs)" }}>
-          picked by the market clock — override sticks for this visit
+          picked by the market clock — pills deep-link (#/home/cockpit)
         </span>
       </div>
-      {renderFace(face)}
+      {renderFace(active)}
     </div>
   );
 }
@@ -492,11 +492,12 @@ function App() {
               onRefreshAccount={onRefreshAccount} onRefreshAll={onRefreshAll}
               onAccountsChanged={() => setRefreshNonce((n) => n + 1)} />)}
           {route === "home" && (
-            <HomeView renderFace={(face) => (
-              face === "cockpit" ? <TodayView refreshNonce={refreshNonce} />
-              : face === "debrief" ? <JournalView refreshNonce={refreshNonce} />
-              : <DashboardView {...viewProps} {...dashProps} notifs={notifs} />
-            )} />
+            <HomeView face={routeParam} onFace={(f) => go("home", f)}
+              renderFace={(face) => (
+                face === "cockpit" ? <TodayView refreshNonce={refreshNonce} />
+                : face === "debrief" ? <JournalView refreshNonce={refreshNonce} />
+                : <DashboardView {...viewProps} {...dashProps} notifs={notifs} />
+              )} />
           )}
           {route === "dashboard" && <DashboardView {...viewProps} {...dashProps} notifs={notifs} />}
           {route === "holdings" && <HoldingsView {...viewProps} />}
@@ -516,9 +517,15 @@ function App() {
           {route === "paper" && (
             <StrategiesView tab={route} refreshNonce={refreshNonce}
               onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
-          {route === "journal" && <JournalView refreshNonce={refreshNonce} />}
+          {route === "journal" && (
+            <JournalView refreshNonce={refreshNonce}
+              tab={routeParam === "analysis" ? "analysis" : "days"}
+              onTab={(k) => go("journal", k === "analysis" ? "analysis" : "")} />)}
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
-          {route === "trades" && <TradeAnalyticsView {...viewProps} />}
+          {route === "trades" && (
+            <TradeAnalyticsView {...viewProps} refreshNonce={refreshNonce}
+              tab={routeParam || "day"}
+              onTab={(k) => go("trades", k === "day" ? "" : k)} />)}
           {route === "ic" && (
             <div className="vg-ic-route">
               <InstrumentChartCard symbol={icSymbol} height="100%"

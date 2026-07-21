@@ -9,14 +9,14 @@
 // image is reference only — never analyzed. Journal/analysis only — no orders
 // (ADR-010).
 import { cls, SymbolSwitcher, LoadBar } from "./util.jsx";
-import { MiraRender, SwotRender } from "./mira-render.jsx";
+import { MiraRender, SwotRender, parseMira } from "./mira-render.jsx";
 import { collectTurn } from "./use_stream_turn.js";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
   getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis,
   getJournalAnalysisBundle, saveJournalAnalysis, getJournalAnalyses,
-  getDayReviewBundle, getAnalyzedKeys,
+  getDayReviewBundle, getAnalyzedKeys, saveDayReview, getDayReviews,
 } from "./live.js";
 
 const { useState, useRef, useEffect, useMemo } = React;
@@ -56,11 +56,15 @@ function dayTone(snap) {
   return "warn";
 }
 
-export function JournalView({ refreshNonce }) {
+export function JournalView({ refreshNonce, tab: routeTab, onTab }) {
   const [nonce, setNonce] = useState(0);
   const [busy, setBusy] = useState("");
   const [sym, setSym] = useState("SPX");     // SPX | QQQ | IWM
-  const [tab, setTab] = useState("days");    // days | analysis
+  // tab is ROUTED (#/journal/analysis) when the parent passes tab+onTab; falls
+  // back to local state where JournalView renders without routing (Home debrief).
+  const [localTab, setLocalTab] = useState("days");
+  const tab = routeTab || localTab;          // days | analysis
+  const setTab = onTab || setLocalTab;
   const [selDay, setSelDay] = useState(todayISO());
   // which month the calendar is showing: {y, m} (m 0-based)
   const now = new Date();
@@ -620,8 +624,8 @@ function TradesPanel({ snap, thoughts, onThought }) {
 
   // The DAY SYNTHESIS: one pass over the whole book (direction / time /
   // allocation) that a per-trade loop can't see. Reads the deterministic bundle
-  // (which includes the per-trade reads just saved) and streams Mira. Not
-  // persisted — it's a "today" view, cheap to regenerate and always current.
+  // (which includes the per-trade reads just saved), streams Mira, and PERSISTS
+  // the result (day_review table) — history accrues per day, newest shown.
   const synthesizeDay = async () => {
     setDaySyn({ loading: true, text: "" });
     try {
@@ -635,14 +639,29 @@ function TradesPanel({ snap, thoughts, onThought }) {
       });
       if (error && !text) { setDaySyn({ error }); return; }
       setDaySyn({ text, data: sdata });
-      // Not persisted: the day synthesis is a "today" view, cheap to regenerate
-      // (one Mira call) and always current. The per-trade reads persist; the
-      // weekly SWOT compounds. ponytail: add a dedicated table only if a
-      // compounding day-level history is actually wanted.
+      if (text.trim()) {
+        const b = res.bundle || {};
+        saveDayReview({ day, underlying: "SPX", narrative: text,
+          metrics: { net_pnl: b.net_pnl, counts: b.counts, metrics: b.metrics } })
+          .then(() => loadDayReviews()).catch(() => {});
+      }
     } catch (e) {
       setDaySyn({ error: String((e && e.message) || e) });
     }
   };
+
+  // stored syntheses for the selected day (newest first) — the card shows the
+  // latest on open (no regeneration needed) + a history picker when there are
+  // several. `synHist` holds the list; `synPick` an explicit older selection.
+  const [synHist, setSynHist] = useState([]);
+  const [synPick, setSynPick] = useState(null);
+  const loadDayReviews = async () => {
+    try {
+      const r = await getDayReviews(day);
+      setSynHist((r && r.available && r.reviews) || []);
+    } catch (e) { /* history is a nicety — never blocks the journal */ }
+  };
+  useEffect(() => { setSynPick(null); setDaySyn(null); loadDayReviews(); }, [day]);
 
   // auto-load the day's trades on open (and when the day/underlying changes) —
   // this is a trade log; it should show the trades, not a button to fetch them.
@@ -727,23 +746,48 @@ function TradesPanel({ snap, thoughts, onThought }) {
         </p>
       )}
 
-      {/* the BOOK-level read, on top of the per-trade cards: the direction /
-          time / allocation pattern a per-trade loop can't see. */}
-      {daySyn && (daySyn.loading || daySyn.data || daySyn.text || daySyn.error) && (
-        <div className="vg-card vg-day-syn" style={{ margin: "10px 0 0" }}>
-          <div className="vg-spread" style={{ alignItems: "baseline" }}>
-            <h4 style={{ margin: 0, fontSize: 14, letterSpacing: "0.03em" }}>
-              🧬 Day synthesis <span className="vg-note" style={{ fontWeight: 400 }}>— the book, not the trades</span>
-            </h4>
-            {daySyn.loading && <span className="vg-spin" aria-hidden="true">⟳</span>}
+      {/* the BOOK-level read, on top of the per-trade cards. Shows the LIVE
+          stream while generating, else the picked/latest STORED synthesis —
+          the read survives sessions and accrues history per day. */}
+      {(() => {
+        const live = daySyn && (daySyn.loading || daySyn.data || daySyn.text || daySyn.error);
+        const stored = !live && (synPick || synHist[0]);
+        if (!live && !stored) return null;
+        return (
+          <div className="vg-card vg-day-syn" style={{ margin: "10px 0 0" }}>
+            <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+              <h4 style={{ margin: 0, fontSize: 14, letterSpacing: "0.03em" }}>
+                Day synthesis <span className="vg-note" style={{ fontWeight: 400 }}>— the book, not the trades</span>
+              </h4>
+              {live && daySyn.loading && <span className="vg-spin" aria-hidden="true">⟳</span>}
+              {stored && (
+                <span className="vg-row" style={{ gap: 8, alignItems: "baseline" }}>
+                  {synHist.length > 1 && (
+                    <select className="vg-rp-runpick" value={(synPick || synHist[0]).id}
+                      onChange={(e) => setSynPick(synHist.find((h) => String(h.id) === e.target.value) || null)}>
+                      {synHist.map((h, i) => (
+                        <option key={h.id} value={h.id}>
+                          {String(h.generated_at || "").slice(11, 16)}{i === 0 ? " (latest)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <span className="vg-note" style={{ fontSize: "var(--vg-text-xs)" }}>
+                    saved {String(stored.generated_at || "").slice(0, 16).replace("T", " ")}
+                  </span>
+                </span>
+              )}
+            </div>
+            {live
+              ? (daySyn.error
+                ? <p className="vg-note" style={{ marginTop: 6 }}>{daySyn.error}</p>
+                : (daySyn.data || daySyn.text)
+                  ? <div style={{ marginTop: 8 }}><MiraRender data={daySyn.data} text={daySyn.text} /></div>
+                  : <p className="vg-note" style={{ marginTop: 6 }}>Reading the day…</p>)
+              : <div style={{ marginTop: 8 }}><MiraRender data={parseMira(stored.narrative)} text={stored.narrative} /></div>}
           </div>
-          {daySyn.error
-            ? <p className="vg-note" style={{ marginTop: 6 }}>{daySyn.error}</p>
-            : (daySyn.data || daySyn.text)
-              ? <div style={{ marginTop: 8 }}><MiraRender data={daySyn.data} text={daySyn.text} /></div>
-              : <p className="vg-note" style={{ marginTop: 6 }}>Reading the day…</p>}
-        </div>
-      )}
+        );
+      })()}
 
       {/* the day, reconciled — including the money no fill showed */}
       <div className="vg-row" style={{ gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 14 }}>

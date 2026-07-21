@@ -8,7 +8,8 @@
 // edges; everything else is visually muted with an "n too small" note so the
 // user never reads noise as signal.
 import { cls, usd, signUsd, signPct, fmtDate, underlyingOf, StatTile } from "./util.jsx";
-import { useLive, getRoundtrips, getTradeStats } from "./live.js";
+import { useLive, getRoundtrips, getTradeStats, getDayPnl } from "./live.js";
+import { FuturesView } from "./futures.jsx";
 
 const { useMemo } = React;
 
@@ -216,7 +217,80 @@ function RoundtripsTable({ roundtrips, setSymbol, go }) {
 }
 
 // ── view ─────────────────────────────────────────────────────────────────────
-export function TradeAnalyticsView({ accountId, settings, setSymbol, go }) {
+// Track record — ONE surface for "how am I actually doing", split by book:
+//   Day trades — the 0DTE decisions (journal); daily P&L strip + link to the
+//                windowed WR/PF + SWOT that already live in Journal → Analysis.
+//   Swings     — multi-day equity/option round-trips from brokerage history,
+//                with the credible-interval edge engine (the old "Performance").
+//   Futures    — the imported futures record (FuturesView, unchanged).
+// Tabs are hash-routed (#/trades/swings, #/trades/futures).
+const TR_TABS = [
+  { key: "day", label: "Day trades" },
+  { key: "swings", label: "Swings" },
+  { key: "futures", label: "Futures" },
+];
+
+function DayTradesTab({ go }) {
+  // last 30 sessions from the (now realized-correct) day-pnl endpoint — cheap.
+  const days = [];
+  for (let i = 0; i < 44; i++) {          // 44 calendar days ≈ 30 sessions
+    const d = new Date(Date.now() - i * 864e5);
+    const wd = d.getUTCDay();
+    if (wd !== 0 && wd !== 6) days.push(d.toISOString().slice(0, 10));
+  }
+  const q = useLive(() => getDayPnl(days.slice(0, 30)), null, []);
+  const pnl = (q.data && q.data.available && q.data.pnl) || {};
+  const rows = Object.entries(pnl).filter(([, v]) => v.has_fills)
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1));
+  const total = rows.reduce((s, [, v]) => s + (v.realized || 0), 0);
+  const green = rows.filter(([, v]) => (v.realized || 0) > 0).length;
+  return (
+    <div>
+      <div className="vg-stats" style={{ margin: "12px 0" }}>
+        <StatTile label="Net (last 30 sessions)" value={usd(total)}
+          tone={total >= 0 ? "good" : "bad"} note={`${rows.length} trading days`} />
+        <StatTile label="Green days" value={`${green} / ${rows.length}`} />
+        <StatTile label="Best day" value={usd(Math.max(0, ...rows.map(([, v]) => v.realized || 0)))} />
+        <StatTile label="Worst day" value={usd(Math.min(0, ...rows.map(([, v]) => v.realized || 0)))} tone="bad" />
+      </div>
+      <div className="vg-card" style={{ padding: 0, overflow: "hidden" }}>
+        {rows.map(([d, v]) => (
+          <div key={d} className="vg-tr-dayrow">
+            <span className="vg-note">{d}</span>
+            <span className="vg-note">{v.trades} decisions</span>
+            <b className={v.realized >= 0 ? "vg-up" : "vg-down"} style={{ marginLeft: "auto" }}>{usd(v.realized)}</b>
+          </div>
+        ))}
+      </div>
+      <p className="vg-note" style={{ marginTop: 10 }}>
+        Full windowed win-rate / profit-factor, the pattern census, and the SWOT
+        live in <a className="vg-linkbtn" href="#/journal/analysis">Journal → Analysis</a> —
+        per-trade desk reviews in <a className="vg-linkbtn" href="#/journal">the Journal</a>.
+      </p>
+    </div>
+  );
+}
+
+export function TradeAnalyticsView({ accountId, settings, setSymbol, go, tab = "day", onTab }) {
+  return (
+    <div>
+      <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 19 }}>Track record</h2>
+        <div className="vg-row" style={{ gap: 4 }}>
+          {TR_TABS.map((t) => (
+            <button key={t.key} className={cls("vg-seg-btn", tab === t.key && "on")}
+              onClick={() => onTab && onTab(t.key)}>{t.label}</button>
+          ))}
+        </div>
+      </div>
+      {tab === "day" && <DayTradesTab go={go} />}
+      {tab === "futures" && <FuturesView />}
+      {tab === "swings" && <SwingsTab accountId={accountId} settings={settings} setSymbol={setSymbol} go={go} />}
+    </div>
+  );
+}
+
+function SwingsTab({ accountId, settings, setSymbol, go }) {
   const rt = useLive(() => getRoundtrips(accountId), null, [accountId, settings]).data;
   const ts = useLive(() => getTradeStats(accountId), null, [accountId, settings]).data;
 
@@ -229,9 +303,10 @@ export function TradeAnalyticsView({ accountId, settings, setSymbol, go }) {
     <div>
       <div className="vg-spread">
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Trade Analytics</h2>
-          <p className="vg-sub">
-            Round-trip record + statistically-defensible edges{asOf ? ` · as of ${asOf}` : ""} · educational only, not advice
+          <p className="vg-sub" style={{ marginTop: 8 }}>
+            Swing round-trips — multi-day equity/option positions reconstructed from
+            brokerage history, with statistically-defensible edges
+            {asOf ? ` · as of ${asOf}` : ""} · educational only, not advice
           </p>
         </div>
       </div>

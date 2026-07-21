@@ -1057,7 +1057,7 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-swot-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
 .vg-swot-items li { font-size: var(--vg-text-md); line-height: 1.42; }
 .vg-swot-cites { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.vg-cite { font-size: var(--vg-text-xs); font-family: ui-monospace, Menlo, monospace; padding: 2px 6px;
+.vg-cite { font-size: var(--vg-text-xs); font-family: var(--vg-font-data); padding: 2px 6px;
   border-radius: 5px; background: rgba(0,0,0,.05); white-space: nowrap; }
 .vg-cite.s { color: var(--vg-up); } .vg-cite.w { color: var(--vg-down); }
 .vg-swot-pattern { margin-top: 12px; padding: 12px 14px; border-radius: 10px;
@@ -1090,7 +1090,7 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
   box-shadow: inset 3px 0 0 var(--vg-accent, #b8860b); }
 .vg-fc-row-sel .vg-fc-showbtn { opacity: 1; }
 .vg-fc-rowhint { font-size: var(--vg-text-xs); color: var(--vg-accent, #b8860b); padding: 0 2px 4px 22px;
-  font-family: var(--vg-mono, ui-monospace); }
+  font-family: var(--vg-font-data); }
 .vg-fc-caret { padding: 0 4px; }
 .vg-fc-caret:hover { color: var(--vg-ink); }
 .vg-fc-pinned { display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
@@ -1100,7 +1100,7 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-fc-pinned-x { margin-left: auto; border: none; background: none; cursor: pointer;
   color: var(--vg-dim); font-size: var(--vg-text-sm); }
 .vg-fc-pinned-x:hover { color: var(--vg-ink); }
-.vg-fc-auto { margin-left: auto; font-family: var(--vg-mono, ui-monospace); font-size: var(--vg-text-xs);
+.vg-fc-auto { margin-left: auto; font-family: var(--vg-font-data); font-size: var(--vg-text-xs);
   padding: 2px 9px; border-radius: 999px; border: 1px solid var(--vg-hairline);
   background: none; color: var(--vg-faint); cursor: pointer; }
 .vg-fc-auto-on { color: var(--vg-up); border-color: color-mix(in srgb, var(--vg-up) 40%, transparent);
@@ -1350,12 +1350,25 @@ a.vg-nb-newstitle:hover { color: var(--vg-accent); text-decoration: underline; }
 .vg-scan-foot { font-size: var(--vg-text-xs); }
 .vg-scan-stale { color: var(--vg-warn); }
 /* history — stale setups with their outcome, compact single-column rows */
-.vg-scan-histlist { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
-  gap: 6px; margin-top: 10px; }
-.vg-scan-histrow { all: unset; cursor: pointer; display: flex; align-items: center; gap: 8px;
-  padding: 6px 10px; border-radius: var(--vg-r-sm); border: 1px solid var(--vg-hairline);
+/* history: full-width expandable rows (was a wall of 230px chips — no room for
+   the setup's actual numbers). One row = ticker · tier/side · entry/stop/runner
+   · age · outcome; expand for the target ladder. */
+.vg-scan-histlist { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.vg-scan-histrow { border-radius: var(--vg-r-sm); border: 1px solid var(--vg-hairline);
   background: var(--vg-card); color: var(--vg-dim); }
-.vg-scan-histrow:hover { background: var(--vg-raised); border-color: var(--vg-rule); }
+.vg-scan-histrow.open { border-color: var(--vg-rule); }
+.vg-scan-histhead { display: flex; align-items: baseline; gap: 10px; padding: 7px 10px;
+  cursor: pointer; flex-wrap: wrap; }
+.vg-scan-histhead:hover { background: var(--vg-raised); }
+.vg-scan-histdetail { font-size: var(--vg-text-sm); font-family: var(--vg-font-data);
+  font-variant-numeric: tabular-nums; margin-left: 4px; flex: 1; }
+.vg-scan-histbody { padding: 4px 12px 10px; border-top: 1px solid var(--vg-hairline); }
+.vg-scan-histtgt { display: flex; gap: 12px; align-items: baseline; padding: 2px 0;
+  font-family: var(--vg-font-data); font-variant-numeric: tabular-nums;
+  font-size: var(--vg-text-sm); }
+.vg-scan-filter { font: 500 var(--vg-text-xs)/1.4 var(--vg-font-ui); color: var(--vg-dim);
+  background: var(--vg-card); border: 1px solid var(--vg-hairline);
+  border-radius: var(--vg-r-sm); padding: 3px 8px; max-width: 110px; }
 .vg-scan-manual { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .vg-scan-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .vg-scan-chip { display: inline-flex; align-items: center; gap: 5px; font-size: var(--vg-text-sm);
@@ -1565,3 +1578,14 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
   font-family: var(--vg-font-data); color: var(--vg-ink); }
 .vg-pf-wl-pct { min-width: 4.5em; text-align: right; }
 .vg-pf-wl-usd { min-width: 6em; text-align: right; color: var(--vg-ink); }
+
+/* Track record · Day trades — one row per session */
+.vg-tr-dayrow { display: flex; gap: 14px; align-items: baseline; padding: 7px 14px;
+  border-bottom: 1px solid var(--vg-hairline); font-family: var(--vg-font-data);
+  font-variant-numeric: tabular-nums; font-size: var(--vg-text-sm); }
+.vg-tr-dayrow:last-child { border-bottom: none; }
+
+/* Notebook rail — ambient brief (the rail at rest) */
+.vg-nb-ambient { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--vg-hairline); }
+.vg-nb-ambrow { display: flex; gap: 10px; align-items: baseline; padding: 3px 0;
+  font-size: var(--vg-text-sm); flex-wrap: wrap; }

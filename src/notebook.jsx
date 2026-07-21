@@ -529,6 +529,47 @@ function formatReply(text) {
 // Facet chips make the multi-facet analysis graph discoverable. Each fires a
 // scoped question through Mira's /analyze flow (fan-out + LLM synthesis), so a
 // tap yields a grounded, multi-facet answer instead of a single-tool reply.
+// Ambient brief — the rail at rest. The empty answer area was dead space on
+// every non-chart screen; fill it with the two glances the operator wants
+// without asking: the 0DTE vol read verdict and today's realized so far.
+function AmbientBrief() {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  const volQ = live.useLive(() => live.getOdteRead("SPY"), null, []);
+  const pnlQ = live.useLive(() => live.getDayPnl([today]), null, []);
+  const v = volQ.data && volQ.data.available ? volQ.data : null;
+  const p = pnlQ.data && pnlQ.data.available && pnlQ.data.pnl ? pnlQ.data.pnl[today] : null;
+  if (!v && !p) return null;
+  const tone = v && (v.verdict === "SELL PREMIUM" ? "good"
+    : v.verdict === "BUY / LONG VOL" ? "warn" : "plain");
+  return (
+    <div className="vg-nb-ambient">
+      <div className="vg-kicker" style={{ marginBottom: 6 }}>Today at a glance</div>
+      {v && (
+        <div className="vg-nb-ambrow">
+          <span className="vg-note">0DTE vol</span>
+          <span className={cls("vg-badge", tone)} style={{ fontSize: "var(--vg-text-xs)", fontWeight: 700 }}>
+            {v.degraded ? "⚠ " : ""}{v.verdict}</span>
+          <span className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>
+            {v.implied_move_pct}% priced vs {v.realized_med_pct ?? "—"}% delivered</span>
+        </div>
+      )}
+      {p && p.has_fills && (
+        <div className="vg-nb-ambrow">
+          <span className="vg-note">today</span>
+          <b className={p.realized >= 0 ? "vg-up" : "vg-down"}
+            style={{ fontVariantNumeric: "tabular-nums" }}>
+            {`${p.realized >= 0 ? "+" : "−"}$${Math.abs(p.realized).toLocaleString()}`}</b>
+          <span className="vg-note">{p.trades} decisions</span>
+          <a className="vg-linkbtn" href="#/journal">journal →</a>
+        </div>
+      )}
+      <div className="vg-note" style={{ fontSize: "var(--vg-text-xs)", marginTop: 4, opacity: 0.7 }}>
+        context, not signals · full read on the <a className="vg-linkbtn" href="#/playbook">Daily plan</a>
+      </div>
+    </div>
+  );
+}
+
 const FACET_CHIPS = [
   { key: "full", label: "Full analysis", q: "What should I do about {S}?" },
   { key: "technical", label: "Technical", q: "Give me the technical / market read on {S}." },
@@ -620,6 +661,7 @@ function AskCard({ sym, price, unrl, isHeld, decision, shares, hasLegs }) {
               </button>
             ))}
           </div>
+          <AmbientBrief />
         </div>
       ) : (
         <div className="vg-nb-chat" ref={bodyRef}>

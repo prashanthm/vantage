@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 26  # v26: chain_snaps — recorded option-chain snapshots (Alpaca data API)
+SCHEMA_VERSION = 27  # v27: day_review — persisted Analyze-today day syntheses (history per day)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -629,6 +629,19 @@ CREATE TABLE IF NOT EXISTS chain_snaps (
 );
 CREATE INDEX IF NOT EXISTS ix_chain_snaps_key
     ON chain_snaps(underlying, expiry, snapped_at);
+
+-- (v27) persisted day syntheses (the Analyze-today book-level read) — history
+-- per day, newest first. Separate from journal_analysis so daily runs never
+-- pollute the weekly SWOT compounding chain.
+CREATE TABLE IF NOT EXISTS day_review (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    day          TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    underlying   TEXT NOT NULL DEFAULT 'SPX',
+    narrative    TEXT,                    -- Mira's synthesis (JSON or prose)
+    metrics      TEXT                     -- JSON: net/counts/metrics at generation
+);
+CREATE INDEX IF NOT EXISTS ix_day_review_day ON day_review(day, generated_at);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard

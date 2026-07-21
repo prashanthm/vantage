@@ -2016,6 +2016,31 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                 if r.get("trade_key") and (r.get("analysis") or "").strip()]
         return envelope(snap, available=True, day=day, keys=keys)
 
+    @app.post("/api/journal/day-review")
+    def journal_day_review_save(body: dict = Body(default={})):
+        """Persist one Analyze-today day synthesis so the read survives the
+        session and accrues a per-day history. Body: {day, underlying?,
+        narrative, metrics?}. Store-only write (ADR-010)."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        day, narrative = str(body.get("day") or ""), str(body.get("narrative") or "")
+        if not day or not narrative.strip():
+            return envelope(snap, available=False, note="need day + narrative")
+        rid = store.save_day_review(day=day,
+                                    underlying=str(body.get("underlying") or "SPX"),
+                                    narrative=narrative,
+                                    metrics=body.get("metrics"))
+        return envelope(snap, available=True, id=rid)
+
+    @app.get("/api/journal/day-review")
+    def journal_day_review_list(day: str = Query(...)):
+        """Persisted day syntheses for ``day``, newest first. Read-only."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, reviews=[])
+        return envelope(snap, available=True, reviews=store.load_day_reviews(day))
+
     @app.post("/api/chains/snapshot")
     def chains_snapshot(body: dict = Body(default={})):
         """Record the current 0DTE option chain(s) into the chain_snaps archive
