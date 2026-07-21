@@ -2083,6 +2083,60 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                 errors.append({"underlying": str(u), "error": str(e)})
         return envelope(snap, available=True, results=results, errors=errors)
 
+    @app.get("/api/journal/trade-analyses")
+    def journal_trade_analyses(day: str = Query(...)):
+        """All stored per-trade desk reviews for ``day`` (label, key, analysis,
+        analyzed_at) — the cockpit's review feed. Read-only."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, analyses=[])
+        rows = store.load_trade_analysis(day) or []
+        return envelope(snap, available=True, analyses=[
+            {"trade_key": r.get("trade_key"), "label": r.get("label"),
+             "analyzed_at": r.get("analyzed_at"), "analysis": r.get("analysis")}
+            for r in rows])
+
+    @app.get("/api/spx/forecast-prompt")
+    def spx_forecast_prompt(symbol: str = Query("SPX")):
+        """The canonical hardened forecast prompt + the snapshot ref for the
+        auto-loop (deploy/auto_loop.py) — the same DISCIPLINE rules the SPA
+        sends, served from one place so cron and UI can't drift. Read-only;
+        the caller streams Mira itself (backend stays Mira-free)."""
+        import datetime as _dt3
+        snap = state.snapshot()
+        sym = (symbol or "SPX").upper()
+        day = _dt3.datetime.now(_dt3.timezone.utc).astimezone(
+            _dt3.timezone(_dt3.timedelta(hours=-4))).date().isoformat()
+        built = None
+        try:
+            from . import spx_snapshot as _ss
+            built = _ss.build_snapshot(store, day, sym)
+        except Exception as e:  # noqa: BLE001
+            return envelope(snap, available=False, note=f"snapshot failed: {e}")
+        as_of = built.get("as_of")
+        ref = f"SPX_SNAPSHOT_REF day={day} as_of={as_of} underlying={sym}"
+        prompt = (
+            f"What will {sym} price do from here? Reason over the snapshot and "
+            "give a structured, scoreable forecast (bias, expected path, level "
+            "targets, invalidation, confidence).\n"
+            "DISCIPLINE (hard rules):\n"
+            "1. CITE the snapshot's regime + technicals VERBATIM (vs_vwap_pt, "
+            "rsi, draw.dir). Never restate a relationship the numbers "
+            "contradict.\n"
+            "2. If ict_htf.present is false, there IS NO hourly setup — you "
+            "must not claim one or use its levels; say it was suppressed and "
+            "why.\n"
+            "3. SANITY CHECK before answering: a down bias requires "
+            "invalidation ABOVE current price; an up bias requires it BELOW. "
+            "If your setup is already beyond its invalidation at current "
+            "price, output bias \"neutral\" and say \"stand down — no valid "
+            "setup\". Standing down is a first-class forecast.\n"
+            "4. Negative gamma amplifies BOTH directions — below-the-flip on a "
+            f"risk-on tape means faster moves UP toward the flip, not a short "
+            f"signal.\n{ref}")
+        return envelope(snap, available=True, prompt=prompt, day=day,
+                        as_of=as_of, symbol=sym, snapshot=built)
+
     @app.get("/api/coach/tone")
     def coach_tone(day: str = Query(None), symbol: str = Query("SPX")):
         """MARKET TONE vs TRADE TONE, side by side: the session in 15-minute

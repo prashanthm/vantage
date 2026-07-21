@@ -1610,3 +1610,13 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
 .vg-tone-verdict { margin-top: 10px; padding: 9px 12px; border-radius: var(--vg-r-sm);
   background: var(--vg-down-soft); color: var(--vg-down); font-weight: 600;
   font-size: var(--vg-text-md); border: 1px solid var(--vg-down); }
+
+/* cockpit — commentary + desk reviews */
+.vg-tone-note { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+.vg-tone-notedot { width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--vg-faint); position: relative; top: -1px; }
+.vg-tone-notedot.good { background: var(--vg-up); }
+.vg-tone-notedot.bad { background: var(--vg-down); }
+.vg-review-row { border-top: 1px solid var(--vg-hairline); margin-top: 6px; padding-top: 6px; }
+.vg-review-head { display: flex; gap: 10px; align-items: baseline; cursor: pointer; }
+.vg-review-head:hover { color: var(--vg-ink); }

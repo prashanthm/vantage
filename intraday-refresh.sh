@@ -14,6 +14,14 @@ mkdir -p logs
 DOW=$(TZ=America/New_York date +%u)          # 1=Mon .. 7=Sun
 HHMM=$(TZ=America/New_York date +%H%M)        # e.g. 0935
 if [ "$DOW" -gt 5 ]; then exit 0; fi
+
+# auto-loop (15-min forecast + analyze-on-close) gets a WIDER window than the
+# bar refresh: it keeps draining post-close so EOD trades get their desk
+# reviews. Lock-protected + backgrounded — never delays the bar jobs.
+if [ "$HHMM" -ge 0930 ] && [ "$HHMM" -le 1645 ]; then
+  nohup python3 "$(dirname "$0")/deploy/auto_loop.py" >> logs/auto-loop.log 2>&1 &
+fi
+
 if [ "$HHMM" -lt 0930 ] || [ "$HHMM" -gt 1600 ]; then exit 0; fi
 
 STAMP="$(TZ=America/New_York date +%Y-%m-%dT%H:%M)"

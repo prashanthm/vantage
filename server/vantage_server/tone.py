@@ -155,11 +155,46 @@ def build(store, day: str, symbol: str = "SPX") -> dict:
 
     # the blunt line the cockpit shows when the pattern is live
     verdict = None
+    cur = buckets[-1]["session_tone"] if buckets else None
     if a["n"] >= 3 and a["pnl"] < 0 and a["n"] > w["n"]:
-        cur = buckets[-1]["session_tone"] if buckets else "?"
         verdict = (f"{a['n']} of your {a['n'] + w['n']} directional entries today "
                    f"fought the session tone (net {a['pnl']:+,.0f}). The tape is "
-                   f"{cur.upper()} right now — stop trading against it or stand down.")
+                   f"{(cur or '?').upper()} right now — stop trading against it or stand down.")
+
+    # descriptive commentary — every line is arithmetic, newest concern first
+    commentary: list[dict] = []
+    day_pnl = round(w["pnl"] + a["pnl"], 2)
+    closed = [p_ for p_ in placed if p_["realized"] is not None]
+    streak = 0
+    for p_ in reversed(closed):
+        if p_["realized"] < 0:
+            streak += 1
+        else:
+            break
+    if day_pnl <= -2000:
+        commentary.append({"tone": "bad", "text":
+            f"Daily stop breached: {day_pnl:+,.0f} realized (rule: stop at −2,000). "
+            "Today is over — anything else is revenge trading."})
+    elif streak >= 3:
+        commentary.append({"tone": "bad", "text":
+            f"{streak} consecutive losses. Your own futures analysis says walk "
+            "after 3 straight — step away from the next entry."})
+    if cur and closed:
+        last = closed[-1]
+        fought = last["with_trend"] is False
+        commentary.append({"tone": "bad" if fought else "good", "text":
+            f"Last entry {last['time']} {last['label']} was "
+            f"{'AGAINST' if fought else 'with'} the {cur.upper()} tape "
+            f"({last['realized']:+,.0f})."})
+    if cur:
+        mins_left = SESSION_END - (buckets[-1]["start_min"] + 15)
+        commentary.append({"tone": "plain", "text":
+            f"Session is {cur.upper()} ({buckets[-1]['session_ret_pct']:+.2f}% vs "
+            f"prior close) · ~{max(0, mins_left)} min left."})
+    if a["n"] + w["n"] > 0:
+        commentary.append({"tone": "good" if w["pnl"] >= a["pnl"] else "bad", "text":
+            f"Alignment today: with-trend {w['n']} for {w['pnl']:+,.0f} · "
+            f"against-trend {a['n']} for {a['pnl']:+,.0f}."})
     gap_pct = None
     if prior_close and ohlc and ohlc.get("close"):
         try:
@@ -170,7 +205,8 @@ def build(store, day: str, symbol: str = "SPX") -> dict:
     return {"day": day, "symbol": symbol.upper(), "buckets": buckets,
             "prior_close": prior_close, "gap_pct": gap_pct,
             "trades": sorted(placed, key=lambda x: x["start_min"]),
-            "alignment": {"with": w, "against": a}, "verdict": verdict}
+            "alignment": {"with": w, "against": a}, "verdict": verdict,
+            "commentary": commentary, "day_pnl": day_pnl, "streak": streak}
 
 
 def _demo() -> None:

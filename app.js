@@ -382,6 +382,7 @@
     getStrategies: () => getStrategies,
     getStrategyAudit: () => getStrategyAudit,
     getTicket: () => getTicket,
+    getTradeAnalyses: () => getTradeAnalyses,
     getTradeDna: () => getTradeDna,
     getTradeStats: () => getTradeStats,
     getTradeablePositions: () => getTradeablePositions,
@@ -1241,6 +1242,7 @@ DISCIPLINE (hard rules):
 3. SANITY CHECK before answering: a down bias requires invalidation ABOVE current price; an up bias requires it BELOW. If your setup is already beyond its invalidation at current price, output bias "neutral" and say "stand down \u2014 no valid setup". Standing down is a first-class forecast.
 4. Negative gamma amplifies BOTH directions \u2014 below-the-flip on a risk-on tape means faster moves UP toward the flip, not a short signal.
 ${ref}`;
+  var getTradeAnalyses = (day) => getJson(`${backendBase()}/api/journal/trade-analyses?day=${encodeURIComponent(day)}`);
   var saveDayReview = (body) => postJson(`${backendBase()}/api/journal/day-review`, body);
   var getDayReviews = (day) => getJson(`${backendBase()}/api/journal/day-review?day=${encodeURIComponent(day)}`);
   var getAnalyzedKeys = (day) => getJson(`${backendBase()}/api/journal/analyzed-keys?day=${encodeURIComponent(day)}`);
@@ -5112,7 +5114,7 @@ ${ref}`;
     const live = status.live_signals || [];
     const armed = status.armed || [];
     const spot = pb && pb.scaffold && pb.scaffold.regime && pb.scaffold.regime.spot || null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Everything you need to trade, in one screen", spot ? ` \xB7 SPX ${fmt2(spot, 1)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.market_open ? "good" : "plain") }, status.market_open ? "MARKET OPEN" : "MARKET CLOSED"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.telegram ? "good" : "warn") }, status.telegram ? "BOT ON" : "BOT OFF"))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: !!status.market_open }), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Everything you need to trade, in one screen", spot ? ` \xB7 SPX ${fmt2(spot, 1)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.market_open ? "good" : "plain") }, status.market_open ? "MARKET OPEN" : "MARKET CLOSED"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.telegram ? "good" : "warn") }, status.telegram ? "BOT ON" : "BOT OFF"))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: !!status.market_open }), /* @__PURE__ */ React.createElement(NextCallCard, null), /* @__PURE__ */ React.createElement(
       SignalsCard,
       {
         live,
@@ -5131,7 +5133,7 @@ ${ref}`;
           signalId: t.id
         })
       }
-    ), /* @__PURE__ */ React.createElement(PositionsCard, { rows: pos }), /* @__PURE__ */ React.createElement(WhyCard, { pb, onReload: load }), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard2, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(PositionsCard, { rows: pos }), /* @__PURE__ */ React.createElement(WhyCard, { pb, onReload: load }), /* @__PURE__ */ React.createElement(DeskReviewsCard, null), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard2, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
       TicketModal,
       {
         sym: ticket.sym,
@@ -5142,14 +5144,14 @@ ${ref}`;
       }
     ));
   }
-  function ToneCompareCard({ marketOpen }) {
+  function ToneCompareCard({ marketOpen, day }) {
     const [tick, setTick] = useState11(0);
     useEffect8(() => {
       if (!marketOpen) return void 0;
       const t = setInterval(() => setTick((n) => n + 1), 18e4);
       return () => clearInterval(t);
     }, [marketOpen]);
-    const q = useLive(() => getCoachTone(), null, [tick]);
+    const q = useLive(() => getCoachTone(day), null, [tick, day]);
     const d = q.data && q.data.available ? q.data : null;
     if (!d || !(d.buckets || []).length) return null;
     const SLOTS = 26;
@@ -5186,7 +5188,55 @@ ${ref}`;
           boxShadow: t.with_trend === false ? "0 0 0 2px var(--vg-warn)" : "none"
         }
       }
-    ))))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6, fontSize: "var(--vg-text-xs)" } }, "dot = your entry (green long \xB7 red short) \xB7 amber ring = against the session tone at entry"), d.verdict && /* @__PURE__ */ React.createElement("div", { className: "vg-tone-verdict" }, "\u26A0 ", d.verdict));
+    ))))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6, fontSize: "var(--vg-text-xs)" } }, "dot = your entry (green long \xB7 red short) \xB7 amber ring = against the session tone at entry"), d.verdict && /* @__PURE__ */ React.createElement("div", { className: "vg-tone-verdict" }, "\u26A0 ", d.verdict), (d.commentary || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, d.commentary.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-tone-note" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-tone-notedot", c.tone) }), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: {
+      fontSize: "var(--vg-text-sm)",
+      color: c.tone === "bad" ? "var(--vg-down)" : void 0
+    } }, c.text)))));
+  }
+  function NextCallCard() {
+    const [tick, setTick] = useState11(0);
+    useEffect8(() => {
+      const t = setInterval(() => setTick((n) => n + 1), 12e4);
+      return () => clearInterval(t);
+    }, []);
+    const q = useLive(() => getSpxForecasts(void 0, "SPX", 1), null, [tick]);
+    const f = (q.data && q.data.forecasts || [])[0];
+    if (!f) return null;
+    const plot = f.forecast && f.forecast.plot || {};
+    const bias = String(plot.bias || "?").toLowerCase();
+    const tone = bias.includes("up") || bias.includes("bull") ? "good" : bias.includes("down") || bias.includes("bear") ? "bad" : "plain";
+    let age = null;
+    try {
+      age = Math.round((Date.now() - new Date(f.as_of).getTime()) / 6e4);
+    } catch (e) {
+    }
+    const path = Array.isArray(plot.path) ? plot.path.filter((s2) => s2 && s2.price != null) : [];
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Next 15 minutes ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\u2014 analyst call @ SPX ", f.price_at, age != null ? ` \xB7 ${age}m ago` : "", age != null && age > 20 ? " \xB7 STALE" : "")), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontWeight: 700 } }, String(plot.bias || "no call").toUpperCase(), plot.born_invalid ? " \xB7 BORN-INVALID" : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 18, marginTop: 8, flexWrap: "wrap", fontVariantNumeric: "tabular-nums" } }, plot.target != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "target ", /* @__PURE__ */ React.createElement("b", { className: "vg-up" }, plot.target)), path.slice(0, 3).map((s2, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "vg-note" }, i + 1, "\xB7 ", /* @__PURE__ */ React.createElement("b", null, s2.price), s2.note ? ` ${String(s2.note).slice(0, 22)}` : "")), plot.invalidation != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "wrong if ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, plot.invalidation))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6, fontSize: "var(--vg-text-xs)", opacity: 0.75 } }, "auto-refreshed ~15 min during RTH \xB7 full read on the chart (Replay panel) \xB7 context, not a signal (ADR-008)"));
+  }
+  function DeskReviewsCard() {
+    const [tick, setTick] = useState11(0);
+    const [open, setOpen] = useState11(null);
+    useEffect8(() => {
+      const t = setInterval(() => setTick((n) => n + 1), 18e4);
+      return () => clearInterval(t);
+    }, []);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(/* @__PURE__ */ new Date());
+    const q = useLive(() => getTradeAnalyses(today), null, [tick]);
+    const rows = q.data && q.data.available && q.data.analyses || [];
+    if (!rows.length) return null;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Desk reviews \xB7 ", rows.length, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 each close auto-analyzed within minutes")), rows.map((r) => {
+      const parsed = parseMira(r.analysis);
+      const head = parsed && parsed.headline || String(r.analysis || "").slice(0, 120);
+      const isOpen = open === r.trade_key;
+      return /* @__PURE__ */ React.createElement("div", { key: r.trade_key, className: "vg-review-row" }, /* @__PURE__ */ React.createElement("div", { className: "vg-review-head", onClick: () => setOpen(isOpen ? null : r.trade_key) }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "var(--vg-text-sm)", whiteSpace: "nowrap" } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: {
+        fontSize: "var(--vg-text-sm)",
+        flex: 1,
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: isOpen ? "normal" : "nowrap"
+      } }, head), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, isOpen ? "\u25BE" : "\u25B8")), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "4px 2px 8px" } }, /* @__PURE__ */ React.createElement(MiraRender, { data: parsed, text: r.analysis })));
+    }));
   }
   function SignalsCard({ live, armed, spot, onExecute }) {
     const n = live.length;
@@ -6045,7 +6095,7 @@ ${ref}`;
         },
         synHist.map((h, i) => /* @__PURE__ */ React.createElement("option", { key: h.id, value: h.id }, String(h.generated_at || "").slice(11, 16), i === 0 ? " (latest)" : ""))
       ), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: "var(--vg-text-xs)" } }, "saved ", String(stored.generated_at || "").slice(0, 16).replace("T", " ")))), live ? daySyn.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, daySyn.error) : daySyn.data || daySyn.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: daySyn.data, text: daySyn.text })) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, "Reading the day\u2026") : /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: parseMira(stored.narrative), text: stored.narrative })));
-    })(), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 14 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money3(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money3(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money3(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money3(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.win_rate != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "win rate ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.win_rate * 100), "%")), s.profit_factor != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "profit factor", " ", /* @__PURE__ */ React.createElement("b", { className: s.profit_factor >= 1 ? "vg-up" : "vg-down" }, s.profit_factor.toFixed(2))), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, rows.map(({ t, i }) => {
+    })(), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: false, day: s.created_at ? String(s.created_at).slice(0, 10) : void 0 }), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 14 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money3(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money3(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money3(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money3(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.win_rate != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "win rate ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.win_rate * 100), "%")), s.profit_factor != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "profit factor", " ", /* @__PURE__ */ React.createElement("b", { className: s.profit_factor >= 1 ? "vg-up" : "vg-down" }, s.profit_factor.toFixed(2))), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, rows.map(({ t, i }) => {
       const key = `${t.account || ""}|${t.opened_at || i}|${t.label}`;
       return /* @__PURE__ */ React.createElement(
         TradeCard,

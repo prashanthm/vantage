@@ -19,9 +19,10 @@
 import { TicketModal, PineModal } from "./playbook.jsx";
 import { getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook,
          getTradeablePositions, recomputePlaybook, getPlaybookPine,
-         getReclaimPine, getCoachPine, getCoachTone, useLive } from "./live.js";
+         getReclaimPine, getCoachPine, getCoachTone, getSpxForecasts, getTradeAnalyses, useLive } from "./live.js";
 import { cls, StatTile } from "./util.jsx";
 import { PositionsTable } from "./positions_table.jsx";
+import { MiraRender, parseMira } from "./mira-render.jsx";
 
 const { useEffect, useState } = React;
 
@@ -90,6 +91,8 @@ export function TodayView({ refreshNonce }) {
 
       <ToneCompareCard marketOpen={!!status.market_open} />
 
+      <NextCallCard />
+
       <SignalsCard live={live} armed={armed} spot={spot}
         onExecute={(t) => setTicket({
           // the signal already names symbol + side + level: seed the ticket
@@ -103,6 +106,8 @@ export function TodayView({ refreshNonce }) {
       <PositionsCard rows={pos} />
 
       <WhyCard pb={pb} onReload={load} />
+
+      <DeskReviewsCard />
 
       <div className="vg-stats" style={{ marginTop: 14, gridTemplateColumns: "1fr 1fr" }}>
         <StrategyCard perf={perf} />
@@ -125,14 +130,14 @@ export function TodayView({ refreshNonce }) {
 // against). Pure arithmetic from /api/coach/tone; refreshes every 3 min while
 // the market is open. Born from 2026-07-21: 0/11, −$9,035, nine puts into a
 // rising tape — the mismatch was never on one screen.
-function ToneCompareCard({ marketOpen }) {
+export function ToneCompareCard({ marketOpen, day }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!marketOpen) return undefined;
     const t = setInterval(() => setTick((n) => n + 1), 180000);
     return () => clearInterval(t);
   }, [marketOpen]);
-  const q = useLive(() => getCoachTone(), null, [tick]);
+  const q = useLive(() => getCoachTone(day), null, [tick, day]);
   const d = q.data && q.data.available ? q.data : null;
   if (!d || !(d.buckets || []).length) return null;
   const SLOTS = 26;                                   // 09:30..16:00 / 15m
@@ -190,6 +195,105 @@ function ToneCompareCard({ marketOpen }) {
       {d.verdict && (
         <div className="vg-tone-verdict">⚠ {d.verdict}</div>
       )}
+      {(d.commentary || []).length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {d.commentary.map((c, i) => (
+            <div key={i} className="vg-tone-note">
+              <span className={cls("vg-tone-notedot", c.tone)} />
+              <span className="vg-note" style={{ fontSize: "var(--vg-text-sm)",
+                color: c.tone === "bad" ? "var(--vg-down)" : undefined }}>{c.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------- 0b. the next-15-minutes call
+//
+// The latest stored analyst forecast (the cron auto-runs one every ~15 min
+// during RTH) rendered as a compact call: bias chip + targets + invalidation +
+// age. Deterministic render of stored data — the model already spoke.
+function NextCallCard() {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 120000);
+    return () => clearInterval(t);
+  }, []);
+  const q = useLive(() => getSpxForecasts(undefined, "SPX", 1), null, [tick]);
+  const f = ((q.data && q.data.forecasts) || [])[0];
+  if (!f) return null;
+  const plot = (f.forecast && f.forecast.plot) || {};
+  const bias = String(plot.bias || "?").toLowerCase();
+  const tone = bias.includes("up") || bias.includes("bull") ? "good"
+    : bias.includes("down") || bias.includes("bear") ? "bad" : "plain";
+  let age = null;
+  try { age = Math.round((Date.now() - new Date(f.as_of).getTime()) / 60000); } catch (e) { /* */ }
+  const path = Array.isArray(plot.path) ? plot.path.filter((s2) => s2 && s2.price != null) : [];
+  return (
+    <div className="vg-card" style={{ marginTop: 14 }}>
+      <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <div className="vg-kicker" style={{ marginBottom: 0 }}>
+          Next 15 minutes <span className="vg-note" style={{ fontWeight: 400 }}>
+            — analyst call @ SPX {f.price_at}{age != null ? ` · ${age}m ago` : ""}
+            {age != null && age > 20 ? " · STALE" : ""}</span>
+        </div>
+        <span className={cls("vg-badge", tone)} style={{ fontWeight: 700 }}>
+          {String(plot.bias || "no call").toUpperCase()}
+          {plot.born_invalid ? " · BORN-INVALID" : ""}
+        </span>
+      </div>
+      <div className="vg-row" style={{ gap: 18, marginTop: 8, flexWrap: "wrap", fontVariantNumeric: "tabular-nums" }}>
+        {plot.target != null && <span className="vg-note">target <b className="vg-up">{plot.target}</b></span>}
+        {path.slice(0, 3).map((s2, i) => (
+          <span key={i} className="vg-note">{i + 1}· <b>{s2.price}</b>{s2.note ? ` ${String(s2.note).slice(0, 22)}` : ""}</span>
+        ))}
+        {plot.invalidation != null && <span className="vg-note">wrong if <b className="vg-down">{plot.invalidation}</b></span>}
+      </div>
+      <div className="vg-note" style={{ marginTop: 6, fontSize: "var(--vg-text-xs)", opacity: 0.75 }}>
+        auto-refreshed ~15 min during RTH · full read on the chart (Replay panel) · context, not a signal (ADR-008)
+      </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------- 0c. today's desk reviews
+//
+// Every closed trade's Mira review, as it lands (the cron analyzes each close
+// within ~5-10 min). Newest first, collapsed to headlines; expand for the read.
+function DeskReviewsCard() {
+  const [tick, setTick] = useState(0);
+  const [open, setOpen] = useState(null);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 180000);
+    return () => clearInterval(t);
+  }, []);
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+  const q = useLive(() => getTradeAnalyses(today), null, [tick]);
+  const rows = (q.data && q.data.available && q.data.analyses) || [];
+  if (!rows.length) return null;
+  return (
+    <div className="vg-card" style={{ marginTop: 14 }}>
+      <div className="vg-kicker">Desk reviews · {rows.length}
+        <span className="vg-note" style={{ fontWeight: 400 }}> — each close auto-analyzed within minutes</span>
+      </div>
+      {rows.map((r) => {
+        const parsed = parseMira(r.analysis);
+        const head = (parsed && parsed.headline) || String(r.analysis || "").slice(0, 120);
+        const isOpen = open === r.trade_key;
+        return (
+          <div key={r.trade_key} className="vg-review-row">
+            <div className="vg-review-head" onClick={() => setOpen(isOpen ? null : r.trade_key)}>
+              <b style={{ fontSize: "var(--vg-text-sm)", whiteSpace: "nowrap" }}>{r.label}</b>
+              <span className="vg-note" style={{ fontSize: "var(--vg-text-sm)", flex: 1, minWidth: 0,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: isOpen ? "normal" : "nowrap" }}>{head}</span>
+              <span className="vg-note">{isOpen ? "▾" : "▸"}</span>
+            </div>
+            {isOpen && <div style={{ padding: "4px 2px 8px" }}><MiraRender data={parsed} text={r.analysis} /></div>}
+          </div>
+        );
+      })}
     </div>
   );
 }

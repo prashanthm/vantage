@@ -1082,6 +1082,10 @@ export const buildForecastPrompt = (symbol, ref) =>
   + `4. Negative gamma amplifies BOTH directions — below-the-flip on a risk-on `
   + `tape means faster moves UP toward the flip, not a short signal.\n${ref}`;
 
+// All stored per-trade desk reviews for a day (the cockpit's review feed).
+export const getTradeAnalyses = (day) =>
+  getJson(`${backendBase()}/api/journal/trade-analyses?day=${encodeURIComponent(day)}`);
+
 // Persisted Analyze-today day syntheses: save one, list a day's history.
 export const saveDayReview = (body) =>
   postJson(`${backendBase()}/api/journal/day-review`, body);

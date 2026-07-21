@@ -10,6 +10,7 @@
 // (ADR-010).
 import { cls, SymbolSwitcher, LoadBar } from "./util.jsx";
 import { MiraRender, SwotRender, parseMira } from "./mira-render.jsx";
+import { ToneCompareCard } from "./today.jsx";
 import { collectTurn } from "./use_stream_turn.js";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
@@ -788,6 +789,9 @@ function TradesPanel({ snap, thoughts, onThought }) {
           </div>
         );
       })()}
+
+      {/* market tone vs trade tone for THIS day — the cockpit strips, recalled */}
+      <ToneCompareCard marketOpen={false} day={s.created_at ? String(s.created_at).slice(0, 10) : undefined} />
 
       {/* the day, reconciled — including the money no fill showed */}
       <div className="vg-row" style={{ gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 14 }}>
