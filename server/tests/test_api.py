@@ -468,6 +468,10 @@ ALLOWED_WRITE_ROUTES = {
     "/api/nightly/record",
     # Persist a trade's DNA snapshot + Mira read into our store.
     "/api/journal/trade-analysis",
+    # Record the current option chain into our own chain_snaps archive — GETs
+    # market data from the Alpaca DATA host (no order endpoints exist there),
+    # writes only our SQLite (ADR-010 holds).
+    "/api/chains/snapshot",
     # Store one Journal Analysis run (aggregate self-assessment) — writes only
     # our own SQLite so the periodic analysis compounds; no broker/order path.
     "/api/journal/analysis",

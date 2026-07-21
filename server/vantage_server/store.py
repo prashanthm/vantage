@@ -1890,6 +1890,36 @@ class Store:
 
     # ── persisted trade analysis (DNA snapshot + Mira's read) ───────────────
 
+    def save_chain_snaps(self, rows: list[tuple]) -> int:
+        """Append option-chain snapshot rows (chain_recorder tuples, column order
+        matching the chain_snaps schema after id). Append-only archive."""
+        if not self.uses_sqlite:
+            raise RuntimeError("save_chain_snaps requires the SQLite backend")
+        with self._sqlite_txn() as conn:
+            conn.executemany(
+                "INSERT INTO chain_snaps"
+                "(snapped_at, source, underlying, expiry, right, strike,"
+                " bid, ask, last, iv, delta, gamma, theta, vega) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+        return len(rows)
+
+    def chain_snap_summary(self) -> list[dict]:
+        """Per (underlying, expiry): tick count, contract-row count, first/last
+        snap — the recorder's coverage at a glance."""
+        if not self.uses_sqlite:
+            return []
+        conn = self._backend._conn()
+        try:
+            rows = conn.execute(
+                "SELECT underlying, expiry, COUNT(DISTINCT snapped_at) AS ticks,"
+                " COUNT(*) AS rows_, MIN(snapped_at) AS first_snap,"
+                " MAX(snapped_at) AS last_snap"
+                " FROM chain_snaps GROUP BY underlying, expiry"
+                " ORDER BY expiry DESC, underlying").fetchall()
+        finally:
+            conn.close()
+        return [dict(r) for r in rows]
+
     def save_trade_analysis(self, *, day: str, trade_key: str, underlying: str,
                             label: str | None, dna: dict,
                             analysis: str | None) -> int:

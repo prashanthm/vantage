@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 25  # v25: Alpaca-paper execution ledger cols on paper_trades (order ids/status)
+SCHEMA_VERSION = 26  # v26: chain_snaps — recorded option-chain snapshots (Alpaca data API)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -612,6 +612,23 @@ CREATE TABLE IF NOT EXISTS strategy_audit (
     order_id    TEXT                     -- broker order id when submitted
 );
 CREATE INDEX IF NOT EXISTS ix_strategy_audit_strat ON strategy_audit(strategy_id, at);
+
+-- (v26) recorded option-chain snapshots — the self-built intraday chain archive.
+-- One row per contract per snapshot tick (RTH cron). Source is labeled so a
+-- yfinance fallback (SPX) can coexist with Alpaca (SPY/QQQ). Append-only.
+CREATE TABLE IF NOT EXISTS chain_snaps (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    snapped_at TEXT NOT NULL,            -- ISO UTC of the snapshot tick
+    source     TEXT NOT NULL,            -- 'alpaca-indicative' | 'alpaca-opra' | 'yfinance'
+    underlying TEXT NOT NULL,            -- SPY | QQQ | ...
+    expiry     TEXT NOT NULL,            -- YYYY-MM-DD (0DTE = snap day during RTH)
+    right      TEXT NOT NULL,            -- C | P
+    strike     REAL NOT NULL,
+    bid        REAL, ask REAL, last REAL,
+    iv         REAL, delta REAL, gamma REAL, theta REAL, vega REAL
+);
+CREATE INDEX IF NOT EXISTS ix_chain_snaps_key
+    ON chain_snaps(underlying, expiry, snapped_at);
 """
 
 #: Post-v12 managed_positions columns, added idempotently (same PRAGMA-guard

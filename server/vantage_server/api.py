@@ -2016,6 +2016,34 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                 if r.get("trade_key") and (r.get("analysis") or "").strip()]
         return envelope(snap, available=True, day=day, keys=keys)
 
+    @app.post("/api/chains/snapshot")
+    def chains_snapshot(body: dict = Body(default={})):
+        """Record the current 0DTE option chain(s) into the chain_snaps archive
+        (Alpaca data API — market data GETs only; SPX not available there, SPY
+        is the recorded proxy). Store-only write (ADR-010). Body:
+        {underlyings?: [..]} — defaults to the recorder's standard set."""
+        from . import chain_recorder as _cr
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        unders = body.get("underlyings") or list(_cr.RECORD_UNDERLYINGS)
+        results, errors = [], []
+        for u in unders:
+            try:
+                results.append(_cr.snapshot_chain(store, str(u)))
+            except Exception as e:  # noqa: BLE001 — one symbol never blocks the rest
+                errors.append({"underlying": str(u), "error": str(e)})
+        return envelope(snap, available=True, results=results, errors=errors)
+
+    @app.get("/api/chains/summary")
+    def chains_summary():
+        """Recorder coverage: per (underlying, expiry) tick/row counts and the
+        first/last snapshot times. Read-only."""
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, coverage=[])
+        return envelope(snap, available=True, coverage=store.chain_snap_summary())
+
     @app.get("/api/journal/day-review-bundle")
     def journal_day_review_bundle(day: str = Query(...),
                                   underlying: str = Query("SPX")):

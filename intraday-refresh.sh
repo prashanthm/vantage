@@ -34,6 +34,14 @@ done
 # order), so give it a generous timeout — a truncated fetch reads as an error and
 # leaves trades missing. A broker hiccup is logged, never fatal (|| true). Override
 # the list via VANTAGE_SYNC_ACCTS.
+# record the current 0DTE option chains (SPY/QQQ via Alpaca data API) into the
+# chain_snaps archive — the self-built intraday chain history. Cheap (one call
+# per underlying), never fatal.
+OUT=$(curl -s --max-time 60 -X POST "$API/api/chains/snapshot" \
+  -H 'Content-Type: application/json' -d '{}' || true)
+ROWS=$(printf '%s' "$OUT" | grep -o '"rows":[0-9]*' | paste -sd, -)
+echo "[$STAMP] chains -> ${ROWS:-err}" >> "$LOG"
+
 for ACCT in ${VANTAGE_SYNC_ACCTS:-rh-main rh-margin}; do
   OUT=$(curl -s --max-time 120 -X POST "$API/api/refresh" \
     -H 'Content-Type: application/json' -d "{\"account\":\"$ACCT\"}" || true)
