@@ -7,7 +7,7 @@
 // reads the latest. Context, not a signal (ADR-008) — no orders placed.
 import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
-import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket } from "./live.js";
+import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket, getOdteRead } from "./live.js";
 
 const { useMemo, useState } = React;
 
@@ -137,6 +137,9 @@ export function PlaybookView({ refreshNonce }) {
           </div>
         )}
       </div>
+
+      {/* ---- 0DTE vol read: implied (recorded chain) vs realized → act / sit ---- */}
+      <VolReadCard />
 
       {/* ---- market context: breadth · VIX term structure · sectors · intermarket ---- */}
       {p && (reg.breadth_pct_above_50ma != null || reg.vix != null || reg.intermarket) && (
@@ -330,6 +333,50 @@ function SummaryTile({ label, value, tone }) {
     <div className="vg-pb-tile">
       <div className="vg-note" style={{ fontSize: 12 }}>{label}</div>
       <div className={cls("vg-pb-tileval", tone)}>{value}</div>
+    </div>
+  );
+}
+
+// 0DTE vol read — the odte_research Phase-A verdict: is today's movement
+// overpriced (sell premium), underpriced (long vol), or fair (stand down)?
+// Implied = ATM straddle from OUR recorded chain (chain_snaps, Alpaca; SPY is
+// the SPX proxy — Alpaca carries no index options). Realized = 20-session
+// median daily move. Deterministic; staleness shown honestly.
+function VolReadCard() {
+  const q = useLive(() => getOdteRead("SPY"), null, []);
+  const d = q.data;
+  if (!d) return null;                                  // loading — no flash
+  if (!d.available) {
+    return (
+      <div className="vg-card">
+        <div className="vg-kicker">0DTE vol read</div>
+        <div className="vg-note" style={{ fontSize: 12 }}>{d.note}</div>
+      </div>
+    );
+  }
+  const tone = d.verdict === "SELL PREMIUM" ? "good"
+    : d.verdict === "BUY / LONG VOL" ? "warn" : "plain";
+  return (
+    <div className="vg-card">
+      <div className="vg-spread" style={{ alignItems: "baseline" }}>
+        <div className="vg-kicker">0DTE vol read <span className="vg-note" style={{ fontWeight: 400 }}>
+          — {d.underlying} (SPX proxy) · exp {d.expiry}</span></div>
+        <span className={cls("vg-badge", tone)} style={{ fontSize: "var(--vg-text-sm)", fontWeight: 700 }}>
+          {d.verdict}
+        </span>
+      </div>
+      <div className="vg-row" style={{ gap: 20, margin: "8px 0 4px", flexWrap: "wrap", fontVariantNumeric: "tabular-nums" }}>
+        <span className="vg-note">implied <b style={{ color: "var(--vg-ink)" }}>{d.implied_move_pct}%</b>
+          {" "}(${d.straddle_usd} straddle @ {d.atm_strike})</span>
+        <span className="vg-note">delivered (20d med) <b style={{ color: "var(--vg-ink)" }}>{d.realized_med_pct ?? "—"}%</b></span>
+        {d.ratio != null && <span className="vg-note">ratio <b style={{ color: "var(--vg-ink)" }}>{d.ratio}×</b></span>}
+        {d.atm_iv != null && <span className="vg-note">ATM IV {(d.atm_iv * 100).toFixed(1)}%</span>}
+      </div>
+      <div className="vg-note" style={{ fontSize: "var(--vg-text-sm)" }}>{d.verdict_note}</div>
+      <div className="vg-note" style={{ fontSize: "var(--vg-text-xs)", marginTop: 6, opacity: d.degraded ? 1 : 0.7 }}>
+        {d.degraded ? "⚠ STALE — " : ""}chain snapped {d.age_minutes != null ? `${d.age_minutes} min ago` : "—"} ·
+        {" "}{d.source} · context, not a signal (ADR-008) · sitting out is a position
+      </div>
     </div>
   );
 }

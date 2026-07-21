@@ -2035,6 +2035,18 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                 errors.append({"underlying": str(u), "error": str(e)})
         return envelope(snap, available=True, results=results, errors=errors)
 
+    @app.get("/api/odte/read")
+    def odte_read(underlying: str = Query("SPY")):
+        """The 0DTE implied-vs-realized read (odte_research Phase A): ATM
+        straddle from the recorded chain vs the 20-session realized baseline →
+        SELL PREMIUM / BUY / STAND DOWN with a staleness contract. Deterministic
+        math from our own archive; read-only."""
+        from . import odte_read as _od
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        return envelope(snap, **_od.build_read(store, underlying or "SPY"))
+
     @app.get("/api/chains/summary")
     def chains_summary():
         """Recorder coverage: per (underlying, expiry) tick/row counts and the

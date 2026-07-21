@@ -1050,6 +1050,12 @@ export const getJournalAnalysisBundle = (from, to, underlying = "SPX") =>
 export const saveJournalAnalysis = (body) =>
   postJson(`${backendBase()}/api/journal/analysis`, body);
 
+// The 0DTE implied-vs-realized vol read (odte_research Phase A) — ATM straddle
+// from the recorded chain vs the realized baseline → SELL / BUY / STAND DOWN.
+export const getOdteRead = (underlying = "SPY") =>
+  getJson(`${backendBase()}/api/odte/read?underlying=${encodeURIComponent(underlying)}`,
+          { timeoutMs: 30000 });
+
 // The trade_keys already analyzed for a day — so "Analyze today" can skip them
 // (and skip the costly per-trade DNA rebuild) instead of re-running every trade.
 export const getAnalyzedKeys = (day) =>
