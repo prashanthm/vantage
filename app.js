@@ -2276,6 +2276,201 @@ ${ref}`;
     if (s.includes("invalid") || s.includes("wrong")) return "bad";
     return "plain";
   }
+  function SessionMap({ d }) {
+    const frames = [...d.frames || []].reverse();
+    const buckets = d.buckets || [];
+    if (!buckets.length) return null;
+    const W = 980, H = 300, PAD_L = 54, PAD_R = 12, PAD_T = 10, LANE = 26;
+    const plotH = H - PAD_T - LANE - 24;
+    const n = 26;
+    const x = (i) => PAD_L + (i + 0.5) * ((W - PAD_L - PAD_R) / n);
+    const slotOf = (sm) => Math.max(0, Math.min(n - 1, Math.floor((sm - 570) / 15)));
+    const closes = buckets.map((b) => b.close);
+    let lo = Math.min(...closes), hi = Math.max(...closes);
+    for (const f of frames) {
+      const c = f.call || {};
+      for (const v of [c.target, c.invalidation]) {
+        if (v != null && v > lo - 40 && v < hi + 40) {
+          lo = Math.min(lo, v);
+          hi = Math.max(hi, v);
+        }
+      }
+    }
+    const span = Math.max(hi - lo, 1);
+    lo -= span * 0.06;
+    hi += span * 0.06;
+    const y = (p) => PAD_T + (hi - p) / (hi - lo) * plotH;
+    const yc = (p) => Math.max(PAD_T, Math.min(PAD_T + plotH, y(p)));
+    const toneCol = (t) => t === "bull" ? "var(--vg-up)" : t === "bear" ? "var(--vg-down)" : "var(--vg-faint)";
+    const biasCol = (b) => {
+      const t = String(b || "").toLowerCase();
+      return t.includes("up") || t.includes("bull") ? "var(--vg-up)" : t.includes("down") || t.includes("bear") ? "var(--vg-down)" : "var(--vg-faint)";
+    };
+    const candles = buckets.map((b, i) => ({
+      i: slotOf(b.start_min),
+      o: i > 0 ? buckets[i - 1].close : b.close,
+      c: b.close,
+      tone: b.tone
+    }));
+    const spans = [];
+    for (const f of frames) {
+      const c = f.call;
+      if (!c) continue;
+      const slot = slotOf(f.start_min);
+      const last = spans[spans.length - 1];
+      if (last && last.id === c.id) last.to = slot;
+      else spans.push({ id: c.id, from: slot, to: slot, call: c });
+    }
+    const ticks = frames.filter((f) => f.call && f.call.fresh && f.call.score).map((f) => ({ slot: slotOf(f.start_min), v: String(f.call.score.verdict || "") }));
+    const byStart = Object.fromEntries(buckets.map((b) => [slotOf(b.start_min), b]));
+    const dots = [];
+    for (const f of frames) for (const t of f.trades || []) {
+      const slot = slotOf(t.start_min);
+      const b = byStart[slot];
+      if (b) dots.push({ slot, price: b.close, t });
+    }
+    const half = (W - PAD_L - PAD_R) / n / 2 - 2;
+    return /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        viewBox: `0 0 ${W} ${H}`,
+        style: { width: "100%", height: "auto", display: "block" },
+        role: "img",
+        "aria-label": "Session map \u2014 price, calls and your trades per 15-minute frame"
+      },
+      [0, 0.25, 0.5, 0.75, 1].map((f) => {
+        const p = hi - f * (hi - lo);
+        return /* @__PURE__ */ React.createElement("g", { key: f }, /* @__PURE__ */ React.createElement("line", { x1: PAD_L, x2: W - PAD_R, y1: y(p), y2: y(p), stroke: "var(--vg-hairline)", strokeWidth: "1" }), /* @__PURE__ */ React.createElement(
+          "text",
+          {
+            x: PAD_L - 6,
+            y: y(p) + 3,
+            textAnchor: "end",
+            fontSize: "10",
+            fill: "var(--vg-faint)",
+            fontFamily: "var(--vg-font-data)"
+          },
+          p.toFixed(0)
+        ));
+      }),
+      spans.map((sp, k) => {
+        const c = sp.call;
+        const x1 = x(sp.from) - half, x2 = x(sp.to) + half;
+        return /* @__PURE__ */ React.createElement("g", { key: k }, c.target != null && /* @__PURE__ */ React.createElement(
+          "line",
+          {
+            x1,
+            x2,
+            y1: yc(c.target),
+            y2: yc(c.target),
+            stroke: "var(--vg-up)",
+            strokeWidth: "1.6",
+            strokeDasharray: "5 3",
+            opacity: "0.8"
+          },
+          /* @__PURE__ */ React.createElement("title", null, `call @ ${c.minute}: target ${c.target}`)
+        ), c.invalidation != null && /* @__PURE__ */ React.createElement(
+          "line",
+          {
+            x1,
+            x2,
+            y1: yc(c.invalidation),
+            y2: yc(c.invalidation),
+            stroke: "var(--vg-down)",
+            strokeWidth: "1.6",
+            strokeDasharray: "5 3",
+            opacity: "0.8"
+          },
+          /* @__PURE__ */ React.createElement("title", null, `call @ ${c.minute}: wrong beyond ${c.invalidation}`)
+        ));
+      }),
+      candles.map((c, k) => /* @__PURE__ */ React.createElement("g", { key: k }, /* @__PURE__ */ React.createElement(
+        "line",
+        {
+          x1: x(c.i),
+          x2: x(c.i),
+          y1: y(Math.max(c.o, c.c)),
+          y2: y(Math.min(c.o, c.c)),
+          stroke: toneCol(c.tone),
+          strokeWidth: Math.max(4, half),
+          strokeLinecap: "butt",
+          opacity: "0.85"
+        },
+        /* @__PURE__ */ React.createElement("title", null, `${buckets[k].t} \xB7 ${c.o.toFixed(1)}\u2192${c.c.toFixed(1)} (${buckets[k].ret_pct > 0 ? "+" : ""}${buckets[k].ret_pct}%)`)
+      ))),
+      frames.filter((f) => f.call && f.call.fresh).map((f, k) => {
+        const slot = slotOf(f.start_min);
+        const b = byStart[slot];
+        const py = b ? y(b.close) - 14 : PAD_T + 12;
+        const col = biasCol(f.call.bias);
+        const up = String(f.call.bias || "").toLowerCase().match(/up|bull/);
+        const dn = String(f.call.bias || "").toLowerCase().match(/down|bear/);
+        return /* @__PURE__ */ React.createElement("g", { key: k }, /* @__PURE__ */ React.createElement(
+          "path",
+          {
+            d: up ? `M ${x(slot) - 5} ${py + 5} L ${x(slot)} ${py - 3} L ${x(slot) + 5} ${py + 5} Z` : dn ? `M ${x(slot) - 5} ${py - 3} L ${x(slot)} ${py + 5} L ${x(slot) + 5} ${py - 3} Z` : `M ${x(slot) - 4} ${py} L ${x(slot)} ${py - 4} L ${x(slot) + 4} ${py} L ${x(slot)} ${py + 4} Z`,
+            fill: col
+          },
+          /* @__PURE__ */ React.createElement("title", null, `${f.call.minute} call: ${String(f.call.bias || "?").toUpperCase()}${f.call.target != null ? ` \xB7 T ${f.call.target}` : ""}${f.call.invalidation != null ? ` \xB7 \u2715 ${f.call.invalidation}` : ""}`)
+        ));
+      }),
+      dots.map((dd, k) => /* @__PURE__ */ React.createElement(
+        "circle",
+        {
+          key: k,
+          cx: x(dd.slot),
+          cy: y(dd.price),
+          r: "5",
+          fill: dd.t.dir === "bullish" ? "var(--vg-up)" : "var(--vg-down)",
+          stroke: dd.t.with_trend === false ? "var(--vg-warn)" : "var(--vg-card)",
+          strokeWidth: "2.5"
+        },
+        /* @__PURE__ */ React.createElement("title", null, `${dd.t.time} ${dd.t.label} \xB7 ${dd.t.dir}${dd.t.with_trend === false ? " \xB7 AGAINST" : ""}${dd.t.realized != null ? ` \xB7 ${dd.t.realized >= 0 ? "+" : "\u2212"}$${Math.abs(dd.t.realized)}` : ""}`)
+      )),
+      /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          x: PAD_L - 6,
+          y: H - LANE + 8,
+          textAnchor: "end",
+          fontSize: "9",
+          fill: "var(--vg-faint)",
+          style: { textTransform: "uppercase", letterSpacing: "0.05em" }
+        },
+        "calls"
+      ),
+      ticks.map((tk, k) => {
+        const good = /hit|correct/.test(tk.v);
+        const bad = /invalid|wrong/.test(tk.v);
+        return /* @__PURE__ */ React.createElement(
+          "text",
+          {
+            key: k,
+            x: x(tk.slot),
+            y: H - LANE + 10,
+            textAnchor: "middle",
+            fontSize: "12",
+            fill: good ? "var(--vg-up)" : bad ? "var(--vg-down)" : "var(--vg-faint)"
+          },
+          good ? "\u2713" : bad ? "\u2717" : "\xB7",
+          /* @__PURE__ */ React.createElement("title", null, tk.v)
+        );
+      }),
+      [0, 4, 8, 12, 16, 20, 25].map((i) => /* @__PURE__ */ React.createElement(
+        "text",
+        {
+          key: i,
+          x: x(i),
+          y: H - 4,
+          textAnchor: "middle",
+          fontSize: "10",
+          fill: "var(--vg-faint)",
+          fontFamily: "var(--vg-font-data)"
+        },
+        `${Math.floor((570 + i * 15) / 60)}:${String((570 + i * 15) % 60).padStart(2, "0")}`
+      ))
+    );
+  }
   function FrameRow({ f }) {
     const [open, setOpen] = useState3(false);
     const c = f.call, m = f.market;
@@ -2313,7 +2508,7 @@ ${ref}`;
         onChange: (e) => setDay(e.target.value || todayET()),
         "aria-label": "Cockpit day"
       }
-    ))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day }), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Playbook ledger", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 \u25B8 for the call path + fills")), /* @__PURE__ */ React.createElement("div", { className: "vg-fr-cols vg-note" }, /* @__PURE__ */ React.createElement("span", null, "time"), /* @__PURE__ */ React.createElement("span", null, "market"), /* @__PURE__ */ React.createElement("span", null, "call (next 15)"), /* @__PURE__ */ React.createElement("span", null, "resolved"), /* @__PURE__ */ React.createElement("span", null, "you"), /* @__PURE__ */ React.createElement("span", null)), (d ? d.frames : []).map((f) => /* @__PURE__ */ React.createElement(FrameRow, { key: f.t, f })), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the ledger\u2026" : "Cockpit needs the SQLite backend.")));
+    ))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day }), d && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 8 } }, "Session map", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " ", "\u2014 candles per 15m \xB7 dashed = the standing call's target (green) / invalidation (red) \xB7 arrows = fresh calls \xB7 dots = your entries \xB7 \u2713\u2717 = how each call resolved")), /* @__PURE__ */ React.createElement(SessionMap, { d })), /* @__PURE__ */ React.createElement("details", { className: "vg-card", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer", marginBottom: 6 } }, "Frame details", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 \u25B8 for the call path + fills")), /* @__PURE__ */ React.createElement("div", { className: "vg-fr-cols vg-note" }, /* @__PURE__ */ React.createElement("span", null, "time"), /* @__PURE__ */ React.createElement("span", null, "market"), /* @__PURE__ */ React.createElement("span", null, "call (next 15)"), /* @__PURE__ */ React.createElement("span", null, "resolved"), /* @__PURE__ */ React.createElement("span", null, "you"), /* @__PURE__ */ React.createElement("span", null)), (d ? d.frames : []).map((f) => /* @__PURE__ */ React.createElement(FrameRow, { key: f.t, f })), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the ledger\u2026" : "Cockpit needs the SQLite backend.")));
   }
 
   // src/chart_theme.jsx
