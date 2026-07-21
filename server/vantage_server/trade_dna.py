@@ -293,9 +293,67 @@ def build(store, day: str, trade: dict, forecast_levels: list[dict],
         # the tape alone doesn't carry (the analyst weighs it, cites it as an
         # ESTIMATED lean, never ground truth).
         "news": _news_for(store, underlying),
+        "standing_forecast": _standing_forecast(store, day, underlying,
+                                                trade.get("opened_at")),
         "underlying": underlying,
         "day": day,
     }
+
+
+def _standing_forecast(store, day: str, underlying: str,
+                       opened_at: str | None) -> dict | None:
+    """The analyst forecast that was STANDING when this trade was entered —
+    the newest captured forecast at-or-before the entry time. Lets the desk
+    review judge alignment: did the operator trade with or against the
+    forecast, and which of them read the tape right? None when the symbol has
+    no forecasts (only SPX/QQQ/IWM are forecast) or none predate the entry."""
+    import datetime as _dt
+    import json as _json
+
+    def _ts(x):
+        try:
+            t = _dt.datetime.fromisoformat(str(x))
+            # history timestamps are UTC-naive; forecast as_of carries an
+            # offset. Normalize naive → UTC so the comparison is valid.
+            return t if t.tzinfo else t.replace(tzinfo=_dt.timezone.utc)
+        except (TypeError, ValueError):
+            return None
+
+    o = _ts(opened_at)
+    if o is None or not getattr(store, "uses_sqlite", False):
+        return None
+    try:
+        rows = store.list_spx_forecasts(underlying.upper(), day, 50)
+    except Exception:  # noqa: BLE001 — best-effort context, never blocks DNA
+        return None
+    for r in rows:                                   # newest first
+        a = _ts(r.get("as_of"))
+        if a is None or a > o:
+            continue
+        fc = r.get("forecast") or {}
+        if isinstance(fc, str):
+            try:
+                fc = _json.loads(fc)
+            except (ValueError, TypeError):
+                fc = {}
+        plot = (fc.get("plot") if isinstance(fc, dict) else None) or {}
+        sc = r.get("score")
+        if isinstance(sc, str):
+            try:
+                sc = _json.loads(sc)
+            except (ValueError, TypeError):
+                sc = None
+        return {
+            "as_of": r.get("as_of"),
+            "price_at": r.get("price_at"),
+            "bias": plot.get("bias"),
+            "target": plot.get("target"),
+            "invalidation": plot.get("invalidation"),
+            "born_invalid": bool(plot.get("born_invalid")),
+            "score_verdict": (sc or {}).get("verdict") if isinstance(sc, dict) else None,
+            "age_min_at_entry": round((o - a).total_seconds() / 60),
+        }
+    return None
 
 
 def _news_for(store, underlying: str) -> dict | None:

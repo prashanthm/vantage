@@ -1518,6 +1518,11 @@ function buildAnalystPrompt(dna, operator, session) {
     dna.scale ? `THIS WAS A SCALED POSITION (${dna.scale.peak_contracts}× peak): ${dna.scale.entries} entries at avg $${dna.scale.avg_entry}, ${dna.scale.exits} exits at avg $${dna.scale.avg_exit}${dna.scale.add_behavior ? `, ${dna.scale.add_behavior}` : ""}${dna.scale.exit_style ? `, ${dna.scale.exit_style}` : ""}. The full fill ladder (time/side/price/running position): ${j(dna.fills)}. JUDGE THE SCALING — adding on strength vs averaging down, laddering the exit vs one-shot, and whether the geometry was disciplined or hope.` : ``,
     ``,
     `THE FORECAST for the session (levels the operator planned around): ${j(dna.forecast_levels)}. GEX anchors: ${j(dna.gex_anchors)}.`,
+    dna.standing_forecast ? [
+      ``,
+      `THE STANDING ANALYST FORECAST when this trade was entered (made ${dna.standing_forecast.age_min_at_entry} min before entry, at ${dna.underlying} ${dna.standing_forecast.price_at}): bias ${dna.standing_forecast.bias || "?"}, target ${dna.standing_forecast.target ?? "—"}, invalidation ${dna.standing_forecast.invalidation ?? "—"}${dna.standing_forecast.born_invalid ? " — NOTE: this forecast was flagged BORN-INVALID (issued beyond its own invalidation)" : ""}${dna.standing_forecast.score_verdict ? `. It was later scored: ${dna.standing_forecast.score_verdict}` : ""}.`,
+      `JUDGE THE ALIGNMENT: did the operator trade WITH or AGAINST the standing forecast? Given how both resolved, which of them read the tape right — and should the operator have weighted the forecast more or less?`,
+    ].join("\n") : ``,
     ``,
     `ENTRY at ${dna.underlying} ${e.spot}. Nearest forecast level: ${j(e.correlation && e.correlation.nearest)}. Technicals at entry: ${j(e.technicals)}. Fill-quality read: ${j(e.quality)}.`,
     `Price action around the entry:`,
