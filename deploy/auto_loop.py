@@ -88,16 +88,23 @@ def et_now() -> dt.datetime:
         dt.timezone(dt.timedelta(hours=-4)))
 
 
+def _frame_index(t: dt.datetime) -> int:
+    """Which 15-min session frame (09:30-anchored) an ET time falls in."""
+    m = t.hour * 60 + t.minute
+    return (m - 570) // 15
+
+
 def auto_forecast() -> str:
+    # one call per 15-minute FRAME, aligned to :30/:45/:00/:15 — the ledger's
+    # cadence, not a rolling age check.
+    now_et = et_now()
     latest = get(f"{API}/api/spx/forecast?symbol=SPX&limit=1")
     rows = latest.get("forecasts") or []
     if rows:
         try:
             as_of = dt.datetime.fromisoformat(rows[0]["as_of"])
-            age = (dt.datetime.now(dt.timezone.utc) - as_of.astimezone(
-                dt.timezone.utc)).total_seconds() / 60
-            if age < FORECAST_MAX_AGE_MIN:
-                return f"forecast fresh ({age:.0f}m)"
+            if _frame_index(as_of) == _frame_index(now_et) and                     as_of.date() == now_et.date():
+                return "forecast current for this frame"
         except (KeyError, ValueError, TypeError):
             pass
     p = get(f"{API}/api/spx/forecast-prompt?symbol=SPX", timeout=180)
@@ -111,6 +118,29 @@ def auto_forecast() -> str:
         "snapshot": p.get("snapshot") or {}, "forecast": extract_json(text),
         "forecast_text": text})
     return f"forecast saved @ {p['as_of']}"
+
+
+def auto_score() -> str:
+    """Deterministically score any unscored forecast whose frame has elapsed —
+    the ledger's RESOLVED column."""
+    rows = (get(f"{API}/api/spx/forecast?symbol=SPX&limit=40") or {}).get("forecasts") or []
+    now = dt.datetime.now(dt.timezone.utc)
+    n = 0
+    for r in rows:
+        if r.get("score") or not r.get("id"):
+            continue
+        try:
+            age = (now - dt.datetime.fromisoformat(r["as_of"]).astimezone(
+                dt.timezone.utc)).total_seconds() / 60
+        except (KeyError, ValueError, TypeError):
+            continue
+        if age >= 16:
+            try:
+                post(f"{API}/api/spx/forecast/{r['id']}/score", {})
+                n += 1
+            except Exception:  # noqa: BLE001 — score the rest regardless
+                pass
+    return f"scored {n} forecast(s)"
 
 
 def auto_analyze(day: str) -> str:
@@ -174,6 +204,10 @@ def main() -> int:
             print("auto_loop forecast:", auto_forecast())
         except Exception as e:  # noqa: BLE001
             print("auto_loop forecast FAILED:", e)
+        try:
+            print("auto_loop score:", auto_score())
+        except Exception as e:  # noqa: BLE001
+            print("auto_loop score FAILED:", e)
         try:
             print("auto_loop analyze:", auto_analyze(day))
         except Exception as e:  # noqa: BLE001

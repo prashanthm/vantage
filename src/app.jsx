@@ -10,6 +10,7 @@ import {
   useTheme, THEME_ICON, LoadBar,
 } from "./util.jsx";
 import { Icon } from "./icons.jsx";
+import { CockpitView } from "./cockpit.jsx";
 import { MiraRender } from "./mira-render.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { PortfolioView } from "./portfolio_view.jsx";
@@ -494,7 +495,7 @@ function App() {
           {route === "home" && (
             <HomeView face={routeParam} onFace={(f) => go("home", f)}
               renderFace={(face) => (
-                face === "cockpit" ? <TodayView refreshNonce={refreshNonce} />
+                face === "cockpit" ? <CockpitView refreshNonce={refreshNonce} />
                 : face === "debrief" ? <JournalView refreshNonce={refreshNonce} />
                 : <DashboardView {...viewProps} {...dashProps} notifs={notifs} />
               )} />

@@ -2137,6 +2137,21 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         return envelope(snap, available=True, prompt=prompt, day=day,
                         as_of=as_of, symbol=sym, snapshot=built)
 
+    @app.get("/api/cockpit/frames")
+    def cockpit_frames(day: str = Query(None), symbol: str = Query("SPX")):
+        """The 15-minute playbook ledger: per frame — the standing analyst call
+        (+ its deterministic score once resolved), what the market did, and the
+        operator's fills with alignment. Fully derivable for ANY stored day.
+        Read-only (ADR-008)."""
+        import datetime as _dt4
+        from . import cockpit_frames as _cf
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        d = day or _dt4.datetime.now(_dt4.timezone.utc).astimezone(
+            _dt4.timezone(_dt4.timedelta(hours=-4))).date().isoformat()
+        return envelope(snap, available=True, **_cf.build(store, d, symbol or "SPX"))
+
     @app.get("/api/coach/tone")
     def coach_tone(day: str = Query(None), symbol: str = Query("SPX")):
         """MARKET TONE vs TRADE TONE, side by side: the session in 15-minute

@@ -1620,3 +1620,24 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
 .vg-review-row { border-top: 1px solid var(--vg-hairline); margin-top: 6px; padding-top: 6px; }
 .vg-review-head { display: flex; gap: 10px; align-items: baseline; cursor: pointer; }
 .vg-review-head:hover { color: var(--vg-ink); }
+
+/* cockpit — the 15-minute frame ledger */
+.vg-fr { border-top: 1px solid var(--vg-hairline); }
+.vg-fr-head, .vg-fr-cols { display: grid; grid-template-columns: 46px 130px 1fr 150px 120px 16px;
+  gap: 10px; align-items: baseline; }
+.vg-fr-head { padding: 6px 0; cursor: pointer; }
+.vg-fr-head:hover { background: var(--vg-raised); }
+.vg-fr-cols { font-size: var(--vg-text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+  padding-bottom: 4px; }
+.vg-fr-t { font-family: var(--vg-font-data); font-size: var(--vg-text-sm); }
+.vg-fr-mkt { display: flex; gap: 6px; align-items: baseline; }
+.vg-tone-cellmini { width: 10px; height: 10px; border-radius: 2px; display: inline-block; position: relative; top: 1px; }
+.vg-tone-cellmini.bull { background: var(--vg-up); }
+.vg-tone-cellmini.bear { background: var(--vg-down); }
+.vg-tone-cellmini.flat { background: var(--vg-hairline); }
+.vg-fr-call { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  font-variant-numeric: tabular-nums; }
+.vg-fr-fresh { width: 6px; height: 6px; border-radius: 50%; background: var(--vg-accent); display: inline-block; }
+.vg-fr-you { display: flex; gap: 5px; align-items: center; }
+.vg-fr-body { padding: 2px 0 10px 56px; }
+@media (max-width: 900px) { .vg-fr-head, .vg-fr-cols { grid-template-columns: 40px 90px 1fr 90px 70px 14px; } }
