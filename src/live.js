@@ -1056,6 +1056,26 @@ export const getOdteRead = (underlying = "SPY") =>
   getJson(`${backendBase()}/api/odte/read?underlying=${encodeURIComponent(underlying)}`,
           { timeoutMs: 30000 });
 
+// The forecast prompt — hardened after the 2026-07-21 post-mortem (short call
+// on a +19.5-over-VWAP tape, built on a suppressed setup, born-invalidated).
+// The DISCIPLINE block encodes the three failure modes as hard rules; the
+// deterministic facts in the snapshot always outrank narrative priors.
+export const buildForecastPrompt = (symbol, ref) =>
+  `What will ${symbol} price do from here? Reason over the snapshot and give a `
+  + `structured, scoreable forecast (bias, expected path, level targets, `
+  + `invalidation, confidence).\n`
+  + `DISCIPLINE (hard rules):\n`
+  + `1. CITE the snapshot's regime + technicals VERBATIM (vs_vwap_pt, rsi, `
+  + `draw.dir). Never restate a relationship the numbers contradict.\n`
+  + `2. If ict_htf.present is false, there IS NO hourly setup — you must not `
+  + `claim one or use its levels; say it was suppressed and why.\n`
+  + `3. SANITY CHECK before answering: a down bias requires invalidation ABOVE `
+  + `current price; an up bias requires it BELOW. If your setup is already `
+  + `beyond its invalidation at current price, output bias "neutral" and say `
+  + `"stand down — no valid setup". Standing down is a first-class forecast.\n`
+  + `4. Negative gamma amplifies BOTH directions — below-the-flip on a risk-on `
+  + `tape means faster moves UP toward the flip, not a short signal.\n${ref}`;
+
 // Persisted Analyze-today day syntheses: save one, list a day's history.
 export const saveDayReview = (body) =>
   postJson(`${backendBase()}/api/journal/day-review`, body);

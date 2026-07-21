@@ -891,16 +891,39 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         if not getattr(store, "uses_sqlite", False):
             return envelope(snap, available=False, note="forecasts need the SQLite backend")
         sc = body.get("snapshot") or {}
+        # BORN-INVALID GUARD (deterministic, post-mortem 2026-07-21): a directional
+        # forecast whose invalidation is already breached at issuance price never
+        # validly existed. Flag it in the stored plot so every renderer/scorer
+        # sees it — the model's discipline rules should prevent this, but the
+        # arithmetic check is the guarantee.
+        fc = body.get("forecast")
+        try:
+            plot = fc.get("plot") if isinstance(fc, dict) else None
+            price = float(sc.get("price"))
+            if isinstance(plot, dict) and plot.get("invalidation") is not None:
+                inv = float(plot["invalidation"])
+                b = str(plot.get("bias") or "").lower()
+                down = any(k in b for k in ("down", "bear", "short"))
+                up = any(k in b for k in ("up", "bull", "long"))
+                if (down and price >= inv) or (up and price <= inv):
+                    plot["born_invalid"] = True
+                    plot["born_invalid_note"] = (
+                        f"issued at {price} {'above' if down else 'below'} its own "
+                        f"invalidation {inv} — setup never validly existed")
+        except (TypeError, ValueError, AttributeError):
+            pass                                    # malformed forecast → store as-is
         fid = store.save_spx_forecast(
             symbol=(body.get("symbol") or "SPX").upper(),
             day=body.get("day") or sc.get("day"),
             as_of=body.get("as_of") or sc.get("as_of"),
             price_at=sc.get("price"),
             snapshot=sc,
-            forecast=body.get("forecast"),
+            forecast=fc,
             forecast_text=str(body.get("forecast_text") or ""),
             run_id=body.get("run_id"))   # groups a Replay Forecast run; None = single
-        return envelope(snap, available=True, id=fid)
+        born = bool(isinstance(fc, dict) and isinstance(fc.get("plot"), dict)
+                    and fc["plot"].get("born_invalid"))
+        return envelope(snap, available=True, id=fid, born_invalid=born)
 
     @app.get("/api/spx/forecast")
     def spx_forecast_list(day: str | None = Query(None),

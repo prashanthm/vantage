@@ -10,7 +10,7 @@
 // (getReplayRuns / getReplayRun / scoreSpxForecast). Generating a NEW run (which
 // calls Mira per step) is intentionally NOT here.
 import { cls, LoadBar } from "./util.jsx";
-import { useLive, getReplayRuns, getReplayRun, scoreSpxForecast,
+import { useLive, getReplayRuns, getReplayRun, scoreSpxForecast, buildForecastPrompt,
   planReplay, getSpxSnapshot, saveSpxForecast, scoreReplay, calibrateReplay,
   getSpxForecasts, refreshSpx } from "./live.js";
 import { MiraRender } from "./mira-render.jsx";
@@ -145,7 +145,7 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
         const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
         if (!snapshot) { setFc({ error: `No snapshot for ${symbol} — try again during market hours.` }); return; }
         const ref = `SPX_SNAPSHOT_REF day=${snapshot.day} as_of=${snapshot.as_of} underlying=${symbol}`;
-        const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).\n${ref}`;
+        const prompt = buildForecastPrompt(symbol, ref);
         return collectTurn(prompt, `forecast-${symbol}-${snapshot.as_of}`, {
           onToken: (text) => setFc({ loading: true, text }),
           setAbort: (fn) => { abortRef.current = fn; },
@@ -180,7 +180,7 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
       const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
       if (!snapshot) { resolve(false); return; }
       const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
-      const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).\n${ref}`;
+      const prompt = buildForecastPrompt(symbol, ref);
       collectTurn(prompt, `replay-${symbol}-${day}-${asOf}`, {
         setAbort: (fn) => { abortRef.current = fn; },
       }).then(({ text, data, error }) => {

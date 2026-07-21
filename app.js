@@ -323,6 +323,7 @@
     allocation: () => allocation,
     analyzeSymbol: () => analyzeSymbol,
     botPoll: () => botPoll,
+    buildForecastPrompt: () => buildForecastPrompt,
     calibrateReplay: () => calibrateReplay,
     closePaperTrade: () => closePaperTrade,
     createAccount: () => createAccount,
@@ -1231,6 +1232,13 @@
     `${backendBase()}/api/odte/read?underlying=${encodeURIComponent(underlying)}`,
     { timeoutMs: 3e4 }
   );
+  var buildForecastPrompt = (symbol, ref) => `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
+DISCIPLINE (hard rules):
+1. CITE the snapshot's regime + technicals VERBATIM (vs_vwap_pt, rsi, draw.dir). Never restate a relationship the numbers contradict.
+2. If ict_htf.present is false, there IS NO hourly setup \u2014 you must not claim one or use its levels; say it was suppressed and why.
+3. SANITY CHECK before answering: a down bias requires invalidation ABOVE current price; an up bias requires it BELOW. If your setup is already beyond its invalidation at current price, output bias "neutral" and say "stand down \u2014 no valid setup". Standing down is a first-class forecast.
+4. Negative gamma amplifies BOTH directions \u2014 below-the-flip on a risk-on tape means faster moves UP toward the flip, not a short signal.
+${ref}`;
   var saveDayReview = (body) => postJson(`${backendBase()}/api/journal/day-review`, body);
   var getDayReviews = (day) => getJson(`${backendBase()}/api/journal/day-review?day=${encodeURIComponent(day)}`);
   var getAnalyzedKeys = (day) => getJson(`${backendBase()}/api/journal/analyzed-keys?day=${encodeURIComponent(day)}`);
@@ -4433,8 +4441,7 @@ ${ref}`;
             return;
           }
           const ref = `SPX_SNAPSHOT_REF day=${snapshot.day} as_of=${snapshot.as_of} underlying=${symbol}`;
-          const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
-${ref}`;
+          const prompt = buildForecastPrompt(symbol, ref);
           return collectTurn(prompt, `forecast-${symbol}-${snapshot.as_of}`, {
             onToken: (text) => setFc({ loading: true, text }),
             setAbort: (fn) => {
@@ -4478,8 +4485,7 @@ ${ref}`;
           return;
         }
         const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
-        const prompt = `What will ${symbol} price do from here? Reason over the snapshot and give a structured, scoreable forecast (bias, expected path, level targets, invalidation, confidence).
-${ref}`;
+        const prompt = buildForecastPrompt(symbol, ref);
         collectTurn(prompt, `replay-${symbol}-${day}-${asOf}`, {
           setAbort: (fn) => {
             abortRef.current = fn;
