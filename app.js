@@ -344,6 +344,7 @@
     getChart: () => getChart,
     getChartForecast: () => getChartForecast,
     getCoachPine: () => getCoachPine,
+    getCoachTone: () => getCoachTone,
     getDayPnl: () => getDayPnl,
     getDayReviewBundle: () => getDayReviewBundle,
     getDayReviews: () => getDayReviews,
@@ -1228,6 +1229,7 @@
     { timeoutMs: 2e4 }
   );
   var saveJournalAnalysis = (body) => postJson(`${backendBase()}/api/journal/analysis`, body);
+  var getCoachTone = (day, symbol = "SPX") => getJson(`${backendBase()}/api/coach/tone?symbol=${encodeURIComponent(symbol)}` + (day ? `&day=${encodeURIComponent(day)}` : ""), { timeoutMs: 3e4 });
   var getOdteRead = (underlying = "SPY") => getJson(
     `${backendBase()}/api/odte/read?underlying=${encodeURIComponent(underlying)}`,
     { timeoutMs: 3e4 }
@@ -5110,7 +5112,7 @@ ${ref}`;
     const live = status.live_signals || [];
     const armed = status.armed || [];
     const spot = pb && pb.scaffold && pb.scaffold.regime && pb.scaffold.regime.spot || null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Everything you need to trade, in one screen", spot ? ` \xB7 SPX ${fmt2(spot, 1)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.market_open ? "good" : "plain") }, status.market_open ? "MARKET OPEN" : "MARKET CLOSED"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.telegram ? "good" : "warn") }, status.telegram ? "BOT ON" : "BOT OFF"))), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Everything you need to trade, in one screen", spot ? ` \xB7 SPX ${fmt2(spot, 1)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.market_open ? "good" : "plain") }, status.market_open ? "MARKET OPEN" : "MARKET CLOSED"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.telegram ? "good" : "warn") }, status.telegram ? "BOT ON" : "BOT OFF"))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: !!status.market_open }), /* @__PURE__ */ React.createElement(
       SignalsCard,
       {
         live,
@@ -5139,6 +5141,52 @@ ${ref}`;
         onClose: () => setTicket(null)
       }
     ));
+  }
+  function ToneCompareCard({ marketOpen }) {
+    const [tick, setTick] = useState11(0);
+    useEffect8(() => {
+      if (!marketOpen) return void 0;
+      const t = setInterval(() => setTick((n) => n + 1), 18e4);
+      return () => clearInterval(t);
+    }, [marketOpen]);
+    const q = useLive(() => getCoachTone(), null, [tick]);
+    const d = q.data && q.data.available ? q.data : null;
+    if (!d || !(d.buckets || []).length) return null;
+    const SLOTS = 26;
+    const slotOf = (startMin) => Math.max(0, Math.min(SLOTS - 1, Math.floor((startMin - 570) / 15)));
+    const market = new Array(SLOTS).fill(null);
+    for (const b of d.buckets) market[slotOf(b.start_min)] = b;
+    const tradeSlots = new Array(SLOTS).fill(null).map(() => []);
+    for (const t of d.trades || []) {
+      if (t.start_min >= 570 && t.start_min < 960) tradeSlots[slotOf(t.start_min)].push(t);
+    }
+    const toneColor = (tn) => tn === "bull" ? "var(--vg-up)" : tn === "bear" ? "var(--vg-down)" : "var(--vg-hairline)";
+    const al = d.alignment || {};
+    const last = d.buckets[d.buckets.length - 1];
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Market tone vs your trades", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " ", "\u2014 15-min snapshots", d.gap_pct != null ? ` \xB7 gap ${d.gap_pct > 0 ? "+" : ""}${d.gap_pct}%` : "", last ? ` \xB7 session ${last.session_tone.toUpperCase()} (${last.session_ret_pct > 0 ? "+" : ""}${last.session_ret_pct}%)` : "")), (al.with || al.against) && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontVariantNumeric: "tabular-nums" } }, "with-trend ", /* @__PURE__ */ React.createElement("b", { className: al.with.pnl >= 0 ? "vg-up" : "vg-down" }, al.with.n, " \xB7 ", money2(al.with.pnl)), "  \xB7  ", "against ", /* @__PURE__ */ React.createElement("b", { className: al.against.pnl >= 0 ? "vg-up" : "vg-down" }, al.against.n, " \xB7 ", money2(al.against.pnl)))), /* @__PURE__ */ React.createElement("div", { className: "vg-tone-grid", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-tone-lbl" }, "market"), market.map((b, i) => /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        key: i,
+        className: "vg-tone-cell",
+        title: b ? `${b.t} \xB7 ${b.tone} (${b.ret_pct > 0 ? "+" : ""}${b.ret_pct}%) \xB7 session ${b.session_tone}` : "",
+        style: {
+          background: b ? toneColor(b.tone) : "transparent",
+          opacity: b ? b.tone === "flat" ? 0.5 : 0.9 : 0.15,
+          border: b ? "none" : "1px dashed var(--vg-hairline)"
+        }
+      }
+    )), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-tone-lbl" }, "you"), tradeSlots.map((ts, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "vg-tone-cell vg-tone-tradecell" }, ts.map((t, j) => /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        key: j,
+        className: "vg-tone-dot",
+        title: `${t.time} ${t.label} \xB7 ${t.dir}${t.with_trend == null ? "" : t.with_trend ? " \xB7 WITH trend" : " \xB7 AGAINST trend"}${t.realized != null ? ` \xB7 ${money2(t.realized)}` : " \xB7 open"}`,
+        style: {
+          background: t.dir === "bullish" ? "var(--vg-up)" : "var(--vg-down)",
+          boxShadow: t.with_trend === false ? "0 0 0 2px var(--vg-warn)" : "none"
+        }
+      }
+    ))))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6, fontSize: "var(--vg-text-xs)" } }, "dot = your entry (green long \xB7 red short) \xB7 amber ring = against the session tone at entry"), d.verdict && /* @__PURE__ */ React.createElement("div", { className: "vg-tone-verdict" }, "\u26A0 ", d.verdict));
   }
   function SignalsCard({ live, armed, spot, onExecute }) {
     const n = live.length;

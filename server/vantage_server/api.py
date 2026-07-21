@@ -2083,6 +2083,22 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                 errors.append({"underlying": str(u), "error": str(e)})
         return envelope(snap, available=True, results=results, errors=errors)
 
+    @app.get("/api/coach/tone")
+    def coach_tone(day: str = Query(None), symbol: str = Query("SPX")):
+        """MARKET TONE vs TRADE TONE, side by side: the session in 15-minute
+        tone buckets + every decision entered today marked with/against the
+        session direction at its entry minute, plus the alignment ledger and a
+        blunt verdict when the operator is fighting the tape. Deterministic;
+        read-only (ADR-008)."""
+        import datetime as _dt2
+        from . import tone as _tone
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        d = day or _dt2.datetime.now(_dt2.timezone.utc).astimezone(
+            _dt2.timezone(_dt2.timedelta(hours=-4))).date().isoformat()
+        return envelope(snap, available=True, **_tone.build(store, d, symbol or "SPX"))
+
     @app.get("/api/odte/read")
     def odte_read(underlying: str = Query("SPY")):
         """The 0DTE implied-vs-realized read (odte_research Phase A): ATM

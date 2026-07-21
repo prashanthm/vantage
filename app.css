@@ -1600,3 +1600,13 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
 .vg-pb-setuprow { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; }
 .vg-pb-setupkey { flex: 0 0 64px; font-size: var(--vg-text-xs); text-transform: uppercase;
   letter-spacing: 0.04em; }
+
+/* cockpit — market tone vs trade tone strips */
+.vg-tone-grid { display: grid; grid-template-columns: 52px repeat(26, 1fr); gap: 3px; align-items: center; }
+.vg-tone-lbl { font-size: var(--vg-text-xs); text-transform: uppercase; letter-spacing: 0.05em; }
+.vg-tone-cell { height: 16px; border-radius: 3px; display: flex; align-items: center; justify-content: center; gap: 2px; }
+.vg-tone-tradecell { background: transparent; }
+.vg-tone-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.vg-tone-verdict { margin-top: 10px; padding: 9px 12px; border-radius: var(--vg-r-sm);
+  background: var(--vg-down-soft); color: var(--vg-down); font-weight: 600;
+  font-size: var(--vg-text-md); border: 1px solid var(--vg-down); }

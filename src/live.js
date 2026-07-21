@@ -1050,6 +1050,12 @@ export const getJournalAnalysisBundle = (from, to, underlying = "SPX") =>
 export const saveJournalAnalysis = (body) =>
   postJson(`${backendBase()}/api/journal/analysis`, body);
 
+// Market tone vs trade tone, side by side (15-min buckets + today's entries
+// marked with/against) — the cockpit's "you are doing it again" comparison.
+export const getCoachTone = (day, symbol = "SPX") =>
+  getJson(`${backendBase()}/api/coach/tone?symbol=${encodeURIComponent(symbol)}`
+          + (day ? `&day=${encodeURIComponent(day)}` : ""), { timeoutMs: 30000 });
+
 // The 0DTE implied-vs-realized vol read (odte_research Phase A) — ATM straddle
 // from the recorded chain vs the realized baseline → SELL / BUY / STAND DOWN.
 export const getOdteRead = (underlying = "SPY") =>
