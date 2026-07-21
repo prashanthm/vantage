@@ -4529,7 +4529,19 @@ ${ref}`;
         max: (/* @__PURE__ */ new Date()).toISOString().slice(0, 10),
         onChange: (e) => setGenDay(e.target.value)
       }
-    ), /* @__PURE__ */ React.createElement("select", { className: "vg-rp-step", value: stepMin, onChange: (e) => setStepMin(Number(e.target.value)) }, /* @__PURE__ */ React.createElement("option", { value: 15 }, "15m"), /* @__PURE__ */ React.createElement("option", { value: 30 }, "30m"), /* @__PURE__ */ React.createElement("option", { value: 60 }, "1h")), /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        className: "vg-rp-step",
+        value: stepMin,
+        onChange: (e) => setStepMin(Number(e.target.value)),
+        title: "Forecast interval \u2014 5m is ~78 Mira calls for a full session (slow + costly); coarser steps are cheaper"
+      },
+      /* @__PURE__ */ React.createElement("option", { value: 5 }, "5m"),
+      /* @__PURE__ */ React.createElement("option", { value: 15 }, "15m"),
+      /* @__PURE__ */ React.createElement("option", { value: 30 }, "30m"),
+      /* @__PURE__ */ React.createElement("option", { value: 60 }, "1h")
+    ), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm on",

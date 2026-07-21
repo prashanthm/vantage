@@ -299,7 +299,9 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
           <input type="date" className="vg-rp-date" value={genDay}
             max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setGenDay(e.target.value)} />
-          <select className="vg-rp-step" value={stepMin} onChange={(e) => setStepMin(Number(e.target.value))}>
+          <select className="vg-rp-step" value={stepMin} onChange={(e) => setStepMin(Number(e.target.value))}
+            title="Forecast interval — 5m is ~78 Mira calls for a full session (slow + costly); coarser steps are cheaper">
+            <option value={5}>5m</option>
             <option value={15}>15m</option>
             <option value={30}>30m</option>
             <option value={60}>1h</option>
