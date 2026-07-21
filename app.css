@@ -1589,3 +1589,6 @@ button.vg-pf-acctrow { all: unset; cursor: pointer; display: flex; align-items: 
 .vg-nb-ambient { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--vg-hairline); }
 .vg-nb-ambrow { display: flex; gap: 10px; align-items: baseline; padding: 3px 0;
   font-size: var(--vg-text-sm); flex-wrap: wrap; }
+
+/* Daily plan — the deterministic "right now" strip above the narrative */
+.vg-pb-now { padding: 10px 16px; margin-bottom: 10px; }

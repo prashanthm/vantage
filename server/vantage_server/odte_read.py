@@ -52,12 +52,26 @@ def _mid(r: dict) -> float | None:
 
 
 def implied_from_chain(rows: list[dict]) -> dict | None:
-    """ATM straddle read from one snapshot tick. ATM = call delta nearest 0.50;
-    spot is estimated as that strike (good to within half a strike step)."""
+    """ATM straddle read from one snapshot tick. ATM = call delta nearest 0.50
+    when greeks are present; otherwise (Alpaca's indicative feed omits greeks
+    intraday) the strike where call-mid ≈ put-mid — put-call parity pins the
+    spot there. Spot is estimated as that strike (± half a strike step)."""
     calls = {r["strike"]: r for r in rows if r.get("right") == "C"}
     puts = {r["strike"]: r for r in rows if r.get("right") == "P"}
     scored = [(abs((c.get("delta") or 0) - 0.5), k) for k, c in calls.items()
               if c.get("delta") is not None and k in puts]
+    if not scored:
+        # delta-free fallback: min |call mid − put mid| across strikes with
+        # two-sided quotes on both rights.
+        scored = []
+        for k, c in calls.items():
+            p = puts.get(k)
+            if p is None:
+                continue
+            cm, pm = _mid(c), _mid(p)
+            if cm is None or pm is None:
+                continue
+            scored.append((abs(cm - pm), k))
     if not scored:
         return None
     _, atm = min(scored)
@@ -70,6 +84,22 @@ def implied_from_chain(rows: list[dict]) -> dict | None:
             "atm_iv": calls[atm].get("iv"),
             "snapped_at": rows[0].get("snapped_at"),
             "expiry": rows[0].get("expiry"), "source": rows[0].get("source")}
+
+
+def _session_fraction_remaining() -> float | None:
+    """Fraction of the RTH session (9:30–16:00 ET) still ahead; 1.0 pre-open,
+    None after the close or on weekends (an overnight read prices the FULL next
+    session, so scaling doesn't apply)."""
+    et = _dt.datetime.now(_dt.timezone.utc).astimezone(
+        _dt.timezone(_dt.timedelta(hours=-4)))
+    if et.weekday() >= 5:
+        return None
+    mins = et.hour * 60 + et.minute
+    if mins <= 9 * 60 + 30:
+        return 1.0
+    if mins >= 16 * 60:
+        return None
+    return round((16 * 60 - mins) / 390.0, 3)
 
 
 def realized_baseline(underlying: str, sessions: int = 20) -> float | None:
@@ -105,11 +135,20 @@ def build_read(store, underlying: str = "SPY") -> dict:
                         .total_seconds() / 60, 1)
     except (TypeError, ValueError):
         pass
+    # Intraday, the straddle prices only the REST of the session, so the
+    # full-day realized baseline must be scaled by √(fraction remaining) —
+    # otherwise every afternoon reading skews "movement is cheap".
+    frac = _session_fraction_remaining()
+    real_scaled = (round(real * (frac ** 0.5), 3)
+                   if (real is not None and frac is not None) else real)
     out = {"available": True, "underlying": underlying.upper(), **imp,
-           "realized_med_pct": real, "age_minutes": age_min,
+           "realized_med_pct": real, "realized_scaled_pct": real_scaled,
+           "session_fraction_remaining": frac,
+           "age_minutes": age_min,
            "degraded": bool(age_min is not None and age_min > STALE_MINUTES),
            "ratio": None, "verdict": "NO BASELINE",
            "verdict_note": "realized baseline unavailable (bars fetch failed)"}
+    real = real_scaled if real_scaled else real
     if real and real > 0:
         ratio = round(imp["implied_move_pct"] / real, 2)
         out["ratio"] = ratio

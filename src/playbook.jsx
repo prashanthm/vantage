@@ -7,7 +7,7 @@
 // reads the latest. Context, not a signal (ADR-008) — no orders placed.
 import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
-import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket, getOdteRead } from "./live.js";
+import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket, getOdteRead, getChart } from "./live.js";
 
 const { useMemo, useState } = React;
 
@@ -97,8 +97,9 @@ export function PlaybookView({ refreshNonce }) {
           </div>
           <div className="vg-row" style={{ gap: 6, marginTop: 8 }}>
             <button className="vg-btn-sm" onClick={exportPine}>Export to Pine</button>
-            <button className="vg-btn-sm"
-              disabled={busy} onClick={recompute}>{busy ? "Recomputing…" : "Recompute"}</button>
+            <button className="vg-btn-sm vg-btn-primary" disabled={busy} onClick={recompute}
+              title="Rebuild levels + GEX from the latest data and re-narrate the read at the current price">
+              {busy ? "Refreshing…" : "⟳ Refresh plan"}</button>
           </div>
         </div>
         <div className="vg-pb-levels">
@@ -117,6 +118,11 @@ export function PlaybookView({ refreshNonce }) {
           ⚠️ Catalyst today: <b>{cat.today}</b> — expect bigger moves; size down.
         </div>
       )}
+
+      {/* ---- RIGHT NOW: deterministic live-spot vs pivot banner (code, not
+           narrative) — which setup's condition is met at this minute, and how
+           stale the written plan is. ---- */}
+      <NowBanner flip={keyLevels.flip} planSpot={spot} sym={sym} nonce={nonce} />
 
       {/* ---- the plain-English narrative ---- */}
       <div className="vg-card">
@@ -279,6 +285,43 @@ export function PlaybookView({ refreshNonce }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// RIGHT NOW — deterministic: live 1m close vs the plan's pivot decides which
+// conditional setup is currently ACTIVE, with the distance to flipping. Also
+// flags plan staleness (live spot vs the spot the plan was written at) so the
+// operator knows when to hit ⟳ Refresh. Pure arithmetic; no model.
+function NowBanner({ flip, planSpot, sym, nonce }) {
+  const q = useLive(() => getChart(sym === "SPX" ? "SPX" : sym, "1m", 2), null, [sym, nonce]);
+  const candles = (q.data && q.data.available && q.data.candles) || [];
+  const last = candles.length ? candles[candles.length - 1] : null;
+  if (!last || flip == null) return null;
+  const S = last.close;
+  const t = String(last.time_et || last.time || "").slice(11, 16);
+  const above = S >= flip;
+  const dist = Math.abs(S - flip).toFixed(1);
+  const drift = planSpot != null ? Math.abs(S - planSpot) : null;
+  return (
+    <div className="vg-card vg-pb-now">
+      <div className="vg-row" style={{ gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+        <span className="vg-kicker" style={{ margin: 0 }}>Right now</span>
+        <b style={{ fontFamily: "var(--vg-font-data)", fontVariantNumeric: "tabular-nums" }}>
+          {sym} {S.toFixed(1)}{t ? ` (${t} bar)` : ""}</b>
+        <span className={cls("vg-badge", above ? "good" : "bad")} style={{ fontWeight: 700 }}>
+          {above ? "ABOVE" : "BELOW"} PIVOT {flip}
+        </span>
+        <span className="vg-note">
+          setup {above ? "2 (range / sell rallies)" : "1 (trend / don't fight it)"} territory ·
+          {" "}{dist}pt from flipping to setup {above ? "1" : "2"}
+        </span>
+        {drift != null && drift > 15 && (
+          <span className="vg-badge warn" style={{ fontSize: "var(--vg-text-xs)" }}>
+            plan written at {planSpot} — {drift.toFixed(0)}pt away · hit ⟳ Refresh
+          </span>
+        )}
+      </div>
     </div>
   );
 }
