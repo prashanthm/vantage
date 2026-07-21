@@ -7,7 +7,7 @@
 // HONESTY is the UX: only buckets the engine marked `significant` are shown as
 // edges; everything else is visually muted with an "n too small" note so the
 // user never reads noise as signal.
-import { cls, usd, signUsd, signPct, fmtDate, underlyingOf } from "./util.jsx";
+import { cls, usd, signUsd, signPct, fmtDate, underlyingOf, StatTile } from "./util.jsx";
 import { useLive, getRoundtrips, getTradeStats } from "./live.js";
 
 const { useMemo } = React;
@@ -64,32 +64,16 @@ function Scorecard({ summary }) {
   const pf = s.profit_factor;
   return (
     <div className="vg-stats">
-      <div className="vg-stat">
-        <div className="lbl">Win rate</div>
-        <div className="val">{pct1(s.win_rate)}</div>
-        <div className="vg-note">{s.wins ?? 0}W / {s.losses ?? 0}L</div>
-      </div>
-      <div className="vg-stat">
-        <div className="lbl">Profit factor</div>
-        <div className="val">{num(pf)}</div>
-        <div className={cls("delta", pf != null && (pf >= 1 ? "up" : "down"))}>
-          {pf == null ? "" : pf >= 1 ? "profitable" : "below breakeven"}
-        </div>
-      </div>
-      <div className="vg-stat">
-        <div className="lbl">Avg hold</div>
-        <div className="val">{s.avg_holding_days == null ? "—" : `${num(s.avg_holding_days, 1)}d`}</div>
-      </div>
-      <div className="vg-stat">
-        <div className="lbl">Avg MFE capture</div>
-        <div className="val">{pct(s.avg_mfe_capture)}</div>
-        <div className="vg-note">share of peak move captured</div>
-      </div>
-      <div className="vg-stat">
-        <div className="lbl">Closed trades</div>
-        <div className="val">{s.count ?? 0}</div>
-        {s.entry_unknown ? <div className="vg-note">{s.entry_unknown} est. entry</div> : null}
-      </div>
+      <StatTile label="Win rate" value={pct1(s.win_rate)} note={`${s.wins ?? 0}W / ${s.losses ?? 0}L`} />
+      <StatTile label="Profit factor" value={num(pf)}
+        delta={pf == null ? null : pf >= 1 ? "profitable" : "below breakeven"}
+        deltaDir={pf != null && pf >= 1 ? "up" : "down"} />
+      <StatTile label="Avg hold"
+        value={s.avg_holding_days == null ? "—" : `${num(s.avg_holding_days, 1)}d`} />
+      <StatTile label="Avg MFE capture" value={pct(s.avg_mfe_capture)}
+        note="share of peak move captured" />
+      <StatTile label="Closed trades" value={s.count ?? 0}
+        note={s.entry_unknown ? `${s.entry_unknown} est. entry` : null} />
     </div>
   );
 }

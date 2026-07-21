@@ -80,10 +80,10 @@ export function TodayView({ refreshNonce }) {
         </div>
         <div className="vg-row" style={{ gap: 6, alignItems: "center" }}>
           <span className={cls("vg-badge", status.market_open ? "good" : "plain")}>
-            {status.market_open ? "market open" : "market closed"}
+            {status.market_open ? "MARKET OPEN" : "MARKET CLOSED"}
           </span>
           <span className={cls("vg-badge", status.telegram ? "good" : "warn")}>
-            {status.telegram ? "bot on" : "bot off"}
+            {status.telegram ? "BOT ON" : "BOT OFF"}
           </span>
         </div>
       </div>

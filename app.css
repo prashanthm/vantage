@@ -416,6 +416,10 @@ body {
   font-family: var(--vg-font-data); font-variant-numeric: tabular-nums; }
 .vg-stat .delta.up { color: var(--vg-up); }
 .vg-stat .delta.down { color: var(--vg-down); }
+/* value tones — the at-a-glance verdict tint (StatTile `tone` prop) */
+.vg-stat .val.good { color: var(--vg-up); }
+.vg-stat .val.bad { color: var(--vg-down); }
+.vg-stat .val.warn { color: var(--vg-warn); }
 
 /* ---------- allocation bars ---------- */
 .vg-allocbar { display: flex; height: 20px; border-radius: var(--vg-r-sm); overflow: hidden; background: var(--vg-raised); }

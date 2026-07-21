@@ -102,8 +102,8 @@
     }
     return DEFAULT_SETTINGS;
   }
-  function StatTile({ label, value, delta, deltaDir, note }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, label), /* @__PURE__ */ React.createElement("div", { className: "val" }, value), delta != null && /* @__PURE__ */ React.createElement("div", { className: cls("delta", deltaDir) }, delta), note && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, note));
+  function StatTile({ label, value, delta, deltaDir, note, tone }) {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, label), /* @__PURE__ */ React.createElement("div", { className: cls("val", tone) }, value), delta != null && /* @__PURE__ */ React.createElement("div", { className: cls("delta", deltaDir) }, delta), note && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, note));
   }
   function LoadBar({ on = true }) {
     return on ? /* @__PURE__ */ React.createElement("div", { className: "vg-loadbar", role: "progressbar", "aria-label": "Loading" }) : null;
@@ -145,6 +145,46 @@
       },
       s
     )));
+  }
+
+  // src/icons.jsx
+  var P = {
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.5,
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  };
+  var GLYPHS = {
+    home: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M3 8.2 8 3.6l5 4.6V13H3V8.2z" }), /* @__PURE__ */ React.createElement("path", { d: "M6.5 13V9.8h3V13" })),
+    today: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("circle", { cx: "8", cy: "8", r: "4.4" }), /* @__PURE__ */ React.createElement("circle", { cx: "8", cy: "8", r: "0.9", fill: "currentColor", stroke: "none" }), /* @__PURE__ */ React.createElement("path", { d: "M8 1.6v1.9M8 12.5v1.9M1.6 8h1.9M12.5 8h1.9" })),
+    plan: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("rect", { x: "3.2", y: "2.4", width: "9.6", height: "11.2", rx: "1" }), /* @__PURE__ */ React.createElement("path", { d: "M5.5 5.6h5M5.5 8h5M5.5 10.4h3" })),
+    scanner: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M2.6 8a5.4 5.4 0 1 1 5.4 5.4" }), /* @__PURE__ */ React.createElement("path", { d: "M8 8l3.6-3.6" }), /* @__PURE__ */ React.createElement("circle", { cx: "8", cy: "8", r: "0.9", fill: "currentColor", stroke: "none" })),
+    chart: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M5 4.4v7.2M5 5.8h-1.6v3.4H5M5 5.8h1.6v3.4H5" }), /* @__PURE__ */ React.createElement("path", { d: "M11 3v7.2M11 4.6H9.4v3.6H11M11 4.6h1.6v3.6H11", transform: "translate(0 1.6)" })),
+    dashboard: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("rect", { x: "2.8", y: "2.8", width: "4.4", height: "4.4", rx: "0.8" }), /* @__PURE__ */ React.createElement("rect", { x: "8.8", y: "2.8", width: "4.4", height: "4.4", rx: "0.8" }), /* @__PURE__ */ React.createElement("rect", { x: "2.8", y: "8.8", width: "4.4", height: "4.4", rx: "0.8" }), /* @__PURE__ */ React.createElement("rect", { x: "8.8", y: "8.8", width: "4.4", height: "4.4", rx: "0.8" })),
+    portfolio: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("circle", { cx: "8", cy: "8", r: "5.4" }), /* @__PURE__ */ React.createElement("path", { d: "M8 2.6V8l3.9 3.7" })),
+    positions: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M5 4.2h8M5 8h8M5 11.8h8" }), /* @__PURE__ */ React.createElement("circle", { cx: "2.9", cy: "4.2", r: "0.8", fill: "currentColor", stroke: "none" }), /* @__PURE__ */ React.createElement("circle", { cx: "2.9", cy: "8", r: "0.8", fill: "currentColor", stroke: "none" }), /* @__PURE__ */ React.createElement("circle", { cx: "2.9", cy: "11.8", r: "0.8", fill: "currentColor", stroke: "none" })),
+    options: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("circle", { cx: "6.2", cy: "8", r: "3.6" }), /* @__PURE__ */ React.createElement("circle", { cx: "9.8", cy: "8", r: "3.6" })),
+    tax: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M4 12L12 4" }), /* @__PURE__ */ React.createElement("circle", { cx: "4.9", cy: "4.9", r: "1.6" }), /* @__PURE__ */ React.createElement("circle", { cx: "11.1", cy: "11.1", r: "1.6" })),
+    journal: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M8 3.4C6.8 2.6 4.8 2.4 3 2.8v10c1.8-.4 3.8-.2 5 .6 1.2-.8 3.2-1 5-.6v-10c-1.8-.4-3.8-.2-5 .6z" }), /* @__PURE__ */ React.createElement("path", { d: "M8 3.4v10" })),
+    performance: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M3 13h10" }), /* @__PURE__ */ React.createElement("path", { d: "M4.6 13V9.4M8 13V6M11.4 13V3.6" })),
+    futures: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("path", { d: "M2.8 4.6l3.4 3.2 2.4-2.2 4.6 4.6" }), /* @__PURE__ */ React.createElement("path", { d: "M13.2 7.4v2.8h-2.8" })),
+    strategies: /* @__PURE__ */ React.createElement("g", { ...P }, /* @__PURE__ */ React.createElement("circle", { cx: "8", cy: "3.8", r: "1.7" }), /* @__PURE__ */ React.createElement("circle", { cx: "4", cy: "12", r: "1.7" }), /* @__PURE__ */ React.createElement("circle", { cx: "12", cy: "12", r: "1.7" }), /* @__PURE__ */ React.createElement("path", { d: "M7.2 5.4L4.7 10.5M8.8 5.4l2.5 5.1" }))
+  };
+  function Icon({ name, size = 15 }) {
+    const g = GLYPHS[name];
+    if (!g) return null;
+    return /* @__PURE__ */ React.createElement(
+      "svg",
+      {
+        width: size,
+        height: size,
+        viewBox: "0 0 16 16",
+        "aria-hidden": "true",
+        style: { display: "block" }
+      },
+      g
+    );
   }
 
   // src/mira-render.jsx
@@ -4786,7 +4826,7 @@ ${ref}`;
         className: cls("vg-badge", gate.passes ? "good" : "plain"),
         style: { marginLeft: "auto" }
       },
-      gate.passes ? "gate passes" : "gate not met"
+      gate.passes ? "GATE PASSES" : "GATE NOT MET"
     )), /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-sl-gatewhy" }, gate.reason));
   }
   function PromoteForm({ sid, onDone }) {
@@ -4965,7 +5005,7 @@ ${ref}`;
     const live = status.live_signals || [];
     const armed = status.armed || [];
     const spot = pb && pb.scaffold && pb.scaffold.regime && pb.scaffold.regime.spot || null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Everything you need to trade, in one screen", spot ? ` \xB7 SPX ${fmt2(spot, 1)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.market_open ? "good" : "plain") }, status.market_open ? "market open" : "market closed"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.telegram ? "good" : "warn") }, status.telegram ? "bot on" : "bot off"))), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Everything you need to trade, in one screen", spot ? ` \xB7 SPX ${fmt2(spot, 1)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.market_open ? "good" : "plain") }, status.market_open ? "MARKET OPEN" : "MARKET CLOSED"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.telegram ? "good" : "warn") }, status.telegram ? "BOT ON" : "BOT OFF"))), /* @__PURE__ */ React.createElement(
       SignalsCard,
       {
         live,
@@ -5200,7 +5240,7 @@ ${ref}`;
       (byDim[b.dimension] = byDim[b.dimension] || []).push(b);
     }
     const DIM_ORDER = ["exit_type", "hold_bucket", "entry_hour_et", "playbook_align", "direction", "contract"];
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Futures performance"), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, a ? `${ov.n || 0} round-trips` : "loading\u2026", a && a.tzNote ? " \xB7 times ET" : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: reimport }, busy ? "Re-importing\u2026" : "Re-import CSVs"))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body vg-playbook" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Futures performance"), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, a ? `${ov.n || 0} round-trips` : "loading\u2026", a && a.tzNote ? " \xB7 times ET" : ""), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: reimport }, busy ? "Re-importing\u2026" : "Re-import CSVs")))), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { margin: "12px 0" } }, /* @__PURE__ */ React.createElement(
       SummaryTile2,
       {
         termKey: "expectancy",
@@ -5227,7 +5267,7 @@ ${ref}`;
         sub: dd.max_drawdown_pct != null ? `${dd.max_drawdown_pct}%` : "",
         tone: "bad"
       }
-    ))), a && rec.reconciled === false && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F ", /* @__PURE__ */ React.createElement("b", null, "Partial data:"), " ", rec.caveat), a && a.equityCurve && a.equityCurve.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Equity curve \u2014 cumulative P&L", " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "(final ", usd3(ov.total_pnl_dollars), "; dashed = running peak)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, color: "var(--color-text, #888)" } }, /* @__PURE__ */ React.createElement(EquityCurve2, { curve: a.equityCurve }))), (recs.rules.length > 0 || recs.coaching.length > 0) && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Recommendations to improve your win rate"), recs.rules.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, marginBottom: 4 } }, "RULES (from your numbers)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, recs.rules.map((r, i) => /* @__PURE__ */ React.createElement(RecRow, { key: i, r, icon: "\u2192" })))), recs.coaching.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, marginBottom: 4 } }, "DO MORE / DO LESS"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, recs.coaching.map((r, i) => /* @__PURE__ */ React.createElement(RecRow, { key: i, r, icon: "\u2022" }))))), risk.available && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Risk & discipline"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement(
+    )), a && rec.reconciled === false && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F ", /* @__PURE__ */ React.createElement("b", null, "Partial data:"), " ", rec.caveat), a && a.equityCurve && a.equityCurve.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Equity curve \u2014 cumulative P&L", " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "(final ", usd3(ov.total_pnl_dollars), "; dashed = running peak)")), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6, color: "var(--color-text, #888)" } }, /* @__PURE__ */ React.createElement(EquityCurve2, { curve: a.equityCurve }))), (recs.rules.length > 0 || recs.coaching.length > 0) && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Recommendations to improve your win rate"), recs.rules.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, marginBottom: 4 } }, "RULES (from your numbers)"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, recs.rules.map((r, i) => /* @__PURE__ */ React.createElement(RecRow, { key: i, r, icon: "\u2192" })))), recs.coaching.length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, marginBottom: 4 } }, "DO MORE / DO LESS"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 8 } }, recs.coaching.map((r, i) => /* @__PURE__ */ React.createElement(RecRow, { key: i, r, icon: "\u2022" }))))), risk.available && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Risk & discipline"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement(
       RiskRow,
       {
         label: "Biggest single loss",
@@ -5279,7 +5319,15 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14, minWidth: 150 } }, label), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", bad ? "bad" : "plain"), style: { textAlign: "center" } }, value), note && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 12 } }, note));
   }
   function SummaryTile2({ label, value, sub, tone, termKey }) {
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pb-tile" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12 } }, termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label), /* @__PURE__ */ React.createElement("div", { className: cls("vg-pb-tileval", tone) }, value), sub && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12 } }, sub));
+    return /* @__PURE__ */ React.createElement(
+      StatTile,
+      {
+        label: termKey ? /* @__PURE__ */ React.createElement(Term, { k: termKey }, label) : label,
+        value,
+        note: sub,
+        tone
+      }
+    );
   }
 
   // src/journal.jsx
@@ -5682,11 +5730,11 @@ ${ref}`;
     expired_unpriced: "warn"
   };
   var STATUS_LABEL = {
-    closed: "closed",
-    open: "still open",
-    expired_worthless: "expired worthless",
-    expired_settled: "expired ITM",
-    expired_unpriced: "expired (unpriced)"
+    closed: "CLOSED",
+    open: "OPEN",
+    expired_worthless: "EXPIRED \xB7 $0",
+    expired_settled: "EXPIRED ITM",
+    expired_unpriced: "EXPIRED"
   };
   var money3 = (n) => n == null ? "\u2014" : `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
   var fmtLvl = (v) => v == null ? "\u2014" : Number(v).toFixed(v >= 100 ? 0 : 2);
@@ -6263,7 +6311,35 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   function Scorecard({ summary }) {
     const s = summary || {};
     const pf = s.profit_factor;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-stats" }, /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Win rate"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct12(s.win_rate)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.wins ?? 0, "W / ", s.losses ?? 0, "L")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Profit factor"), /* @__PURE__ */ React.createElement("div", { className: "val" }, num(pf)), /* @__PURE__ */ React.createElement("div", { className: cls("delta", pf != null && (pf >= 1 ? "up" : "down")) }, pf == null ? "" : pf >= 1 ? "profitable" : "below breakeven")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg hold"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.avg_holding_days == null ? "\u2014" : `${num(s.avg_holding_days, 1)}d`)), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Avg MFE capture"), /* @__PURE__ */ React.createElement("div", { className: "val" }, pct6(s.avg_mfe_capture)), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "share of peak move captured")), /* @__PURE__ */ React.createElement("div", { className: "vg-stat" }, /* @__PURE__ */ React.createElement("div", { className: "lbl" }, "Closed trades"), /* @__PURE__ */ React.createElement("div", { className: "val" }, s.count ?? 0), s.entry_unknown ? /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.entry_unknown, " est. entry") : null));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Win rate", value: pct12(s.win_rate), note: `${s.wins ?? 0}W / ${s.losses ?? 0}L` }), /* @__PURE__ */ React.createElement(
+      StatTile,
+      {
+        label: "Profit factor",
+        value: num(pf),
+        delta: pf == null ? null : pf >= 1 ? "profitable" : "below breakeven",
+        deltaDir: pf != null && pf >= 1 ? "up" : "down"
+      }
+    ), /* @__PURE__ */ React.createElement(
+      StatTile,
+      {
+        label: "Avg hold",
+        value: s.avg_holding_days == null ? "\u2014" : `${num(s.avg_holding_days, 1)}d`
+      }
+    ), /* @__PURE__ */ React.createElement(
+      StatTile,
+      {
+        label: "Avg MFE capture",
+        value: pct6(s.avg_mfe_capture),
+        note: "share of peak move captured"
+      }
+    ), /* @__PURE__ */ React.createElement(
+      StatTile,
+      {
+        label: "Closed trades",
+        value: s.count ?? 0,
+        note: s.entry_unknown ? `${s.entry_unknown} est. entry` : null
+      }
+    ));
   }
   function NotableCards({ notable, baseline }) {
     const significant = (notable || []).filter((b) => b.significant === true);
@@ -6353,27 +6429,27 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     { group: "Desk", items: [
       // Home: one route, three faces (brief / cockpit / debrief) picked by the
       // market clock — the landing surface. Faces render the existing screens.
-      { id: "home", label: "Home", icon: "\u2302" },
+      { id: "home", label: "Home", icon: "home" },
       // Today is the trading half's front door: signals + why + honest record +
       // machine health, one screen (see claudedocs/goals/ux-feature-value).
-      { id: "today", label: "Today", icon: "\u{1F3AF}" },
-      { id: "playbook", label: "Daily plan", icon: "\u{1F4D0}" },
-      { id: "scanner", label: "Scanner", icon: "\u{1F52D}" },
+      { id: "today", label: "Today", icon: "today" },
+      { id: "playbook", label: "Daily plan", icon: "plan" },
+      { id: "scanner", label: "Scanner", icon: "scanner" },
       // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
-      { id: "ic", label: "Chart", icon: "\u{1F4C8}" }
+      { id: "ic", label: "Chart", icon: "chart" }
     ] },
     { group: "Book", items: [
-      { id: "dashboard", label: "Dashboard", icon: "\u25EB" },
-      { id: "portfolio", label: "Portfolio", icon: "\u{1F9ED}" },
-      { id: "holdings", label: "Positions", icon: "\u25A4" },
-      { id: "options", label: "Options", icon: "\u25CE" },
-      { id: "tax", label: "Tax", icon: "\u{1F33E}" }
+      { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+      { id: "portfolio", label: "Portfolio", icon: "portfolio" },
+      { id: "holdings", label: "Positions", icon: "positions" },
+      { id: "options", label: "Options", icon: "options" },
+      { id: "tax", label: "Tax", icon: "tax" }
     ] },
     { group: "Review", items: [
-      { id: "journal", label: "Trading Journal", icon: "\u{1F4D3}" },
-      { id: "trades", label: "Performance", icon: "\u{1F9EE}" },
-      { id: "futures", label: "Futures", icon: "\u{1F4C9}" },
-      { id: "strategies", label: "Strategies", icon: "\u{1F916}" }
+      { id: "journal", label: "Trading Journal", icon: "journal" },
+      { id: "trades", label: "Performance", icon: "performance" },
+      { id: "futures", label: "Futures", icon: "futures" },
+      { id: "strategies", label: "Strategies", icon: "strategies" }
     ] }
   ];
   var DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper"];
@@ -6754,7 +6830,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         className: cls("vg-navitem", route === it.id && "sel"),
         onClick: () => go(it.id)
       },
-      /* @__PURE__ */ React.createElement("span", { className: "ic" }, it.icon),
+      /* @__PURE__ */ React.createElement("span", { className: "ic" }, /* @__PURE__ */ React.createElement(Icon, { name: it.icon })),
       leftOpen && /* @__PURE__ */ React.createElement(React.Fragment, null, it.label, it.id === "tax" && tlh2.some((c) => c.status === "clear") && /* @__PURE__ */ React.createElement("span", { className: "vg-navdot" }))
     ))))), leftOpen && /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-divider" }), /* @__PURE__ */ React.createElement(
       "button",

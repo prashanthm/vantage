@@ -550,10 +550,12 @@ const STATUS_TONE = {
   closed: "plain", open: "warn",
   expired_worthless: "bad", expired_settled: "good", expired_unpriced: "warn",
 };
+// chip grammar: STATES are UPPERCASE (outcomes stay lowercase + glyph — see
+// scanner). One visual language for "what is this row's state" across screens.
 const STATUS_LABEL = {
-  closed: "closed", open: "still open",
-  expired_worthless: "expired worthless", expired_settled: "expired ITM",
-  expired_unpriced: "expired (unpriced)",
+  closed: "CLOSED", open: "OPEN",
+  expired_worthless: "EXPIRED · $0", expired_settled: "EXPIRED ITM",
+  expired_unpriced: "EXPIRED",
 };
 const money = (n) => (n == null ? "—"
   : `${n >= 0 ? "+" : "−"}$${Math.abs(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);

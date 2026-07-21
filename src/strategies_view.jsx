@@ -36,7 +36,7 @@ function GateRow({ gate }) {
         <span className="vg-note">· {gate.paper_n}/{gate.min_sample} trades</span>
         <span className={cls("vg-badge", gate.passes ? "good" : "plain")}
           style={{ marginLeft: "auto" }}>
-          {gate.passes ? "gate passes" : "gate not met"}
+          {gate.passes ? "GATE PASSES" : "GATE NOT MET"}
         </span>
       </div>
       <p className="vg-note vg-sl-gatewhy">{gate.reason}</p>

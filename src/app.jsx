@@ -9,6 +9,7 @@ import {
   loadSettings, SETTINGS_KEY, StatTile, syncedAgo,
   useTheme, THEME_ICON, LoadBar,
 } from "./util.jsx";
+import { Icon } from "./icons.jsx";
 import { MiraRender } from "./mira-render.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { PortfolioView } from "./portfolio_view.jsx";
@@ -41,27 +42,27 @@ const NAV = [
   { group: "Desk", items: [
     // Home: one route, three faces (brief / cockpit / debrief) picked by the
     // market clock — the landing surface. Faces render the existing screens.
-    { id: "home", label: "Home", icon: "⌂" },
+    { id: "home", label: "Home", icon: "home" },
     // Today is the trading half's front door: signals + why + honest record +
     // machine health, one screen (see claudedocs/goals/ux-feature-value).
-    { id: "today", label: "Today", icon: "🎯" },
-    { id: "playbook", label: "Daily plan", icon: "📐" },
-    { id: "scanner", label: "Scanner", icon: "🔭" },
+    { id: "today", label: "Today", icon: "today" },
+    { id: "playbook", label: "Daily plan", icon: "plan" },
+    { id: "scanner", label: "Scanner", icon: "scanner" },
     // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
-    { id: "ic", label: "Chart", icon: "📈" },
+    { id: "ic", label: "Chart", icon: "chart" },
   ]},
   { group: "Book", items: [
-    { id: "dashboard", label: "Dashboard", icon: "◫" },
-    { id: "portfolio", label: "Portfolio", icon: "🧭" },
-    { id: "holdings", label: "Positions", icon: "▤" },
-    { id: "options", label: "Options", icon: "◎" },
-    { id: "tax", label: "Tax", icon: "🌾" },
+    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
+    { id: "portfolio", label: "Portfolio", icon: "portfolio" },
+    { id: "holdings", label: "Positions", icon: "positions" },
+    { id: "options", label: "Options", icon: "options" },
+    { id: "tax", label: "Tax", icon: "tax" },
   ]},
   { group: "Review", items: [
-    { id: "journal", label: "Trading Journal", icon: "📓" },
-    { id: "trades", label: "Performance", icon: "🧮" },
-    { id: "futures", label: "Futures", icon: "📉" },
-    { id: "strategies", label: "Strategies", icon: "🤖" },
+    { id: "journal", label: "Trading Journal", icon: "journal" },
+    { id: "trades", label: "Performance", icon: "performance" },
+    { id: "futures", label: "Futures", icon: "futures" },
+    { id: "strategies", label: "Strategies", icon: "strategies" },
   ]},
 ];
 // Nav lists the five top-level views. These extra routes stay reachable as
@@ -447,7 +448,7 @@ function App() {
                   {g.items.map((it) => (
                     <button key={it.id} title={it.label}
                       className={cls("vg-navitem", route === it.id && "sel")} onClick={() => go(it.id)}>
-                      <span className="ic">{it.icon}</span>
+                      <span className="ic"><Icon name={it.icon} /></span>
                       {leftOpen && <>
                         {it.label}
                         {it.id === "tax" && tlh.some((c) => c.status === "clear") && <span className="vg-navdot" />}

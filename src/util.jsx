@@ -106,11 +106,15 @@ export function loadSettings() {
 }
 
 /* ---------- tiny components ---------- */
-export function StatTile({ label, value, delta, deltaDir, note }) {
+// THE stat tile — the one canonical design for headline numbers (Dashboard,
+// Performance, Futures all render through here; don't hand-roll .vg-stat).
+// `label` may be a node (wrap in <Term> at the call site for glossary links);
+// `tone` tints the value (good/bad/warn) for at-a-glance verdicts.
+export function StatTile({ label, value, delta, deltaDir, note, tone }) {
   return (
     <div className="vg-stat">
       <div className="lbl">{label}</div>
-      <div className="val">{value}</div>
+      <div className={cls("val", tone)}>{value}</div>
       {delta != null && <div className={cls("delta", deltaDir)}>{delta}</div>}
       {note && <div className="vg-note">{note}</div>}
     </div>
