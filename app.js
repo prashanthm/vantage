@@ -2263,6 +2263,10 @@ ${ref}`;
     { timeoutMs: 6e4 }
   );
   var todayET = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(/* @__PURE__ */ new Date());
+  var etMinNow = () => {
+    const [h, m] = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).format(/* @__PURE__ */ new Date()).split(":");
+    return Number(h) * 60 + Number(m);
+  };
   var money3 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(v).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
   function callSide(bias) {
     const s = String(bias || "").toLowerCase();
@@ -2340,6 +2344,25 @@ ${ref}`;
       s.price
     )));
   }
+  function PlanCard() {
+    const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, []);
+    const sc = q.data && q.data.available ? q.data.scaffold || {} : null;
+    if (!sc) return null;
+    const r = sc.regime || {};
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Pre-market \u2014 today's plan"), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "#/playbook" }, "full read \u2192")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8, flexWrap: "wrap" } }, r.gamma_text && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.gamma === "negative" ? "warn" : "plain") }, r.gamma_text), r.vwap_regime && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, r.vwap_regime), r.vix != null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontVariantNumeric: "tabular-nums" } }, "VIX ", r.vix, " \xB7 ", r.vix_band)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10, display: "grid", gap: 8 } }, (sc.setups || []).map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "baseline", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "var(--vg-text-sm)" } }, s.trigger), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.bias)), (s.targets || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 4, flexWrap: "wrap" } }, s.targets.slice(0, 3).map((t, j) => /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        key: j,
+        className: "vg-badge good",
+        style: { fontVariantNumeric: "tabular-nums" },
+        title: t.kind
+      },
+      t.price,
+      " (",
+      t.pts_from_trigger,
+      "pt)"
+    )))))));
+  }
   function NowCard({ d, isToday }) {
     const frames = d.frames || [];
     const latest = frames.find((f) => f.call);
@@ -2349,14 +2372,11 @@ ${ref}`;
     const openTrades = (d.trades || []).filter((t) => t.realized == null);
     const side = callSide(call && call.bias);
     const age = call ? ageMin(call.as_of) : null;
-    const etMin = (() => {
-      const [h, m] = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).format(/* @__PURE__ */ new Date()).split(":");
-      return Number(h) * 60 + Number(m);
-    })();
+    const etMin = etMinNow();
     const closed = !isToday || etMin >= 960 || etMin < 570;
     const stale = isToday && !closed && age != null && age > 20;
     const flat = flatAction(call, price);
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14, borderLeft: `3px solid var(${side === "bullish" ? "--vg-up" : side === "bearish" ? "--vg-down" : "--vg-hairline"})` } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, closed ? "Session closed \u2014 final call" : "Next 15 minutes"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, call ? `call @ ${call.minute} from ${call.price_at ?? "?"}` : "no call yet", !closed && age != null ? ` \xB7 ${age}m ago` : "", stale && /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, " \xB7 STALE \u2014 refresh due"))), call ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 8, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, closed ? "Session closed \u2014 final call" : "Next 15 minutes"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, call ? `call @ ${call.minute} from ${call.price_at ?? "?"}` : "no call yet", !closed && age != null ? ` \xB7 ${age}m ago` : "", stale && /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, " \xB7 STALE \u2014 refresh due"))), call ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 8, alignItems: "center", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", sideTone(side)),
@@ -2408,7 +2428,10 @@ ${ref}`;
     const [tick, setTick] = useState3(0);
     useEffect2(() => {
       if (!isToday) return void 0;
-      const t = setInterval(() => setTick((n) => n + 1), 12e4);
+      const t = setInterval(() => {
+        const m = etMinNow();
+        if (m >= 540 && m <= 965) setTick((n) => n + 1);
+      }, 12e4);
       return () => clearInterval(t);
     }, [isToday]);
     const q = useLive(() => getFrames(day), null, [day, tick, refreshNonce]);
@@ -2423,7 +2446,7 @@ ${ref}`;
         onChange: (e) => setDay(e.target.value || todayET()),
         "aria-label": "Cockpit day"
       }
-    ))), d && /* @__PURE__ */ React.createElement(NowCard, { d, isToday }), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day }), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Every 15 minutes", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 sentiment \u2192 action \u2192 market \u2192 your trades (\u2713 with / \u2717 against the call)")), (d ? d.frames : []).map((f) => /* @__PURE__ */ React.createElement(FrameCard, { key: f.t, f })), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the briefing\u2026" : "Cockpit needs the SQLite backend.")));
+    ))), isToday && etMinNow() < 570 ? /* @__PURE__ */ React.createElement(PlanCard, null) : d && /* @__PURE__ */ React.createElement(NowCard, { d, isToday }), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day }), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Every 15 minutes", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 sentiment \u2192 action \u2192 market \u2192 your trades (\u2713 with / \u2717 against the call)")), (d ? d.frames : []).map((f) => /* @__PURE__ */ React.createElement(FrameCard, { key: f.t, f })), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the briefing\u2026" : "Cockpit needs the SQLite backend.")));
   }
 
   // src/chart_theme.jsx
@@ -2610,7 +2633,7 @@ ${ref}`;
       rr && rr.status === "ok" && rr.rr_ratio != null && /* @__PURE__ */ React.createElement("div", { style: { fontSize: 13, lineHeight: 1.6, marginBottom: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Risk/reward"), " ", /* @__PURE__ */ React.createElement("b", null, rr.rr_ratio.toFixed(2), ":1"), rr.direction === "short" && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " (short)"), " \xB7 ", /* @__PURE__ */ React.createElement("span", { className: "vg-pos" }, "+", usd(rr.upside, 2)), " to target", " / ", /* @__PURE__ */ React.createElement("span", { className: "vg-neg" }, "\u2212", usd(rr.downside, 2)), " to stop", rr.upside_pct != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " (", signPct(rr.upside_pct, 0), " / ", signPct(-rr.downside_pct, 0), ")")),
       rr && (rr.status === "stop_breached" || rr.status === "target_reached") && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 13, marginBottom: 8 } }, "Plan ", rr.status === "stop_breached" ? "stop breached" : "target reached", " at current price."),
       /* @__PURE__ */ React.createElement(
-        PlanCard,
+        PlanCard2,
         {
           sym,
           plan: nbData ? nbData.plan : null,
@@ -2656,7 +2679,7 @@ ${ref}`;
   function notebookOr(nb, key) {
     return nb && nb[key] ? nb[key] : null;
   }
-  function PlanCard({ sym, plan, price, onSaved, embedded }) {
+  function PlanCard2({ sym, plan, price, onSaved, embedded }) {
     const [thesis, setThesis] = useState4("");
     const [target, setTarget] = useState4("");
     const [stop, setStop] = useState4("");

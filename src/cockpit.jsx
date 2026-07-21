@@ -24,6 +24,10 @@ const getFrames = (day) =>
 
 const todayET = () =>
   new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(new Date());
+const etMinNow = () => {
+  const [h, m] = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).format(new Date()).split(":");
+  return Number(h) * 60 + Number(m);
+};
 const money = (v) => (v == null ? "—" : `${v >= 0 ? "+" : "−"}$${Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
 
 // call bias → "bullish" | "bearish" | null
@@ -109,6 +113,45 @@ function LevelChips({ call, price }) {
   );
 }
 
+// ── PRE-MARKET: the daily plan is the first read (from ~09:00 ET) ───────────
+function PlanCard() {
+  const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, []);
+  const sc = q.data && q.data.available ? (q.data.scaffold || {}) : null;
+  if (!sc) return null;
+  const r = sc.regime || {};
+  return (
+    <div className="vg-card" style={{ marginTop: 14 }}>
+      <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+        <div className="vg-kicker">Pre-market — today&apos;s plan</div>
+        <a className="vg-note" href="#/playbook">full read →</a>
+      </div>
+      <div className="vg-row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+        {r.gamma_text && <span className={cls("vg-badge", r.gamma === "negative" ? "warn" : "plain")}>{r.gamma_text}</span>}
+        {r.vwap_regime && <span className="vg-badge plain">{r.vwap_regime}</span>}
+        {r.vix != null && <span className="vg-badge plain" style={{ fontVariantNumeric: "tabular-nums" }}>VIX {r.vix} · {r.vix_band}</span>}
+      </div>
+      <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+        {(sc.setups || []).map((s, i) => (
+          <div key={i}>
+            <div className="vg-row" style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+              <b style={{ fontSize: "var(--vg-text-sm)" }}>{s.trigger}</b>
+              <span className="vg-note">{s.bias}</span>
+            </div>
+            {(s.targets || []).length > 0 && (
+              <div className="vg-row" style={{ gap: 6, marginTop: 4, flexWrap: "wrap" }}>
+                {s.targets.slice(0, 3).map((t, j) => (
+                  <span key={j} className="vg-badge good" style={{ fontVariantNumeric: "tabular-nums" }}
+                    title={t.kind}>{t.price} ({t.pts_from_trigger}pt)</span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── NEXT 15 MINUTES ─────────────────────────────────────────────────────────
 function NowCard({ d, isToday }) {
   const frames = d.frames || [];
@@ -119,15 +162,12 @@ function NowCard({ d, isToday }) {
   const openTrades = (d.trades || []).filter((t) => t.realized == null);
   const side = callSide(call && call.bias);
   const age = call ? ageMin(call.as_of) : null;
-  const etMin = (() => {
-    const [h, m] = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).format(new Date()).split(":");
-    return Number(h) * 60 + Number(m);
-  })();
+  const etMin = etMinNow();
   const closed = !isToday || etMin >= 960 || etMin < 570;   // outside 09:30–16:00 ET
   const stale = isToday && !closed && age != null && age > 20;
   const flat = flatAction(call, price);
   return (
-    <div className="vg-card" style={{ marginTop: 14, borderLeft: `3px solid var(${side === "bullish" ? "--vg-up" : side === "bearish" ? "--vg-down" : "--vg-hairline"})` }}>
+    <div className="vg-card" style={{ marginTop: 14 }}>
       <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
         <div className="vg-kicker">{closed ? "Session closed — final call" : "Next 15 minutes"}</div>
         <span className="vg-note">
@@ -261,7 +301,12 @@ export function CockpitView({ refreshNonce }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!isToday) return undefined;
-    const t = setInterval(() => setTick((n) => n + 1), 120000);
+    // poll only 09:00–16:05 ET — after hours nothing changes, and the
+    // refetch flicker is just noise
+    const t = setInterval(() => {
+      const m = etMinNow();
+      if (m >= 540 && m <= 965) setTick((n) => n + 1);
+    }, 120000);
     return () => clearInterval(t);
   }, [isToday]);
   const q = useLive(() => getFrames(day), null, [day, tick, refreshNonce]);
@@ -282,7 +327,7 @@ export function CockpitView({ refreshNonce }) {
         </div>
       </div>
 
-      {d && <NowCard d={d} isToday={isToday} />}
+      {isToday && etMinNow() < 570 ? <PlanCard /> : d && <NowCard d={d} isToday={isToday} />}
 
       <ToneCompareCard marketOpen={isToday} day={isToday ? undefined : day} />
 
