@@ -305,7 +305,7 @@ function parseRead(text) {
   let cur = null;
   let provenance = null;
   for (const l of lines) {
-    const setup = l.match(/^\*{0,2}SETUP\s*—\s*(.+?)\*{0,2}$/i);
+    const setup = l.match(/^\*{0,2}SETUP(?:\s+\d+)?\s*[—:-]\s*(.+?)\*{0,2}$/i);
     if (setup) { cur = { name: setup[1].replace(/\*+/g, ""), rows: [] }; setups.push(cur); continue; }
     const row = l.match(/^[·\-•]\s*(Trigger|Idea|Wrong if|Targets|Watch)\s*:\s*(.+)$/i);
     if (row && cur) { cur.rows.push({ k: row[1], v: row[2] }); continue; }

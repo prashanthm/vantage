@@ -2708,7 +2708,7 @@ ${ref}`;
     let cur = null;
     let provenance = null;
     for (const l of lines) {
-      const setup = l.match(/^\*{0,2}SETUP\s*—\s*(.+?)\*{0,2}$/i);
+      const setup = l.match(/^\*{0,2}SETUP(?:\s+\d+)?\s*[—:-]\s*(.+?)\*{0,2}$/i);
       if (setup) {
         cur = { name: setup[1].replace(/\*+/g, ""), rows: [] };
         setups.push(cur);

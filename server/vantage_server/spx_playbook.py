@@ -593,11 +593,48 @@ def build_durable_levels(history: list[dict], spot: float | None,
     return out[:max_out]
 
 
+def _targets_from_ladder(ladder: list[dict], trigger: float | None,
+                         direction: str, terminal: float | None,
+                         n: int = 3) -> list[dict]:
+    """The intermediate TARGET LADDER for a conditional setup: the nearest
+    known levels beyond ``trigger`` in the trade ``direction`` ('down'|'up'),
+    deduped (~2pt), capped at ``n``, always ending at the terminal wall. The
+    levels are already computed — a setup must never say 'target not defined'
+    while the ladder knows better."""
+    out: list[dict] = []
+    if trigger is not None:
+        cand = []
+        for z in ladder or []:
+            p = z.get("price")
+            if p is None:
+                continue
+            if direction == "down" and p < trigger - 1:
+                cand.append((trigger - p, p, z.get("kind", "")))
+            elif direction == "up" and p > trigger + 1:
+                cand.append((p - trigger, p, z.get("kind", "")))
+        cand.sort()
+        for dist, p, kind in cand:
+            if any(abs(p - q["price"]) < 2 for q in out):
+                continue
+            out.append({"price": round(p, 1), "kind": kind,
+                        "pts_from_trigger": round(dist, 1)})
+            if len(out) >= n:
+                break
+    if terminal is not None and trigger is not None \
+            and not any(abs(terminal - q["price"]) < 2 for q in out):
+        out.append({"price": round(terminal, 1),
+                    "kind": "put wall" if direction == "down" else "call wall",
+                    "pts_from_trigger": round(abs(terminal - trigger), 1)})
+    return out
+
+
 def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict,
-                 label: str = "SPX") -> list[dict]:
+                 label: str = "SPX", ladder: list[dict] | None = None) -> list[dict]:
     """Explicit CONDITIONAL 0DTE setups keyed to real levels. Every one is
     'IF <level/condition> THEN <structure with strikes from the ladder>'.
-    ``label`` names the underlying in the trigger text (SPX | QQQ | IWM)."""
+    ``label`` names the underlying in the trigger text (SPX | QQQ | IWM).
+    ``ladder`` (build_level_ladder output) supplies each setup's intermediate
+    target ladder — T1/T2 are the nearest known levels, not just the far wall."""
     setups: list[dict] = []
     if not gex.get("available"):
         return setups
@@ -627,6 +664,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict,
                              f"sell rallies near {call_w:.0f}. Price likely bounces "
                              "between them rather than trending.",
                 "levels": {"put_wall": put_w, "call_wall": call_w, "flip": flip},
+                "targets": _targets_from_ladder(ladder, flip, "up", call_w),
             })
             setups.append({
                 "trigger": f"{label} drops below the {flip:.0f} line",
@@ -634,6 +672,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict,
                 "structure": f"Stop buying dips. Below {flip:.0f} the tape can trend "
                              f"down; {put_w:.0f} becomes the next downside target.",
                 "levels": {"flip": flip, "put_wall": put_w},
+                "targets": _targets_from_ladder(ladder, flip, "down", put_w),
             })
         else:
             setups.append({
@@ -643,6 +682,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict,
                              f"next downside target; a move back above {flip:.0f} means "
                              "things are calming down.",
                 "levels": {"flip": flip, "put_wall": put_w},
+                "targets": _targets_from_ladder(ladder, flip, "down", put_w),
             })
             setups.append({
                 "trigger": f"{label} climbs back above the {flip:.0f} line",
@@ -650,6 +690,7 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict,
                 "structure": f"Above {flip:.0f}, expect a range again — sell rallies "
                              f"near {call_w:.0f}.",
                 "levels": {"flip": flip, "call_wall": call_w},
+                "targets": _targets_from_ladder(ladder, flip, "up", call_w),
             })
     return setups
 
@@ -831,7 +872,7 @@ def build_playbook(today: _dt.date | None = None, store: Any = None,
     edges = day_time_edges(spx15)
     ladder = build_level_ladder(bundle["gex"], chart, scale=scale)
     setups = build_setups(bundle["gex"], chart, bundle["catalysts"], opex,
-                          label=cfg["label"])
+                          label=cfg["label"], ladder=ladder)
 
     gex = bundle["gex"]
     mc = bundle["market_context"]
