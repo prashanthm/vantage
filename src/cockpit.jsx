@@ -213,85 +213,90 @@ function NowCard({ d, isToday }) {
   );
 }
 
-// ── EVERY 15 MINUTES (history) ──────────────────────────────────────────────
-function FrameCard({ f }) {
+// ── EVERY 15 MINUTES (history) — one table row per frame ────────────────────
+function FrameTr({ f }) {
   const [open, setOpen] = useState(false);
   const c = f.call, m = f.market;
   const side = callSide(c && c.bias);
   const act = flatAction(c, m ? m.close : null);
   const trades = f.trades || [];
+  // inherited (non-fresh) calls fade so the CHANGES stand out down the column
+  const faded = c && !c.fresh ? { opacity: 0.45 } : undefined;
+  const tint = trades.length ? { background: "var(--vg-raised)" } : undefined;
   return (
-    <div className={cls("vg-fr", open && "open")}>
-      <div className="vg-fr-head" onClick={() => setOpen(!open)}
-        style={{ display: "grid", gridTemplateColumns: "46px 96px 1fr 170px 16px", gap: 10, alignItems: "start" }}>
-        <span className="vg-fr-t">{f.t}</span>
-        {/* sentiment */}
-        <span>
+    <>
+      <tr className="click" onClick={() => setOpen(!open)} style={tint}>
+        <td className="num" style={{ textAlign: "left" }}>{f.t}</td>
+        <td style={faded}>
           {c ? (
-            <span className={cls("vg-badge", sideTone(side))} style={{ fontWeight: 700 }}>
-              {side ? side.toUpperCase() : "NEUTRAL"}{c.fresh ? "" : " ·"}
-            </span>
-          ) : <span className="vg-note">no call</span>}
-        </span>
-        {/* levels + proposed action + trades w/ narrative alignment */}
-        <span style={{ display: "grid", gap: 4 }}>
-          <span className="vg-row" style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-            {c && actionBadge(act)}
-            {c && <span className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>{act.detail}</span>}
-          </span>
-          {trades.length > 0 && (
-            <span className="vg-row" style={{ gap: 6, flexWrap: "wrap" }}>
-              {trades.map((t, i) => {
-                const aligned = side != null ? t.dir === side : null;
-                return (
-                  <span key={i} className={cls("vg-badge", aligned === false ? "bad" : aligned ? "good" : "plain")}
-                    title={`${t.time} · ${t.dir}${t.realized != null ? ` · ${money(t.realized)}` : " · open"}`}>
-                    {aligned === false ? "✗" : aligned ? "✓" : "·"} {t.label}
-                    {t.realized != null ? ` ${money(t.realized)}` : ""}
-                  </span>
-                );
-              })}
-              {f.frame_pnl != null && f.frame_pnl !== 0 && (
-                <b className={f.frame_pnl >= 0 ? "vg-up" : "vg-down"} style={{ fontSize: "var(--vg-text-sm)" }}>
-                  {money(f.frame_pnl)}</b>)}
-            </span>
-          )}
-        </span>
-        {/* what the market did + how the call resolved */}
-        <span style={{ display: "grid", gap: 3, justifyItems: "end" }}>
-          {m ? (
             <span className="vg-row" style={{ gap: 5, alignItems: "center" }}>
-              <span className={cls("vg-tone-cellmini", m.tone)} />
-              <span className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>
-                {m.ret_pct > 0 ? "+" : ""}{m.ret_pct}% · {m.close}</span>
+              <span className={cls("vg-badge", sideTone(side))} style={{ fontWeight: 700 }}>
+                {side ? side.toUpperCase() : "NEUTRAL"}</span>
+              {c.fresh && <span className="vg-fr-fresh" title={`new call this frame @ ${c.minute}`} />}
             </span>
           ) : <span className="vg-note">—</span>}
-          {c && c.score
-            ? <span className={cls("vg-badge", verdictTone(c.score.verdict))} style={{ fontSize: "var(--vg-text-xs)" }}>
-                {c.score.verdict}{c.score.moved_pt != null ? ` ${c.score.moved_pt > 0 ? "+" : ""}${c.score.moved_pt}pt` : ""}
-              </span>
-            : c && c.fresh ? <span className="vg-note" style={{ fontSize: "var(--vg-text-xs)" }}>resolving…</span> : null}
-        </span>
-        <span className="vg-note">{open ? "▾" : "▸"}</span>
-      </div>
+        </td>
+        <td>{c ? (
+          <span className={cls("vg-badge", act.tone)} style={{ fontWeight: 700 }} title={act.detail}>
+            {act.verb}</span>
+        ) : null}</td>
+        <td className="num" style={faded}>{c && c.target != null ? c.target : "—"}</td>
+        <td className="num" style={faded}>{c && c.invalidation != null ? c.invalidation : "—"}</td>
+        <td className="num" title={m ? `close ${m.close}` : ""}>
+          {m ? (
+            <span className="vg-row" style={{ gap: 5, alignItems: "center", justifyContent: "flex-end" }}>
+              <span className={cls("vg-tone-cellmini", m.tone)} />
+              <span>{m.ret_pct > 0 ? "+" : ""}{m.ret_pct}%</span>
+            </span>
+          ) : "—"}
+        </td>
+        <td>{c && c.score
+          ? <span className={cls("vg-badge", verdictTone(c.score.verdict))} style={{ fontSize: "var(--vg-text-xs)" }}>
+              {c.score.verdict}{c.score.moved_pt != null ? ` ${c.score.moved_pt > 0 ? "+" : ""}${c.score.moved_pt}pt` : ""}
+            </span>
+          : c && c.fresh ? <span className="vg-note" style={{ fontSize: "var(--vg-text-xs)" }}>resolving…</span> : null}
+        </td>
+        <td>
+          <span className="vg-row" style={{ gap: 5, flexWrap: "wrap" }}>
+            {trades.map((t, i) => {
+              const aligned = side != null ? t.dir === side : null;
+              return (
+                <span key={i} className={cls("vg-badge", aligned === false ? "bad" : aligned ? "good" : "plain")}
+                  title={`${t.time} · ${t.dir}${t.realized != null ? ` · ${money(t.realized)}` : " · open"}`}>
+                  {aligned === false ? "✗" : aligned ? "✓" : "·"} {t.label}
+                </span>
+              );
+            })}
+          </span>
+        </td>
+        <td className="num">
+          {f.frame_pnl != null && f.frame_pnl !== 0
+            ? <b className={f.frame_pnl >= 0 ? "vg-up" : "vg-down"}>{money(f.frame_pnl)}</b> : ""}
+        </td>
+      </tr>
       {open && (
-        <div className="vg-fr-body">
-          {c && <div style={{ marginBottom: 4 }}><LevelChips call={c} price={m ? m.close : null} /></div>}
-          {c && c.minute && (
-            <div className="vg-note">call made {c.minute} @ {c.price_at}{c.born_invalid ? " — BORN-INVALID" : ""}</div>
-          )}
-          {trades.map((t, i) => (
-            <div key={i} className="vg-note" style={{ marginTop: 3 }}>
-              {t.time} — {t.label} · {t.dir}
-              {side != null ? (t.dir === side ? " · WITH the call" : " · AGAINST the call") : ""}
-              {t.with_trend === false ? " · against the session tape" : ""}
-              {t.realized != null ? ` · ${money(t.realized)}` : " · open"}
-            </div>
-          ))}
-          {!c && !trades.length && <span className="vg-note">quiet frame</span>}
-        </div>
+        <tr>
+          <td colSpan={9} style={{ background: "var(--vg-raised)" }}>
+            {c && <div style={{ marginBottom: 4 }}><LevelChips call={c} price={m ? m.close : null} /></div>}
+            {c && (
+              <div className="vg-note">
+                {act.verb === "WAIT" ? `${act.detail} · ` : ""}
+                call made {c.minute} @ {c.price_at}{c.born_invalid ? " — BORN-INVALID" : ""}
+              </div>
+            )}
+            {trades.map((t, i) => (
+              <div key={i} className="vg-note" style={{ marginTop: 3 }}>
+                {t.time} — {t.label} · {t.dir}
+                {side != null ? (t.dir === side ? " · WITH the call" : " · AGAINST the call") : ""}
+                {t.with_trend === false ? " · against the session tape" : ""}
+                {t.realized != null ? ` · ${money(t.realized)}` : " · open"}
+              </div>
+            ))}
+            {!c && !trades.length && <span className="vg-note">quiet frame</span>}
+          </td>
+        </tr>
       )}
-    </div>
+    </>
   );
 }
 
@@ -331,12 +336,26 @@ export function CockpitView({ refreshNonce }) {
 
       <ToneCompareCard marketOpen={isToday} day={isToday ? undefined : day} />
 
-      <div className="vg-card" style={{ marginTop: 14, padding: "10px 14px" }}>
+      <div className="vg-card vg-tablewrap" style={{ marginTop: 14, padding: "10px 14px" }}>
         <div className="vg-kicker" style={{ marginBottom: 6 }}>
           Every 15 minutes{d ? ` · ${d.frames.length} frames` : ""}
-          <span className="vg-note" style={{ fontWeight: 400 }}> — newest first · sentiment → action → market → your trades (✓ with / ✗ against the call)</span>
+          <span className="vg-note" style={{ fontWeight: 400 }}> — newest first · click a row for the call path + fills · ✓ with / ✗ against the call</span>
         </div>
-        {(d ? d.frames : []).map((f) => <FrameCard key={f.t} f={f} />)}
+        {d && d.frames.length > 0 && (
+          <table className="vg-table">
+            <thead>
+              <tr>
+                <th>Time</th><th>Call</th><th>Action</th>
+                <th className="num">Target</th><th className="num">Wrong if</th>
+                <th className="num">Market</th><th>Resolved</th><th>You</th>
+                <th className="num">P&amp;L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.frames.map((f) => <FrameTr key={f.t} f={f} />)}
+            </tbody>
+          </table>
+        )}
         {d && !d.frames.length && <p className="vg-note">No frames for {day} — no stored bars or fills.</p>}
         {!d && <p className="vg-note">{q.loading ? "Building the briefing…" : "Cockpit needs the SQLite backend."}</p>}
       </div>
