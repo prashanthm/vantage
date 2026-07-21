@@ -6324,6 +6324,9 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
     { group: "Desk", items: [
+      // Home: one route, three faces (brief / cockpit / debrief) picked by the
+      // market clock — the landing surface. Faces render the existing screens.
+      { id: "home", label: "Home", icon: "\u2302" },
       // Today is the trading half's front door: signals + why + honest record +
       // machine health, one screen (see claudedocs/goals/ux-feature-value).
       { id: "today", label: "Today", icon: "\u{1F3AF}" },
@@ -6348,7 +6351,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   ];
   var DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper"];
   var ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
-  function defaultRoute() {
+  function clockFace() {
     try {
       const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
         timeZone: "America/New_York",
@@ -6357,14 +6360,33 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         minute: "2-digit",
         hour12: false
       }).formatToParts(/* @__PURE__ */ new Date()).map((p) => [p.type, p.value]));
-      if (parts.weekday === "Sat" || parts.weekday === "Sun") return "dashboard";
+      if (parts.weekday === "Sat" || parts.weekday === "Sun") return "brief";
       const mins = +parts.hour * 60 + +parts.minute;
-      if (mins < 9 * 60 + 30) return "dashboard";
-      if (mins < 16 * 60) return "today";
-      return "journal";
+      if (mins < 9 * 60 + 30) return "brief";
+      if (mins < 16 * 60) return "cockpit";
+      return "debrief";
     } catch (e) {
-      return "dashboard";
+      return "brief";
     }
+  }
+  var defaultRoute = () => "home";
+  var HOME_FACES = [
+    { key: "brief", label: "Morning brief" },
+    { key: "cockpit", label: "Cockpit" },
+    { key: "debrief", label: "Debrief" }
+  ];
+  function HomeView({ renderFace }) {
+    const [face, setFace] = useState14(clockFace);
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-home" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 4, marginBottom: 10 } }, HOME_FACES.map((f) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: f.key,
+        className: cls("vg-seg-btn", face === f.key && "on"),
+        onClick: () => setFace(f.key),
+        title: face === f.key ? "current face" : `switch to the ${f.label.toLowerCase()}`
+      },
+      f.label
+    )), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: 8, fontSize: "var(--vg-text-xs)" } }, "picked by the market clock \u2014 override sticks for this visit")), renderFace(face));
   }
   function useHashRoute() {
     const parse = () => {
@@ -6728,7 +6750,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         onRefreshAll,
         onAccountsChanged: () => setRefreshNonce((n) => n + 1)
       }
-    ), route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
+    ), route === "home" && /* @__PURE__ */ React.createElement(HomeView, { renderFace: (face) => face === "cockpit" ? /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }) : face === "debrief" ? /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }) : /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }) }), route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
       setSymbol(sym);
       go("ic", sym);
     } }), route === "strategies" && /* @__PURE__ */ React.createElement(

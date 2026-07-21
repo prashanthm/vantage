@@ -39,6 +39,9 @@ const EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }
 // an edge → promote). Route ids are UNCHANGED so every bookmark keeps working.
 const NAV = [
   { group: "Desk", items: [
+    // Home: one route, three faces (brief / cockpit / debrief) picked by the
+    // market clock — the landing surface. Faces render the existing screens.
+    { id: "home", label: "Home", icon: "⌂" },
     // Today is the trading half's front door: signals + why + honest record +
     // machine health, one screen (see claudedocs/goals/ux-feature-value).
     { id: "today", label: "Today", icon: "🎯" },
@@ -73,22 +76,53 @@ const NAV = [
 const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
-// Time-aware landing: with no hash, the app opens where the market clock says the
-// operator is — pre-market → the morning brief, RTH → the cockpit, post-close →
-// the review. The clock is state the app already has; the operator never manages
-// a "mode". Explicit hashes always win (this only decides the EMPTY default).
-function defaultRoute() {
+// The market clock decides which FACE of Home the operator needs: pre-market →
+// the morning brief, RTH → the cockpit, post-close → the debrief. The clock is
+// state the app already has; the operator never manages a "mode" — Home picks,
+// and a pill overrides for the session.
+function clockFace() {
   try {
     const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
       timeZone: "America/New_York", weekday: "short",
       hour: "2-digit", minute: "2-digit", hour12: false,
     }).formatToParts(new Date()).map((p) => [p.type, p.value]));
-    if (parts.weekday === "Sat" || parts.weekday === "Sun") return "dashboard";
+    if (parts.weekday === "Sat" || parts.weekday === "Sun") return "brief";
     const mins = (+parts.hour) * 60 + (+parts.minute);
-    if (mins < 9 * 60 + 30) return "dashboard";   // pre-market → brief
-    if (mins < 16 * 60) return "today";           // RTH → cockpit
-    return "journal";                             // post-close → review
-  } catch (e) { return "dashboard"; }
+    if (mins < 9 * 60 + 30) return "brief";    // pre-market
+    if (mins < 16 * 60) return "cockpit";      // RTH
+    return "debrief";                          // post-close
+  } catch (e) { return "brief"; }
+}
+// With no hash, land on Home (which applies the clock).
+const defaultRoute = () => "home";
+
+// Home — one route, three faces, chosen by the clock with a manual override.
+// Each face IS the existing screen (Dashboard / Today / Journal) rendered via a
+// render prop — no duplicated views, Home only decides which one is "now".
+const HOME_FACES = [
+  { key: "brief", label: "Morning brief" },
+  { key: "cockpit", label: "Cockpit" },
+  { key: "debrief", label: "Debrief" },
+];
+function HomeView({ renderFace }) {
+  const [face, setFace] = useState(clockFace);
+  return (
+    <div className="vg-home">
+      <div className="vg-row" style={{ gap: 4, marginBottom: 10 }}>
+        {HOME_FACES.map((f) => (
+          <button key={f.key} className={cls("vg-seg-btn", face === f.key && "on")}
+            onClick={() => setFace(f.key)}
+            title={face === f.key ? "current face" : `switch to the ${f.label.toLowerCase()}`}>
+            {f.label}
+          </button>
+        ))}
+        <span className="vg-note" style={{ marginLeft: 8, fontSize: "var(--vg-text-xs)" }}>
+          picked by the market clock — override sticks for this visit
+        </span>
+      </div>
+      {renderFace(face)}
+    </div>
+  );
 }
 
 // Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
@@ -456,6 +490,13 @@ function App() {
               scopeAccounts={scopeAccounts} refreshing={refreshing}
               onRefreshAccount={onRefreshAccount} onRefreshAll={onRefreshAll}
               onAccountsChanged={() => setRefreshNonce((n) => n + 1)} />)}
+          {route === "home" && (
+            <HomeView renderFace={(face) => (
+              face === "cockpit" ? <TodayView refreshNonce={refreshNonce} />
+              : face === "debrief" ? <JournalView refreshNonce={refreshNonce} />
+              : <DashboardView {...viewProps} {...dashProps} notifs={notifs} />
+            )} />
+          )}
           {route === "dashboard" && <DashboardView {...viewProps} {...dashProps} notifs={notifs} />}
           {route === "holdings" && <HoldingsView {...viewProps} />}
           {route === "activity" && <ActivityView {...viewProps} />}
