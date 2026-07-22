@@ -291,6 +291,10 @@ _GEX_SPEC = [
     ("put wall", "Put wall", "wall_dn"),         # support-ish (green)
     ("flip", "Gamma flip", "flip"),              # regime line (amber)
     ("pain", "Max pain", "poc"),                 # magnet (purple)
+    # the SPY-book read, clearly labeled — drawn thinner so the eye ranks them
+    ("spy-proxy call wall", "Call wall (SPY)", "wall_up"),
+    ("spy-proxy put wall", "Put wall (SPY)", "wall_dn"),
+    ("spy-proxy flip", "Flip (SPY)", "flip"),
 ]
 
 
@@ -301,9 +305,13 @@ def _gex_levels(scaffold: dict) -> list[tuple[float, str, str]]:
     ladder = scaffold.get("level_ladder") or []
     for needle, label, role in _GEX_SPEC:
         for r in ladder:
-            if r.get("source") != "GEX":
+            if r.get("source") not in ("GEX", "GEX-proxy"):
                 continue
-            if needle in (r.get("kind") or "").lower():
+            k = (r.get("kind") or "").lower()
+            # a plain needle must not swallow the proxy rows (and vice versa)
+            if ("spy-proxy" in k) != needle.startswith("spy-proxy"):
+                continue
+            if needle in k:
                 out.append((float(r["price"]), label, role))
                 break
     return out

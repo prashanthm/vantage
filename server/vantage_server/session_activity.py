@@ -609,6 +609,7 @@ class _TickerCtx:
             "bars": bars, "settle": settle,
             "levels": scaf.get("confluence") or [],
             "anchors": gex_anchors(scaf, self._store, self._day, tk),
+            "regime": scaf.get("regime") or {},
             "durable": scaf.get("durable") or [],
             "playbook_session": (row or {}).get("session"),
         }
@@ -734,6 +735,10 @@ def session(store, day: str | None = None, underlying: str | None = "SPX") -> di
         "settle_price": settle,
         "forecast_levels": levels,       # the full ladder, for the "other…" tag
         "gex_anchors": pc["anchors"],
+        # both dealer-gamma reads + the divergence flag — insight-bearing when they split
+        "gamma_regimes": {k: (pc.get("regime") or {}).get(k) for k in
+                          ("gamma", "gamma_source", "gamma_proxy",
+                           "gamma_divergence", "gamma_divergence_text")},
         # the ★-marked durable S/R for the tag dropdown (matches the playbook
         # table's ★Nd rows the confluence/GEX lists don't include)
         "durable_levels": [

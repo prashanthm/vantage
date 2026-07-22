@@ -401,6 +401,19 @@ def build_level_ladder(gex: dict, chart: dict, scale: dict | None = None) -> lis
                     row["lo"] = round(float(v) - wall_pad, 1)
                     row["hi"] = round(float(v) + wall_pad, 1)
                 rows.append(row)
+        # the SPY-proxy read rides alongside, clearly labeled — the two books
+        # can disagree, and both belong on the chart/coach so the operator SEES it
+        px = gex.get("proxy") or {}
+        for key, kind in (("call_wall", "SPY-proxy call wall"),
+                          ("gamma_flip", "SPY-proxy flip"),
+                          ("put_wall", "SPY-proxy put wall")):
+            v = px.get(key)
+            if v is not None:
+                row = {"price": round(float(v), 1), "kind": kind, "source": "GEX-proxy"}
+                if key != "gamma_flip":
+                    row["lo"] = round(float(v) - wall_pad, 1)
+                    row["hi"] = round(float(v) + wall_pad, 1)
+                rows.append(row)
     if chart.get("available"):
         for lbl, v in (chart.get("fib") or {}).items():
             rows.append({"price": v, "kind": f"fib {lbl}", "source": "chart"})
@@ -430,6 +443,10 @@ def build_level_ladder(gex: dict, chart: dict, scale: dict | None = None) -> lis
 # maps a ladder kind string -> a coarse dimension type + a short table label.
 def _kind_dim(kind: str) -> tuple[str, str]:
     k = (kind or "").lower()
+    if "spy-proxy" in k:
+        if "call wall" in k: return "gex_wall_proxy", "call wall ·spy"
+        if "put wall" in k:  return "gex_wall_proxy", "put wall ·spy"
+        if "flip" in k:      return "flip_proxy", "flip ·spy"
     if "call wall" in k:  return "gex_wall", "call wall"
     if "put wall" in k:   return "gex_wall", "put wall"
     if "flip" in k:       return "flip", "gamma flip"
@@ -721,6 +738,8 @@ _EXPECT = {
     "fib": "common bounce level",
     "sr": "held before — more touches = stronger",
     "round": "round number — orders cluster here",
+    "gex_wall_proxy": "SPY-book wall — the ETF crowd's level",
+    "flip_proxy": "SPY-book regime line",
 }
 
 
@@ -897,6 +916,15 @@ def build_playbook(today: _dt.date | None = None, store: Any = None,
     regime = {
         "gamma": gex.get("regime") if gex.get("available") else None,
         "gamma_text": gex.get("regime_text") if gex.get("available") else None,
+        "gamma_source": gex.get("source"),
+        "gamma_proxy": (gex.get("proxy") or {}).get("regime"),
+        "gamma_proxy_net_bn": (gex.get("proxy") or {}).get("net_gex_bn"),
+        "gamma_divergence": bool(gex.get("regime_divergence")),
+        "gamma_divergence_text": (
+            f"GEX sources DISAGREE: SPX chain {gex.get('regime')} "
+            f"({gex.get('net_gex_bn')}B) vs SPY proxy {(gex.get('proxy') or {}).get('regime')} "
+            f"({(gex.get('proxy') or {}).get('net_gex_bn')}B) — regime uncertain, size down"
+            if gex.get("regime_divergence") else None),
         "spot": gex.get("spot") if gex.get("available") else chart.get("last"),
         "vwap_regime": chart.get("vwap_regime"),
         "vix": (mc.get("vol") or {}).get("vix") if mc.get("available") else None,

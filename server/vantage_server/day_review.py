@@ -174,6 +174,7 @@ def gather(store, day: str, underlying: str = "SPX") -> dict:
         "session_dna": {
             "forecast_levels": sess.get("forecast_levels") or [],
             "gex_anchors": sess.get("gex_anchors") or [],
+            "gamma_regimes": sess.get("gamma_regimes"),
             "durable_levels": sess.get("durable_levels") or [],
             "settle_price": sess.get("settle_price"),
         },
@@ -237,7 +238,9 @@ def build_prompt(bundle: dict) -> str:
         f"{json.dumps(b['allocation'])}.\n"
         f"\nSESSION DNA (the backdrop every trade shared) — forecast levels: "
         f"{json.dumps(dna.get('forecast_levels'))}; GEX: {json.dumps(dna.get('gex_anchors'))}; "
-        f"durable: {json.dumps(dna.get('durable_levels'))}.\n"
+        f"durable: {json.dumps(dna.get('durable_levels'))}; "
+        f"gamma regimes (SPX chain vs SPY proxy — if they disagree, say so and weigh "
+        f"how the operator should have sized): {json.dumps(dna.get('gamma_regimes'))}.\n"
         f"\nPER-TRADE SPINE (time, dir, entry level role, $): {json.dumps(b['trades'])}.\n"
         f"\nSupporting per-trade reads (already written — draw on them, don't repeat them): "
         f"{json.dumps(b['trade_reads'])}\n"

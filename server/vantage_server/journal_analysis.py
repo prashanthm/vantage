@@ -232,6 +232,14 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
         "patterns": _census(rows),
         "recommendations": _recommendations(scores, prior_scores),
         "per_day": per_day,
+        # both dealer-gamma reads per session — divergent days are the insight
+        "gamma_by_day": {
+            d: {k: reg.get(k) for k in ("gamma", "gamma_proxy", "gamma_divergence")}
+            for d in sorted({r["day"] for r in rows})
+            for reg in [(((store.load_spx_playbook_before(d, symbol=und)
+                           or store.load_spx_playbook(d, symbol=und)) or {})
+                         .get("scaffold") or {}).get("regime") or {}]
+        },
         "trade_reads": [{"day": r["day"], "label": r.get("label"),
                          "analysis": (r.get("analysis") or "")[:1200]} for r in rows],
         "prior": ({"window_to": prior.get("window_to"), "scores": prior_scores,
@@ -284,6 +292,9 @@ def build_prompt(bundle: dict) -> str:
         f"{json.dumps(b['scores'])}. Dimensions: {json.dumps(b['rubric'])}.\n"
         f"\nPATTERN CENSUS (mistake -> flag count + the trades that evidence it): {json.dumps(b['patterns'])}.\n"
         f"\nPER-DAY DISCIPLINE: {json.dumps(b['per_day'])}.\n"
+        f"\nDEALER-GAMMA REGIMES per day (SPX chain vs SPY proxy; gamma_divergence=true "
+        f"means the two books DISAGREED — flag any pattern between divergent days and "
+        f"the operator's results): {json.dumps(b.get('gamma_by_day'))}.\n"
         f"\nPer-trade review excerpts: "
         f"{json.dumps([{'d': t['day'], 'trade': t['label'], 'read': t['analysis'][:400]} for t in b['trade_reads']])}\n"
         "\nRESPOND WITH ONLY A SINGLE JSON OBJECT — no markdown, no prose before or after — matching this shape "

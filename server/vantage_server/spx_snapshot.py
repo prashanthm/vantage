@@ -203,6 +203,11 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
         # day, and on 2026-07-21 the analyst shorted a +19.5-above-VWAP tape
         # because the stale label contradicted the live vs_vwap_pt beside it.
         "regime": {"gamma": (scaf.get("regime") or {}).get("gamma"),
+                   "gamma_source": (scaf.get("regime") or {}).get("gamma_source"),
+                   # the SPY-book second opinion + the disagreement flag — when the
+                   # two books split, the analyst must treat the regime as uncertain
+                   "gamma_proxy": (scaf.get("regime") or {}).get("gamma_proxy"),
+                   "gamma_divergence": (scaf.get("regime") or {}).get("gamma_divergence_text"),
                    "gamma_note": "overnight OI — blind to 0DTE positioning; "
                                  "negative gamma amplifies moves in BOTH directions",
                    "vwap_regime": (

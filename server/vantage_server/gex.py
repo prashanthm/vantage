@@ -200,6 +200,47 @@ def compute_gex(book: list[dict], spot: float) -> dict:
     }
 
 
+# ── data fetch (CBOE delayed CDN — the REAL SPX chain) ──────────────────────
+
+CBOE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{sym}.json"
+_OCC = None  # compiled lazily
+
+
+def fetch_cboe_book(sym: str = "_SPX", max_dte: int = MAX_DTE) -> tuple[float, list[dict]]:
+    """The CBOE delayed chain (15-min, unauthenticated) → (spot, book).
+    Gamma is ALWAYS recomputed from the feed's IV via Black-Scholes — the feed's
+    own greeks are rounded to ~4dp, which swings billions on the 100k+-OI box
+    strikes (verified 2026-07-21: rounding alone flipped the net's sign).
+    dte=0 is excluded: after the close that book is dead but still shows OI."""
+    import json as _json  # noqa: PLC0415
+    import re as _re  # noqa: PLC0415
+    import urllib.request as _ur  # noqa: PLC0415
+    global _OCC
+    if _OCC is None:
+        root = sym.lstrip("_")
+        _OCC = _re.compile(rf"^{root}\w*?(\d{{6}})([CP])(\d{{8}})$")
+    req = _ur.Request(CBOE_URL.format(sym=sym), headers={"User-Agent": "Mozilla/5.0"})
+    with _ur.urlopen(req, timeout=60) as r:
+        d = _json.loads(r.read().decode())["data"]
+    spot = float(d.get("current_price") or d.get("close") or 0)
+    today = _dt.date.today()
+    book: list[dict] = []
+    for o in d.get("options") or []:
+        m = _OCC.match((o.get("option") or "").replace(" ", ""))
+        if not m:
+            continue
+        dte = (_dt.datetime.strptime(m.group(1), "%y%m%d").date() - today).days
+        if dte < 1 or dte > max_dte:
+            continue
+        oi = float(o.get("open_interest") or 0)
+        iv = float(o.get("iv") or 0)
+        if oi <= 0 or iv <= 0.01 or iv > 5:
+            continue
+        book.append({"strike": int(m.group(3)) / 1000.0, "iv": iv,
+                     "t": max(dte, 1) / 365.0, "oi": oi, "is_call": m.group(2) == "C"})
+    return spot, book
+
+
 # ── data fetch (yfinance) ────────────────────────────────────────────────────
 
 def fetch_book(symbol: str = "^SPX", max_dte: int = MAX_DTE,
@@ -251,13 +292,56 @@ def build_snapshot(symbol: str = "^SPX", *, now: _dt.datetime | None = None) -> 
     fallback when the ^SPX chain OI is unusable). Pure-ish: only the yfinance
     fetch touches the network. ``now`` overridable for deterministic stamping."""
     now = now or _dt.datetime.now(ET)
+    is_spx = symbol.upper() in ("^SPX", "^GSPC", "SPX")
+    # SPX: the CBOE delayed feed carries the REAL index chain (institutional
+    # book, ~4.5× the proxy's contracts) — primary since 2026-07-21. The SPY
+    # proxy is computed alongside and embedded, because the two books can
+    # DISAGREE on regime (verified: SPX +5.05B positive vs proxy −1.95B
+    # negative on the same evening) and that divergence is itself information.
+    if is_spx:
+        try:
+            spot, book = fetch_cboe_book("_SPX")
+        except Exception:
+            spot, book = 0.0, []
+        if len(book) >= MIN_BOOK_CONTRACTS and spot > 0:
+            snap = compute_gex(book, spot)
+            snap["proxy"] = None
+            try:
+                spy_spot, spy_book = fetch_book("SPY")
+                p = compute_gex(spy_book, spy_spot)
+                ratio = spot / spy_spot if spy_spot else 10.0
+                p = _scale_levels(p, ratio)
+                snap["proxy"] = {k: p.get(k) for k in (
+                    "net_gex_bn", "regime", "gamma_flip", "call_wall",
+                    "put_wall", "max_pain", "n_contracts")}
+                snap["proxy"]["source"] = f"SPY-chain proxy ×{ratio:.2f} (yfinance)"
+            except Exception:
+                pass
+            px = snap.get("proxy") or {}
+            snap["regime_divergence"] = bool(px) and px.get("regime") != snap["regime"]
+            snap["narrative"] = build_narrative(snap)
+            if snap["regime_divergence"]:
+                snap["narrative"].append(
+                    f"SOURCE DISAGREEMENT: the real SPX chain reads {snap['regime']} gamma "
+                    f"({snap['net_gex_bn']:+.2f}B) but the SPY proxy reads {px.get('regime')} "
+                    f"({px.get('net_gex_bn'):+.2f}B). The books differ (institutional index vs "
+                    "retail/hedge ETF); when they disagree, the regime is uncertain — size down.")
+            snap.update({
+                "generated_at": now.isoformat(), "date": now.date().isoformat(),
+                "symbol": symbol, "source": "SPX chain (CBOE delayed)",
+                "note": ("Dealer-gamma from the real SPX chain (CBOE delayed CDN, BS gamma "
+                         "from feed IV — feed greeks are rounded and unusable). Sign "
+                         "convention: dealers long customer calls (+), short puts (−). "
+                         f"Expirations 1–{MAX_DTE} DTE. OI-based — blind to 0DTE flow. "
+                         "SPY-proxy read embedded under 'proxy'. Context, not a signal."),
+            })
+            return snap
     spot, book = fetch_book(symbol)
     source = symbol
     scale_note = ""
     # The SPY-chain proxy exists ONLY because yahoo's ^SPX OI is unusable; it must
     # never hijack a thin QQQ/IWM book (those have deep native chains and their own
     # strikes — scaling them by SPX/SPY would be nonsense). Restrict to SPX forms.
-    is_spx = symbol.upper() in ("^SPX", "^GSPC", "SPX")
     if is_spx and len(book) < MIN_BOOK_CONTRACTS:
         spx_spot = spot
         spy_spot, book = fetch_book("SPY")
