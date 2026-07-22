@@ -626,9 +626,9 @@ if showLines and hasLevels and barstate.islast
         col = isRes ? color.new(#cf3b47, 25) : isSup ? color.new(#16915b, 25) : color.new(#e0a020, 15)
         wide = ro == "callwall" or ro == "putwall" or ro == "flip"
         array.push(gexLines, line.new(bar_index - 300, p, bar_index, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=wide ? 2 : 1))
-        // anchor the level tag to the RIGHT EDGE (a few bars into the future
-        // space) so it sits off the candles, not floating over price action.
-        array.push(gexLabels, label.new(bar_index + 8, p, array.get(lvlLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
+        // anchor the tag AT the last bar — +8 bars into future space hid the
+        // text entirely on charts without a right margin (user report 07-21)
+        array.push(gexLabels, label.new(bar_index + 1, p, array.get(lvlLb, i) + " " + str.tostring(p, "#.#"), xloc=xloc.bar_index, style=label.style_label_left, textcolor=color.white, color=color.new(isRes ? #cf3b47 : isSup ? #16915b : #b26a00, 15), size=size.small))
 
 // TRADE / PLAN lines on the chart: entry · stop · target.
 // While IN a trade they're solid; while ARMED they're drawn FAINT + dotted so
