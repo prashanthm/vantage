@@ -208,8 +208,9 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
                    # two books split, the analyst must treat the regime as uncertain
                    "gamma_proxy": (scaf.get("regime") or {}).get("gamma_proxy"),
                    "gamma_divergence": (scaf.get("regime") or {}).get("gamma_divergence_text"),
-                   "gamma_note": "overnight OI — blind to 0DTE positioning; "
-                                 "negative gamma amplifies moves in BOTH directions",
+                   "gamma_note": "built from LAST NIGHT's positions — today's 0DTE bets are "
+                                 "invisible to it; in amplify (negative-gamma) mode moves run "
+                                 "further in BOTH directions",
                    "vwap_regime": (
                        None if not vwap else
                        f"{'above' if price >= vwap else 'below'} VWAP "

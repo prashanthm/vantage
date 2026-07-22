@@ -45,7 +45,8 @@ def test_regime_derived_from_net_sign():
     snap = gex.compute_gex(_book(), 6000.0)
     assert snap["regime"] == "positive"
     assert snap["net_gex"] >= 0
-    assert "dampens" in snap["regime_text"]
+    # the narrative register: CALM mode = hedging pushes back against moves
+    assert "CALM" in snap["regime_text"]
 
 
 def test_walls_on_opposite_sides_of_spot():
@@ -65,7 +66,7 @@ def test_narrative_matches_regime():
     snap = gex.compute_gex(_book(), 6000.0)
     snap["narrative"] = gex.build_narrative(snap)
     joined = " ".join(snap["narrative"]).lower()
-    assert "long gamma" in joined and "mean-reversion" in joined
+    assert "calm mode" in joined and "sticky" in joined
 
 
 # ------------------------------------------------------------ store round-trip

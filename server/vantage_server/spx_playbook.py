@@ -731,15 +731,15 @@ def build_setups(gex: dict, chart: dict, catalysts: dict, opex: dict,
 # short "what to expect" per dimension type — the table's action column.
 # plain-English "what to expect" per dimension — no jargon, for a non-options reader.
 _EXPECT = {
-    "gex_wall": "price often stalls / turns here",
-    "flip": "trend-change line: above = calmer, below = faster moves",
+    "gex_wall": "the big options crowd defends this — moves often stall here",
+    "flip": "the calm/amplify switch: above = fade moves, below = ride them",
     "max_pain": "price tends to drift back here",
     "poc": "price gets stuck / chops here",
     "fib": "common bounce level",
     "sr": "held before — more touches = stronger",
     "round": "round number — orders cluster here",
-    "gex_wall_proxy": "SPY-book wall — the ETF crowd's level",
-    "flip_proxy": "SPY-book regime line",
+    "gex_wall_proxy": "the SPY (ETF) crowd's wall — a second, independent crowd",
+    "flip_proxy": "the SPY crowd's calm/amplify line",
 }
 
 
@@ -921,7 +921,7 @@ def build_playbook(today: _dt.date | None = None, store: Any = None,
         "gamma_proxy_net_bn": (gex.get("proxy") or {}).get("net_gex_bn"),
         "gamma_divergence": bool(gex.get("regime_divergence")),
         "gamma_divergence_text": (
-            f"GEX sources DISAGREE: SPX chain {gex.get('regime')} "
+            f"WARNING: the two options crowds disagree — SPX crowd {gex.get('regime')} "
             f"({gex.get('net_gex_bn')}B) vs SPY proxy {(gex.get('proxy') or {}).get('regime')} "
             f"({(gex.get('proxy') or {}).get('net_gex_bn')}B) — regime uncertain, size down"
             if gex.get("regime_divergence") else None),

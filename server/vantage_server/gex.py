@@ -125,30 +125,30 @@ def build_narrative(snap: dict) -> list[str]:
     lines: list[str] = []
     if snap.get("regime") == "negative":
         lines.append(
-            f"Dealers are net SHORT gamma at spot ({net}B): their hedging sells into declines "
-            "and buys into rallies, so intraday moves tend to be amplified — a momentum tape.")
+            f"AMPLIFY mode ({net}B): the market-making desks are positioned so their required "
+            "hedging pushes WITH the market — selling as it falls, buying as it rises. Moves "
+            "run further than they should. Ride moves; fading them is fighting the machine.")
     else:
         lines.append(
-            f"Dealers are net LONG gamma at spot (+{net}B): their hedging buys dips and sells "
-            "rips, so moves tend to be dampened — a mean-reversion tape.")
+            f"CALM mode (+{net}B): the desks' hedging pushes AGAINST moves — they buy dips "
+            "and sell rips, so price gets sticky and range-y. Fading the edges works better; "
+            "breakouts tend to stall.")
     if flip is not None and spot is not None:
         direction = "rallies" if flip > spot else "falls"
-        other = ("stabilizing (dealers dampen moves)" if flip > spot
-                 else "amplifying (dealers feed moves)")
         lines.append(
-            f"The regime flips at ~{flip:.0f}: if SPX {direction} through it, hedging turns "
-            f"{other}. Below the flip is momentum regime, above is mean-reversion regime.")
+            f"The switch between the two modes sits at ~{flip:.0f}. If SPX {direction} "
+            f"through it, the mode flips. Above the line = calm/fade; below = amplify/ride.")
     else:
-        lines.append("No zero crossing inside ±15% of spot — the regime is one-sided across "
-                     "the plausible intraday range.")
+        lines.append("No mode switch anywhere near current prices — one mode rules the "
+                     "whole plausible range today.")
     if put_wall is not None and call_wall is not None:
         lines.append(
-            f"Hedging concentrations: puts at {put_wall:.0f} below, calls at {call_wall:.0f} "
-            "above — price often slows near these because dealer re-hedging is heaviest there. "
-            "They are magnets/brakes, not guarantees.")
+            f"Heaviest defense: ~{put_wall:.0f} below (buyers guard it) and ~{call_wall:.0f} "
+            "above (sellers cap it) — price often slows there because that is where the "
+            "desks' re-hedging is busiest. Magnets and brakes, not guarantees.")
     lines.append(
-        "Caveats: computed from overnight open interest — 0DTE positioning (roughly half of "
-        "SPX volume) is invisible to every OI-based GEX, this one included.")
+        "Honesty note: this is built from LAST NIGHT's positions. Today's same-day (0DTE) "
+        "bets — about half of all SPX volume — are invisible to it, always.")
     return lines
 
 
@@ -184,8 +184,11 @@ def compute_gex(book: list[dict], spot: float) -> dict:
         "net_gex": round(net, 0),
         "net_gex_bn": round(net / 1e9, 2),
         "regime": regime,
-        "regime_text": ("positive gamma — dealer hedging dampens moves" if net >= 0
-                        else "negative gamma — dealer hedging amplifies moves"),
+        "regime_text": ("CALM mode — the big desks' hedging pushes back against moves "
+                        "(positive gamma): dips get bought, rips get sold, fading edges works"
+                        if net >= 0 else
+                        "AMPLIFY mode — the desks' hedging pushes WITH moves (negative "
+                        "gamma): moves run further than they should; ride, don't fade"),
         "call_share_pct": round(call_total / gross * 100, 1) if gross else None,
         "put_share_pct": round(abs(put_total) / gross * 100, 1) if gross else None,
         "gamma_flip": flip,
@@ -322,10 +325,10 @@ def build_snapshot(symbol: str = "^SPX", *, now: _dt.datetime | None = None) -> 
             snap["narrative"] = build_narrative(snap)
             if snap["regime_divergence"]:
                 snap["narrative"].append(
-                    f"SOURCE DISAGREEMENT: the real SPX chain reads {snap['regime']} gamma "
-                    f"({snap['net_gex_bn']:+.2f}B) but the SPY proxy reads {px.get('regime')} "
-                    f"({px.get('net_gex_bn'):+.2f}B). The books differ (institutional index vs "
-                    "retail/hedge ETF); when they disagree, the regime is uncertain — size down.")
+                    f"WARNING LIGHT — the two crowds disagree: the SPX options crowd (big "
+                    f"institutions) reads {snap['regime']} ({snap['net_gex_bn']:+.2f}B) while the "
+                    f"SPY crowd (ETF/retail) reads {px.get('regime')} ({px.get('net_gex_bn'):+.2f}B). "
+                    "When the two books split, nobody really knows the mode — trade smaller.")
             snap.update({
                 "generated_at": now.isoformat(), "date": now.date().isoformat(),
                 "symbol": symbol, "source": "SPX chain (CBOE delayed)",
