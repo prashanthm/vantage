@@ -643,10 +643,12 @@ if showLines and hasLevels and barstate.islast
         isSup = ro == "putwall" or ro == "support"
         col = isRes ? color.new(#cf3b47, 25) : isSup ? color.new(#16915b, 25) : color.new(#e0a020, 15)
         wide = ro == "callwall" or ro == "putwall" or ro == "flip"
-        // non-SPX (ICT pivot) levels get an ATR-scaled band — the pivot is a
-        // region too; ±0.25×ATR is the honest default without touch history
-        zLo = useGex and i < array.size(gexLo) ? array.get(gexLo, i) : p - 0.25 * atr
-        zHi = useGex and i < array.size(gexHi) ? array.get(gexHi, i) : p + 0.25 * atr
+        // zones ONLY where the width is MEASURED (SPX: the touch-spread of the
+        // actual swing touches, baked from the playbook). Non-SPX ICT pivots
+        // have no touch history in-Pine — an invented ATR multiple is a fake
+        // basis (user call, 07-21), so they stay honest lines.
+        zLo = useGex and i < array.size(gexLo) ? array.get(gexLo, i) : p
+        zHi = useGex and i < array.size(gexHi) ? array.get(gexHi, i) : p
         if zHi > zLo
             array.push(gexBoxes, box.new(bar_index - 300, zHi, bar_index + 10, zLo, xloc=xloc.bar_index, extend=extend.right, border_color=color.new(col, 70), bgcolor=color.new(col, 88)))
         array.push(gexLines, line.new(bar_index - 300, p, bar_index, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=wide ? 2 : 1))
