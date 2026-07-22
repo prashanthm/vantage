@@ -3975,11 +3975,52 @@ ${ref}`;
     }, []);
     const q = useLive(() => getFrames(void 0), null, [tick, refreshNonce]);
     const d = q.data && q.data.available ? q.data : null;
-    const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, []);
+    const [planNonce, setPlanNonce] = useState4(0);
+    const [busy, setBusy] = useState4(false);
+    const [copied, setCopied] = useState4(false);
+    const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, [planNonce]);
     const planRows = ((pq.data && pq.data.available && pq.data.scaffold || {}).table || {}).rows || [];
+    const recompute = async () => {
+      if (busy) return;
+      setBusy(true);
+      try {
+        await recomputePlaybook(void 0, "SPX");
+      } catch (e) {
+      }
+      setBusy(false);
+      setPlanNonce((n) => n + 1);
+    };
+    const copyPine = async () => {
+      try {
+        const res = await getPlaybookPine(void 0, "SPX");
+        if (res && res.available && res.script) {
+          await navigator.clipboard.writeText(res.script);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 4e3);
+        }
+      } catch (e) {
+      }
+    };
     if (sel) return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement(FrameBriefing, { sel, onClear }));
     const preOpen = etMinNow() < 570;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(VolMiniCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), d && !preOpen && /* @__PURE__ */ React.createElement(ChecklistCard, { d, planRows }), d && /* @__PURE__ */ React.createElement(LevelsWatch, { d, rows: planRows }), d && /* @__PURE__ */ React.createElement(DisciplineCard, { d }), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, q.loading ? "Reading the day\u2026" : "Cockpit needs the SQLite backend."));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(VolMiniCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), d && !preOpen && /* @__PURE__ */ React.createElement(ChecklistCard, { d, planRows }), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 12, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        disabled: busy,
+        onClick: recompute,
+        title: "Rebuild the levels + GEX from the latest bars at the current price. Chart-derived levels (shelves/fib/VWAP/PoC) fully refresh; GEX re-anchors to spot but its open interest is still overnight (0DTE-blind)."
+      },
+      busy ? "recomputing\u2026" : "\u27F3 Recompute levels + GEX"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        onClick: copyPine,
+        title: "Copy the TradingView Pine script for the CURRENT (possibly just-recomputed) levels"
+      },
+      copied ? "Pine copied \u2713" : "Copy Pine \u2192"
+    )), d && /* @__PURE__ */ React.createElement(LevelsWatch, { d, rows: planRows }), d && /* @__PURE__ */ React.createElement(DisciplineCard, { d }), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, q.loading ? "Reading the day\u2026" : "Cockpit needs the SQLite backend."));
   }
   function FrameTr({ f, selected, onSelect }) {
     const c = f.call, m = f.market;

@@ -12,7 +12,7 @@
 // Everything renders deterministically from stored data (ADR-008); Mira text
 // appears only where Mira already spoke (the stored trade analyses).
 import { cls } from "./util.jsx";
-import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead } from "./live.js";
+import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getPlaybookPine } from "./live.js";
 import { ToneCompareCard } from "./today.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { MiraRender, parseMira } from "./mira-render.jsx";
@@ -569,8 +569,26 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
   const q = useLive(() => getFrames(undefined), null, [tick, refreshNonce]);
   const d = q.data && q.data.available ? q.data : null;
   // the playbook table rows feed both the checklist's zone test and the watch
-  const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, []);
+  const [planNonce, setPlanNonce] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, [planNonce]);
   const planRows = (((pq.data && pq.data.available && pq.data.scaffold) || {}).table || {}).rows || [];
+  const recompute = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await recomputePlaybook(undefined, "SPX"); } catch (e) { /* surfaced on refetch */ }
+    setBusy(false); setPlanNonce((n) => n + 1);
+  };
+  const copyPine = async () => {
+    try {
+      const res = await getPlaybookPine(undefined, "SPX");
+      if (res && res.available && res.script) {
+        await navigator.clipboard.writeText(res.script);
+        setCopied(true); setTimeout(() => setCopied(false), 4000);
+      }
+    } catch (e) { /* clipboard denied — the Daily plan page has the full modal */ }
+  };
   if (sel) return <div className="vg-pane-body"><FrameBriefing sel={sel} onClear={onClear} /></div>;
   const preOpen = etMinNow() < 570;
   return (
@@ -578,6 +596,14 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
       {preOpen && <VolMiniCard />}
       {d && !preOpen && <NowCard d={d} isToday />}
       {d && !preOpen && <ChecklistCard d={d} planRows={planRows} />}
+      <div className="vg-row" style={{ gap: 6, marginTop: 12, flexWrap: "wrap" }}>
+        <button className="vg-btn-sm" disabled={busy} onClick={recompute}
+          title="Rebuild the levels + GEX from the latest bars at the current price. Chart-derived levels (shelves/fib/VWAP/PoC) fully refresh; GEX re-anchors to spot but its open interest is still overnight (0DTE-blind).">
+          {busy ? "recomputing…" : "⟳ Recompute levels + GEX"}</button>
+        <button className="vg-btn-sm" onClick={copyPine}
+          title="Copy the TradingView Pine script for the CURRENT (possibly just-recomputed) levels">
+          {copied ? "Pine copied ✓" : "Copy Pine →"}</button>
+      </div>
       {d && <LevelsWatch d={d} rows={planRows} />}
       {d && <DisciplineCard d={d} />}
       {!d && <p className="vg-note" style={{ marginTop: 12 }}>
