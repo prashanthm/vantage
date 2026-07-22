@@ -117,7 +117,8 @@ const REPLAY_SYMBOLS = ["SPX", "QQQ", "IWM"];
 
 export function InstrumentChart({ symbol, tf, setTf, overlays, height,
     replayRunId, replayActive, onReplayToggle, onForecastNow, forecastNonce,
-    activeCallId, setActiveCallId, onOpenSymbol, initialLayers, compact }) {
+    activeCallId, setActiveCallId, onOpenSymbol, initialLayers, compact,
+    seriesType = "candles" }) {
   const elRef = useRef(null);
   const [symInput, setSymInput] = useState("");   // the ticker being typed in the header
   const chartRef = useRef(null);
@@ -132,6 +133,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   const levelClickRef = useRef(() => {});      // latest level-click handler (once-mounted cb)
   const [hover, setHover] = useState(null);   // crosshair OHLC
   const [nonce, setNonce] = useState(0);      // manual-refresh cache bust
+  const [chartEpoch, setChartEpoch] = useState(0);  // bumps when the chart is recreated (seriesType change)
   const [refreshing, setRefreshing] = useState(false);
   const [active, setActive] = useState(loadPref);   // active indicator keys
   const [tool, setTool] = useState("cursor");       // active drawing tool
@@ -341,16 +343,28 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       handleScroll: { mouseWheel: true, pressedMouseMove: true,
         horzTouchDrag: true, vertTouchDrag: true },
     });
-    const candle = chart.addCandlestickSeries({
-      upColor: th.up, downColor: th.down, wickUpColor: th.up, wickDownColor: th.down,
-      borderUpColor: th.up, borderDownColor: th.down,
-    });
+    // "line" (compact orientation view) draws closes as a soft area so the level/
+    // forecast overlays are the foreground; candles are the reading-the-tape view.
+    const candle = seriesType === "line"
+      ? chart.addAreaSeries({
+          lineColor: th.ink, lineWidth: 2,
+          topColor: `rgba(${th.faintRgb.join(",")},0.18)`, bottomColor: "rgba(0,0,0,0)",
+          priceLineVisible: true, lastValueVisible: true, crosshairMarkerVisible: true })
+      : chart.addCandlestickSeries({
+          upColor: th.up, downColor: th.down, wickUpColor: th.up, wickDownColor: th.down,
+          borderUpColor: th.up, borderDownColor: th.down,
+        });
     chartRef.current = chart; candleRef.current = candle;
-    // crosshair → OHLC readout
+    // recreated (seriesType changed) → every cached handle points at the dead
+    // chart; reset the caches and tell the reconcile effects to redraw.
+    indRef.current = {}; drawnRef.current = {}; layerHandlesRef.current = {};
+    pocLineRef.current = null; fittedKey.current = null;
+    setChartEpoch((n) => n + 1);
+    // crosshair → OHLC readout ({time,value} bars from the area series get close-only)
     chart.subscribeCrosshairMove((p) => {
       if (!p || !p.time || !p.seriesData) { setHover(null); return; }
       const bar = p.seriesData.get(candle);
-      setHover(bar ? ohlcText(bar) : null);
+      setHover(bar ? (bar.open != null ? ohlcText(bar) : { c: bar.value, up: true, lineOnly: true }) : null);
     });
     // click → capture drawing points when a tool is active; with the cursor tool,
     // a click near a coach level anchors the chart to it (see frameToLevel).
@@ -375,7 +389,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       }
     });
     return () => { chart.remove(); chartRef.current = candleRef.current = null; };
-  }, []);
+  }, [seriesType]);
 
   // candles — fit content when the (symbol,tf) changes, not on every refresh. Fit
   // on the next frame so the chart has laid out (esp. when coming from an empty tf,
@@ -384,20 +398,21 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
   useEffect(() => {
     const candle = candleRef.current, chart = chartRef.current;
     if (!candle || !candles.length) return;
-    candle.setData(candles);
+    candle.setData(seriesType === "line"
+      ? candles.map((c) => ({ time: c.time, value: c.close })) : candles);
     const key = `${symbol}|${tf}`;
     if (chart && fittedKey.current !== key) {
       fittedKey.current = key;
       requestAnimationFrame(() => { try { chart.timeScale().fitContent(); } catch (e) { /* */ } });
     }
-  }, [candles, symbol, tf]);
+  }, [candles, symbol, tf, seriesType, chartEpoch]);
 
   // let layers draw onto this chart after candles render (P2 hook)
   useEffect(() => {
     if (!overlays || !chartRef.current || !candleRef.current || !candles.length) return undefined;
     return overlays({ chart: chartRef.current, candle: candleRef.current,
                       LW: window.LightweightCharts, candles });
-  }, [overlays, candles]);
+  }, [overlays, candles, chartEpoch]);
 
   // indicators — reconcile the active set against drawn series each time candles
   // or the active set change. Client-side math (indicators.js); no server call.
@@ -471,7 +486,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       }
     }
     return undefined;
-  }, [candles, active, tf]);
+  }, [candles, active, tf, chartEpoch]);
 
   // load persisted drawings when the symbol changes; clear pending on switch.
   useEffect(() => {
@@ -505,7 +520,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       if (h) drawn[d.id] = h;
     }
     return undefined;
-  }, [drawings, candles]);
+  }, [drawings, candles, chartEpoch]);
 
   // Vantage-DNA layers — reconcile active layer groups against drawn handles.
   // Re-runs when the active set, the fetched layer data, or the candles change
@@ -541,7 +556,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
       try { handles[key] = drawer(ctx) || []; } catch (e) { handles[key] = []; }
     }
     return undefined;
-  }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, dayCallsData, selectedLevel, candles]);
+  }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, dayCallsData, selectedLevel, candles, chartEpoch]);
 
   // scroll the chart to the selected replay run's day so its markers are in view
   // (a run is day-specific; without this, picking an older day draws markers
@@ -565,7 +580,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         try { chart.timeScale().setVisibleRange({ from, to }); } catch (e) { /* */ }
       });
     }
-  }, [replayData, replayShown, callsOn, dayCallsData, candles]);
+  }, [replayData, replayShown, callsOn, dayCallsData, candles, chartEpoch]);
 
   const last = candles.length ? candles[candles.length - 1].close : null;
 
@@ -587,7 +602,7 @@ export function InstrumentChart({ symbol, tf, setTf, overlays, height,
         {last != null && <span className="vg-ic-px">{last}</span>}
         {hover && (
           <span className={cls("vg-ic-ohlc", hover.up ? "up" : "down")}>
-            O {hover.o} H {hover.h} L {hover.l} C {hover.c}
+            {hover.lineOnly ? <>C {hover.c}</> : <>O {hover.o} H {hover.h} L {hover.l} C {hover.c}</>}
           </span>)}
         <div className="vg-ic-tf">
           {TIMEFRAMES.map((t) => (
@@ -731,11 +746,11 @@ function ReplayCompareTable({ forecasts, activeId, setActiveId }) {
 // A self-contained wrapper that owns the timeframe state — for quick drop-in use.
 export function InstrumentChartCard({ symbol, defaultTf = "15m", overlays, height,
     replayActive, replayRunId, onReplayToggle, onForecastNow, forecastNonce,
-    activeCallId, setActiveCallId, onOpenSymbol, initialLayers, compact }) {
+    activeCallId, setActiveCallId, onOpenSymbol, initialLayers, compact, seriesType }) {
   const [tf, setTf] = useState(defaultTf);
   return <InstrumentChart symbol={symbol} tf={tf} setTf={setTf} overlays={overlays} height={height}
     replayActive={replayActive} replayRunId={replayRunId} onReplayToggle={onReplayToggle}
     onForecastNow={onForecastNow} forecastNonce={forecastNonce}
     activeCallId={activeCallId} setActiveCallId={setActiveCallId} onOpenSymbol={onOpenSymbol}
-    initialLayers={initialLayers} compact={compact} />;
+    initialLayers={initialLayers} compact={compact} seriesType={seriesType} />;
 }

@@ -726,16 +726,30 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
   }, [isToday]);
   const q = useLive(() => getFrames(day), null, [day, tick, refreshNonce]);
   const d = q.data && q.data.available ? q.data : null;
-  const [chartBig, setChartBig] = useState(false);   // expand-in-place, same page
+  // the chart is the centerpiece: tall by default, full-height when expanded,
+  // collapsible to a strip when the trader wants the log. Expanded = candles
+  // (reading the tape); default = line-on-levels (orientation).
+  const [chartMode, setChartMode] = useState("fit");   // fit | big | hidden
+  const chartBig = chartMode === "big";
   const select = (f) => onSelectFrame && onSelectFrame({ ...f, day });
   return (
     <div className="vg-pane-body">
       <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
-        <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Cockpit</h2>
-          <p className="vg-sub">the market · the analyst&apos;s calls · you — one day, one chart, one log</p>
+        <div className="vg-row" style={{ gap: 8, alignItems: "baseline" }}>
+          <h2 style={{ margin: 0, fontSize: 15 }}>Cockpit</h2>
+          <span className="vg-note">the market · the analyst&apos;s calls · you</span>
         </div>
         <div className="vg-row" style={{ gap: 10, alignItems: "baseline" }}>
+          {isToday && etMinNow() >= 570 && (
+            <>
+              <button className="vg-linkbtn" onClick={() => setChartMode(chartBig ? "fit" : "big")}
+                title={chartBig ? "Back to the fitted line chart" : "Expand: full height, candles, full toolbar"}>
+                {chartBig ? "⛶ fit" : "⛶ expand"}</button>
+              <button className="vg-linkbtn" onClick={() => setChartMode(chartMode === "hidden" ? "fit" : "hidden")}
+                title="Collapse/show the chart — the log and the right pane carry the same story">
+                {chartMode === "hidden" ? "show chart" : "hide chart"}</button>
+            </>
+          )}
           <a className="vg-note" href="/cockpit/" title="the same cockpit, rendered in the Astryx design system">Astryx cockpit ↗</a>
           {d && d.day_pnl != null && (
             <span className="vg-note">day <b className={d.day_pnl >= 0 ? "vg-up" : "vg-down"}>{money(d.day_pnl)}</b></span>
@@ -745,14 +759,12 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
         </div>
       </div>
 
-      {isToday && (etMinNow() < 570 ? <PlanFace /> : (
-        <div className="vg-card" style={{ marginTop: 14, padding: 8, position: "relative" }}>
-          <button className="vg-btn-sm" style={{ position: "absolute", top: 10, right: 10, zIndex: 5 }}
-            onClick={() => setChartBig(!chartBig)}
-            title={chartBig ? "Back to the compact chart" : "Expand the chart in place (rest of the page stays below)"}>
-            {chartBig ? "⛶ Compact" : "⛶ Expand"}</button>
+      {isToday && (etMinNow() < 570 ? <PlanFace /> : chartMode === "hidden" ? null : (
+        <div className="vg-card" style={{ marginTop: 8, padding: 8 }}>
           <InstrumentChartCard symbol="SPX" defaultTf="5m" compact={!chartBig}
-            height={chartBig ? Math.max(480, window.innerHeight - 260) : 340}
+            seriesType={chartBig ? "candles" : "line"}
+            height={chartBig ? Math.max(480, window.innerHeight - 260)
+              : Math.max(420, window.innerHeight - 600)}
             initialLayers={["levels", "forecast", "calls"]} />
         </div>
       ))}

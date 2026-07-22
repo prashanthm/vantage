@@ -2483,7 +2483,15 @@ ${ref}`;
       const out = [];
       const sel = ctx.selectedLevel;
       const [t0, t1] = timeSpan(ctx.candles);
-      for (const lv of ctx.layers.levels || []) {
+      const px2 = ctx.price;
+      const isSel = (lv) => sel != null && Math.abs(lv.price - sel) < 0.01;
+      const all = (ctx.layers.levels || []).filter((lv) => isSel(lv) || px2 == null || Math.abs(lv.price - px2) <= px2 * 0.012);
+      const featured = new Set(px2 == null ? all : [
+        ...all.filter((l) => l.price >= px2).sort((a, b) => a.price - b.price).slice(0, 2),
+        ...all.filter((l) => l.price < px2).sort((a, b) => b.price - a.price).slice(0, 2)
+      ]);
+      for (const lv of all) {
+        const full = featured.has(lv) || isSel(lv);
         let lbl = String(lv.label || "");
         let isRes = /resist|call wall/i.test(lbl);
         let isSup = /support|put wall|max pain/i.test(lbl);
@@ -2505,18 +2513,18 @@ ${ref}`;
           }
         }
         const rgb = testing ? [176, 106, 0] : isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
-        const isSel = sel != null && Math.abs(lv.price - sel) < 0.01;
-        const alpha = sel == null ? 0.6 : isSel ? 0.95 : 0.18;
-        if (band && t0 && t1 && (sel == null || isSel)) {
+        const selHere = isSel(lv);
+        const alpha = sel != null ? selHere ? 0.95 : 0.18 : full ? 0.6 : 0.3;
+        if (band && t0 && t1 && full && (sel == null || selHere)) {
           out.push(...zone(ctx, t0, t1, lv.hi, lv.lo, rgb.join(","), 0.1, ""));
         }
         out.push({ kind: "line", handle: ctx.candle.createPriceLine({
           price: lv.price,
           color: `rgba(${rgb.join(",")},${alpha})`,
-          lineWidth: isSel ? 2 : /wall|max pain|durable/i.test(lbl) ? 2 : 1,
+          lineWidth: selHere ? 2 : full && /wall|max pain|durable/i.test(lbl) ? 2 : 1,
           lineStyle: ctx.LW.LineStyle.Dashed,
-          axisLabelVisible: sel == null || isSel,
-          title: sel != null && !isSel ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 30)
+          axisLabelVisible: full && (sel == null || selHere),
+          title: !full || sel != null && !selHere ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 30)
         }) });
       }
       return out;
@@ -2935,7 +2943,8 @@ ${ref}`;
     setActiveCallId,
     onOpenSymbol,
     initialLayers,
-    compact
+    compact,
+    seriesType = "candles"
   }) {
     const elRef = useRef(null);
     const [symInput, setSymInput] = useState3("");
@@ -2953,6 +2962,7 @@ ${ref}`;
     });
     const [hover, setHover] = useState3(null);
     const [nonce, setNonce] = useState3(0);
+    const [chartEpoch, setChartEpoch] = useState3(0);
     const [refreshing, setRefreshing] = useState3(false);
     const [active, setActive] = useState3(loadPref);
     const [tool, setTool] = useState3("cursor");
@@ -3219,7 +3229,15 @@ ${ref}`;
           vertTouchDrag: true
         }
       });
-      const candle = chart.addCandlestickSeries({
+      const candle = seriesType === "line" ? chart.addAreaSeries({
+        lineColor: th.ink,
+        lineWidth: 2,
+        topColor: `rgba(${th.faintRgb.join(",")},0.18)`,
+        bottomColor: "rgba(0,0,0,0)",
+        priceLineVisible: true,
+        lastValueVisible: true,
+        crosshairMarkerVisible: true
+      }) : chart.addCandlestickSeries({
         upColor: th.up,
         downColor: th.down,
         wickUpColor: th.up,
@@ -3229,13 +3247,19 @@ ${ref}`;
       });
       chartRef.current = chart;
       candleRef.current = candle;
+      indRef.current = {};
+      drawnRef.current = {};
+      layerHandlesRef.current = {};
+      pocLineRef.current = null;
+      fittedKey.current = null;
+      setChartEpoch((n) => n + 1);
       chart.subscribeCrosshairMove((p) => {
         if (!p || !p.time || !p.seriesData) {
           setHover(null);
           return;
         }
         const bar = p.seriesData.get(candle);
-        setHover(bar ? ohlcText(bar) : null);
+        setHover(bar ? bar.open != null ? ohlcText(bar) : { c: bar.value, up: true, lineOnly: true } : null);
       });
       chart.subscribeClick((p) => {
         const t = toolRef.current;
@@ -3261,11 +3285,11 @@ ${ref}`;
         chart.remove();
         chartRef.current = candleRef.current = null;
       };
-    }, []);
+    }, [seriesType]);
     useEffect2(() => {
       const candle = candleRef.current, chart = chartRef.current;
       if (!candle || !candles.length) return;
-      candle.setData(candles);
+      candle.setData(seriesType === "line" ? candles.map((c) => ({ time: c.time, value: c.close })) : candles);
       const key = `${symbol}|${tf}`;
       if (chart && fittedKey.current !== key) {
         fittedKey.current = key;
@@ -3276,7 +3300,7 @@ ${ref}`;
           }
         });
       }
-    }, [candles, symbol, tf]);
+    }, [candles, symbol, tf, seriesType, chartEpoch]);
     useEffect2(() => {
       if (!overlays || !chartRef.current || !candleRef.current || !candles.length) return void 0;
       return overlays({
@@ -3285,7 +3309,7 @@ ${ref}`;
         LW: window.LightweightCharts,
         candles
       });
-    }, [overlays, candles]);
+    }, [overlays, candles, chartEpoch]);
     useEffect2(() => {
       const chart = chartRef.current;
       if (!chart) return void 0;
@@ -3393,7 +3417,7 @@ ${ref}`;
         }
       }
       return void 0;
-    }, [candles, active, tf]);
+    }, [candles, active, tf, chartEpoch]);
     useEffect2(() => {
       let alive = true;
       pendingRef.current = [];
@@ -3431,7 +3455,7 @@ ${ref}`;
         if (h) drawn[d.id] = h;
       }
       return void 0;
-    }, [drawings, candles]);
+    }, [drawings, candles, chartEpoch]);
     useEffect2(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
@@ -3469,7 +3493,7 @@ ${ref}`;
         }
       }
       return void 0;
-    }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, dayCallsData, selectedLevel, candles]);
+    }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, dayCallsData, selectedLevel, candles, chartEpoch]);
     useEffect2(() => {
       const chart = chartRef.current;
       const src = replayShown && replayData || callsOn && dayCallsData || null;
@@ -3488,7 +3512,7 @@ ${ref}`;
           }
         });
       }
-    }, [replayData, replayShown, callsOn, dayCallsData, candles]);
+    }, [replayData, replayShown, callsOn, dayCallsData, candles, chartEpoch]);
     const last = candles.length ? candles[candles.length - 1].close : null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-ic" }, /* @__PURE__ */ React.createElement("div", { className: "vg-ic-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-ic-sym" }, symbol), onOpenSymbol && /* @__PURE__ */ React.createElement(
       "input",
@@ -3506,7 +3530,7 @@ ${ref}`;
         },
         "aria-label": "Change chart symbol"
       }
-    ), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
+    ), last != null && /* @__PURE__ */ React.createElement("span", { className: "vg-ic-px" }, last), hover && /* @__PURE__ */ React.createElement("span", { className: cls("vg-ic-ohlc", hover.up ? "up" : "down") }, hover.lineOnly ? /* @__PURE__ */ React.createElement(React.Fragment, null, "C ", hover.c) : /* @__PURE__ */ React.createElement(React.Fragment, null, "O ", hover.o, " H ", hover.h, " L ", hover.l, " C ", hover.c)), /* @__PURE__ */ React.createElement("div", { className: "vg-ic-tf" }, TIMEFRAMES.map((t) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: t,
@@ -3647,7 +3671,8 @@ ${ref}`;
     setActiveCallId,
     onOpenSymbol,
     initialLayers,
-    compact
+    compact,
+    seriesType
   }) {
     const [tf, setTf] = useState3(defaultTf);
     return /* @__PURE__ */ React.createElement(
@@ -3667,7 +3692,8 @@ ${ref}`;
         setActiveCallId,
         onOpenSymbol,
         initialLayers,
-        compact
+        compact,
+        seriesType
       }
     );
   }
@@ -4094,9 +4120,26 @@ ${ref}`;
     }, [isToday]);
     const q = useLive(() => getFrames(day), null, [day, tick, refreshNonce]);
     const d = q.data && q.data.available ? q.data : null;
-    const [chartBig, setChartBig] = useState4(false);
+    const [chartMode, setChartMode] = useState4("fit");
+    const chartBig = chartMode === "big";
     const select = (f) => onSelectFrame && onSelectFrame({ ...f, day });
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Cockpit"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "the market \xB7 the analyst's calls \xB7 you \u2014 one day, one chart, one log")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "/cockpit/", title: "the same cockpit, rendered in the Astryx design system" }, "Astryx cockpit \u2197"), d && d.day_pnl != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "day ", /* @__PURE__ */ React.createElement("b", { className: d.day_pnl >= 0 ? "vg-up" : "vg-down" }, money3(d.day_pnl))), /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 15 } }, "Cockpit"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "the market \xB7 the analyst's calls \xB7 you")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "baseline" } }, isToday && etMinNow() >= 570 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-linkbtn",
+        onClick: () => setChartMode(chartBig ? "fit" : "big"),
+        title: chartBig ? "Back to the fitted line chart" : "Expand: full height, candles, full toolbar"
+      },
+      chartBig ? "\u26F6 fit" : "\u26F6 expand"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-linkbtn",
+        onClick: () => setChartMode(chartMode === "hidden" ? "fit" : "hidden"),
+        title: "Collapse/show the chart \u2014 the log and the right pane carry the same story"
+      },
+      chartMode === "hidden" ? "show chart" : "hide chart"
+    )), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "/cockpit/", title: "the same cockpit, rendered in the Astryx design system" }, "Astryx cockpit \u2197"), d && d.day_pnl != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "day ", /* @__PURE__ */ React.createElement("b", { className: d.day_pnl >= 0 ? "vg-up" : "vg-down" }, money3(d.day_pnl))), /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "date",
@@ -4106,22 +4149,14 @@ ${ref}`;
         onChange: (e) => setDay(e.target.value || todayET()),
         "aria-label": "Cockpit day"
       }
-    ))), isToday && (etMinNow() < 570 ? /* @__PURE__ */ React.createElement(PlanFace, null) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14, padding: 8, position: "relative" } }, /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: "vg-btn-sm",
-        style: { position: "absolute", top: 10, right: 10, zIndex: 5 },
-        onClick: () => setChartBig(!chartBig),
-        title: chartBig ? "Back to the compact chart" : "Expand the chart in place (rest of the page stays below)"
-      },
-      chartBig ? "\u26F6 Compact" : "\u26F6 Expand"
-    ), /* @__PURE__ */ React.createElement(
+    ))), isToday && (etMinNow() < 570 ? /* @__PURE__ */ React.createElement(PlanFace, null) : chartMode === "hidden" ? null : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 8 } }, /* @__PURE__ */ React.createElement(
       InstrumentChartCard,
       {
         symbol: "SPX",
         defaultTf: "5m",
         compact: !chartBig,
-        height: chartBig ? Math.max(480, window.innerHeight - 260) : 340,
+        seriesType: chartBig ? "candles" : "line",
+        height: chartBig ? Math.max(480, window.innerHeight - 260) : Math.max(420, window.innerHeight - 600),
         initialLayers: ["levels", "forecast", "calls"]
       }
     ))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day, slim: true }), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Every 15 minutes", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 click a row for its briefing (right panel) \xB7 \u2713 with / \u2717 against the call")), d && d.frames.length > 0 && /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Time"), /* @__PURE__ */ React.createElement("th", null, "Call"), /* @__PURE__ */ React.createElement("th", null, "Action"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Target"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Wrong if"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Market"), /* @__PURE__ */ React.createElement("th", null, "Resolved"), /* @__PURE__ */ React.createElement("th", null, "You"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "P&L"))), /* @__PURE__ */ React.createElement("tbody", null, d.frames.map((f) => /* @__PURE__ */ React.createElement(
@@ -7306,16 +7341,16 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   ];
   function HomeView({ face, onFace, renderFace }) {
     const active = HOME_FACES.some((f) => f.key === face) ? face : clockFace();
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-home" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 4, marginBottom: 10 } }, HOME_FACES.map((f) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-home" }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 4, marginBottom: 6 } }, HOME_FACES.map((f) => /* @__PURE__ */ React.createElement(
       "button",
       {
         key: f.key,
         className: cls("vg-seg-btn", active === f.key && "on"),
         onClick: () => onFace(f.key),
-        title: active === f.key ? "current face" : `switch to the ${f.label.toLowerCase()}`
+        title: active === f.key ? "current face (picked by the market clock; pills deep-link)" : `switch to the ${f.label.toLowerCase()}`
       },
       f.label
-    )), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: 8, fontSize: "var(--vg-text-xs)" } }, "picked by the market clock \u2014 pills deep-link (#/home/cockpit)")), renderFace(active));
+    ))), renderFace(active));
   }
   function useHashRoute() {
     const parse = () => {

@@ -110,17 +110,15 @@ function HomeView({ face, onFace, renderFace }) {
   const active = HOME_FACES.some((f) => f.key === face) ? face : clockFace();
   return (
     <div className="vg-home">
-      <div className="vg-row" style={{ gap: 4, marginBottom: 10 }}>
+      <div className="vg-row" style={{ gap: 4, marginBottom: 6 }}>
         {HOME_FACES.map((f) => (
           <button key={f.key} className={cls("vg-seg-btn", active === f.key && "on")}
             onClick={() => onFace(f.key)}
-            title={active === f.key ? "current face" : `switch to the ${f.label.toLowerCase()}`}>
+            title={active === f.key ? "current face (picked by the market clock; pills deep-link)"
+              : `switch to the ${f.label.toLowerCase()}`}>
             {f.label}
           </button>
         ))}
-        <span className="vg-note" style={{ marginLeft: 8, fontSize: "var(--vg-text-xs)" }}>
-          picked by the market clock — pills deep-link (#/home/cockpit)
-        </span>
       </div>
       {renderFace(active)}
     </div>

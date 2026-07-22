@@ -31,7 +31,23 @@ export const LAYER_DRAWERS = {
     const out = [];
     const sel = ctx.selectedLevel;
     const [t0, t1] = timeSpan(ctx.candles);
-    for (const lv of ctx.layers.levels || []) {
+    const px = ctx.price;
+    // Declutter (the cockpit chart was unreadable with every level drawn):
+    // 1. only levels near the day's action draw at all — a put wall 500pt below
+    //    spot is real but belongs in the ladder, and its ZONE series would drag
+    //    the autoscale down until the candles are a squashed ribbon.
+    // 2. of those, only the nearest 2 above + 2 below get zone + axis label;
+    //    the rest are faint context lines. The ladder remains the full list.
+    // A ladder-click (sel) always draws its level, even a far one.
+    const isSel = (lv) => sel != null && Math.abs(lv.price - sel) < 0.01;
+    const all = (ctx.layers.levels || []).filter((lv) =>
+      isSel(lv) || px == null || Math.abs(lv.price - px) <= px * 0.012);
+    const featured = new Set(px == null ? all : [
+      ...all.filter((l) => l.price >= px).sort((a, b) => a.price - b.price).slice(0, 2),
+      ...all.filter((l) => l.price < px).sort((a, b) => b.price - a.price).slice(0, 2),
+    ]);
+    for (const lv of all) {
+      const full = featured.has(lv) || isSel(lv);
       let lbl = String(lv.label || "");
       let isRes = /resist|call wall/i.test(lbl);
       let isSup = /support|put wall|max pain/i.test(lbl);
@@ -56,16 +72,17 @@ export const LAYER_DRAWERS = {
       }
       const rgb = testing ? [176, 106, 0]
         : isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
-      const isSel = sel != null && Math.abs(lv.price - sel) < 0.01;
-      const alpha = sel == null ? 0.6 : isSel ? 0.95 : 0.18;
-      if (band && t0 && t1 && (sel == null || isSel)) {
+      const selHere = isSel(lv);
+      const alpha = sel != null ? (selHere ? 0.95 : 0.18) : full ? 0.6 : 0.3;
+      if (band && t0 && t1 && full && (sel == null || selHere)) {
         out.push(...zone(ctx, t0, t1, lv.hi, lv.lo, rgb.join(","), 0.10, ""));
       }
       out.push({ kind: "line", handle: ctx.candle.createPriceLine({
         price: lv.price, color: `rgba(${rgb.join(",")},${alpha})`,
-        lineWidth: isSel ? 2 : /wall|max pain|durable/i.test(lbl) ? 2 : 1,
-        lineStyle: ctx.LW.LineStyle.Dashed, axisLabelVisible: sel == null || isSel,
-        title: (sel != null && !isSel) ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 30) }) });
+        lineWidth: selHere ? 2 : full && /wall|max pain|durable/i.test(lbl) ? 2 : 1,
+        lineStyle: ctx.LW.LineStyle.Dashed,
+        axisLabelVisible: full && (sel == null || selHere),
+        title: !full || (sel != null && !selHere) ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 30) }) });
     }
     return out;
   },
