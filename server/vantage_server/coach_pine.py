@@ -808,5 +808,11 @@ alertcondition(stateChanged and state == "SCALE", "Coach: SCALE OUT", '{"secret"
 alertcondition(tOutcome == "TARGET HIT" and tOutcome[1] != "TARGET HIT", "Coach: TARGET HIT", '{"secret":"{webhook_secret}","source":"coach","event":"TARGET","symbol":"{{ticker}}","target":{{plot("Target")}},"price":{{close}}}')
 alertcondition(tOutcome == "STOPPED" and tOutcome[1] != "STOPPED", "Coach: STOPPED", '{"secret":"{webhook_secret}","source":"coach","event":"STOPPED","symbol":"{{ticker}}","stop":{{plot("Stop")}},"price":{{close}}}')
 alertcondition(stateChanged and state == "ARMED", "Coach: ARMED", '{"secret":"{webhook_secret}","source":"coach","event":"ARMED","symbol":"{{ticker}}","entry":{{plot("Entry")}},"target":{{plot("Target")}},"stop":{{plot("Stop")}},"rr":{{plot("RR")}},"price":{{close}}}')
+// VWAP cross alerts — informational context (who has the ball), NOT a trade
+// signal: the arm/trigger engine's direction comes from level reclaims only.
+vwapUpCross = not na(vwap) and close > vwap and close[1] <= vwap[1]
+vwapDnCross = not na(vwap) and close < vwap and close[1] >= vwap[1]
+alertcondition(vwapUpCross, "Coach: CROSSED ABOVE VWAP", '{"secret":"{webhook_secret}","source":"coach","event":"VWAP_UP","symbol":"{{ticker}}","price":{{close}}}')
+alertcondition(vwapDnCross, "Coach: CROSSED BELOW VWAP", '{"secret":"{webhook_secret}","source":"coach","event":"VWAP_DOWN","symbol":"{{ticker}}","price":{{close}}}')
 alertcondition(htfFire, "Coach: HOURLY SETUP", '{"secret":"{webhook_secret}","source":"coach","event":"HEADS_UP","symbol":"{{ticker}}","headline":"hourly setup — drop to LTF for entry","price":{{close}}}')
 '''
