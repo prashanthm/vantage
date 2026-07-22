@@ -2482,21 +2482,34 @@ ${ref}`;
       const th = chartTheme();
       const out = [];
       const sel = ctx.selectedLevel;
+      const [t0, t1] = timeSpan(ctx.candles);
       for (const lv of ctx.layers.levels || []) {
         let lbl = String(lv.label || "");
         let isRes = /resist|call wall/i.test(lbl);
         let isSup = /support|put wall|max pain/i.test(lbl);
+        const band = lv.lo != null && lv.hi != null && lv.hi > lv.lo;
         const sr = /^(resistance|support)/i.exec(lbl);
+        let testing = false;
         if (sr && ctx.price != null) {
-          const live = lv.price > ctx.price ? "resistance" : "support";
-          isRes = live === "resistance";
-          isSup = !isRes;
-          if (live !== sr[1].toLowerCase())
-            lbl = `${live} \xB7flip${lbl.slice(sr[1].length)}`;
+          const above = band ? lv.lo > ctx.price : lv.price > ctx.price;
+          const below = band ? lv.hi < ctx.price : lv.price < ctx.price;
+          testing = band && !above && !below;
+          if (testing) {
+            lbl = `testing${lbl.slice(sr[1].length)}`;
+          } else {
+            const live = above ? "resistance" : "support";
+            isRes = live === "resistance";
+            isSup = !isRes;
+            if (live !== sr[1].toLowerCase())
+              lbl = `${live} \xB7flip${lbl.slice(sr[1].length)}`;
+          }
         }
-        const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
+        const rgb = testing ? [176, 106, 0] : isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
         const isSel = sel != null && Math.abs(lv.price - sel) < 0.01;
         const alpha = sel == null ? 0.6 : isSel ? 0.95 : 0.18;
+        if (band && t0 && t1 && (sel == null || isSel)) {
+          out.push(...zone(ctx, t0, t1, lv.hi, lv.lo, rgb.join(","), 0.1, ""));
+        }
         out.push({ kind: "line", handle: ctx.candle.createPriceLine({
           price: lv.price,
           color: `rgba(${rgb.join(",")},${alpha})`,
@@ -3790,14 +3803,27 @@ ${ref}`;
     const sr = rows.filter((r) => r.role === "support" || r.role === "resistance");
     if (!sr.length || price == null) return null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 12, padding: "10px 12px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Levels watch", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 plan vs now (last ", price, ")")), /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Level"), /* @__PURE__ */ React.createElement("th", null, "Plan"), /* @__PURE__ */ React.createElement("th", null, "Now"), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, sr.map((r, i) => {
-      const now = r.price > price ? "resistance" : "support";
-      const flip = now !== r.role;
-      return /* @__PURE__ */ React.createElement("tr", { key: i, style: flip ? { background: "var(--vg-raised)" } : void 0 }, /* @__PURE__ */ React.createElement("td", { className: "num", style: { textAlign: "left" } }, r.price), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.role === "support" ? "good" : "bad") }, r.role.slice(0, 3))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", now === "support" ? "good" : "bad") }, now.slice(0, 3))), /* @__PURE__ */ React.createElement("td", null, flip && /* @__PURE__ */ React.createElement(
+      const lo = r.lo != null ? r.lo : r.price;
+      const hi = r.hi != null ? r.hi : r.price;
+      const now = price > hi ? "support" : price < lo ? "resistance" : "testing";
+      const flip = now !== "testing" && now !== r.role;
+      return /* @__PURE__ */ React.createElement("tr", { key: i, style: flip ? { background: "var(--vg-raised)" } : void 0 }, /* @__PURE__ */ React.createElement(
+        "td",
+        {
+          className: "num",
+          style: { textAlign: "left" },
+          title: r.hi != null && r.hi > r.lo ? `zone ${r.lo}\u2013${r.hi}` : void 0
+        },
+        r.hi != null && r.hi > r.lo ? `${r.lo}\u2013${r.hi}` : r.price
+      ), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.role === "support" ? "good" : "bad") }, r.role.slice(0, 3))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls(
+        "vg-badge",
+        now === "support" ? "good" : now === "resistance" ? "bad" : "warn"
+      ) }, now === "testing" ? "testing" : now.slice(0, 3))), /* @__PURE__ */ React.createElement("td", null, flip && /* @__PURE__ */ React.createElement(
         "span",
         {
           className: "vg-badge warn",
           style: { fontWeight: 700 },
-          title: "price crossed this level \u2014 the plan's role has inverted"
+          title: "price traded through the whole zone \u2014 the plan's role has inverted"
         },
         "FLIP"
       )));

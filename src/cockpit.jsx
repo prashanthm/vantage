@@ -248,15 +248,24 @@ function LevelsWatch({ d }) {
         <thead><tr><th>Level</th><th>Plan</th><th>Now</th><th /></tr></thead>
         <tbody>
           {sr.map((r, i) => {
-            const now = r.price > price ? "resistance" : "support";
-            const flip = now !== r.role;
+            // three states via the zone band: above hi = support, below lo =
+            // resistance, INSIDE = testing. FLIP only fires on a full traversal
+            // of the band — no more label flapping while price straddles a line.
+            const lo = r.lo != null ? r.lo : r.price;
+            const hi = r.hi != null ? r.hi : r.price;
+            const now = price > hi ? "support" : price < lo ? "resistance" : "testing";
+            const flip = now !== "testing" && now !== r.role;
             return (
               <tr key={i} style={flip ? { background: "var(--vg-raised)" } : undefined}>
-                <td className="num" style={{ textAlign: "left" }}>{r.price}</td>
+                <td className="num" style={{ textAlign: "left" }}
+                  title={r.hi != null && r.hi > r.lo ? `zone ${r.lo}–${r.hi}` : undefined}>
+                  {r.hi != null && r.hi > r.lo ? `${r.lo}–${r.hi}` : r.price}</td>
                 <td><span className={cls("vg-badge", r.role === "support" ? "good" : "bad")}>{r.role.slice(0, 3)}</span></td>
-                <td><span className={cls("vg-badge", now === "support" ? "good" : "bad")}>{now.slice(0, 3)}</span></td>
+                <td><span className={cls("vg-badge",
+                  now === "support" ? "good" : now === "resistance" ? "bad" : "warn")}>
+                  {now === "testing" ? "testing" : now.slice(0, 3)}</span></td>
                 <td>{flip && <span className="vg-badge warn" style={{ fontWeight: 700 }}
-                  title="price crossed this level — the plan's role has inverted">FLIP</span>}</td>
+                  title="price traded through the whole zone — the plan's role has inverted">FLIP</span>}</td>
               </tr>
             );
           })}

@@ -136,8 +136,19 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
            or store.load_spx_playbook(day, symbol=symbol))
     scaf = (row or {}).get("scaffold") or {}
     lvl_entries = _rp.gex_level_entries(scaf)     # (price, label) high→low
-    levels = [{"price": round(float(p), 1), "label": _rp._clean_label(lbl)}
-              for p, lbl in lvl_entries]
+    # join each level's zone band (touch-spread lo/hi) back in by price — the
+    # table rows carry it; the (price, label) tuple shape stays untouched for
+    # the other five gex_level_entries consumers.
+    _bands = {round(float(r["price"])): (r.get("lo"), r.get("hi"))
+              for r in ((scaf.get("table") or {}).get("rows") or [])
+              if r.get("price") is not None}
+    levels = []
+    for p, lbl in lvl_entries:
+        lv = {"price": round(float(p), 1), "label": _rp._clean_label(lbl)}
+        b = _bands.get(round(float(p)))
+        if b and b[0] is not None and b[1] is not None:
+            lv["lo"], lv["hi"] = b
+        levels.append(lv)
     lvl_prices = [x["price"] for x in levels]
 
     # VWAP/RSI/rel-vol/ATR are the current SESSION's tape (from si..ei)

@@ -137,20 +137,28 @@ def _role_col(role: str) -> str:
     return f"(isDark ? #{d.lstrip('#')} : #{l.lstrip('#')})"
 
 
-def _sr_col_expr(price: float) -> str:
-    """A Pine color expression that derives the S/R role from LIVE price: the
-    level above ``close`` is resistance (red), below is support (green). Roles
-    baked at generation go stale the moment price gaps across a level."""
+def _sr_col_expr(price: float, lo: float | None = None, hi: float | None = None) -> str:
+    """A Pine color expression that derives the S/R role from LIVE price. With a
+    zone band (lo/hi): below the band = resistance, above = support, INSIDE =
+    pivot amber (testing — no role claimed until price exits the far side)."""
+    if lo is not None and hi is not None and hi > lo:
+        return (f"(close < {lo:.1f} ? {_role_col('resistance')} "
+                f": close > {hi:.1f} ? {_role_col('support')} : {_role_col('pivot')})")
     return f"(close < {price:.1f} ? {_role_col('resistance')} : {_role_col('support')})"
 
 
-def _sr_label_expr(price: float, plan_role: str, rest: str, prefix: str = "") -> str:
+def _sr_label_expr(price: float, plan_role: str, rest: str, prefix: str = "",
+                   lo: float | None = None, hi: float | None = None) -> str:
     """A Pine string expression for an S/R row label: the role word follows LIVE
-    price; when it disagrees with the plan's role the ``·flip`` marker shows the
-    inversion (e.g. plan resistance now under price → 'support ·flip (2x)')."""
+    price; ``·flip`` marks disagreement with the plan; with a band, price inside
+    reads 'testing' (hysteresis — a flip requires a full traversal)."""
     rest = (" " + rest.strip()) if rest.strip() else ""
     res_txt = prefix + "resistance" + ("" if plan_role == "resistance" else " ·flip")
     sup_txt = prefix + "support" + ("" if plan_role == "support" else " ·flip")
+    if lo is not None and hi is not None and hi > lo:
+        return (f"(close < {lo:.1f} ? \"{_sanitize(res_txt + rest)}\" "
+                f": close > {hi:.1f} ? \"{_sanitize(sup_txt + rest)}\" "
+                f": \"{_sanitize(prefix + 'testing' + rest)}\")")
     return (f"(close < {price:.1f} ? \"{_sanitize(res_txt + rest)}\" "
             f": \"{_sanitize(sup_txt + rest)}\")")
 
@@ -234,14 +242,15 @@ def _pine_table(scaffold: dict, session: str, sym: str = "SPX") -> list[str]:
         is_sr = role in ("support", "resistance")
         # S/R rows: color AND label word follow LIVE close (a plan-time
         # resistance now under price reads "support ·flip"); others static.
-        col = _sr_col_expr(p_f) if is_sr else _role_col("pivot")
+        col = _sr_col_expr(p_f, r.get("lo"), r.get("hi")) if is_sr else _role_col("pivot")
         key = _sanitize(str(r.get("key", "")))
         star = "✦ " if r.get("confluence") else ""
         price = f"{p_f:.0f}"
         raw_lab = str(r.get("label", ""))
         m = _re.match(r"^(resistance|support)\s*(.*)$", raw_lab, _re.I)
         if is_sr and m:
-            lab_arg = _sr_label_expr(p_f, role, m.group(2), prefix=star)
+            lab_arg = _sr_label_expr(p_f, role, m.group(2), prefix=star,
+                                     lo=r.get("lo"), hi=r.get("hi"))
         else:
             lab_arg = f"\"{_sanitize(star + raw_lab)}\""
         exp = _sanitize(str(r.get("expect", "")))
@@ -332,8 +341,8 @@ def _pine_row_markers(rows: list[dict]) -> list[str]:
         price = float(r["price"])
         role = r.get("role", "pivot")
         # S/R roles follow LIVE close at draw time, not the generation snapshot
-        col = (_sr_col_expr(price) if role in ("support", "resistance")
-               else _role_col("pivot"))
+        col = (_sr_col_expr(price, r.get("lo"), r.get("hi"))
+               if role in ("support", "resistance") else _role_col("pivot"))
         key = _sanitize(str(r.get("key", "")))
         conf = r.get("confluence")
         durable = r.get("durable")

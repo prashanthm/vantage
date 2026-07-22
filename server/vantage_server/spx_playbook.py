@@ -76,6 +76,8 @@ def _fractal_pivots(highs, lows, n=2):
 
 
 def _cluster(prices, tol=6.0):
+    """Cluster touch prices → (mean, touches, lo, hi). The lo/hi spread of the
+    actual touches IS the level's honest width — a shelf is a zone, not a line."""
     prices = sorted(prices)
     clusters: list[list[float]] = []
     for p in prices:
@@ -83,7 +85,8 @@ def _cluster(prices, tol=6.0):
             clusters[-1].append(p)
         else:
             clusters.append([p])
-    return [(round(sum(c) / len(c), 1), len(c)) for c in clusters]
+    return [(round(sum(c) / len(c), 1), len(c), round(c[0], 1), round(c[-1], 1))
+            for c in clusters]
 
 
 def _fib(hi, lo):
@@ -384,22 +387,31 @@ def build_level_ladder(gex: dict, chart: dict, scale: dict | None = None) -> lis
     round_step = (scale or {}).get("round_step", ROUND_LEVELS_STEP)
     rows: list[dict] = []
     if gex.get("available"):
+        # OI is bucketed by strike, so a wall is a ±half-strike-interval band,
+        # not an exact price (SPX strikes are 5pt apart → ±2.5).
+        wall_pad = (scale or {}).get("strike_half", 2.5)
         for key, kind in (("call_wall", "GEX call wall (resistance)"),
                           ("gamma_flip", "gamma flip (regime line)"),
                           ("put_wall", "GEX put wall (support)"),
                           ("max_pain", "max pain (pin)")):
             v = gex.get(key)
             if v is not None:
-                rows.append({"price": round(float(v), 1), "kind": kind, "source": "GEX"})
+                row = {"price": round(float(v), 1), "kind": kind, "source": "GEX"}
+                if key in ("call_wall", "put_wall"):
+                    row["lo"] = round(float(v) - wall_pad, 1)
+                    row["hi"] = round(float(v) + wall_pad, 1)
+                rows.append(row)
     if chart.get("available"):
         for lbl, v in (chart.get("fib") or {}).items():
             rows.append({"price": v, "kind": f"fib {lbl}", "source": "chart"})
         if chart.get("poc") is not None:
             rows.append({"price": chart["poc"], "kind": "volume PoC (magnet)", "source": "chart"})
-        for price, touches in chart.get("resistance", [])[:3]:
-            rows.append({"price": price, "kind": f"resistance ({touches}x tested)", "source": "chart"})
-        for price, touches in chart.get("support", [])[:3]:
-            rows.append({"price": price, "kind": f"support ({touches}x tested)", "source": "chart"})
+        for price, touches, *band in chart.get("resistance", [])[:3]:
+            rows.append({"price": price, "kind": f"resistance ({touches}x tested)", "source": "chart",
+                         **({"lo": band[0], "hi": band[1]} if len(band) == 2 else {})})
+        for price, touches, *band in chart.get("support", [])[:3]:
+            rows.append({"price": price, "kind": f"support ({touches}x tested)", "source": "chart",
+                         **({"lo": band[0], "hi": band[1]} if len(band) == 2 else {})})
         # round numbers near spot
         last = chart.get("last")
         if last:
@@ -464,7 +476,9 @@ def build_confluence(ladder: list[dict], spot: float | None,
         if len(dims) < min_dims:     # confluence needs ≥min_dims distinct dimensions
             continue
         prices = [r["price"] for r in c]
-        lo, hi = min(prices), max(prices)
+        # member levels carry their own touch-spread bands — the zone spans them
+        lo = min(r.get("lo", r["price"]) for r in c)
+        hi = max(r.get("hi", r["price"]) for r in c)
         mid = round(sum(prices) / len(prices), 1)
         role = ("resistance" if spot and mid > spot
                 else "support" if spot and mid < spot else "pivot")
@@ -489,11 +503,11 @@ def session_levels_for_history(chart: dict, gex: dict) -> list[dict]:
     their persistence can be measured once enough sessions accrue."""
     out: list[dict] = []
     if chart.get("available"):
-        for price, touches in chart.get("resistance", []):
+        for price, touches, *_band in chart.get("resistance", []):
             out.append({"price": price, "dim": "resistance",
                         "kind": f"resistance ({touches}x tested)", "source": "chart",
                         "touches": touches})
-        for price, touches in chart.get("support", []):
+        for price, touches, *_band in chart.get("support", []):
             out.append({"price": price, "dim": "support",
                         "kind": f"support ({touches}x tested)", "source": "chart",
                         "touches": touches})
@@ -739,7 +753,7 @@ def build_table(ladder, confluence, gex, chart, regime, durable=None) -> dict:
                 return z
         return None
 
-    def add(price, label, expect, role, is_conf=False):
+    def add(price, label, expect, role, is_conf=False, lo=None, hi=None):
         k = round(price)
         if k in seen or price is None:
             return
@@ -747,16 +761,19 @@ def build_table(ladder, confluence, gex, chart, regime, durable=None) -> dict:
         dz = _durable_at(price)
         if dz:
             label = f"{label} ★{dz['sessions']}d"   # respected across N sessions
-        rows.append({"price": round(float(price), 1), "label": label,
-                     "expect": expect, "role": role, "confluence": is_conf,
-                     "durable": bool(dz), "sessions": dz["sessions"] if dz else 0})
+        row = {"price": round(float(price), 1), "label": label,
+               "expect": expect, "role": role, "confluence": is_conf,
+               "durable": bool(dz), "sessions": dz["sessions"] if dz else 0}
+        if lo is not None and hi is not None and hi > lo:
+            row["lo"], row["hi"] = round(float(lo), 1), round(float(hi), 1)
+        rows.append(row)
 
     # confluence zones first (the high-signal ones), marked
     for z in confluence:
         add(z["price"], " + ".join(z["kinds"][:2]) + " ✦",
             "good spot to buy dips" if z["role"] == "support" else
             "good spot to sell rallies" if z["role"] == "resistance" else "turning point",
-            z["role"], True)
+            z["role"], True, lo=z.get("lo"), hi=z.get("hi"))
     # then the key GEX/structure levels — but SKIP any that already sit inside a
     # confluence zone (it's represented there), so no duplicate rows.
     for r in ladder:
@@ -764,7 +781,7 @@ def build_table(ladder, confluence, gex, chart, regime, durable=None) -> dict:
         if d in ("gex_wall", "flip", "max_pain", "poc") and not _in_confluence(r["price"]):
             role = ("resistance" if spot and r["price"] > spot
                     else "support" if spot and r["price"] < spot else "pivot")
-            add(r["price"], lbl, _EXPECT.get(d, ""), role)
+            add(r["price"], lbl, _EXPECT.get(d, ""), role, lo=r.get("lo"), hi=r.get("hi"))
 
     # durable levels from cross-session memory that AREN'T already on the chart's
     # recent ladder — the LuxAlgo-style "level that traces back weeks and keeps
@@ -775,7 +792,8 @@ def build_table(ladder, confluence, gex, chart, regime, durable=None) -> dict:
         # add() appends the ★Nd tag itself via _durable_at — pass the bare kind so
         # the tag isn't doubled.
         add(z["price"], z["kind"],
-            f"has held for {z['sessions']} days — watch it closely", z["role"])
+            f"has held for {z['sessions']} days — watch it closely", z["role"],
+            lo=z.get("lo"), hi=z.get("hi"))
 
     rows.sort(key=lambda x: -x["price"])
     # letter-key each row (A, B, C…) top→bottom so the table maps 1:1 to the
@@ -1058,11 +1076,11 @@ def backfill_price_levels(store, days: int = 90, until: _dt.date | None = None,
         res = [z for z in _cluster([wh[j] for j in ph]) if z[1] >= 2]
         sup = [z for z in _cluster([wl[j] for j in pl]) if z[1] >= 2]
         levels: list[dict] = []
-        for price, touches in sorted(res, key=lambda z: -z[0])[:4]:
+        for price, touches, *_band in sorted(res, key=lambda z: -z[0])[:4]:
             levels.append({"price": price, "dim": "resistance",
                            "kind": f"resistance ({touches}x tested)",
                            "source": "chart", "touches": touches})
-        for price, touches in sorted(sup, key=lambda z: -z[0])[:4]:
+        for price, touches, *_band in sorted(sup, key=lambda z: -z[0])[:4]:
             levels.append({"price": price, "dim": "support",
                            "kind": f"support ({touches}x tested)",
                            "source": "chart", "touches": touches})

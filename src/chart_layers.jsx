@@ -30,25 +30,37 @@ export const LAYER_DRAWERS = {
     const th = chartTheme();
     const out = [];
     const sel = ctx.selectedLevel;
+    const [t0, t1] = timeSpan(ctx.candles);
     for (const lv of ctx.layers.levels || []) {
       let lbl = String(lv.label || "");
       let isRes = /resist|call wall/i.test(lbl);
       let isSup = /support|put wall|max pain/i.test(lbl);
-      // S/R shelf roles are a function of LIVE price, not of the side price was
-      // on when the plan generated — broken resistance acts as support. Identity
-      // levels (walls, max pain, fib, round, PoC) keep their names.
+      // a level with a touch-spread band is a ZONE — role has three states:
+      // price above the band = support, below = resistance, INSIDE = testing
+      // (no role claimed, no flip until price exits the far side — hysteresis).
+      const band = lv.lo != null && lv.hi != null && lv.hi > lv.lo;
       const sr = /^(resistance|support)/i.exec(lbl);
+      let testing = false;
       if (sr && ctx.price != null) {
-        const live = lv.price > ctx.price ? "resistance" : "support";
-        isRes = live === "resistance"; isSup = !isRes;
-        if (live !== sr[1].toLowerCase())
-          lbl = `${live} ·flip${lbl.slice(sr[1].length)}`;
+        const above = band ? lv.lo > ctx.price : lv.price > ctx.price;
+        const below = band ? lv.hi < ctx.price : lv.price < ctx.price;
+        testing = band && !above && !below;
+        if (testing) {
+          lbl = `testing${lbl.slice(sr[1].length)}`;
+        } else {
+          const live = above ? "resistance" : "support";
+          isRes = live === "resistance"; isSup = !isRes;
+          if (live !== sr[1].toLowerCase())
+            lbl = `${live} ·flip${lbl.slice(sr[1].length)}`;
+        }
       }
-      const rgb = isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
-      // a selected level (from a chart click) draws bold + labeled; the rest dim so
-      // it stands out. No selection → all at the normal 0.6.
+      const rgb = testing ? [176, 106, 0]
+        : isRes ? th.downRgb : isSup ? th.upRgb : [176, 106, 0];
       const isSel = sel != null && Math.abs(lv.price - sel) < 0.01;
       const alpha = sel == null ? 0.6 : isSel ? 0.95 : 0.18;
+      if (band && t0 && t1 && (sel == null || isSel)) {
+        out.push(...zone(ctx, t0, t1, lv.hi, lv.lo, rgb.join(","), 0.10, ""));
+      }
       out.push({ kind: "line", handle: ctx.candle.createPriceLine({
         price: lv.price, color: `rgba(${rgb.join(",")},${alpha})`,
         lineWidth: isSel ? 2 : /wall|max pain|durable/i.test(lbl) ? 2 : 1,
