@@ -55,14 +55,14 @@ def _level_style(kind: str) -> tuple[str, str]:
 # level kind (substring) -> the "what this level means" one-liner shown as the
 # label's second line. Plain-English, so the chart teaches as it marks.
 _LEVEL_MEANING: list[tuple[str, str]] = [
-    ("call wall", "dealer gamma peaks — rallies stall here, fade toward it"),
-    ("put wall", "dealer gamma floor — dips get bought here, fade toward it"),
-    ("flip", "regime line — above = mean-reversion, below = momentum"),
-    ("pain", "max pain — where most options expire worthless, a pin magnet"),
-    ("poc", "volume point of control — price accepts here, chops"),
-    ("fib", "fibonacci retrace of the recent swing — reaction level"),
-    ("resistance", "prior swing high — supply, more tests = stronger"),
-    ("support", "prior swing low — demand, more tests = stronger"),
+    ("call wall", "the options crowd's ceiling — rallies often stall here"),
+    ("put wall", "the options crowd's floor — dips often get bought here"),
+    ("flip", "the calm/amplify switch — above = fade moves, below = ride them"),
+    ("pain", "where the most options expire worthless — price drifts here late"),
+    ("poc", "the day's busiest price — expect chop, not trends, here"),
+    ("fib", "a common bounce depth on the recent swing (fib)"),
+    ("resistance", "a ceiling price has respected before"),
+    ("support", "a floor price has respected before"),
     ("round", "round number — order/option strikes cluster, a magnet"),
 ]
 

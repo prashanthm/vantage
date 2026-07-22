@@ -77,7 +77,7 @@ export const LAYER_DRAWERS = {
       .map((o) => {
         const rgb = (o.side === "bull" ? th.upRgb : th.downRgb).join(",");
         return zone(ctx, t0, t1, o.top, o.bottom, rgb, 0.14,
-          `${o.side === "bull" ? "demand" : "supply"} OB`);
+          o.side === "bull" ? "buyers' zone (OB)" : "sellers' zone (OB)");
       }).flat();
   },
 
@@ -88,7 +88,7 @@ export const LAYER_DRAWERS = {
       .map((f) => {
         const rgb = (f.side === "bull" ? th.upRgb : th.downRgb).join(",");
         return zone(ctx, t0, t1, f.hi, f.lo, rgb, 0.10,
-          `${f.side === "bull" ? "bull" : "bear"} FVG`);
+          `unfilled gap ${f.side === "bull" ? "↑" : "↓"} (FVG)`);
       }).flat();
   },
 
@@ -97,10 +97,10 @@ export const LAYER_DRAWERS = {
     const rgb = "184,122,22";  // amber, distinct from coach/OB/FVG
     const out = [];
     for (const p of nearest(liq.bsl, (x) => x, ctx.price, 4)) {
-      out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "BSL"));
+      out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "stops above (BSL)"));
     }
     for (const p of nearest(liq.ssl, (x) => x, ctx.price, 4)) {
-      out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "SSL"));
+      out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "stops below (SSL)"));
     }
     return out;
   },
@@ -109,7 +109,7 @@ export const LAYER_DRAWERS = {
     const d = ctx.layers.draw;
     if (!d || d.level == null) return [];
     return [line(ctx, d.level, "124,92,255", 0.9, ctx.LW.LineStyle.Dotted,
-      `DRAW ${d.dir === "up" ? "↑" : "↓"}`, 2)];
+      `price magnet ${d.dir === "up" ? "↑" : "↓"} (draw)`, 2)];
   },
 
   prior(ctx) {

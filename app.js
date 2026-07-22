@@ -2534,7 +2534,7 @@ ${ref}`;
           o.bottom,
           rgb,
           0.14,
-          `${o.side === "bull" ? "demand" : "supply"} OB`
+          o.side === "bull" ? "buyers' zone (OB)" : "sellers' zone (OB)"
         );
       }).flat();
     },
@@ -2551,7 +2551,7 @@ ${ref}`;
           f.lo,
           rgb,
           0.1,
-          `${f.side === "bull" ? "bull" : "bear"} FVG`
+          `unfilled gap ${f.side === "bull" ? "\u2191" : "\u2193"} (FVG)`
         );
       }).flat();
     },
@@ -2560,10 +2560,10 @@ ${ref}`;
       const rgb = "184,122,22";
       const out = [];
       for (const p of nearest(liq.bsl, (x) => x, ctx.price, 4)) {
-        out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "BSL"));
+        out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "stops above (BSL)"));
       }
       for (const p of nearest(liq.ssl, (x) => x, ctx.price, 4)) {
-        out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "SSL"));
+        out.push(line(ctx, p, rgb, 0.6, ctx.LW.LineStyle.Dotted, "stops below (SSL)"));
       }
       return out;
     },
@@ -2576,7 +2576,7 @@ ${ref}`;
         "124,92,255",
         0.9,
         ctx.LW.LineStyle.Dotted,
-        `DRAW ${d.dir === "up" ? "\u2191" : "\u2193"}`,
+        `price magnet ${d.dir === "up" ? "\u2191" : "\u2193"} (draw)`,
         2
       )];
     },
