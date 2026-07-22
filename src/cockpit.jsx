@@ -116,6 +116,101 @@ function LevelChips({ call, price }) {
   );
 }
 
+// ── gap odds (backtested, level-folklore H6: 730 SPX sessions, frozen data) ──
+// same-day gap-fill and first-hour continuation rates by gap size. Speak in
+// "X times in 10" — the trader reads odds, not z-scores.
+function gapRead(gapPct) {
+  if (gapPct == null) return null;
+  const a = Math.abs(gapPct);
+  if (a < 0.02) return null;
+  const dir = gapPct > 0 ? "up" : "down";
+  const fade = gapPct > 0 ? "shorting it" : "buying the dip";
+  if (a < 0.2) return { tone: "good", text:
+    `Opened ${gapPct > 0 ? "+" : ""}${gapPct}% — a small gap. These close the gap 8 times in 10, no strong lean either way.` };
+  if (a < 0.5) return { tone: "plain", text:
+    `Opened ${gapPct > 0 ? "+" : ""}${gapPct}% — a medium gap. Closes the gap about half the time; no edge fading it early.` };
+  return { tone: "bad", text:
+    `Opened ${gapPct > 0 ? "+" : ""}${gapPct}% — a BIG gap ${dir}. These keep going ${a >= 1 ? "7–8" : "6"} times in 10 in the first hour and close the gap only ${a >= 1 ? "2" : "3"} in 10. ${fade[0].toUpperCase() + fade.slice(1)} before 10:00 is fighting the odds.` };
+}
+
+// ── the pre-trade checklist: the ritual, prefilled ───────────────────────────
+// Every line is computed from live data (code, never Mira). Rules = the six
+// from the Jul-21 disaster review + the backtested gap odds. Read top to
+// bottom before every entry; a red line means don't.
+function ChecklistCard({ d, planRows }) {
+  const buckets = d.buckets || [];
+  const last = buckets[buckets.length - 1];
+  const price = last ? last.close : null;
+  const etMin = etMinNow();
+  const frames = d.frames || [];
+  const call = (frames.find((f) => f.call) || {}).call;
+  const side = callSide(call && call.bias);
+  const age = call ? ageMin(call.as_of) : null;
+  const trades = d.trades || [];
+  const lastTrade = trades.length ? trades[trades.length - 1] : null;
+  const lastEntryMin = lastTrade ? lastTrade.start_min : null;
+
+  const items = [];
+  const add = (tone, text) => items.push({ tone, text });
+
+  // 1 · the tape
+  if (last) {
+    const st = last.session_tone;
+    add(st === "flat" ? "plain" : "good",
+      st === "bull" ? `Tape is UP ${last.session_ret_pct > 0 ? "+" : ""}${last.session_ret_pct}% on the day — longs swim with it, shorts fight it.`
+      : st === "bear" ? `Tape is DOWN ${last.session_ret_pct}% on the day — shorts swim with it, longs fight it.`
+      : "Tape is flat — no side has the ball; smaller size, quicker exits.");
+  }
+  // 2 · the gap (backtested odds)
+  const g = gapRead(d.gap_pct);
+  if (g) add(g.tone, g.text);
+  // 3 · the analyst
+  if (call) {
+    if (call.born_invalid) add("bad", "The standing call was broken at birth — there is no analyst thesis right now. Stand down or wait for the next one.");
+    else if (age != null && age > 20) add("warn", `The analyst call is ${age} minutes old — stale. Wait for the refresh before leaning on it.`);
+    else add("good", `Analyst says ${side ? side.toUpperCase() : "NEUTRAL"}${call.target != null ? ` toward ${call.target}` : ""} (${age} min ago). Trading against it has cost real money this month.`);
+  } else add("plain", "No analyst call yet this session.");
+  // 4 · zones being tested
+  const testing = (planRows || []).filter((r) =>
+    (r.role === "support" || r.role === "resistance") && price != null
+    && price >= (r.lo != null ? r.lo : r.price) && price <= (r.hi != null ? r.hi : r.price));
+  if (testing.length) {
+    const z = testing[0];
+    add("warn", `Price is INSIDE the ${z.lo != null ? `${z.lo}–${z.hi}` : z.price} zone right now — it hasn't picked a side. Entering mid-zone is a coin flip; let it resolve.`);
+  }
+  // 5 · the clock
+  if (etMin < 600) add("warn", "Opening window (before 10:00): 1 contract max, and never against the gap. The 09:39 five-lot cost $4,430.");
+  else if (etMin >= 930) add("bad", "Past 15:30 — no new trades. Whatever this is, it can wait for tomorrow's plan.");
+  // 6 · the damage
+  if (d.day_pnl != null && d.day_pnl <= -2000)
+    add("bad", `Down ${money(d.day_pnl)} — the $2,000 daily stop is HIT. The day is over; anything else is revenge trading.`);
+  else if ((d.streak || 0) >= 3)
+    add("bad", `${d.streak} losses in a row — step away from the screen for 15 minutes before the next entry.`);
+  else if (d.day_pnl != null && d.day_pnl < 0)
+    add("plain", `Down ${money(d.day_pnl)} on the day — ${money(-2000 - d.day_pnl)} of room left before the hard stop.`);
+  // 7 · the cooldown
+  if (lastEntryMin != null && etMin - lastEntryMin >= 0 && etMin - lastEntryMin < 5)
+    add("warn", `You entered ${etMin - lastEntryMin} min ago — no adding, no size-up for 5 minutes. Averaging into losers is how -$4,430 happens.`);
+
+  const glyph = (t) => (t === "good" ? "✓" : t === "bad" ? "✕" : "⚠");
+  const col = (t) => (t === "good" ? "var(--vg-up)" : t === "bad" ? "var(--vg-down)" : t === "warn" ? "var(--vg-warn)" : "var(--vg-faint)");
+  return (
+    <div className="vg-card" style={{ marginTop: 12 }}>
+      <div className="vg-kicker">Before you trade
+        <span className="vg-note" style={{ fontWeight: 400 }}> — prefilled · code, never Mira</span></div>
+      <div style={{ display: "grid", gap: 7 }}>
+        {items.map((it, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "16px 1fr", gap: 8, alignItems: "start" }}>
+            <b style={{ color: col(it.tone), lineHeight: "1.4" }}>{glyph(it.tone)}</b>
+            <span style={{ fontSize: "var(--vg-text-sm)",
+              color: it.tone === "bad" ? "var(--vg-down)" : undefined }}>{it.text}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── panel sections ──────────────────────────────────────────────────────────
 
 // Pre-market CENTER face: the plan as a decision document — the one-line read,
@@ -143,6 +238,10 @@ function PlanFace() {
         </div>
         {tbl.read && <p style={{ margin: "10px 0 0", fontSize: "var(--vg-text-md)" }}>
           <b>The read:</b> {tbl.read}</p>}
+        <p className="vg-note" style={{ margin: "8px 0 0" }}>
+          Gap cheat sheet (backtested, 730 sessions): small gaps (&lt;0.2%) close the gap
+          8 times in 10 · big gaps (&gt;0.5%) keep going 6–7 times in 10 and close only
+          2–3 in 10 — never fade a big gap before 10:00.</p>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginTop: 12 }}>
@@ -231,12 +330,10 @@ function MiraCallBlock({ row, title }) {
 }
 
 // Pre-market plan vs how price treats each level NOW; FLIP = role inverted.
-function LevelsWatch({ d }) {
-  const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, []);
-  const rows = (((q.data && q.data.available && q.data.scaffold) || {}).table || {}).rows || [];
+function LevelsWatch({ d, rows }) {
   const buckets = d.buckets || [];
   const price = buckets.length ? buckets[buckets.length - 1].close : null;
-  const sr = rows.filter((r) => r.role === "support" || r.role === "resistance");
+  const sr = (rows || []).filter((r) => r.role === "support" || r.role === "resistance");
   if (!sr.length || price == null) return null;
   return (
     <div className="vg-card vg-tablewrap" style={{ marginTop: 12, padding: "10px 12px" }}>
@@ -471,13 +568,17 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
   }, []);
   const q = useLive(() => getFrames(undefined), null, [tick, refreshNonce]);
   const d = q.data && q.data.available ? q.data : null;
+  // the playbook table rows feed both the checklist's zone test and the watch
+  const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, []);
+  const planRows = (((pq.data && pq.data.available && pq.data.scaffold) || {}).table || {}).rows || [];
   if (sel) return <div className="vg-pane-body"><FrameBriefing sel={sel} onClear={onClear} /></div>;
   const preOpen = etMinNow() < 570;
   return (
     <div className="vg-pane-body">
       {preOpen && <VolMiniCard />}
       {d && !preOpen && <NowCard d={d} isToday />}
-      {d && <LevelsWatch d={d} />}
+      {d && !preOpen && <ChecklistCard d={d} planRows={planRows} />}
+      {d && <LevelsWatch d={d} rows={planRows} />}
       {d && <DisciplineCard d={d} />}
       {!d && <p className="vg-note" style={{ marginTop: 12 }}>
         {q.loading ? "Reading the day…" : "Cockpit needs the SQLite backend."}</p>}

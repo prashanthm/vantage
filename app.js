@@ -3761,6 +3761,66 @@ ${ref}`;
       s.price
     )));
   }
+  function gapRead(gapPct) {
+    if (gapPct == null) return null;
+    const a = Math.abs(gapPct);
+    if (a < 0.02) return null;
+    const dir = gapPct > 0 ? "up" : "down";
+    const fade = gapPct > 0 ? "shorting it" : "buying the dip";
+    if (a < 0.2) return { tone: "good", text: `Opened ${gapPct > 0 ? "+" : ""}${gapPct}% \u2014 a small gap. These close the gap 8 times in 10, no strong lean either way.` };
+    if (a < 0.5) return { tone: "plain", text: `Opened ${gapPct > 0 ? "+" : ""}${gapPct}% \u2014 a medium gap. Closes the gap about half the time; no edge fading it early.` };
+    return { tone: "bad", text: `Opened ${gapPct > 0 ? "+" : ""}${gapPct}% \u2014 a BIG gap ${dir}. These keep going ${a >= 1 ? "7\u20138" : "6"} times in 10 in the first hour and close the gap only ${a >= 1 ? "2" : "3"} in 10. ${fade[0].toUpperCase() + fade.slice(1)} before 10:00 is fighting the odds.` };
+  }
+  function ChecklistCard({ d, planRows }) {
+    const buckets = d.buckets || [];
+    const last = buckets[buckets.length - 1];
+    const price = last ? last.close : null;
+    const etMin = etMinNow();
+    const frames = d.frames || [];
+    const call = (frames.find((f) => f.call) || {}).call;
+    const side = callSide(call && call.bias);
+    const age = call ? ageMin(call.as_of) : null;
+    const trades = d.trades || [];
+    const lastTrade = trades.length ? trades[trades.length - 1] : null;
+    const lastEntryMin = lastTrade ? lastTrade.start_min : null;
+    const items = [];
+    const add = (tone, text) => items.push({ tone, text });
+    if (last) {
+      const st = last.session_tone;
+      add(
+        st === "flat" ? "plain" : "good",
+        st === "bull" ? `Tape is UP ${last.session_ret_pct > 0 ? "+" : ""}${last.session_ret_pct}% on the day \u2014 longs swim with it, shorts fight it.` : st === "bear" ? `Tape is DOWN ${last.session_ret_pct}% on the day \u2014 shorts swim with it, longs fight it.` : "Tape is flat \u2014 no side has the ball; smaller size, quicker exits."
+      );
+    }
+    const g = gapRead(d.gap_pct);
+    if (g) add(g.tone, g.text);
+    if (call) {
+      if (call.born_invalid) add("bad", "The standing call was broken at birth \u2014 there is no analyst thesis right now. Stand down or wait for the next one.");
+      else if (age != null && age > 20) add("warn", `The analyst call is ${age} minutes old \u2014 stale. Wait for the refresh before leaning on it.`);
+      else add("good", `Analyst says ${side ? side.toUpperCase() : "NEUTRAL"}${call.target != null ? ` toward ${call.target}` : ""} (${age} min ago). Trading against it has cost real money this month.`);
+    } else add("plain", "No analyst call yet this session.");
+    const testing = (planRows || []).filter((r) => (r.role === "support" || r.role === "resistance") && price != null && price >= (r.lo != null ? r.lo : r.price) && price <= (r.hi != null ? r.hi : r.price));
+    if (testing.length) {
+      const z = testing[0];
+      add("warn", `Price is INSIDE the ${z.lo != null ? `${z.lo}\u2013${z.hi}` : z.price} zone right now \u2014 it hasn't picked a side. Entering mid-zone is a coin flip; let it resolve.`);
+    }
+    if (etMin < 600) add("warn", "Opening window (before 10:00): 1 contract max, and never against the gap. The 09:39 five-lot cost $4,430.");
+    else if (etMin >= 930) add("bad", "Past 15:30 \u2014 no new trades. Whatever this is, it can wait for tomorrow's plan.");
+    if (d.day_pnl != null && d.day_pnl <= -2e3)
+      add("bad", `Down ${money3(d.day_pnl)} \u2014 the $2,000 daily stop is HIT. The day is over; anything else is revenge trading.`);
+    else if ((d.streak || 0) >= 3)
+      add("bad", `${d.streak} losses in a row \u2014 step away from the screen for 15 minutes before the next entry.`);
+    else if (d.day_pnl != null && d.day_pnl < 0)
+      add("plain", `Down ${money3(d.day_pnl)} on the day \u2014 ${money3(-2e3 - d.day_pnl)} of room left before the hard stop.`);
+    if (lastEntryMin != null && etMin - lastEntryMin >= 0 && etMin - lastEntryMin < 5)
+      add("warn", `You entered ${etMin - lastEntryMin} min ago \u2014 no adding, no size-up for 5 minutes. Averaging into losers is how -$4,430 happens.`);
+    const glyph = (t) => t === "good" ? "\u2713" : t === "bad" ? "\u2715" : "\u26A0";
+    const col = (t) => t === "good" ? "var(--vg-up)" : t === "bad" ? "var(--vg-down)" : t === "warn" ? "var(--vg-warn)" : "var(--vg-faint)";
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Before you trade", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 prefilled \xB7 code, never Mira")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 7 } }, items.map((it, i) => /* @__PURE__ */ React.createElement("div", { key: i, style: { display: "grid", gridTemplateColumns: "16px 1fr", gap: 8, alignItems: "start" } }, /* @__PURE__ */ React.createElement("b", { style: { color: col(it.tone), lineHeight: "1.4" } }, glyph(it.tone)), /* @__PURE__ */ React.createElement("span", { style: {
+      fontSize: "var(--vg-text-sm)",
+      color: it.tone === "bad" ? "var(--vg-down)" : void 0
+    } }, it.text)))));
+  }
   function PlanFace() {
     const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, []);
     const sc = q.data && q.data.available ? q.data.scaffold || {} : null;
@@ -3768,7 +3828,7 @@ ${ref}`;
     const r = sc.regime || {};
     const tbl = sc.table || {};
     const roleTone = (role) => role === "support" ? "good" : role === "resistance" ? "bad" : "plain";
-    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's plan", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 code computes the levels, Mira narrates")), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "#/playbook" }, "full read \u2192")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 6, flexWrap: "wrap" } }, r.gamma_text && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.gamma === "negative" ? "warn" : "plain") }, r.gamma_text), r.vwap_regime && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, r.vwap_regime), r.vix != null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontVariantNumeric: "tabular-nums" } }, "VIX ", r.vix, " \xB7 ", r.vix_band)), tbl.read && /* @__PURE__ */ React.createElement("p", { style: { margin: "10px 0 0", fontSize: "var(--vg-text-md)" } }, /* @__PURE__ */ React.createElement("b", null, "The read:"), " ", tbl.read)), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginTop: 12 } }, (sc.setups || []).map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-card" }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "var(--vg-text-md)" } }, "SETUP ", i + 1, " \u2014 ", s.trigger), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "3px 0 8px" } }, s.bias), (s.targets || []).length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: "var(--vg-text-xs)", marginBottom: 4 } }, "Targets, in order"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, flexWrap: "wrap" } }, s.targets.slice(0, 3).map((t, j) => /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's plan", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 code computes the levels, Mira narrates")), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "#/playbook" }, "full read \u2192")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 6, flexWrap: "wrap" } }, r.gamma_text && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.gamma === "negative" ? "warn" : "plain") }, r.gamma_text), r.vwap_regime && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, r.vwap_regime), r.vix != null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontVariantNumeric: "tabular-nums" } }, "VIX ", r.vix, " \xB7 ", r.vix_band)), tbl.read && /* @__PURE__ */ React.createElement("p", { style: { margin: "10px 0 0", fontSize: "var(--vg-text-md)" } }, /* @__PURE__ */ React.createElement("b", null, "The read:"), " ", tbl.read), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0" } }, "Gap cheat sheet (backtested, 730 sessions): small gaps (<0.2%) close the gap 8 times in 10 \xB7 big gaps (>0.5%) keep going 6\u20137 times in 10 and close only 2\u20133 in 10 \u2014 never fade a big gap before 10:00.")), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginTop: 12 } }, (sc.setups || []).map((s, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-card" }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "var(--vg-text-md)" } }, "SETUP ", i + 1, " \u2014 ", s.trigger), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "3px 0 8px" } }, s.bias), (s.targets || []).length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: "var(--vg-text-xs)", marginBottom: 4 } }, "Targets, in order"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, flexWrap: "wrap" } }, s.targets.slice(0, 3).map((t, j) => /* @__PURE__ */ React.createElement(
       "span",
       {
         key: j,
@@ -3795,12 +3855,10 @@ ${ref}`;
     const parsed = parseMira(row.forecast_text);
     return /* @__PURE__ */ React.createElement("div", { style: { borderLeft: "3px solid #7c5cff", paddingLeft: 10, marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { color: "#7c5cff", marginBottom: 2 } }, title || "The call, in Mira's words", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \xB7 verbatim")), /* @__PURE__ */ React.createElement("details", null, /* @__PURE__ */ React.createElement("summary", { className: "vg-note", style: { cursor: "pointer", fontWeight: 600 } }, parsed && parsed.headline || String(row.forecast_text).slice(0, 110)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: parsed, text: row.forecast_text }))));
   }
-  function LevelsWatch({ d }) {
-    const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, []);
-    const rows = ((q.data && q.data.available && q.data.scaffold || {}).table || {}).rows || [];
+  function LevelsWatch({ d, rows }) {
     const buckets = d.buckets || [];
     const price = buckets.length ? buckets[buckets.length - 1].close : null;
-    const sr = rows.filter((r) => r.role === "support" || r.role === "resistance");
+    const sr = (rows || []).filter((r) => r.role === "support" || r.role === "resistance");
     if (!sr.length || price == null) return null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 12, padding: "10px 12px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Levels watch", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 plan vs now (last ", price, ")")), /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Level"), /* @__PURE__ */ React.createElement("th", null, "Plan"), /* @__PURE__ */ React.createElement("th", null, "Now"), /* @__PURE__ */ React.createElement("th", null))), /* @__PURE__ */ React.createElement("tbody", null, sr.map((r, i) => {
       const lo = r.lo != null ? r.lo : r.price;
@@ -3917,9 +3975,11 @@ ${ref}`;
     }, []);
     const q = useLive(() => getFrames(void 0), null, [tick, refreshNonce]);
     const d = q.data && q.data.available ? q.data : null;
+    const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, []);
+    const planRows = ((pq.data && pq.data.available && pq.data.scaffold || {}).table || {}).rows || [];
     if (sel) return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement(FrameBriefing, { sel, onClear }));
     const preOpen = etMinNow() < 570;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(VolMiniCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), d && /* @__PURE__ */ React.createElement(LevelsWatch, { d }), d && /* @__PURE__ */ React.createElement(DisciplineCard, { d }), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, q.loading ? "Reading the day\u2026" : "Cockpit needs the SQLite backend."));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(VolMiniCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), d && !preOpen && /* @__PURE__ */ React.createElement(ChecklistCard, { d, planRows }), d && /* @__PURE__ */ React.createElement(LevelsWatch, { d, rows: planRows }), d && /* @__PURE__ */ React.createElement(DisciplineCard, { d }), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, q.loading ? "Reading the day\u2026" : "Cockpit needs the SQLite backend."));
   }
   function FrameTr({ f, selected, onSelect }) {
     const c = f.call, m = f.market;
