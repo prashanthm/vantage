@@ -131,6 +131,7 @@ def build_coach_indicator(scaffold: dict, webhook_secret: str = "") -> str | Non
     body = _COACH_BODY
     for key, val in (
         ("{px_arr}", px_arr), ("{lb_arr}", lb_arr), ("{ro_arr}", ro_arr),
+        ("{lo_arr}", lo_arr), ("{hi_arr}", hi_arr),
         ("{flip_line}", flip_line), ("{n_levels}", str(len(prices))),
         ("{webhook_secret}", secret), ("{gex_date}", session or "?"),
         ("{gex_date_num}", gex_date_num),
