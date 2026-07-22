@@ -12,7 +12,7 @@
 // Everything renders deterministically from stored data (ADR-008); Mira text
 // appears only where Mira already spoke (the stored trade analyses).
 import { cls } from "./util.jsx";
-import { useLive, getJson, getTradeAnalyses } from "./live.js";
+import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead } from "./live.js";
 import { ToneCompareCard } from "./today.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { MiraRender, parseMira } from "./mira-render.jsx";
@@ -118,41 +118,114 @@ function LevelChips({ call, price }) {
 
 // ── panel sections ──────────────────────────────────────────────────────────
 
-// Pre-market: the daily plan is the first read (before 09:30 ET).
-function PlanCard() {
+// Pre-market CENTER face: the plan as a decision document — the one-line read,
+// each setup as a card, and the ladder with what price is EXPECTED to do at
+// each level (the playbook's own `expect` text, previously buried).
+function PlanFace() {
   const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, []);
   const sc = q.data && q.data.available ? (q.data.scaffold || {}) : null;
   if (!sc) return null;
   const r = sc.regime || {};
+  const tbl = sc.table || {};
+  const roleTone = (role) => (role === "support" ? "good" : role === "resistance" ? "bad" : "plain");
   return (
-    <div className="vg-card" style={{ marginTop: 12 }}>
-      <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
-        <div className="vg-kicker">Pre-market — today&apos;s plan</div>
-        <a className="vg-note" href="#/playbook">full read →</a>
+    <>
+      <div className="vg-card" style={{ marginTop: 14 }}>
+        <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
+          <div className="vg-kicker">Today&apos;s plan
+            <span className="vg-note" style={{ fontWeight: 400 }}> — code computes the levels, Mira narrates</span></div>
+          <a className="vg-note" href="#/playbook">full read →</a>
+        </div>
+        <div className="vg-row" style={{ gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+          {r.gamma_text && <span className={cls("vg-badge", r.gamma === "negative" ? "warn" : "plain")}>{r.gamma_text}</span>}
+          {r.vwap_regime && <span className="vg-badge plain">{r.vwap_regime}</span>}
+          {r.vix != null && <span className="vg-badge plain" style={{ fontVariantNumeric: "tabular-nums" }}>VIX {r.vix} · {r.vix_band}</span>}
+        </div>
+        {tbl.read && <p style={{ margin: "10px 0 0", fontSize: "var(--vg-text-md)" }}>
+          <b>The read:</b> {tbl.read}</p>}
       </div>
-      <div className="vg-row" style={{ gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-        {r.gamma_text && <span className={cls("vg-badge", r.gamma === "negative" ? "warn" : "plain")}>{r.gamma_text}</span>}
-        {r.vwap_regime && <span className="vg-badge plain">{r.vwap_regime}</span>}
-        {r.vix != null && <span className="vg-badge plain" style={{ fontVariantNumeric: "tabular-nums" }}>VIX {r.vix} · {r.vix_band}</span>}
-      </div>
-      <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginTop: 12 }}>
         {(sc.setups || []).map((s, i) => (
-          <div key={i}>
-            <div className="vg-row" style={{ gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-              <b style={{ fontSize: "var(--vg-text-sm)" }}>{s.trigger}</b>
-              <span className="vg-note">{s.bias}</span>
-            </div>
+          <div key={i} className="vg-card">
+            <b style={{ fontSize: "var(--vg-text-md)" }}>SETUP {i + 1} — {s.trigger}</b>
+            <p className="vg-note" style={{ margin: "3px 0 8px" }}>{s.bias}</p>
             {(s.targets || []).length > 0 && (
-              <div className="vg-row" style={{ gap: 6, marginTop: 4, flexWrap: "wrap" }}>
-                {s.targets.slice(0, 3).map((t, j) => (
-                  <span key={j} className="vg-badge good" style={{ fontVariantNumeric: "tabular-nums" }}
-                    title={t.kind}>{t.price} ({t.pts_from_trigger}pt)</span>
-                ))}
-              </div>
+              <>
+                <div className="vg-kicker" style={{ fontSize: "var(--vg-text-xs)", marginBottom: 4 }}>Targets, in order</div>
+                <div className="vg-row" style={{ gap: 6, flexWrap: "wrap" }}>
+                  {s.targets.slice(0, 3).map((t, j) => (
+                    <span key={j} className="vg-badge good" style={{ fontVariantNumeric: "tabular-nums" }}
+                      title={t.kind}>{t.price} · {t.pts_from_trigger}pt · {t.kind}</span>
+                  ))}
+                </div>
+              </>
             )}
+            {s.structure && <p className="vg-note" style={{ margin: "8px 0 0" }}>{s.structure}</p>}
           </div>
         ))}
       </div>
+
+      {(tbl.rows || []).length > 0 && (
+        <div className="vg-card vg-tablewrap" style={{ marginTop: 12, padding: "10px 14px" }}>
+          <div className="vg-kicker" style={{ marginBottom: 6 }}>The ladder
+            <span className="vg-note" style={{ fontWeight: 400 }}> — each level + what price is expected to do there</span></div>
+          <table className="vg-table">
+            <thead><tr><th>Price</th><th>Level</th><th>Expect</th></tr></thead>
+            <tbody>
+              {tbl.rows.map((row, i) => (
+                <tr key={i}>
+                  <td className="num" style={{ textAlign: "left" }}>{row.price}</td>
+                  <td><span className={cls("vg-badge", roleTone(row.role))}>{(row.role || "?").slice(0, 3)}</span>
+                    {" "}<span className="vg-note">{row.label}</span></td>
+                  <td className="vg-note">{row.expect}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+// Pane, pre-open: the 0DTE vol read (code-computed).
+function VolMiniCard() {
+  const q = useLive(() => getOdteRead("SPY"), null, []);
+  const d = q.data && q.data.available ? q.data : null;
+  if (!d || !d.verdict) return null;
+  const tone = /BUY|LONG/.test(d.verdict) ? "warn" : /SELL/.test(d.verdict) ? "good" : "plain";
+  return (
+    <div className="vg-card" style={{ marginTop: 12 }}>
+      <div className="vg-kicker">0DTE vol read
+        <span className="vg-note" style={{ fontWeight: 400 }}> · code</span></div>
+      <span className={cls("vg-badge", tone)} style={{ fontWeight: 800, fontSize: "var(--vg-text-md)", padding: "4px 10px" }}>{d.verdict}</span>
+      {d.implied_move_pct != null && d.realized_scaled_pct != null && (
+        <p className="vg-note" style={{ margin: "6px 0 0" }}>
+          straddle implies {d.implied_move_pct}% vs {d.realized_scaled_pct}% typically delivered
+          {d.ratio != null ? ` (ratio ${d.ratio})` : ""}</p>)}
+    </div>
+  );
+}
+
+// Mira's forecast, verbatim — the full synthesis behind a call, not a summary.
+// `row` is a stored forecast row (forecast_text is Mira's own JSON sections).
+function MiraCallBlock({ row, title }) {
+  if (!row || !row.forecast_text) return null;
+  const parsed = parseMira(row.forecast_text);
+  return (
+    <div style={{ borderLeft: "3px solid #7c5cff", paddingLeft: 10, marginTop: 8 }}>
+      <div className="vg-kicker" style={{ color: "#7c5cff", marginBottom: 2 }}>
+        {title || "The call, in Mira's words"}
+        <span className="vg-note" style={{ fontWeight: 400 }}> · verbatim</span></div>
+      <details>
+        <summary className="vg-note" style={{ cursor: "pointer", fontWeight: 600 }}>
+          {(parsed && parsed.headline) || String(row.forecast_text).slice(0, 110)}
+        </summary>
+        <div style={{ marginTop: 6 }}>
+          <MiraRender data={parsed} text={row.forecast_text} />
+        </div>
+      </details>
     </div>
   );
 }
@@ -198,6 +271,10 @@ function NowCard({ d, isToday }) {
   const frames = d.frames || [];
   const latest = frames.find((f) => f.call);          // newest-first
   const call = latest && latest.call;
+  // Mira's full synthesis for the standing call — fetched with its text
+  const fq = useLive(() => getSpxForecasts(undefined, "SPX", 1), null, [call && call.id]);
+  const fRow = (fq.data && fq.data.available && (fq.data.forecasts || [])[0]) || null;
+  const fMatch = fRow && call && fRow.id === call.id ? fRow : null;
   const buckets = d.buckets || [];
   const price = buckets.length ? buckets[buckets.length - 1].close : null;
   const openTrades = (d.trades || []).filter((t) => t.realized == null);
@@ -228,6 +305,7 @@ function NowCard({ d, isToday }) {
             {price != null && <span className="vg-note" style={{ fontVariantNumeric: "tabular-nums" }}>last {price}</span>}
           </div>
           <div style={{ marginTop: 8 }}><LevelChips call={call} price={price} /></div>
+          <MiraCallBlock row={fMatch} />
           <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
             {closed ? (
               <span className="vg-note">Market closed — nothing to act on.</span>
@@ -262,7 +340,9 @@ function DisciplineCard({ d }) {
   return (
     <div className="vg-card" style={{ marginTop: 12 }}>
       <div className="vg-spread" style={{ alignItems: "baseline", gap: 8 }}>
-        <div className="vg-kicker">Discipline</div>
+        <div className="vg-kicker">Discipline
+          <span className="vg-note" style={{ fontWeight: 400 }}
+            title="deterministic rules over your fills + 1m bars: daily stop, loss streak, with/against alignment"> · code, never Mira</span></div>
         {d.day_pnl != null && (
           <b className={d.day_pnl >= 0 ? "vg-up" : "vg-down"}
             style={{ fontVariantNumeric: "tabular-nums" }}>{money(d.day_pnl)}</b>)}
@@ -288,6 +368,13 @@ function FrameBriefing({ sel, onClear }) {
     () => (trades.length ? getTradeAnalyses(day) : Promise.resolve(null)),
     null, [day, trades.length]);
   const analyses = (aq.data && aq.data.available && aq.data.analyses) || [];
+  // the frame call's FULL Mira synthesis (frames carry only the plot fields)
+  const fq = useLive(
+    () => (sel.call ? getSpxForecasts(day, "SPX", 60) : Promise.resolve(null)),
+    null, [day, sel.call && sel.call.id]);
+  const fRow = sel.call
+    ? ((fq.data && fq.data.available && fq.data.forecasts) || []).find((r) => r.id === sel.call.id)
+    : null;
   // trade_key = "{opened_at}|{label}", but tone's label omits the strike the
   // journal label carries — the opened_at timestamp alone is the stable match.
   const forTrade = (t) =>
@@ -320,6 +407,7 @@ function FrameBriefing({ sel, onClear }) {
               call made {c.minute} @ {c.price_at}
               {m ? ` · frame closed ${m.close} (${m.ret_pct > 0 ? "+" : ""}${m.ret_pct}%)` : ""}
             </div>
+            <MiraCallBlock row={fRow} />
           </>
         ) : <p className="vg-note">No analyst call stood in this frame.</p>}
       </div>
@@ -378,7 +466,7 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
   const preOpen = etMinNow() < 570;
   return (
     <div className="vg-pane-body">
-      {preOpen && <PlanCard />}
+      {preOpen && <VolMiniCard />}
       {d && !preOpen && <NowCard d={d} isToday />}
       {d && <LevelsWatch d={d} />}
       {d && <DisciplineCard d={d} />}
@@ -484,12 +572,12 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
         </div>
       </div>
 
-      {isToday && (
+      {isToday && (etMinNow() < 570 ? <PlanFace /> : (
         <div className="vg-card" style={{ marginTop: 14, padding: 8 }}>
           <InstrumentChartCard symbol="SPX" defaultTf="5m" height={340} compact
             initialLayers={["levels", "forecast", "calls"]} />
         </div>
-      )}
+      ))}
 
       <ToneCompareCard marketOpen={isToday} day={isToday ? undefined : day} slim />
 
