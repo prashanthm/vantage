@@ -12,7 +12,7 @@
 // Everything renders deterministically from stored data (ADR-008); Mira text
 // appears only where Mira already spoke (the stored trade analyses).
 import { cls } from "./util.jsx";
-import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getPlaybookPine } from "./live.js";
+import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getCoachPine } from "./live.js";
 import { ToneCompareCard } from "./today.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { MiraRender, parseMira } from "./mira-render.jsx";
@@ -582,7 +582,7 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
   };
   const copyPine = async () => {
     try {
-      const res = await getPlaybookPine(undefined, "SPX");
+      const res = await getCoachPine(undefined, "SPX");
       if (res && res.available && res.script) {
         await navigator.clipboard.writeText(res.script);
         setCopied(true); setTimeout(() => setCopied(false), 4000);
@@ -601,8 +601,8 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
           title="Rebuild the levels + GEX from the latest bars at the current price. Chart-derived levels (shelves/fib/VWAP/PoC) fully refresh; GEX re-anchors to spot but its open interest is still overnight (0DTE-blind).">
           {busy ? "recomputing…" : "⟳ Recompute levels + GEX"}</button>
         <button className="vg-btn-sm" onClick={copyPine}
-          title="Copy the TradingView Pine script for the CURRENT (possibly just-recomputed) levels">
-          {copied ? "Pine copied ✓" : "Copy Pine →"}</button>
+          title="Copy the COACH indicator (WAIT/ENTER/EXIT discipline + the current session's GEX/pivot levels baked in) for TradingView">
+          {copied ? "Coach Pine copied ✓" : "Copy coach Pine →"}</button>
       </div>
       {d && <LevelsWatch d={d} rows={planRows} />}
       {d && <DisciplineCard d={d} />}

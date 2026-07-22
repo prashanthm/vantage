@@ -3992,7 +3992,7 @@ ${ref}`;
     };
     const copyPine = async () => {
       try {
-        const res = await getPlaybookPine(void 0, "SPX");
+        const res = await getCoachPine(void 0, "SPX");
         if (res && res.available && res.script) {
           await navigator.clipboard.writeText(res.script);
           setCopied(true);
@@ -4017,9 +4017,9 @@ ${ref}`;
       {
         className: "vg-btn-sm",
         onClick: copyPine,
-        title: "Copy the TradingView Pine script for the CURRENT (possibly just-recomputed) levels"
+        title: "Copy the COACH indicator (WAIT/ENTER/EXIT discipline + the current session's GEX/pivot levels baked in) for TradingView"
       },
-      copied ? "Pine copied \u2713" : "Copy Pine \u2192"
+      copied ? "Coach Pine copied \u2713" : "Copy coach Pine \u2192"
     )), d && /* @__PURE__ */ React.createElement(LevelsWatch, { d, rows: planRows }), d && /* @__PURE__ */ React.createElement(DisciplineCard, { d }), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, q.loading ? "Reading the day\u2026" : "Cockpit needs the SQLite backend."));
   }
   function FrameTr({ f, selected, onSelect }) {
