@@ -736,6 +736,7 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
           <p className="vg-sub">the market · the analyst&apos;s calls · you — one day, one chart, one log</p>
         </div>
         <div className="vg-row" style={{ gap: 10, alignItems: "baseline" }}>
+          <a className="vg-note" href="/cockpit/" title="the same cockpit, rendered in the Astryx design system">Astryx cockpit ↗</a>
           {d && d.day_pnl != null && (
             <span className="vg-note">day <b className={d.day_pnl >= 0 ? "vg-up" : "vg-down"}>{money(d.day_pnl)}</b></span>
           )}

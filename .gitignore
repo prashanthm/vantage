@@ -10,3 +10,4 @@ deploy/.env
 # goal-experiment scratch scripts (kept locally, not committed)
 server/scratch/
 .codegraph/
+cockpit-astryx/node_modules/
