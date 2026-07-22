@@ -12,7 +12,7 @@
 // Everything renders deterministically from stored data (ADR-008); Mira text
 // appears only where Mira already spoke (the stored trade analyses).
 import { cls } from "./util.jsx";
-import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getCoachPine } from "./live.js";
+import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getCoachPine, getDayReviews } from "./live.js";
 import { ToneCompareCard } from "./today.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { MiraRender, parseMira } from "./mira-render.jsx";
@@ -288,6 +288,38 @@ function PlanFace() {
   );
 }
 
+// Pane, pre-open: yesterday's debrief homework — the day-review's "do next"
+// items, carried into the morning where they can actually change behavior.
+function CarriedRulesCard() {
+  const y = (() => {  // last trading day (skip weekends; holidays degrade to empty)
+    const d = new Date(); let n = 1;
+    const dow = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(d);
+    if (dow === "Mon") n = 3; if (dow === "Sun") n = 2;
+    d.setDate(d.getDate() - n);
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(d);
+  })();
+  const q = useLive(() => getDayReviews(y), null, [y]);
+  const rows = (q.data && q.data.available && (q.data.reviews || q.data.rows)) || [];
+  const latest = rows.length ? rows[rows.length - 1] : null;
+  const parsed = latest ? parseMira(latest.analysis || latest.review || "") : null;
+  const donext = ((parsed && parsed.sections) || []).find((x) => x.kind === "donext");
+  if (!donext || !(donext.items || []).length) return null;
+  return (
+    <div className="vg-card" style={{ marginTop: 12 }}>
+      <div className="vg-kicker">Carried from yesterday
+        <span className="vg-note" style={{ fontWeight: 400 }}> · {y} debrief</span></div>
+      <ol style={{ margin: "2px 0 0", paddingLeft: 16, fontSize: "var(--vg-text-sm)" }}>
+        {donext.items.slice(0, 3).map((it, i) => (
+          <li key={i} style={{ marginTop: 4 }}>
+            <b>{it.title || it.point}</b>
+            {it.detail && <span className="vg-note"> — {String(it.detail).slice(0, 140)}</span>}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 // Pane, pre-open: the 0DTE vol read (code-computed).
 function VolMiniCard() {
   const q = useLive(() => getOdteRead("SPY"), null, []);
@@ -356,7 +388,9 @@ function LevelsWatch({ d, rows }) {
               <tr key={i} style={flip ? { background: "var(--vg-raised)" } : undefined}>
                 <td className="num" style={{ textAlign: "left" }}
                   title={r.hi != null && r.hi > r.lo ? `zone ${r.lo}–${r.hi}` : undefined}>
-                  {r.hi != null && r.hi > r.lo ? `${r.lo}–${r.hi}` : r.price}</td>
+                  {r.hi != null && r.hi > r.lo ? `${r.lo}–${r.hi}` : r.price}
+                  <div className="vg-note" style={{ fontFamily: "var(--vg-font-ui)", fontSize: "var(--vg-text-xs)", whiteSpace: "normal" }}>
+                    {String(r.label || "").replace(/\s*[★✦].*$/, "")}</div></td>
                 <td><span className={cls("vg-badge", r.role === "support" ? "good" : "bad")}>{r.role.slice(0, 3)}</span></td>
                 <td><span className={cls("vg-badge",
                   now === "support" ? "good" : now === "resistance" ? "bad" : "warn")}>
@@ -593,6 +627,7 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
   const preOpen = etMinNow() < 570;
   return (
     <div className="vg-pane-body">
+      {preOpen && <CarriedRulesCard />}
       {preOpen && <VolMiniCard />}
       {d && !preOpen && <NowCard d={d} isToday />}
       {d && !preOpen && <ChecklistCard d={d} planRows={planRows} />}
@@ -709,7 +744,10 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
       </div>
 
       {isToday && (etMinNow() < 570 ? <PlanFace /> : (
-        <div className="vg-card" style={{ marginTop: 14, padding: 8 }}>
+        <div className="vg-card" style={{ marginTop: 14, padding: 8, position: "relative" }}>
+          <button className="vg-btn-sm" style={{ position: "absolute", top: 10, right: 10, zIndex: 5 }}
+            onClick={() => { window.location.hash = "#/ic"; }}
+            title="Open the full-screen chart (all layers + tools)">⛶ Full chart</button>
           <InstrumentChartCard symbol="SPX" defaultTf="5m" height={340} compact
             initialLayers={["levels", "forecast", "calls"]} />
         </div>

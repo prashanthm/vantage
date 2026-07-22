@@ -2735,7 +2735,7 @@ ${ref}`;
           lastT = tt;
         }
       }
-      if (pts2.length) {
+      if (pts2.length && !rp.terse) {
         try {
           const ps = ctx.chart.addLineSeries({
             color: "rgba(124,92,255,0.95)",
@@ -3843,6 +3843,24 @@ ${ref}`;
       t.kind
     )))), s.structure && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0" } }, s.structure)))), (tbl.rows || []).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 12, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "The ladder", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 each level + what price is expected to do there")), /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Price"), /* @__PURE__ */ React.createElement("th", null, "Level"), /* @__PURE__ */ React.createElement("th", null, "Expect"))), /* @__PURE__ */ React.createElement("tbody", null, tbl.rows.map((row, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { className: "num", style: { textAlign: "left" } }, row.price), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", roleTone(row.role)) }, (row.role || "?").slice(0, 3)), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, row.label)), /* @__PURE__ */ React.createElement("td", { className: "vg-note" }, row.expect)))))));
   }
+  function CarriedRulesCard() {
+    const y = (() => {
+      const d = /* @__PURE__ */ new Date();
+      let n = 1;
+      const dow = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", weekday: "short" }).format(d);
+      if (dow === "Mon") n = 3;
+      if (dow === "Sun") n = 2;
+      d.setDate(d.getDate() - n);
+      return new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(d);
+    })();
+    const q = useLive(() => getDayReviews(y), null, [y]);
+    const rows = q.data && q.data.available && (q.data.reviews || q.data.rows) || [];
+    const latest = rows.length ? rows[rows.length - 1] : null;
+    const parsed = latest ? parseMira(latest.analysis || latest.review || "") : null;
+    const donext = (parsed && parsed.sections || []).find((x) => x.kind === "donext");
+    if (!donext || !(donext.items || []).length) return null;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Carried from yesterday", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \xB7 ", y, " debrief")), /* @__PURE__ */ React.createElement("ol", { style: { margin: "2px 0 0", paddingLeft: 16, fontSize: "var(--vg-text-sm)" } }, donext.items.slice(0, 3).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i, style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, it.title || it.point), it.detail && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \u2014 ", String(it.detail).slice(0, 140))))));
+  }
   function VolMiniCard() {
     const q = useLive(() => getOdteRead("SPY"), null, []);
     const d = q.data && q.data.available ? q.data : null;
@@ -3872,7 +3890,8 @@ ${ref}`;
           style: { textAlign: "left" },
           title: r.hi != null && r.hi > r.lo ? `zone ${r.lo}\u2013${r.hi}` : void 0
         },
-        r.hi != null && r.hi > r.lo ? `${r.lo}\u2013${r.hi}` : r.price
+        r.hi != null && r.hi > r.lo ? `${r.lo}\u2013${r.hi}` : r.price,
+        /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontFamily: "var(--vg-font-ui)", fontSize: "var(--vg-text-xs)", whiteSpace: "normal" } }, String(r.label || "").replace(/\s*[★✦].*$/, ""))
       ), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", r.role === "support" ? "good" : "bad") }, r.role.slice(0, 3))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls(
         "vg-badge",
         now === "support" ? "good" : now === "resistance" ? "bad" : "warn"
@@ -4003,7 +4022,7 @@ ${ref}`;
     };
     if (sel) return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement(FrameBriefing, { sel, onClear }));
     const preOpen = etMinNow() < 570;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(VolMiniCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), d && !preOpen && /* @__PURE__ */ React.createElement(ChecklistCard, { d, planRows }), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 12, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(CarriedRulesCard, null), preOpen && /* @__PURE__ */ React.createElement(VolMiniCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), d && !preOpen && /* @__PURE__ */ React.createElement(ChecklistCard, { d, planRows }), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 12, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-btn-sm",
@@ -4086,7 +4105,18 @@ ${ref}`;
         onChange: (e) => setDay(e.target.value || todayET()),
         "aria-label": "Cockpit day"
       }
-    ))), isToday && (etMinNow() < 570 ? /* @__PURE__ */ React.createElement(PlanFace, null) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14, padding: 8 } }, /* @__PURE__ */ React.createElement(
+    ))), isToday && (etMinNow() < 570 ? /* @__PURE__ */ React.createElement(PlanFace, null) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14, padding: 8, position: "relative" } }, /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        style: { position: "absolute", top: 10, right: 10, zIndex: 5 },
+        onClick: () => {
+          window.location.hash = "#/ic";
+        },
+        title: "Open the full-screen chart (all layers + tools)"
+      },
+      "\u26F6 Full chart"
+    ), /* @__PURE__ */ React.createElement(
       InstrumentChartCard,
       {
         symbol: "SPX",

@@ -241,7 +241,8 @@ export const LAYER_DRAWERS = {
         lastT = tt;
       }
     }
-    if (pts.length) {
+    if (pts.length && !rp.terse) {   // live Calls layer: markers only — the
+      // target-connecting line zigzags across 26 calls and reads as a fake path
       try {
         const ps = ctx.chart.addLineSeries({ color: "rgba(124,92,255,0.95)", lineWidth: 2,
           lineStyle: ctx.LW.LineStyle.Solid, lastValueVisible: false, priceLineVisible: false,

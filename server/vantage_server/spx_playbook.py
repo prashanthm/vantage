@@ -789,7 +789,10 @@ def build_table(ladder, confluence, gex, chart, regime, durable=None) -> dict:
 
     # confluence zones first (the high-signal ones), marked
     for z in confluence:
-        add(z["price"], " + ".join(z["kinds"][:2]) + " ✦",
+        # GEX names first — "put wall + fib 50" reads as a wall; buried second
+        # ("fib 50 + put wall") the operator misses it (user feedback 07-21)
+        _k = sorted(z["kinds"], key=lambda l: 0 if any(w in l for w in ("wall", "flip", "pain")) else 1)
+        add(z["price"], " + ".join(_k[:2]) + " ✦",
             "good spot to buy dips" if z["role"] == "support" else
             "good spot to sell rallies" if z["role"] == "resistance" else "turning point",
             z["role"], True, lo=z.get("lo"), hi=z.get("hi"))
