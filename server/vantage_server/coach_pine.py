@@ -81,14 +81,24 @@ def build_coach_indicator(scaffold: dict, webhook_secret: str = "") -> str | Non
     spot = reg.get("spot")
 
     # bake the levels as parallel Pine arrays: price, plain label, role
-    prices, labels, roles = [], [], []
+    # zone bands (touch-spread lo/hi) join by price from the table rows —
+    # a level is a REGION; the coach draws the band, not just the line
+    _bands = {round(float(r["price"])): (r.get("lo"), r.get("hi"))
+              for r in ((scaffold.get("table") or {}).get("rows") or [])
+              if r.get("price") is not None}
+    prices, labels, roles, los, his = [], [], [], [], []
     for price, label in entries:
         prices.append(f"{float(price):.2f}")
         labels.append(_pine_str(_rp._clean_label(label)))
         roles.append(_pine_str(_classify(label)))
+        b = _bands.get(round(float(price)))
+        lo, hi = (b if b and b[0] is not None and b[1] is not None else (price, price))
+        los.append(f"{float(lo):.2f}"); his.append(f"{float(hi):.2f}")
     px_arr = ", ".join(prices)
     lb_arr = ", ".join(labels)
     ro_arr = ", ".join(roles)
+    lo_arr = ", ".join(los)
+    hi_arr = ", ".join(his)
 
     # the flip (regime line) — the single most important level; find it if baked
     flip = next((float(p) for p, l in entries if _classify(l) == "flip"), None)
@@ -146,6 +156,8 @@ indicator("Vantage Coach", overlay=true, max_lines_count=200, max_labels_count=2
 // structure instead, so the same indicator works on any ticker.
 var float[] gexPx  = array.from({px_arr})
 var string[] gexLb = array.from({lb_arr})
+var float[] gexLo  = array.from({lo_arr})
+var float[] gexHi  = array.from({hi_arr})
 var string[] gexRo = array.from({ro_arr})
 float gexFlip = {flip_line}
 gexDate = "{gex_date}"        // the session these GEX levels were generated for (display)
@@ -611,6 +623,7 @@ plot(armRR,      "RR",     display=display.none)
 // always readable next to price, not stranded off-screen.
 var line[] gexLines = array.new_line()
 var label[] gexLabels = array.new_label()
+var box[] gexBoxes = array.new_box()
 if showLines and hasLevels and barstate.islast
     if array.size(gexLines) > 0
         for i = 0 to array.size(gexLines) - 1
@@ -618,6 +631,10 @@ if showLines and hasLevels and barstate.islast
             label.delete(array.get(gexLabels, i))
         array.clear(gexLines)
         array.clear(gexLabels)
+    if array.size(gexBoxes) > 0
+        for i = 0 to array.size(gexBoxes) - 1
+            box.delete(array.get(gexBoxes, i))
+        array.clear(gexBoxes)
     for i = 0 to array.size(lvlPx) - 1
         p  = array.get(lvlPx, i)
         ro = array.get(lvlRo, i)
@@ -625,6 +642,10 @@ if showLines and hasLevels and barstate.islast
         isSup = ro == "putwall" or ro == "support"
         col = isRes ? color.new(#cf3b47, 25) : isSup ? color.new(#16915b, 25) : color.new(#e0a020, 15)
         wide = ro == "callwall" or ro == "putwall" or ro == "flip"
+        zLo = useGex and i < array.size(gexLo) ? array.get(gexLo, i) : p
+        zHi = useGex and i < array.size(gexHi) ? array.get(gexHi, i) : p
+        if zHi > zLo
+            array.push(gexBoxes, box.new(bar_index - 300, zHi, bar_index + 10, zLo, xloc=xloc.bar_index, extend=extend.right, border_color=color.new(col, 70), bgcolor=color.new(col, 88)))
         array.push(gexLines, line.new(bar_index - 300, p, bar_index, p, xloc=xloc.bar_index, extend=extend.right, color=col, width=wide ? 2 : 1))
         // anchor the tag AT the last bar — +8 bars into future space hid the
         // text entirely on charts without a right margin (user report 07-21)
