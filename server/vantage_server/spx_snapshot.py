@@ -132,8 +132,11 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
     price = cl[ei]
 
     # the coach's playbook levels (the same confluence ladder the coach bakes)
-    row = (store.load_spx_playbook_before(day, symbol=symbol)
-           or store.load_spx_playbook(day, symbol=symbol))
+    # prefer a SAME-DAY plan (the overnight one, or a mid-day "Recompute levels
+    # + GEX") so recomputed levels/zones reach the chart immediately; fall back
+    # to the prior evening's plan when today has none yet.
+    row = (store.load_spx_playbook(day, symbol=symbol)
+           or store.load_spx_playbook_before(day, symbol=symbol))
     scaf = (row or {}).get("scaffold") or {}
     lvl_entries = _rp.gex_level_entries(scaf)     # (price, label) high→low
     # join each level's zone band (touch-spread lo/hi) back in by price — the

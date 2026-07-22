@@ -65,7 +65,7 @@ export const LAYER_DRAWERS = {
         price: lv.price, color: `rgba(${rgb.join(",")},${alpha})`,
         lineWidth: isSel ? 2 : /wall|max pain|durable/i.test(lbl) ? 2 : 1,
         lineStyle: ctx.LW.LineStyle.Dashed, axisLabelVisible: sel == null || isSel,
-        title: (sel != null && !isSel) ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 20) }) });
+        title: (sel != null && !isSel) ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 30) }) });
     }
     return out;
   },

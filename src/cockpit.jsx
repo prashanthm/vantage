@@ -726,6 +726,7 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
   }, [isToday]);
   const q = useLive(() => getFrames(day), null, [day, tick, refreshNonce]);
   const d = q.data && q.data.available ? q.data : null;
+  const [chartBig, setChartBig] = useState(false);   // expand-in-place, same page
   const select = (f) => onSelectFrame && onSelectFrame({ ...f, day });
   return (
     <div className="vg-pane-body">
@@ -746,9 +747,11 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
       {isToday && (etMinNow() < 570 ? <PlanFace /> : (
         <div className="vg-card" style={{ marginTop: 14, padding: 8, position: "relative" }}>
           <button className="vg-btn-sm" style={{ position: "absolute", top: 10, right: 10, zIndex: 5 }}
-            onClick={() => { window.location.hash = "#/ic"; }}
-            title="Open the full-screen chart (all layers + tools)">⛶ Full chart</button>
-          <InstrumentChartCard symbol="SPX" defaultTf="5m" height={340} compact
+            onClick={() => setChartBig(!chartBig)}
+            title={chartBig ? "Back to the compact chart" : "Expand the chart in place (rest of the page stays below)"}>
+            {chartBig ? "⛶ Compact" : "⛶ Expand"}</button>
+          <InstrumentChartCard symbol="SPX" defaultTf="5m" compact={!chartBig}
+            height={chartBig ? Math.max(480, window.innerHeight - 260) : 340}
             initialLayers={["levels", "forecast", "calls"]} />
         </div>
       ))}

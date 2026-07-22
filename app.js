@@ -2516,7 +2516,7 @@ ${ref}`;
           lineWidth: isSel ? 2 : /wall|max pain|durable/i.test(lbl) ? 2 : 1,
           lineStyle: ctx.LW.LineStyle.Dashed,
           axisLabelVisible: sel == null || isSel,
-          title: sel != null && !isSel ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 20)
+          title: sel != null && !isSel ? "" : lbl.replace(/\s*[★✦].*$/, "").slice(0, 30)
         }) });
       }
       return out;
@@ -4094,6 +4094,7 @@ ${ref}`;
     }, [isToday]);
     const q = useLive(() => getFrames(day), null, [day, tick, refreshNonce]);
     const d = q.data && q.data.available ? q.data : null;
+    const [chartBig, setChartBig] = useState4(false);
     const select = (f) => onSelectFrame && onSelectFrame({ ...f, day });
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Cockpit"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "the market \xB7 the analyst's calls \xB7 you \u2014 one day, one chart, one log")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "baseline" } }, d && d.day_pnl != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "day ", /* @__PURE__ */ React.createElement("b", { className: d.day_pnl >= 0 ? "vg-up" : "vg-down" }, money3(d.day_pnl))), /* @__PURE__ */ React.createElement(
       "input",
@@ -4110,19 +4111,17 @@ ${ref}`;
       {
         className: "vg-btn-sm",
         style: { position: "absolute", top: 10, right: 10, zIndex: 5 },
-        onClick: () => {
-          window.location.hash = "#/ic";
-        },
-        title: "Open the full-screen chart (all layers + tools)"
+        onClick: () => setChartBig(!chartBig),
+        title: chartBig ? "Back to the compact chart" : "Expand the chart in place (rest of the page stays below)"
       },
-      "\u26F6 Full chart"
+      chartBig ? "\u26F6 Compact" : "\u26F6 Expand"
     ), /* @__PURE__ */ React.createElement(
       InstrumentChartCard,
       {
         symbol: "SPX",
         defaultTf: "5m",
-        height: 340,
-        compact: true,
+        compact: !chartBig,
+        height: chartBig ? Math.max(480, window.innerHeight - 260) : 340,
         initialLayers: ["levels", "forecast", "calls"]
       }
     ))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: isToday, day: isToday ? void 0 : day, slim: true }), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { marginTop: 14, padding: "10px 14px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 6 } }, "Every 15 minutes", d ? ` \xB7 ${d.frames.length} frames` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 newest first \xB7 click a row for its briefing (right panel) \xB7 \u2713 with / \u2717 against the call")), d && d.frames.length > 0 && /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Time"), /* @__PURE__ */ React.createElement("th", null, "Call"), /* @__PURE__ */ React.createElement("th", null, "Action"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Target"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Wrong if"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Market"), /* @__PURE__ */ React.createElement("th", null, "Resolved"), /* @__PURE__ */ React.createElement("th", null, "You"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "P&L"))), /* @__PURE__ */ React.createElement("tbody", null, d.frames.map((f) => /* @__PURE__ */ React.createElement(
