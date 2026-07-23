@@ -385,8 +385,6 @@ function App() {
   const homeFace = route === "home"
     ? (HOME_FACES.some((f) => f.key === routeParam) ? routeParam : clockFace()) : null;
   const showCockpitPanel = homeFace === "cockpit";
-  const [cockpitSel, setCockpitSel] = useState(null);   // selected frame or null
-  useEffect(() => { if (!showCockpitPanel) setCockpitSel(null); }, [showCockpitPanel]);
   // the chart-first route: the instrument the chart is showing (URL param → SPX).
   const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
   // keep the shared `symbol` in sync with the chart route so the right-pane
@@ -501,8 +499,7 @@ function App() {
             <HomeView face={routeParam} onFace={(f) => go("home", f)}
               renderFace={(face) => (
                 face === "cockpit"
-                  ? <CockpitView refreshNonce={refreshNonce}
-                      selectedFrame={cockpitSel} onSelectFrame={setCockpitSel} />
+                  ? <CockpitView refreshNonce={refreshNonce} />
                 : face === "debrief" ? <JournalView refreshNonce={refreshNonce} />
                 : <DashboardView {...viewProps} {...dashProps} notifs={notifs} />
               )} />
@@ -589,8 +586,7 @@ function App() {
                 forecastSignal={forecastNowSignal}
                 onForecastSaved={() => setForecastSavedNonce((n) => n + 1)} />
             : showCockpitPanel
-              ? <CockpitPanel sel={cockpitSel} onClear={() => setCockpitSel(null)}
-                  refreshNonce={refreshNonce} />
+              ? <CockpitPanel refreshNonce={refreshNonce} />
             : symbol
               ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
               : <ChatPanel docked settings={settings} />)}

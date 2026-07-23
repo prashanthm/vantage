@@ -525,9 +525,9 @@ function FrameBriefing({ sel, onClear }) {
   const act = flatAction(c, m ? m.close : null);
   return (
     <div>
-      <div className="vg-spread" style={{ alignItems: "baseline", gap: 8, marginTop: 12 }}>
+      <div className="vg-spread" style={{ alignItems: "baseline", gap: 8 }}>
         <div className="vg-kicker">Frame {sel.t}{day ? ` · ${day}` : ""}</div>
-        <button className="vg-linkbtn" onClick={onClear} title="Back to the live view">← now</button>
+        <button className="vg-linkbtn" onClick={onClear} title="Collapse this briefing">✕ close</button>
       </div>
       <div className="vg-card" style={{ marginTop: 8 }}>
         {c ? (
@@ -590,8 +590,9 @@ function FrameBriefing({ sel, onClear }) {
   );
 }
 
-// The cockpit's right pane (mounted by App in place of the Notebook).
-export function CockpitPanel({ sel, onClear, refreshNonce }) {
+// The cockpit's right pane (mounted by App in place of the Notebook) — always
+// the NOW lens; frame briefings render inline next to the log (CockpitView).
+export function CockpitPanel({ refreshNonce }) {
   const [tick, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => {
@@ -623,7 +624,6 @@ export function CockpitPanel({ sel, onClear, refreshNonce }) {
       }
     } catch (e) { /* clipboard denied — the Daily plan page has the full modal */ }
   };
-  if (sel) return <div className="vg-pane-body"><FrameBriefing sel={sel} onClear={onClear} /></div>;
   const preOpen = etMinNow() < 570;
   return (
     <div className="vg-pane-body">
@@ -711,7 +711,7 @@ function FrameTr({ f, selected, onSelect }) {
   );
 }
 
-export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
+export function CockpitView({ refreshNonce }) {
   const [day, setDay] = useState(todayET());
   const isToday = day === todayET();
   const [tick, setTick] = useState(0);
@@ -731,7 +731,11 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
   // (reading the tape); default = line-on-levels (orientation).
   const [chartMode, setChartMode] = useState("fit");   // fit | big | hidden
   const chartBig = chartMode === "big";
-  const select = (f) => onSelectFrame && onSelectFrame({ ...f, day });
+  // a clicked frame's briefing renders inline, right of the log (the right pane
+  // stays on the NOW lens). Clicking the same row again collapses it.
+  const [sel, setSel] = useState(null);
+  const select = (f) =>
+    setSel((prev) => (prev && prev.t === f.t && prev.day === day ? null : { ...f, day }));
   return (
     <div className="vg-pane-body">
       <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
@@ -755,7 +759,8 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
             <span className="vg-note">day <b className={d.day_pnl >= 0 ? "vg-up" : "vg-down"}>{money(d.day_pnl)}</b></span>
           )}
           <input type="date" className="vg-scan-filter" value={day} max={todayET()}
-            onChange={(e) => setDay(e.target.value || todayET())} aria-label="Cockpit day" />
+            onChange={(e) => { setDay(e.target.value || todayET()); setSel(null); }}
+            aria-label="Cockpit day" />
         </div>
       </div>
 
@@ -763,39 +768,51 @@ export function CockpitView({ refreshNonce, selectedFrame, onSelectFrame }) {
         <div className="vg-card" style={{ marginTop: 8, padding: 8 }}>
           <InstrumentChartCard symbol="SPX" defaultTf="5m" compact={!chartBig}
             seriesType={chartBig ? "candles" : "line"}
-            height={chartBig ? Math.max(480, window.innerHeight - 260)
-              : Math.max(420, window.innerHeight - 600)}
+            height={chartBig ? Math.max(480, window.innerHeight - 220)
+              : Math.max(460, Math.round(window.innerHeight * 0.55))}
             initialLayers={["levels", "forecast", "calls"]} />
         </div>
       ))}
 
-      <ToneCompareCard marketOpen={isToday} day={isToday ? undefined : day} slim />
+      {/* the log (tone strip + frames) on the left; the clicked frame's briefing
+          expands beside it and collapses on ✕ / re-click. Flex-wrap folds the
+          briefing under the log on narrow screens. */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ flex: "3 1 640px", minWidth: 0 }}>
+          <ToneCompareCard marketOpen={isToday} day={isToday ? undefined : day} slim />
 
-      <div className="vg-card vg-tablewrap" style={{ marginTop: 14, padding: "10px 14px" }}>
-        <div className="vg-kicker" style={{ marginBottom: 6 }}>
-          Every 15 minutes{d ? ` · ${d.frames.length} frames` : ""}
-          <span className="vg-note" style={{ fontWeight: 400 }}> — newest first · click a row for its briefing (right panel) · ✓ with / ✗ against the call</span>
+          <div className="vg-card vg-tablewrap" style={{ marginTop: 14, padding: "10px 14px" }}>
+            <div className="vg-kicker" style={{ marginBottom: 6 }}>
+              Every 15 minutes{d ? ` · ${d.frames.length} frames` : ""}
+              <span className="vg-note" style={{ fontWeight: 400 }}> — newest first · click a row for its briefing · ✓ with / ✗ against the call</span>
+            </div>
+            {d && d.frames.length > 0 && (
+              <table className="vg-table">
+                <thead>
+                  <tr>
+                    <th>Time</th><th>Call</th><th>Action</th>
+                    <th className="num">Target</th><th className="num">Wrong if</th>
+                    <th className="num">Market</th><th>Resolved</th><th>You</th>
+                    <th className="num">P&amp;L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.frames.map((f) => (
+                    <FrameTr key={f.t} f={f} onSelect={select}
+                      selected={!!sel && sel.t === f.t && sel.day === day} />
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {d && !d.frames.length && <p className="vg-note">No frames for {day} — no stored bars or fills.</p>}
+            {!d && <p className="vg-note">{q.loading ? "Building the briefing…" : "Cockpit needs the SQLite backend."}</p>}
+          </div>
         </div>
-        {d && d.frames.length > 0 && (
-          <table className="vg-table">
-            <thead>
-              <tr>
-                <th>Time</th><th>Call</th><th>Action</th>
-                <th className="num">Target</th><th className="num">Wrong if</th>
-                <th className="num">Market</th><th>Resolved</th><th>You</th>
-                <th className="num">P&amp;L</th>
-              </tr>
-            </thead>
-            <tbody>
-              {d.frames.map((f) => (
-                <FrameTr key={f.t} f={f} onSelect={select}
-                  selected={!!selectedFrame && selectedFrame.t === f.t && selectedFrame.day === day} />
-              ))}
-            </tbody>
-          </table>
+        {sel && (
+          <div style={{ flex: "2 1 400px", minWidth: 0, marginTop: 14, position: "sticky", top: 8 }}>
+            <FrameBriefing sel={sel} onClear={() => setSel(null)} />
+          </div>
         )}
-        {d && !d.frames.length && <p className="vg-note">No frames for {day} — no stored bars or fills.</p>}
-        {!d && <p className="vg-note">{q.loading ? "Building the briefing…" : "Cockpit needs the SQLite backend."}</p>}
       </div>
     </div>
   );
