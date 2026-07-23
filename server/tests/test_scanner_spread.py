@@ -22,17 +22,25 @@ def _hit(as_of="2026-07-17T15:30:00-04:00"):
 
 # ------------------------------------------------------ debit pricing
 
-def test_spread_from_hit_prices_from_chain_when_available(monkeypatch):
-    monkeypatch.setattr(scanner_spread, "chain_debit",
-                        lambda *a, **k: 17.4)
+def test_spread_from_hit_snaps_to_listed_contracts(monkeypatch):
+    monkeypatch.setattr(scanner_spread, "snap_to_chain",
+                        lambda *a, **k: {"expiry": "2026-09-18",
+                                         "long_strike": 540.0,
+                                         "short_strike": 585.0, "debit": 17.4})
     s = scanner_spread.spread_from_hit(_hit(), price_chain=True)
     assert s["est_debit"] == 17.4 and s["debit_src"] == "chain-mid"
+    assert s["long_strike"] == 540.0 and s["short_strike"] == 585.0
+    assert s["expiration"] == "2026-09-18"
+    order = scanner_spread.alpaca_order(s)
+    assert order["legs"][0]["symbol"] == "AMAT260918C00540000"   # snapped expiry
+    assert order["legs"][1]["symbol"] == "AMAT260918C00585000"
 
 
 def test_spread_from_hit_falls_back_to_modeled(monkeypatch):
-    monkeypatch.setattr(scanner_spread, "chain_debit", lambda *a, **k: None)
+    monkeypatch.setattr(scanner_spread, "snap_to_chain", lambda *a, **k: None)
     s = scanner_spread.spread_from_hit(_hit(), price_chain=True)
     assert s["est_debit"] == 25.0 and s["debit_src"] == "modeled"   # width 50 × 0.5
+    assert s["expiration"] is None
     # default (pure) path never calls the chain
     s2 = scanner_spread.spread_from_hit(_hit())
     assert s2["est_debit"] == 25.0 and s2["debit_src"] == "modeled"
@@ -119,7 +127,9 @@ def test_arm_gates_contract_risk(tmp_path, monkeypatch):
     store = _sqlite_store(tmp_path)
     monkeypatch.setattr(scanner, "_alpaca_paper_creds", lambda: False)
     # AMAT width-50 spread, chain says $25.00 debit → $2,500/contract > $1,000
-    monkeypatch.setattr(scanner_spread, "chain_debit", lambda *a, **k: 25.0)
+    monkeypatch.setattr(scanner_spread, "snap_to_chain",
+                        lambda *a, **k: {"expiry": "2026-09-18", "long_strike": 540.0,
+                                         "short_strike": 590.0, "debit": 25.0})
     assert scanner.arm_scanner_spreads(store, {"hits": [_hit()]}) == 0
     assert store.load_paper_trades(status="open", book="scanner-spread") == []
     closed = store.load_paper_trades(status="closed", book="scanner-spread")
@@ -136,7 +146,9 @@ def test_arm_dedupes_same_strikes_across_rescans(tmp_path, monkeypatch):
     store = _sqlite_store(tmp_path)
     monkeypatch.setattr(scanner, "_alpaca_paper_creds", lambda: False)
     # $8 debit = $800/contract — under the risk cap so the arm goes through
-    monkeypatch.setattr(scanner_spread, "chain_debit", lambda *a, **k: 8.0)
+    monkeypatch.setattr(scanner_spread, "snap_to_chain",
+                        lambda *a, **k: {"expiry": "2026-09-18", "long_strike": 540.0,
+                                         "short_strike": 590.0, "debit": 8.0})
     n1 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T15:30:00-04:00")]})
     n2 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T16:30:00-04:00")]})
     assert n1 == 1 and n2 == 0

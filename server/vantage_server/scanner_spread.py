@@ -68,6 +68,68 @@ def _nearest(price: float, step: float) -> float:
     return round(round(price / step) * step, 2)
 
 
+def snap_to_chain(symbol: str, direction: str, entry: float, runner: float,
+                  as_of: _dt.date) -> dict | None:
+    """Snap the spread to LISTED contracts: nearest listed expiry to
+    as_of+TARGET_DTE (min 20 DTE — it's a swing spread), nearest listed strikes
+    to the entry / runner, and the real mid-price debit from the same chain.
+    The strike_step heuristic invents contracts that don't exist (2026-07-23:
+    Alpaca 422 'asset not found' on SYK/ABBV; yfinance pricing came back empty
+    for the same reason). Returns {expiry, long_strike, short_strike, debit
+    (None when quotes are junk)} or None when the chain is unavailable."""
+    try:
+        import yfinance as yf  # noqa: PLC0415
+        t = yf.Ticker(symbol)
+        exps = list(t.options or [])
+        if not exps:
+            return None
+        aim = as_of + _dt.timedelta(days=TARGET_DTE)
+        cands = [e for e in exps if (_dt.date.fromisoformat(e) - as_of).days >= 20]
+        if not cands:
+            cands = [e for e in exps if (_dt.date.fromisoformat(e) - as_of).days >= 7]
+        if not cands:
+            return None
+        exp = min(cands, key=lambda e: abs((_dt.date.fromisoformat(e) - aim).days))
+        oc = t.option_chain(exp)
+        df = oc.calls if direction == "long" else oc.puts
+        strikes = sorted({float(s) for s in df["strike"]})
+        if len(strikes) < 2:
+            return None
+        long_k = min(strikes, key=lambda s: abs(s - entry))
+        short_k = min(strikes, key=lambda s: abs(s - runner))
+        if long_k == short_k:
+            # too tight at listed granularity — take the next listed strike out
+            i = strikes.index(long_k) + (1 if direction == "long" else -1)
+            if not (0 <= i < len(strikes)):
+                return None
+            short_k = strikes[i]
+        if (direction == "long" and short_k <= long_k) or \
+           (direction == "short" and short_k >= long_k):
+            return None
+
+        def _mid(k: float) -> float | None:
+            r = df[df["strike"] == k]
+            if r.empty:
+                return None
+            bid = float(r["bid"].iloc[0] or 0)
+            ask = float(r["ask"].iloc[0] or 0)
+            if bid > 0 and ask >= bid:
+                return (bid + ask) / 2
+            last = float(r["lastPrice"].iloc[0] or 0)
+            return last or None
+
+        debit = None
+        ml, ms = _mid(long_k), _mid(short_k)
+        if ml is not None and ms is not None:
+            d = round(ml - ms, 2)
+            if 0 < d < abs(short_k - long_k):
+                debit = d
+        return {"expiry": exp, "long_strike": long_k, "short_strike": short_k,
+                "debit": debit}
+    except Exception:  # noqa: BLE001 — chain trouble must never break the scan
+        return None
+
+
 def chain_debit(symbol: str, expiry: _dt.date, right: str,
                 long_strike: float, short_strike: float) -> float | None:
     """REAL debit for the spread from the yfinance option chain (delayed,
@@ -142,14 +204,21 @@ def spread_from_hit(hit: dict, price_chain: bool = False) -> dict | None:
         return None
 
     structure = "debit_call_spread" if direction == "long" else "debit_put_spread"
+    expiration = None
+    if price_chain:
+        # snap to LISTED contracts (expiry + strikes + real mid debit in one
+        # chain read) — heuristic strikes 422 at Alpaca and price as nothing.
+        snap = snap_to_chain(symbol, direction, float(entry), float(runner),
+                             _dt.date.fromisoformat(str(as_of)[:10]))
+        if snap is not None:
+            long_strike, short_strike = snap["long_strike"], snap["short_strike"]
+            expiration = snap["expiry"]
     width = round(abs(short_strike - long_strike), 2)
     est_debit, debit_src = round(width * DEBIT_FRAC, 2), "modeled"
-    if price_chain:
-        expiry = pick_expiration(_dt.date.fromisoformat(str(as_of)[:10]))
-        real = chain_debit(symbol, expiry, "C" if direction == "long" else "P",
-                           long_strike, short_strike)
-        if real is not None:
-            est_debit, debit_src = real, "chain-mid"
+    if price_chain and expiration is not None:
+        snap_debit = snap.get("debit")
+        if snap_debit is not None:
+            est_debit, debit_src = snap_debit, "chain-mid"
     setup_key = f"{symbol}:{as_of}:{long_strike}:{short_strike}"
     label = (f"{symbol} {'CALL' if direction == 'long' else 'PUT'} debit "
              f"{long_strike}/{short_strike}")
@@ -177,6 +246,9 @@ def spread_from_hit(hit: dict, price_chain: bool = False) -> dict | None:
         # width/debit_src aren't columns — kept for callers/self-check
         "width": width,
         "debit_src": debit_src,
+        # the LISTED expiry the strikes were snapped to (price_chain path) —
+        # alpaca_order must use THIS, not re-derive pick_expiration
+        "expiration": expiration,
     }
 
 
@@ -189,7 +261,10 @@ def alpaca_order(spread: dict, today: _dt.date | None = None) -> dict | None:
     if not spread or spread.get("structure") not in ("debit_call_spread", "debit_put_spread"):
         return None
     today = today or _dt.date.today()
-    exp = pick_expiration(today)
+    # the snapped LISTED expiry when the ticket carries one (chain-verified
+    # contracts); the 3rd-Friday heuristic only as fallback.
+    exp = (_dt.date.fromisoformat(spread["expiration"])
+           if spread.get("expiration") else pick_expiration(today))
     right = "C" if spread["structure"] == "debit_call_spread" else "P"
     und = spread["underlying"]
     long_sym = occ_symbol(und, exp, right, spread["long_strike"])
