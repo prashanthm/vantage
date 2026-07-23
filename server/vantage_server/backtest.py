@@ -81,6 +81,9 @@ DEFAULT_PARAMS = {
     "open_ended": None,            # simulate target-less tickets: "stop_eod" (live
                                    # behavior: stop or EOD mark) | "trailing";
                                    # None = drop them (historical behavior)
+    "eod_cutoff": None,            # "HH:MM" ET — flat by this time: no fills at/after
+                                   # it, unresolved trades mark at the last bar before
+                                   # it (None = session's last bar, current behavior)
     "max_chase_risk": None,        # void a reclaim fill when |fill-stop| exceeds
                                    # this multiple of the DESIGN risk |level-stop|
     "exit_policy": "target",       # "target" (fixed T1) | "trailing" (ratcheted stop)
@@ -301,7 +304,8 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
                   exit_policy: str = "target",
                   trail_mult: float = 1.0,
                   allow_open_ended: bool = False,
-                  max_chase_risk: float | None = None) -> dict | None:
+                  max_chase_risk: float | None = None,
+                  eod_cutoff: str | None = None) -> dict | None:
     """Simulate a resting-limit ticket against a session's proxy bars, starting
     at ``start_idx`` (break tickets spawn mid-day). Conservative rules: a bar
     touching both entry and stop is a stop-out; a target is never credited on
@@ -350,6 +354,18 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
     highs = list(day_bars["High"]); lows = list(day_bars["Low"])
     closes = list(day_bars["Close"])
     n = len(closes)
+    # flat-by cutoff: drop every bar at/after HH:MM ET — no fills, no exits
+    # scan past it; the unresolved mark lands on the last bar before it.
+    if eod_cutoff:
+        cut_h, cut_m = (int(x) for x in eod_cutoff.split(":"))
+        keep = 0
+        for i, t in enumerate(day_bars.index):
+            tt = t.to_pydatetime()
+            if (tt.hour, tt.minute) < (cut_h, cut_m):
+                keep = i + 1
+        if keep < 3:
+            return None
+        highs, lows, closes, n = highs[:keep], lows[:keep], closes[:keep], keep
     fill_idx = None
     fill_px = entry
     fill_bar_can_stop = True
@@ -728,7 +744,8 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                                                 exit_policy=xp,
                                                 trail_mult=float(p.get("trail_mult", 1.0)),
                                                 allow_open_ended=open_ended,
-                                                max_chase_risk=(float(mcr) if mcr is not None else None))
+                                                max_chase_risk=(float(mcr) if mcr is not None else None),
+                                                eod_cutoff=p.get("eod_cutoff"))
                             if res is None:
                                 counts["no_fill"] += 1
                                 continue

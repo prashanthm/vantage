@@ -94,3 +94,16 @@ policy). Re-freeze and re-run quarterly.
 
 **Status: ACHIEVED** — 8 runs of 10 budgeted (E0×2 incl. invariance check,
 H1, H2×3, H3, H4) + 1 counterfactual.
+
+## Addendum (2026-07-24) — 15:45 cutoff, split by class
+Operator asked for a flat-by-15:45 close. Measured on the frozen tape
+(harness param `eod_cutoff`, additive):
+- with-target: WR 0.72→0.64, PF 3.267→2.792, net 3.73→3.23% — the last
+  15 minutes carries real winner drift; cutoff REJECTED for this class.
+- open-ended: WR 0.458→0.50, PF 1.593→1.657, net 2.37→2.45% — runners
+  have no take-profit; clipping the noisy tail HELPS. Cutoff ADOPTED.
+Decision (operator): open-ended trades flat by 15:45 ET (`_settle_one`,
+first bar stamped ≥15:45 closes at the prior bar = the 15:45 mark; fills
+inside the final 15 min mark at entry); with-target trades keep the
+last-bar close. Caveat: the tape prices idealized bar-close fills — real
+15:45–16:00 fill quality (MOC, spreads) is unmeasured either way.

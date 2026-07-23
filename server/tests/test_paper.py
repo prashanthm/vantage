@@ -223,13 +223,14 @@ def test_settle_ignores_bars_before_open(tmp_path):
 
 
 def test_settle_eod_closes_at_fill_day_last_bar(tmp_path):
-    """Day-trade discipline (open-ended-edge goal): a trade that survives to the
-    next session closes at the fill day's LAST bar, not wherever the overnight
-    ride ends. Applies to open-ended (target=None) and with-target alike."""
+    """Day-trade discipline (open-ended-edge goal): a WITH-TARGET trade that
+    survives to the next session closes at the fill day's LAST bar, not
+    wherever the overnight ride ends. (Open-ended trades exit earlier — the
+    15:45 cutoff — covered by test_settle_open_ended_flat_by_1545.)"""
     store = _sqlite_store(tmp_path)
     paper.open_paper_trade(store, {
         "signal": "buy 750", "side": "long", "spy_entry": 750.0,
-        "spy_target": None, "spy_stop": 748.0, "shares": 100},
+        "spy_target": 760.0, "spy_stop": 748.0, "shares": 100},
         now=_dt.datetime(2026, 7, 10, 10, 0))
     # survives Jul 10 (never touches 748), gaps down Jul 13 — old code stopped
     # at 748 next day; new code exits at Jul 10's last close 751.0
@@ -243,11 +244,37 @@ def test_settle_eod_closes_at_fill_day_last_bar(tmp_path):
     assert res["closed_at"].startswith("2026-07-10")
 
 
+def test_settle_open_ended_flat_by_1545(tmp_path):
+    """Runners (target=None) exit at the 15:45 mark — the first bar stamped
+    ≥15:45 closes them at the prior bar's close. With-target trades keep the
+    last-bar close (frozen-tape split verdict, 2026-07-24)."""
+    store = _sqlite_store(tmp_path)
+    paper.open_paper_trade(store, {
+        "signal": "runner 750", "side": "long", "spy_entry": 750.0,
+        "spy_target": None, "spy_stop": 748.0, "shares": 100},
+        now=_dt.datetime(2026, 7, 10, 10, 0))
+    idx = pd.to_datetime(["2026-07-10 15:35", "2026-07-10 15:40",
+                          "2026-07-10 15:45", "2026-07-10 15:55"])
+    bars = pd.DataFrame({"High": [751, 751.5, 753, 754], "Low": [749, 750, 752, 753],
+                         "Close": [750.8, 751.2, 752.8, 753.9]}, index=idx)
+    res = paper._settle_one(store.load_paper_trades("open")[0], bars)
+    assert res["exit_reason"] == "eod" and res["spy_exit"] == 751.2   # 15:40 bar close
+    assert res["pnl"] == 120.0            # (751.2-750)*100 — NOT the 753.9 last bar
+    # a with-target trade on the same tape rides past 15:45 (target hit at 15:45 bar)
+    tid2 = paper.open_paper_trade(store, {
+        "signal": "buy 750", "side": "long", "spy_entry": 750.0,
+        "spy_target": 752.5, "spy_stop": 748.0, "shares": 100},
+        now=_dt.datetime(2026, 7, 10, 10, 0))
+    t2 = [t for t in store.load_paper_trades("open") if t["id"] == tid2][0]
+    res2 = paper._settle_one(t2, bars)
+    assert res2["exit_reason"] == "target" and res2["spy_exit"] == 752.5
+
+
 def test_settle_eod_same_evening_when_session_complete(tmp_path):
     store = _sqlite_store(tmp_path)
     paper.open_paper_trade(store, {
         "signal": "fade 760", "side": "short", "spy_entry": 760.0,
-        "spy_target": None, "spy_stop": 762.0, "shares": 100},
+        "spy_target": 750.0, "spy_stop": 762.0, "shares": 100},
         now=_dt.datetime(2026, 7, 10, 10, 0))
     # the 15:55 bar is the session's last — settle that evening, no overnight
     idx = pd.to_datetime(["2026-07-10 10:15", "2026-07-10 15:55"])

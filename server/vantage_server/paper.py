@@ -461,7 +461,13 @@ def _settle_one(trade: dict, bars) -> dict | None:
     bar (``exit_reason="eod"``). Every validated number — champion WR 0.72 /
     PF 3.27 AND the open-ended class's PF 1.59 — was measured on the harness's
     day-scoped exits; live rides held overnight instead (#28/#29/#84) and
-    roughly doubled the losses (−$1,958 actual vs −$937 under EOD close)."""
+    roughly doubled the losses (−$1,958 actual vs −$937 under EOD close).
+
+    OPEN-ENDED trades (target=None) go flat BY 15:45 ET instead (frozen-tape
+    verdict 2026-07-24: the class PF IMPROVES 1.59→1.66 at the 15:45 mark,
+    while with-target trades LOSE PF 3.27→2.79 there — runners have no
+    take-profit, so their last 15 minutes is noise; with-target winners
+    finish their drift into the bell). Operator decision: split by class."""
     opened = trade.get("filled_at") or trade.get("opened_at") or ""
     side = trade["side"]
     entry = float(trade["spy_entry"])
@@ -501,6 +507,15 @@ def _settle_one(trade: dict, bars) -> dict | None:
         if fill_date is not None and _et_date(bar_dt) > fill_date:
             return _close(prev_close if prev_close is not None else entry,
                           "eod", prev_iso or opened)
+        # open-ended cutoff: a runner is flat by 15:45 ET — the first bar
+        # stamped at/after 15:45 closes it at the PRIOR bar's close (the
+        # 15:40 5m bar = the 15:45 mark). A fill inside the final 15 minutes
+        # marks at entry (no new runner risk into the bell).
+        if tgt is None and fill_date is not None and _et_date(bar_dt) == fill_date:
+            bt = bar_dt.astimezone(ET) if bar_dt.tzinfo else bar_dt
+            if (bt.hour, bt.minute) >= (15, 45):
+                return _close(prev_close if prev_close is not None else entry,
+                              "eod", prev_iso or opened)
         hi, lo = float(row["High"]), float(row["Low"])
         hit_reason = None; exit_px = None
         if side == "long":
