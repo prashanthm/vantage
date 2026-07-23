@@ -37,6 +37,20 @@ except Exception: print("err")' 2>/dev/null || echo "err")
   echo "[$STAMP] refresh $SYM -> as_of=$AS_OF" >> "$LOG"
 done
 
+# every ~15 min: re-pull the CBOE SPX chain + rebuild GEX/levels at live spot
+# (0DTE book included during RTH). Stored under SPX:intraday — the overnight
+# plan of record is never touched; the snapshot/forecaster prefer the fresh
+# map automatically. Script fires every 5 min, so gate on the minute bucket.
+MIN=$(TZ=America/New_York date +%M)
+if [ $((10#$MIN % 15)) -lt 5 ]; then
+  OUT=$(curl -s --max-time 90 -X POST "$API/api/spx/playbook/recompute" \
+    -H 'Content-Type: application/json' -d '{"symbol":"SPX"}' || true)
+  OK=$(printf '%s' "$OUT" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("available"))
+except Exception: print("err")' 2>/dev/null || echo "err")
+  echo "[$STAMP] gex/levels recompute SPX -> $OK" >> "$LOG"
+fi
+
 # sync broker-account trade history so today's fills (equity + option) reach the
 # journal automatically. The broker fetch is SLOW (~45s/account: it pages every
 # order), so give it a generous timeout — a truncated fetch reads as an error and

@@ -142,3 +142,21 @@ def test_fvg_sweep_context(tmp_path):
     early = _dt.datetime(2026, 7, 16, 12, 0, tzinfo=ZoneInfo("America/New_York"))
     ctx2 = dna._fvg_sweep_context(store, "2026-07-16", "SPX", early, 7506.0)
     assert not any(g["lo"] == 7504.0 for g in ctx2["fvgs_at_entry"]["1m"])
+
+
+def test_intraday_plan_slot_never_shadows_the_record(tmp_path):
+    """Intraday recomputes live under '{sym}:intraday' — the overnight plan of
+    record must stay untouched under 'SPX' (the journal grades against it),
+    while the snapshot's freshness chain prefers the intraday row."""
+    store = _sqlite_store(tmp_path)
+    store.upsert_spx_playbook("2026-07-23", {"session": "2026-07-23", "v": "overnight"}, symbol="SPX")
+    store.upsert_spx_playbook("2026-07-23", {"session": "2026-07-23", "v": "live"}, symbol="SPX:intraday")
+    rec = store.load_spx_playbook("2026-07-23", symbol="SPX")
+    live = store.load_spx_playbook("2026-07-23", symbol="SPX:intraday")
+    assert rec["scaffold"]["v"] == "overnight"        # record intact
+    assert live["scaffold"]["v"] == "live"
+    # the snapshot preference chain: intraday first, overnight fallback
+    row = (store.load_spx_playbook("2026-07-23", symbol="SPX:intraday")
+           or store.load_spx_playbook("2026-07-23", symbol="SPX"))
+    assert row["scaffold"]["v"] == "live"
+    assert store.load_spx_playbook("2026-07-24", symbol="SPX:intraday") is None

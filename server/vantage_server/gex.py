@@ -209,12 +209,22 @@ CBOE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/options/{sym}.json"
 _OCC = None  # compiled lazily
 
 
-def fetch_cboe_book(sym: str = "_SPX", max_dte: int = MAX_DTE) -> tuple[float, list[dict]]:
+def _rth_now() -> bool:
+    """Weekday 09:30–16:00 ET — when today's 0DTE book is ALIVE."""
+    now = _dt.datetime.now(ET)
+    return now.weekday() < 5 and (9, 30) <= (now.hour, now.minute) < (16, 0)
+
+
+def fetch_cboe_book(sym: str = "_SPX", max_dte: int = MAX_DTE,
+                    min_dte: int | None = None) -> tuple[float, list[dict]]:
     """The CBOE delayed chain (15-min, unauthenticated) → (spot, book).
     Gamma is ALWAYS recomputed from the feed's IV via Black-Scholes — the feed's
     own greeks are rounded to ~4dp, which swings billions on the 100k+-OI box
     strikes (verified 2026-07-21: rounding alone flipped the net's sign).
-    dte=0 is excluded: after the close that book is dead but still shows OI."""
+    ``min_dte`` defaults by the clock: DURING RTH today's 0DTE book is live —
+    its overnight OI carries the sharpest gamma of the day — so dte=0 is
+    included; outside RTH (the nightly build) that book is dead-but-showing-OI
+    and stays excluded."""
     import json as _json  # noqa: PLC0415
     import re as _re  # noqa: PLC0415
     import urllib.request as _ur  # noqa: PLC0415
@@ -222,6 +232,8 @@ def fetch_cboe_book(sym: str = "_SPX", max_dte: int = MAX_DTE) -> tuple[float, l
     if _OCC is None:
         root = sym.lstrip("_")
         _OCC = _re.compile(rf"^{root}\w*?(\d{{6}})([CP])(\d{{8}})$")
+    if min_dte is None:
+        min_dte = 0 if _rth_now() else 1
     req = _ur.Request(CBOE_URL.format(sym=sym), headers={"User-Agent": "Mozilla/5.0"})
     with _ur.urlopen(req, timeout=60) as r:
         d = _json.loads(r.read().decode())["data"]
@@ -233,14 +245,22 @@ def fetch_cboe_book(sym: str = "_SPX", max_dte: int = MAX_DTE) -> tuple[float, l
         if not m:
             continue
         dte = (_dt.datetime.strptime(m.group(1), "%y%m%d").date() - today).days
-        if dte < 1 or dte > max_dte:
+        if dte < min_dte or dte > max_dte:
             continue
         oi = float(o.get("open_interest") or 0)
         iv = float(o.get("iv") or 0)
         if oi <= 0 or iv <= 0.01 or iv > 5:
             continue
+        # 0DTE time-to-expiry = the REMAINING session fraction (floored ~30min),
+        # not a full day — that's where its gamma sharpness comes from.
+        if dte == 0:
+            now = _dt.datetime.now(ET)
+            hrs = max((16 - now.hour) - now.minute / 60.0, 0.5)
+            t_years = (hrs / 24.0) / 365.0
+        else:
+            t_years = dte / 365.0
         book.append({"strike": int(m.group(3)) / 1000.0, "iv": iv,
-                     "t": max(dte, 1) / 365.0, "oi": oi, "is_call": m.group(2) == "C"})
+                     "t": t_years, "oi": oi, "is_call": m.group(2) == "C"})
     return spot, book
 
 

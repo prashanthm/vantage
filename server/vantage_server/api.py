@@ -523,7 +523,15 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         Context, not a signal (ADR-008); places no orders."""
         snap = state.snapshot()
         sym = (symbol or "SPX").upper()
-        row = store.load_spx_playbook(date, symbol=sym)
+        # prefer today's INTRADAY recompute (fresh chain + levels at live spot)
+        # when one exists; the overnight plan of record is the fallback and
+        # still what the journal grades against.
+        import datetime as _dt2
+        from zoneinfo import ZoneInfo as _Zi
+        today_et = _dt2.datetime.now(_Zi("America/New_York")).date().isoformat()
+        live = store.load_spx_playbook(date, symbol=f"{sym}:intraday")
+        row = (live if live and (date or today_et) == str(live.get("date"))
+               else None) or store.load_spx_playbook(date, symbol=sym)
         if row is None:
             return envelope(snap, available=False,
                             note=f"No {sym} playbook generated yet — run "
@@ -1610,7 +1618,11 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         # come from the container date — a pre-close run serves TODAY's session)
         today = _dt.date.fromisoformat(as_of) if as_of else None
         scaffold = _pb.build_playbook(today, store=store, underlying=sym)
-        store.upsert_spx_playbook(scaffold["generated_for"], scaffold, symbol=sym)
+        # intraday recomputes live under their OWN key — the overnight plan is
+        # the plan of record ("forecast held ✓" grades against it) and must
+        # never be overwritten by a mid-day refresh.
+        store.upsert_spx_playbook(scaffold["generated_for"], scaffold,
+                                  symbol=f"{sym}:intraday")
         snap = state.snapshot()
         return envelope(snap, available=True, date=scaffold["generated_for"],
                         symbol=sym, session=scaffold["session"], scaffold=scaffold)
