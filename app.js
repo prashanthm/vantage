@@ -221,6 +221,7 @@
     getDayReviewBundle: () => getDayReviewBundle,
     getDayReviews: () => getDayReviews,
     getDrawings: () => getDrawings,
+    getEntryStructure: () => getEntryStructure,
     getExits: () => getExits,
     getExplanation: () => getExplanation,
     getFuturesAnalysis: () => getFuturesAnalysis,
@@ -1095,6 +1096,7 @@
     if (underlying) q.set("underlying", underlying);
     return getJson(`${backendBase()}/api/journal/day-pnl?${q.toString()}`, { timeoutMs: 15e3 });
   };
+  var getEntryStructure = (day, trade, underlying = "SPX") => getJson(`${backendBase()}/api/journal/entry-structure?day=${encodeURIComponent(day)}&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 2e4 });
   var getTradeDna = (day, trade, underlying = "SPX") => getJson(`${backendBase()}/api/journal/trade-dna?day=${encodeURIComponent(day)}&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 3e4 });
   var saveTradeAnalysis = (body) => postJson(`${backendBase()}/api/journal/trade-analysis`, body);
   var getJournalAnalysisBundle = (from, to, underlying = "SPX") => getJson(
@@ -6835,9 +6837,10 @@ ${ref}`;
       ), isOpen && /* @__PURE__ */ React.createElement(AnalysisDetail, { h }));
     }))));
   }
+  var THOUGHT_RE = /^@([\d.]*)(?:\/([\d.]*))?(?:~([^|]*))?\|/;
   function operatorFor(t, thought) {
-    const m = (thought || "").match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
-    const why = (thought || "").replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");
+    const m = (thought || "").match(THOUGHT_RE) || [];
+    const why = (thought || "").replace(THOUGHT_RE, "");
     const corr = t.correlation, exitCorr = t.exit_correlation;
     const nearest3 = corr && corr.nearest, exitNearest = exitCorr && exitCorr.nearest;
     const autoEntry = corr && corr.at_level && nearest3 ? String(nearest3.level) : null;
@@ -6846,6 +6849,7 @@ ${ref}`;
       why,
       entryTag: m[1] || autoEntry,
       exitTag: m[2] || autoExit,
+      structTag: m[3] || null,
       entryTagAuto: !m[1] && !!autoEntry,
       exitTagAuto: !m[2] && !!autoExit
     };
@@ -6856,19 +6860,26 @@ ${ref}`;
     const exitCorr = t.exit_correlation;
     const exitNearest = exitCorr && exitCorr.nearest;
     const long = String(t.strategy).includes("call");
-    const m = thought.match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
+    const m = thought.match(THOUGHT_RE) || [];
     const op = operatorFor(t, thought);
     const why = op.why;
-    const tag = op.entryTag, exitTag = op.exitTag;
+    const tag = op.entryTag, exitTag = op.exitTag, structTag = op.structTag;
     const tagAuto = op.entryTagAuto, exitTagAuto = op.exitTagAuto;
-    const rawTag = m[1] || null, rawExit = m[2] || null;
-    const encode = (e, x, w) => {
-      if (!e && !x) return w;
-      return `@${e || ""}${x ? `/${x}` : ""}|${w}`;
+    const rawTag = m[1] || null, rawExit = m[2] || null, rawStruct = m[3] || null;
+    const encode = (e, x, s, w) => {
+      if (!e && !x && !s) return w;
+      return `@${e || ""}${x ? `/${x}` : ""}${s ? `~${s}` : ""}|${w}`;
     };
-    const setTag = (level) => onThought(encode(level, rawExit, why));
-    const setExitTag = (level) => onThought(encode(rawTag, level, why));
-    const setWhy = (v) => onThought(encode(rawTag, rawExit, v));
+    const setTag = (level) => onThought(encode(level, rawExit, rawStruct, why));
+    const setExitTag = (level) => onThought(encode(rawTag, level, rawStruct, why));
+    const setStructTag = (s) => onThought(encode(rawTag, rawExit, s, why));
+    const setWhy = (v) => onThought(encode(rawTag, rawExit, rawStruct, v));
+    const structQ = useLive(
+      () => expanded ? getEntryStructure(day, tradeIndex, underlying) : Promise.resolve(null),
+      null,
+      [expanded, day, tradeIndex]
+    );
+    const structCtx = structQ.data && structQ.data.available ? structQ.data.structure : null;
     return /* @__PURE__ */ React.createElement("div", { className: cls("vg-trade", expanded && "open") }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-row", onClick: onToggle }, /* @__PURE__ */ React.createElement("span", { className: "vg-trade-time" }, t.opened_et || (t.opened_at || "").slice(11, 16) || "\u2014"), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-name" }, t.ticker && /* @__PURE__ */ React.createElement("span", { className: "vg-badge accent vg-ticker-badge", title: `ticker: ${t.ticker}` }, t.ticker), /* @__PURE__ */ React.createElement("b", { className: long ? "vg-up" : "vg-down" }, t.label), t.account_label && /* @__PURE__ */ React.createElement(
       "span",
       {
@@ -6900,7 +6911,36 @@ ${ref}`;
         corr: exitCorr,
         openSpace: "exit was in open space"
       }
-    )), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I entered on ", tagAuto && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\xB7 auto")), /* @__PURE__ */ React.createElement("select", { value: tag || "", onChange: (e) => setTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : "")))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I exited on ", exitTagAuto && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\xB7 auto")), /* @__PURE__ */ React.createElement("select", { value: exitTag || "", onChange: (e) => setExitTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : ""))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("label", null, "My thinking \u2014 why did I take this trade?"), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 10, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I entered on ", tagAuto && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\xB7 auto")), /* @__PURE__ */ React.createElement("select", { value: tag || "", onChange: (e) => setTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : "")))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 150 } }, /* @__PURE__ */ React.createElement("label", null, "Level I exited on ", exitTagAuto && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\xB7 auto")), /* @__PURE__ */ React.createElement("select", { value: exitTag || "", onChange: (e) => setExitTag(e.target.value || null) }, /* @__PURE__ */ React.createElement("option", { value: "" }, "\u2014 none / open space \u2014"), allLevels.map((l, i) => /* @__PURE__ */ React.createElement("option", { key: i, value: l.price }, fmtLvl(l.price), " \xB7 ", l.role, (l.kinds || []).length ? ` (${l.kinds.join(" + ")})` : "")))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { flex: 1, minWidth: 190 } }, /* @__PURE__ */ React.createElement("label", null, "Structure I traded off", /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        className: "vg-note",
+        style: { fontWeight: 400 },
+        title: "FVGs adjacent to your fill (per timeframe) + recent hourly liquidity sweeps, computed as of your entry. Your pick goes to Mira as YOUR claimed reasoning \u2014 she evaluates the trade against it."
+      },
+      " ",
+      "\xB7 FVG / sweep"
+    )), /* @__PURE__ */ React.createElement(
+      "select",
+      {
+        value: structTag || "",
+        onChange: (e) => setStructTag(e.target.value || null),
+        disabled: !structCtx && !structTag
+      },
+      /* @__PURE__ */ React.createElement("option", { value: "" }, structQ.loading ? "reading structure\u2026" : "\u2014 none \u2014"),
+      structTag && structCtx == null && /* @__PURE__ */ React.createElement("option", { value: structTag }, structTag),
+      structCtx && ["1m", "5m", "15m"].map((tf) => {
+        const rows = (structCtx.fvgs_at_entry || {})[tf] || [];
+        return rows.length ? /* @__PURE__ */ React.createElement("optgroup", { key: tf, label: `${tf} gaps` }, rows.map((g, i) => {
+          const v = `${tf} ${g.side} FVG ${g.lo}-${g.hi}`;
+          return /* @__PURE__ */ React.createElement("option", { key: i, value: v }, g.side, " ", g.lo, "\u2013", g.hi, g.inside ? " \xB7 entry inside" : ` \xB7 ${g.dist_pt}pt away`);
+        })) : null;
+      }),
+      structCtx && (structCtx.htf_sweeps || []).length > 0 && /* @__PURE__ */ React.createElement("optgroup", { label: "HTF liquidity sweeps" }, structCtx.htf_sweeps.map((s, i) => {
+        const v = `hourly ${s.side} sweep at ${s.level} (${s.hours_before_entry}h before entry)`;
+        return /* @__PURE__ */ React.createElement("option", { key: i, value: v }, s.side, " ", s.level, " \xB7 ", s.hours_before_entry, "h before entry");
+      }))
+    ))))), /* @__PURE__ */ React.createElement("div", { className: "vg-trade-field", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("label", null, "My thinking \u2014 why did I take this trade?"), /* @__PURE__ */ React.createElement(
       "textarea",
       {
         rows: 2,
@@ -6917,6 +6957,7 @@ ${ref}`;
         why,
         entryTag: tag,
         exitTag,
+        structTag,
         label: t.label
       }
     )));
@@ -6941,7 +6982,7 @@ ${ref}`;
     }
     return { status: "empty" };
   }
-  function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
+  function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, structTag, label }) {
     const [state, setState] = useState14(null);
     const abortRef = useRef5(null);
     const readRef = useRef5(null);
@@ -6953,7 +6994,7 @@ ${ref}`;
         setState({ error: res && res.note || "couldn't build the trade DNA" });
         return;
       }
-      const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag }, res.playbook_session);
+      const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag, structTag }, res.playbook_session);
       setState("streaming");
       const { text, error } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, {
         onToken: (t) => setState({ text: t }),
@@ -7047,12 +7088,15 @@ ${ref}`;
   function buildAnalystPrompt(dna, operator, session) {
     const j = (o) => JSON.stringify(o);
     const e = dna.entry, x = dna.exit;
-    const { why, entryTag, exitTag } = operator || {};
+    const { why, entryTag, exitTag, structTag } = operator || {};
     const win = (w) => (w || []).map((b) => `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  \xABFILL\xBB" : ""}`).join("\n");
     const operatorBlock = [];
     if (why) operatorBlock.push(`- Their stated reasoning: "${why}"`);
     if (entryTag) operatorBlock.push(`- They say they entered on the ${entryTag} level.`);
     if (exitTag) operatorBlock.push(`- They say they exited on the ${exitTag} level.`);
+    if (structTag) operatorBlock.push(
+      `- They say the STRUCTURE they traded off was: "${structTag}". This is their declared setup \u2014 evaluate the trade AGAINST it, not as an unplanned entry: was that structure real and adjacent at the fill (cross-check the ICT block above), was trading it in this direction coherent, and did it hold or fail? If the entry price/timing is inconsistent with actually trading that structure, say so.`
+    );
     return [
       `Review this options trade AND critique the operator's own reasoning against the tape, the technicals, and best practice. Be a demanding desk mentor \u2014 validate what was sound, call out what was wrong or lucky. All the DNA is below; use ONLY these numbers.`,
       ``,

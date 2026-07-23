@@ -2026,6 +2026,34 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         playbook_session=sess.get("playbook_session"),
                         settle_price=sess.get("settle_price"))
 
+    @app.get("/api/journal/entry-structure")
+    def journal_entry_structure(day: str = Query(...), trade: int = Query(...),
+                                underlying: str = Query("SPX")):
+        """The entry-anchored structure for ONE trade, BEFORE any analysis runs:
+        FVGs adjacent to the entry price per timeframe (1m/5m/15m) + recent
+        hourly liquidity sweeps. Feeds the journal's 'structure I traded off'
+        selector — the operator's pick goes to Mira as declared reasoning.
+        Light path: stored 1m bars only (no snapshot, no yfinance). Read-only."""
+        from . import session_activity as _sa
+        from . import trade_dna as _dna
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        sess = _sa.session(store, day, None)
+        trades = sess.get("trades") or []
+        if trade < 0 or trade >= len(trades):
+            return envelope(snap, available=False,
+                            note=f"trade {trade} out of range (day has {len(trades)})")
+        t = trades[trade]
+        tk = t.get("ticker") or underlying or "SPX"
+        entry_et = _sa.to_et(t.get("opened_at"))
+        try:
+            ctx = _dna._fvg_sweep_context(store, day, tk, entry_et,
+                                          t.get("spot_at_entry"))
+        except Exception as e:  # noqa: BLE001
+            return envelope(snap, available=False, note=f"structure unavailable: {e}")
+        return envelope(snap, available=bool(ctx), structure=ctx)
+
     @app.get("/api/journal/analyzed-keys")
     def journal_analyzed_keys(day: str = Query(...)):
         """The trade_keys that already have a stored analysis for ``day`` — so

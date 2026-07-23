@@ -15,7 +15,7 @@ import { collectTurn } from "./use_stream_turn.js";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,
   saveJournalEntry, ensureTodayJournal, journalImageUrl,
-  getSessionActivity, getTradeDna, getDayPnl, saveTradeAnalysis,
+  getSessionActivity, getTradeDna, getEntryStructure, getDayPnl, saveTradeAnalysis,
   getJournalAnalysisBundle, saveJournalAnalysis, getJournalAnalyses,
   getDayReviewBundle, getAnalyzedKeys, saveDayReview, getDayReviews,
 } from "./live.js";
@@ -1151,9 +1151,14 @@ function JournalAnalysisPanel({ sym }) {
   );
 }
 
+// thought encoding: "@<entry>[/<exit>][~<structure>]|<why>" — entry/exit level
+// tags, an optional declared STRUCTURE (an FVG or HTF sweep the operator says
+// they traded off), then the free-text why.
+const THOUGHT_RE = /^@([\d.]*)(?:\/([\d.]*))?(?:~([^|]*))?\|/;
+
 function operatorFor(t, thought) {
-  const m = (thought || "").match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
-  const why = (thought || "").replace(/^@[\d.]*(?:\/[\d.]*)?\|/, "");
+  const m = (thought || "").match(THOUGHT_RE) || [];
+  const why = (thought || "").replace(THOUGHT_RE, "");
   const corr = t.correlation, exitCorr = t.exit_correlation;
   const nearest = corr && corr.nearest, exitNearest = exitCorr && exitCorr.nearest;
   const autoEntry = (corr && corr.at_level && nearest) ? String(nearest.level) : null;
@@ -1161,6 +1166,7 @@ function operatorFor(t, thought) {
   return {
     why,
     entryTag: m[1] || autoEntry, exitTag: m[2] || autoExit,
+    structTag: m[3] || null,
     entryTagAuto: !m[1] && !!autoEntry, exitTagAuto: !m[2] && !!autoExit,
   };
 }
@@ -1171,24 +1177,31 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
   const exitCorr = t.exit_correlation;
   const exitNearest = exitCorr && exitCorr.nearest;
   const long = String(t.strategy).includes("call");
-  // persisted as "@<entry>[/<exit>]|<why>" — entry level, optional exit level,
-  // then the free-text thinking. Parse the three back out (raw, for the setters).
-  const m = thought.match(/^@([\d.]*)(?:\/([\d.]*))?\|/) || [];
+  // persisted as "@<entry>[/<exit>][~<structure>]|<why>" — parse the raw parts
+  // back out for the setters.
+  const m = thought.match(THOUGHT_RE) || [];
   // the operator's intent, with auto-correlation applied (shared with the batch)
   const op = operatorFor(t, thought);
   const why = op.why;
-  const tag = op.entryTag, exitTag = op.exitTag;
+  const tag = op.entryTag, exitTag = op.exitTag, structTag = op.structTag;
   const tagAuto = op.entryTagAuto, exitTagAuto = op.exitTagAuto;
   // Setters persist the RAW operator tags (m[1]/m[2]), never the auto-filled
   // ones — editing the WHY must not silently commit a system-inferred level.
-  const rawTag = m[1] || null, rawExit = m[2] || null;
-  const encode = (e, x, w) => {
-    if (!e && !x) return w;
-    return `@${e || ""}${x ? `/${x}` : ""}|${w}`;
+  const rawTag = m[1] || null, rawExit = m[2] || null, rawStruct = m[3] || null;
+  const encode = (e, x, s, w) => {
+    if (!e && !x && !s) return w;
+    return `@${e || ""}${x ? `/${x}` : ""}${s ? `~${s}` : ""}|${w}`;
   };
-  const setTag = (level) => onThought(encode(level, rawExit, why));
-  const setExitTag = (level) => onThought(encode(rawTag, level, why));
-  const setWhy = (v) => onThought(encode(rawTag, rawExit, v));
+  const setTag = (level) => onThought(encode(level, rawExit, rawStruct, why));
+  const setExitTag = (level) => onThought(encode(rawTag, level, rawStruct, why));
+  const setStructTag = (s) => onThought(encode(rawTag, rawExit, s, why));
+  const setWhy = (v) => onThought(encode(rawTag, rawExit, rawStruct, v));
+  // the entry-anchored structure menu (FVGs per TF + HTF sweeps) — light
+  // endpoint, fetched only once the card is open
+  const structQ = useLive(
+    () => (expanded ? getEntryStructure(day, tradeIndex, underlying) : Promise.resolve(null)),
+    null, [expanded, day, tradeIndex]);
+  const structCtx = structQ.data && structQ.data.available ? structQ.data.structure : null;
 
   return (
     <div className={cls("vg-trade", expanded && "open")}>
@@ -1301,6 +1314,41 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
                     ))}
                   </select>
                 </div>
+                <div className="vg-trade-field" style={{ flex: 1, minWidth: 190 }}>
+                  <label>Structure I traded off
+                    <span className="vg-note" style={{ fontWeight: 400 }}
+                      title="FVGs adjacent to your fill (per timeframe) + recent hourly liquidity sweeps, computed as of your entry. Your pick goes to Mira as YOUR claimed reasoning — she evaluates the trade against it.">
+                      {" "}· FVG / sweep</span></label>
+                  <select value={structTag || ""} onChange={(e) => setStructTag(e.target.value || null)}
+                    disabled={!structCtx && !structTag}>
+                    <option value="">{structQ.loading ? "reading structure…" : "— none —"}</option>
+                    {/* a stored tag whose option no longer exists still shows */}
+                    {structTag && structCtx == null && <option value={structTag}>{structTag}</option>}
+                    {structCtx && ["1m", "5m", "15m"].map((tf) => {
+                      const rows = (structCtx.fvgs_at_entry || {})[tf] || [];
+                      return rows.length ? (
+                        <optgroup key={tf} label={`${tf} gaps`}>
+                          {rows.map((g, i) => {
+                            const v = `${tf} ${g.side} FVG ${g.lo}-${g.hi}`;
+                            return <option key={i} value={v}>
+                              {g.side} {g.lo}–{g.hi}{g.inside ? " · entry inside" : ` · ${g.dist_pt}pt away`}
+                            </option>;
+                          })}
+                        </optgroup>
+                      ) : null;
+                    })}
+                    {structCtx && (structCtx.htf_sweeps || []).length > 0 && (
+                      <optgroup label="HTF liquidity sweeps">
+                        {structCtx.htf_sweeps.map((s, i) => {
+                          const v = `hourly ${s.side} sweep at ${s.level} (${s.hours_before_entry}h before entry)`;
+                          return <option key={i} value={v}>
+                            {s.side} {s.level} · {s.hours_before_entry}h before entry
+                          </option>;
+                        })}
+                      </optgroup>
+                    )}
+                  </select>
+                </div>
               </div>
             </div>
           </div>
@@ -1314,7 +1362,7 @@ function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, t
 
           {/* step 2: the full DNA read by Mira (news + sentiment + the tape) */}
           <AnalyzeTrade day={day} tradeIndex={tradeIndex} underlying={underlying}
-            why={why} entryTag={tag} exitTag={exitTag} label={t.label} />
+            why={why} entryTag={tag} exitTag={exitTag} structTag={structTag} label={t.label} />
         </div>
       )}
     </div>
@@ -1346,7 +1394,7 @@ async function analyzeTradeOnce(day, tradeIndex, underlying, operator, { force =
 }
 
 // the read. The "entire DNA of the trade" in one place.
-function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, label }) {
+function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, structTag, label }) {
   const [state, setState] = useState(null);   // null | "loading" | "streaming" | {text} | {error}
   const abortRef = useRef(null);
   const readRef = useRef(null);
@@ -1362,7 +1410,7 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
       setState({ error: (res && res.note) || "couldn't build the trade DNA" });
       return;
     }
-    const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag }, res.playbook_session);
+    const prompt = buildAnalystPrompt(res.dna, { why, entryTag, exitTag, structTag }, res.playbook_session);
     setState("streaming");
     const { text, error } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, {
       onToken: (t) => setState({ text: t }),
@@ -1559,7 +1607,7 @@ function FvgAtEntry({ ict }) {
 function buildAnalystPrompt(dna, operator, session) {
   const j = (o) => JSON.stringify(o);
   const e = dna.entry, x = dna.exit;
-  const { why, entryTag, exitTag } = operator || {};
+  const { why, entryTag, exitTag, structTag } = operator || {};
   const win = (w) => (w || []).map((b) =>
     `  ${b.time}  O${b.open} H${b.high} L${b.low} C${b.close}  vol ${b.volume}${b.at_fill ? "  «FILL»" : ""}`).join("\n");
   // Routes to Mira's trade_analyst specialist ("review this trade" keywords);
@@ -1569,6 +1617,8 @@ function buildAnalystPrompt(dna, operator, session) {
   if (why) operatorBlock.push(`- Their stated reasoning: "${why}"`);
   if (entryTag) operatorBlock.push(`- They say they entered on the ${entryTag} level.`);
   if (exitTag) operatorBlock.push(`- They say they exited on the ${exitTag} level.`);
+  if (structTag) operatorBlock.push(
+    `- They say the STRUCTURE they traded off was: "${structTag}". This is their declared setup — evaluate the trade AGAINST it, not as an unplanned entry: was that structure real and adjacent at the fill (cross-check the ICT block above), was trading it in this direction coherent, and did it hold or fail? If the entry price/timing is inconsistent with actually trading that structure, say so.`);
 
   return [
     `Review this options trade AND critique the operator's own reasoning against the tape, the technicals, and best practice. Be a demanding desk mentor — validate what was sound, call out what was wrong or lucky. All the DNA is below; use ONLY these numbers.`,

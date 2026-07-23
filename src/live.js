@@ -1028,6 +1028,10 @@ export const getDayPnl = (days, underlying) => {
 // The full DNA of one trade (step 1: pure Vantage data — price action, volume,
 // technicals, level correlation, forecast). `trade` is the index into the day's
 // session-activity trade list. Feeds the Mira trade-analyst (step 2).
+export const getEntryStructure = (day, trade, underlying = "SPX") =>
+  getJson(`${backendBase()}/api/journal/entry-structure?day=${encodeURIComponent(day)}` +
+          `&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 20000 });
+
 export const getTradeDna = (day, trade, underlying = "SPX") =>
   getJson(`${backendBase()}/api/journal/trade-dna?day=${encodeURIComponent(day)}` +
           `&trade=${trade}&underlying=${encodeURIComponent(underlying)}`, { timeoutMs: 30000 });
