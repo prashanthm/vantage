@@ -1426,6 +1426,9 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, lab
         <p className="vg-note" style={{ marginTop: 8, color: "var(--vg-down)" }}>{state.error}</p>}
       {typeof state === "object" && state && state.text != null && (
         <div ref={readRef}>
+        {/* structure at entry FIRST — the FVG/sweep facts the review cites,
+            visible without scrolling past the whole read */}
+        {state.dna && <FvgAtEntry ict={state.dna.ict} />}
         {/* the model's read — structured (generic sections) when it returned JSON,
             else clean prose. Same renderer as the journal analysis. */}
         {state.text.trim() && (
@@ -1492,7 +1495,6 @@ function DnaReadout({ dna }) {
             : <td><b className={dna.realized >= 0 ? "vg-up" : "vg-down"}>{dna.realized >= 0 ? "+" : "−"}${Math.abs(dna.realized).toLocaleString()}</b>
               {" "}· {dna.status.replace("_", " ")}</td>}</tr>
       </tbody></table>
-      <FvgAtEntry ict={dna.ict} />
     </div>
   );
 }
