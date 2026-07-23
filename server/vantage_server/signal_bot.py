@@ -257,10 +257,15 @@ def nightly_report(store: Store) -> str:
     def _on(t, field):
         return str(t.get(field) or "").startswith(today)
     fired = [t for t in auto if _on(t, "filled_at")]
-    closed = [t for t in auto if _on(t, "closed_at")
-              and t.get("exit_reason") != "never_filled"]
-    expired = [t for t in auto if _on(t, "closed_at")
-               and t.get("exit_reason") == "never_filled"]
+    # voids and never-filled are $0 non-trades (the discipline declining a
+    # setup) — counting them as ❌ made 0W/2L read as 0W/7L. Only real
+    # closes (money at risk) grade the day.
+    closed_today = [t for t in auto if _on(t, "closed_at")]
+    closed = [t for t in closed_today
+              if t.get("exit_reason") not in ("never_filled", "voided")]
+    voided = [t for t in closed_today if t.get("exit_reason") == "voided"]
+    expired = [t for t in closed_today
+               if t.get("exit_reason") == "never_filled"]
     wins = [t for t in closed if (t.get("pnl") or 0) > 0]
     pnl = sum(float(t.get("pnl") or 0) for t in closed)
     open_auto = [t for t in auto if t["status"] == "open"]
@@ -275,6 +280,7 @@ def nightly_report(store: Store) -> str:
              "Playbooks: " + " · ".join(pb),
              (f"Signals today: {len(fired)} fired · {len(wins)}✅ "
               f"{len(closed) - len(wins)}❌ · paper P&L {pnl:+.2f}"
+              + (f" · {len(voided)} voided" if voided else "")
               + (f" · {len(expired)} expired" if expired else ""))]
     if riding or armed:
         lines.append(f"Still open: {len(riding)} riding · {len(armed)} armed")

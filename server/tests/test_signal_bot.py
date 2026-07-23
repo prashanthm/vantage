@@ -298,6 +298,26 @@ def test_nightly_report_summarizes_today(tmp_path, monkeypatch):
     assert "✅ SPY long target +185.00" in text
 
 
+def test_nightly_report_voids_are_not_losses(tmp_path, monkeypatch):
+    """A voided signal is a $0 non-trade (the discipline declining a setup) —
+    it must NOT show up as ❌, only in the voided count."""
+    store = _sqlite_store(tmp_path)
+    monkeypatch.setattr(store, "load_spx_playbook",
+                        lambda symbol=None, day=None: None, raising=False)
+    today = _dt.datetime.now(paper.ET).date().isoformat()
+    loss = _seed_signal(store)
+    store.fill_paper_trade(loss, spy_entry=623.45, filled_at=f"{today}T10:05:00")
+    store.close_paper_trade(loss, spy_exit=621.0, exit_reason="stop",
+                            pnl=-245.0, pnl_pct=-0.4, closed_at=f"{today}T11:20:00")
+    void = _seed_signal(store, side="short", level=628.4)
+    store.close_paper_trade(void, spy_exit=0.0, exit_reason="voided",
+                            pnl=0.0, pnl_pct=0.0, closed_at=f"{today}T12:00:00")
+
+    text = signal_bot.nightly_report(store)
+    assert "0✅ 1❌" in text and "1 voided" in text
+    assert "voided +0.00" not in text          # no per-trade ❌ line for the void
+
+
 # ------------------------------------------------------------- nightly runs
 
 def test_nightly_run_roundtrip_and_digest_jobs_line(tmp_path, monkeypatch):
