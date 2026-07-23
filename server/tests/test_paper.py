@@ -222,6 +222,45 @@ def test_settle_ignores_bars_before_open(tmp_path):
     assert res is None                    # neither target nor stop hit AFTER open
 
 
+def test_settle_eod_closes_at_fill_day_last_bar(tmp_path):
+    """Day-trade discipline (open-ended-edge goal): a trade that survives to the
+    next session closes at the fill day's LAST bar, not wherever the overnight
+    ride ends. Applies to open-ended (target=None) and with-target alike."""
+    store = _sqlite_store(tmp_path)
+    paper.open_paper_trade(store, {
+        "signal": "buy 750", "side": "long", "spy_entry": 750.0,
+        "spy_target": None, "spy_stop": 748.0, "shares": 100},
+        now=_dt.datetime(2026, 7, 10, 10, 0))
+    # survives Jul 10 (never touches 748), gaps down Jul 13 — old code stopped
+    # at 748 next day; new code exits at Jul 10's last close 751.0
+    idx = pd.to_datetime(["2026-07-10 10:15", "2026-07-10 15:45",
+                          "2026-07-13 09:30"])
+    bars = pd.DataFrame({"High": [752, 751.5, 749], "Low": [749, 750.5, 745],
+                         "Close": [751.5, 751.0, 746]}, index=idx)
+    res = paper._settle_one(store.load_paper_trades("open")[0], bars)
+    assert res["exit_reason"] == "eod" and res["spy_exit"] == 751.0
+    assert res["pnl"] == 100.0            # (751-750)*100
+    assert res["closed_at"].startswith("2026-07-10")
+
+
+def test_settle_eod_same_evening_when_session_complete(tmp_path):
+    store = _sqlite_store(tmp_path)
+    paper.open_paper_trade(store, {
+        "signal": "fade 760", "side": "short", "spy_entry": 760.0,
+        "spy_target": None, "spy_stop": 762.0, "shares": 100},
+        now=_dt.datetime(2026, 7, 10, 10, 0))
+    # the 15:55 bar is the session's last — settle that evening, no overnight
+    idx = pd.to_datetime(["2026-07-10 10:15", "2026-07-10 15:55"])
+    bars = pd.DataFrame({"High": [761, 759.5], "Low": [758, 758.5],
+                         "Close": [759, 758.8]}, index=idx)
+    res = paper._settle_one(store.load_paper_trades("open")[0], bars)
+    assert res["exit_reason"] == "eod" and res["spy_exit"] == 758.8
+    assert res["pnl"] == 120.0            # short: (758.8-760)*-1*100
+    # mid-session it must stay open (no premature eod)
+    res_mid = paper._settle_one(store.load_paper_trades("open")[0], bars.iloc[:1])
+    assert res_mid is None
+
+
 def test_close_manually_and_stats(tmp_path):
     store = _sqlite_store(tmp_path)
     tid = paper.open_paper_trade(store, {

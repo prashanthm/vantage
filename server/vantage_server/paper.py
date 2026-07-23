@@ -454,7 +454,14 @@ def _try_fill(trade: dict, bars) -> dict | None:
 def _settle_one(trade: dict, bars) -> dict | None:
     """Scan SPY 15m bars AFTER the trade opened for the first touch of target or
     stop. Returns ``{spy_exit, exit_reason, pnl, pnl_pct, closed_at}`` or None if
-    neither was hit yet (trade stays open). Target-or-stop, whichever bar first."""
+    neither was hit yet (trade stays open). Target-or-stop, whichever bar first.
+
+    DAY-TRADE DISCIPLINE (open-ended-edge goal, 2026-07-22): a trade that hits
+    neither target nor stop by the session close exits at the fill day's last
+    bar (``exit_reason="eod"``). Every validated number — champion WR 0.72 /
+    PF 3.27 AND the open-ended class's PF 1.59 — was measured on the harness's
+    day-scoped exits; live rides held overnight instead (#28/#29/#84) and
+    roughly doubled the losses (−$1,958 actual vs −$937 under EOD close)."""
     opened = trade.get("filled_at") or trade.get("opened_at") or ""
     side = trade["side"]
     entry = float(trade["spy_entry"])
@@ -466,10 +473,34 @@ def _settle_one(trade: dict, bars) -> dict | None:
         import pandas as pd  # noqa: F401
     except Exception:  # noqa: BLE001
         return None
+
+    def _close(exit_px, reason, closed_at):
+        direction = 1 if side == "long" else -1
+        pnl = round((exit_px - entry) * direction * shares, 2)
+        pnl_pct = round((exit_px - entry) / entry * 100 * direction, 3)
+        return {"spy_exit": round(exit_px, 2), "exit_reason": reason,
+                "pnl": pnl, "pnl_pct": pnl_pct, "closed_at": closed_at}
+
+    # naive timestamps (tests, legacy rows) are taken at face value; aware ones
+    # normalize to ET so session-day comparisons are exact.
+    def _et_date(dt):
+        return (dt.astimezone(ET) if dt.tzinfo else dt).date()
+    try:
+        fill_date = _et_date(_dt.datetime.fromisoformat(opened))
+    except ValueError:
+        fill_date = None
+    prev_close = prev_iso = None
     for ts, row in bars.iterrows():
-        bar_iso = ts.to_pydatetime().isoformat()
+        bar_dt = ts.to_pydatetime()
+        bar_iso = bar_dt.isoformat()
         if bar_iso <= opened:
             continue
+        # first bar of a LATER session → the trade ended at yesterday's last
+        # bar. (prev_close can only be None if the fill was the day's final
+        # bar — then the entry price is the honest mark.)
+        if fill_date is not None and _et_date(bar_dt) > fill_date:
+            return _close(prev_close if prev_close is not None else entry,
+                          "eod", prev_iso or opened)
         hi, lo = float(row["High"]), float(row["Low"])
         hit_reason = None; exit_px = None
         if side == "long":
@@ -484,11 +515,15 @@ def _settle_one(trade: dict, bars) -> dict | None:
             elif tgt is not None and lo <= tgt:
                 hit_reason, exit_px = "target", tgt
         if hit_reason:
-            direction = 1 if side == "long" else -1
-            pnl = round((exit_px - entry) * direction * shares, 2)
-            pnl_pct = round((exit_px - entry) / entry * 100 * direction, 3)
-            return {"spy_exit": round(exit_px, 2), "exit_reason": hit_reason,
-                    "pnl": pnl, "pnl_pct": pnl_pct, "closed_at": bar_iso}
+            return _close(exit_px, hit_reason, bar_iso)
+        prev_close, prev_iso = float(row["Close"]), bar_iso
+    # no later-session bar yet: if the fill day's tape is complete (a bar at/
+    # after 15:55 ET), close at that final bar instead of waiting overnight.
+    if (fill_date is not None and prev_iso is not None and prev_close is not None):
+        last = _dt.datetime.fromisoformat(prev_iso)
+        last = last.astimezone(ET) if last.tzinfo else last
+        if last.date() == fill_date and (last.hour, last.minute) >= (15, 55):
+            return _close(prev_close, "eod", prev_iso)
     return None
 
 

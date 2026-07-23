@@ -78,6 +78,11 @@ DEFAULT_PARAMS = {
     "confirm_closes": 1,           # reclaim needs N CONSECUTIVE closes beyond the level
     "volume_confirm_mult": None,   # confirming bar needs vol >= mult x prior-20 mean
     "volume_len": 20,              # volume baseline window (bars)
+    "open_ended": None,            # simulate target-less tickets: "stop_eod" (live
+                                   # behavior: stop or EOD mark) | "trailing";
+                                   # None = drop them (historical behavior)
+    "max_chase_risk": None,        # void a reclaim fill when |fill-stop| exceeds
+                                   # this multiple of the DESIGN risk |level-stop|
     "exit_policy": "target",       # "target" (fixed T1) | "trailing" (ratcheted stop)
     "trail_mult": 1.0,             # trail width = mult x the initial stop distance
     # ── playbook DESIGN params (scaffold side; prod defaults) ──
@@ -294,7 +299,9 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
                   volume_confirm_mult: float | None = None,
                   volume_len: int = 20,
                   exit_policy: str = "target",
-                  trail_mult: float = 1.0) -> dict | None:
+                  trail_mult: float = 1.0,
+                  allow_open_ended: bool = False,
+                  max_chase_risk: float | None = None) -> dict | None:
     """Simulate a resting-limit ticket against a session's proxy bars, starting
     at ``start_idx`` (break tickets spawn mid-day). Conservative rules: a bar
     touching both entry and stop is a stop-out; a target is never credited on
@@ -334,7 +341,10 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
     entry = ticket["spy_entry"]
     tgt = ticket.get("spy_target")
     stop = ticket.get("spy_stop")
-    if entry is None or tgt is None or stop is None:
+    # target-less (open-ended) tickets are excluded unless explicitly opted in —
+    # the live pipeline trades them (stop-or-ride), the validated population
+    # never did (open-ended-edge goal).
+    if entry is None or stop is None or (tgt is None and not allow_open_ended):
         return None
     direction = 1 if side == "long" else -1
     highs = list(day_bars["High"]); lows = list(day_bars["Low"])
@@ -376,7 +386,13 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
                 fill_idx = i; break
     if fill_idx is None:
         return None
-    # fill bar: conservative — stop can trigger (touch mode), target cannot
+    # chase cap: a reclaim confirmation can land far past the level while the
+    # stop stays anchored at level±pad — the fill's ACTUAL risk balloons past
+    # the design risk. Live analog: void at fill (is_worth_taking), no trade.
+    if max_chase_risk is not None:
+        design = abs(entry - stop)
+        if design > 0 and abs(fill_px - stop) > max_chase_risk * design:
+            return None
     stopped_on_fill = fill_bar_can_stop and (
         (lows[fill_idx] <= stop) if side == "long" else (highs[fill_idx] >= stop))
     if stopped_on_fill:
@@ -411,7 +427,8 @@ def simulate_fill(ticket: dict, day_bars, start_idx: int = 0,
         else:
             for i in range(fill_idx + 1, last_bar + 1):
                 hit_stop = (lows[i] <= stop) if side == "long" else (highs[i] >= stop)
-                hit_tgt = (highs[i] >= tgt) if side == "long" else (lows[i] <= tgt)
+                hit_tgt = tgt is not None and (
+                    (highs[i] >= tgt) if side == "long" else (lows[i] <= tgt))
                 if hit_stop:                 # stop first on ambiguous bars
                     exit_px, reason = stop, "stop"; break
                 if hit_tgt:
@@ -677,9 +694,11 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                                     fill_frame = None
                         for t in tickets:
                             counts["tickets"] += 1
-                            if t.get("spy_target") is None:
+                            open_ended = t.get("spy_target") is None
+                            if open_ended:
                                 counts["no_target"] += 1
-                                continue
+                                if p.get("open_ended") is None:
+                                    continue
                             if fill_frame is not None:
                                 # map 15m spawn/skip onto the fill frame by wall clock
                                 start = _idx_from_ts(fill_frame, t.get("start_ts"))
@@ -693,14 +712,23 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                                             int(p["skip_open_bars"]))
                                 sim_bars = pday
                             vcm = p.get("volume_confirm_mult")
+                            mcr = p.get("max_chase_risk")
+                            # open-ended tickets ride the class's exit policy:
+                            # "stop_eod" = the live pipeline's behavior (only
+                            # the stop or the session close ends the trade).
+                            xp = str(p.get("exit_policy", "target"))
+                            if open_ended and p.get("open_ended") == "trailing":
+                                xp = "trailing"
                             res = simulate_fill(t, sim_bars, start,
                                                 entry_mode=p["entry_mode"],
                                                 time_stop_bars=p["time_stop_bars"],
                                                 confirm_closes=int(p["confirm_closes"]),
                                                 volume_confirm_mult=(float(vcm) if vcm is not None else None),
                                                 volume_len=int(p.get("volume_len", 20)),
-                                                exit_policy=str(p.get("exit_policy", "target")),
-                                                trail_mult=float(p.get("trail_mult", 1.0)))
+                                                exit_policy=xp,
+                                                trail_mult=float(p.get("trail_mult", 1.0)),
+                                                allow_open_ended=open_ended,
+                                                max_chase_risk=(float(mcr) if mcr is not None else None))
                             if res is None:
                                 counts["no_fill"] += 1
                                 continue
@@ -709,6 +737,7 @@ def run_backtest(bars_by_symbol: dict, params: dict | None = None,
                                 "setup": t["setup"], "side": t["side"],
                                 "counter_trend": bool(t.get("counter_trend")),
                                 "freshness": t.get("freshness"),
+                                "open_ended": open_ended,
                                 "rr": t.get("reward_risk"), **res,
                             })
                 # then record `day` into history for future durable reads
@@ -754,6 +783,13 @@ def score(trades: list[dict]) -> dict:
     ct = [t for t in trades if t["counter_trend"]]
     wt = [t for t in trades if not t["counter_trend"]]
     out["by_trend"] = {"counter": _agg(ct), "with": _agg(wt)}
+    # with-target vs open-ended: the classes must never blend — open-ended is
+    # only ever simulated by explicit opt-in (params.open_ended).
+    oe = [t for t in trades if t.get("open_ended")]
+    if oe:
+        out["by_class"] = {
+            "with_target": _agg([t for t in trades if not t.get("open_ended")]),
+            "open_ended": _agg(oe)}
     return out
 
 
