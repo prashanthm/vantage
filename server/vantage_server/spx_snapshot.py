@@ -232,7 +232,42 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
         **_session_clock_block(ts[ei]),
         **_prior_levels_block(hi, lo, cl, si),
         **_vol_regime_block(day),
+        **_market_context_block(scaf),
     }
+
+
+def _market_context_block(scaf: dict) -> dict:
+    """The plan's market-context read (breadth / VIX term / intermarket), which
+    previously never left the playbook — the 15-min forecaster was blind to it
+    (2026-07-23: oil +6.09% sat in the plan's bullets all day, unseen). The two
+    BACKTESTED edges (market-context-native goal) get explicit callouts; both
+    are RANGE/vol edges plus one direction-lean — framed as context, and the
+    prompt-side rule stands: targets still come from the level book only."""
+    r = (scaf or {}).get("regime") or {}
+    if r.get("vix") is None and not r.get("market_bullets"):
+        return {}
+    edges = []
+    if r.get("vix_term_stance") == "backwardation" or (
+            r.get("vix_contango") is not None and r["vix_contango"] < 0):
+        edges.append("VIX term structure INVERTED (backwardation) — validated: "
+                     "days like this run ~2.4× the usual range. Expect wider "
+                     "swings; widen expected ranges and invalidations.")
+    bp = r.get("breadth_pct_above_50ma")
+    if bp is not None and bp < 40:
+        edges.append(f"Breadth NARROW ({bp}% of sectors above their 50-day) — "
+                     "validated: next day runs ~1.7× range and closes UP 2 times "
+                     "in 3 (washed-tape bounce lean). Context, not a target.")
+    return {"market_context": {
+        "vix": r.get("vix"), "vix_band": r.get("vix_band"),
+        "vix_term": r.get("vix_term_stance"),
+        "breadth_pct_above_50ma": bp,
+        "intermarket": r.get("intermarket"),
+        "bullets": r.get("market_bullets"),
+        "validated_edges": edges or None,
+        "note": "context from the plan build (refreshed by the intraday recompute "
+                "loop); range/regime information — direction and targets still "
+                "come from the tape and the level book",
+    }}
 
 
 def _vol_regime_block(day: str) -> dict:

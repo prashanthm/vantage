@@ -27,7 +27,14 @@ SECTOR_NAMES = {
     "XLB": "Materials", "XLU": "Utilities", "XLRE": "Real Estate", "XLC": "Communication",
 }
 # Intermarket symbols → label (yfinance tickers).
-INTERMARKET = {"DX-Y.NYB": "dxy", "^TNX": "tnx", "CL=F": "oil", "GC=F": "gold"}
+INTERMARKET = {"DX-Y.NYB": "dxy", "^TNX": "tnx", "CL=F": "oil", "GC=F": "gold",
+               "HYG": "hyg"}
+
+#: SHOCK-ECHO thresholds (context-forecast-edge goal, frozen 3y daily, shuffle
+#: p<.005, monotone): a big DXY / credit move is followed by an outsized-RANGE
+#: SPX day — dxy ≥0.8% → 1.38× (n=37), hyg ≥0.7% → 1.76× (n=27). RANGE only:
+#: direction failed controls for every driver tested (oil was a 0.49 coin).
+SHOCK_ECHO = {"dxy": (0.8, 1.4, "the dollar"), "hyg": (0.7, 1.8, "credit (HYG)")}
 
 
 def _closes(daily: list[dict]) -> list[float]:
@@ -178,6 +185,14 @@ def _bullets(breadth: dict, sectors: list[dict], vol: dict, inter: dict) -> list
                  if isinstance(v, dict)]
         if parts:
             b.append("Intermarket: " + ", ".join(parts) + ".")
+        # validated shock echo — RANGE information only, never a direction lean
+        for key, (thr, mult, name) in SHOCK_ECHO.items():
+            v = inter.get(key)
+            if isinstance(v, dict) and v.get("chg_pct") is not None and abs(v["chg_pct"]) >= thr:
+                b.append(f"{name.capitalize()} just moved {v['chg_pct']:+}% — SPX days "
+                         f"after shocks like this run ~{mult}× the usual range "
+                         f"(validated). Expect wider swings; this says nothing "
+                         f"about direction.")
     return b
 
 
