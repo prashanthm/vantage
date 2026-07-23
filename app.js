@@ -5611,7 +5611,7 @@ ${ref}`;
           setActiveCallId(null);
         }
       },
-      runs.map((r, i) => /* @__PURE__ */ React.createElement("option", { key: r.run_id, value: r.run_id }, r.day, i === 0 ? " (latest)" : "", " \xB7 ", r.n, " calls", r.n_scored ? ` \xB7 ${r.n_scored} scored` : ""))
+      runs.map((r, i) => /* @__PURE__ */ React.createElement("option", { key: r.run_id, value: r.run_id }, r.day, r.live ? " \xB7 LIVE session" : "", i === 0 ? " (latest)" : "", " \xB7 ", r.n, " calls", r.n_scored ? ` \xB7 ${r.n_scored} scored` : ""))
     )), forecastControls, genControls, runsQ.loading && /* @__PURE__ */ React.createElement(LoadBar, null), runId && runQ.loading && !genBusy && /* @__PURE__ */ React.createElement(LoadBar, null), detail && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-summary" }, /* @__PURE__ */ React.createElement("span", { className: "vg-rp-day" }, detail.forecasts[0] && detail.forecasts[0].day), /* @__PURE__ */ React.createElement("span", { className: "vg-rp-stat" }, forecasts.length, " calls \xB7 ", scored.length, " scored"), hitRate != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", hitRate >= 50 ? "good" : "bad") }, hitRate, "% hit")), /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradeblock" }, /* @__PURE__ */ React.createElement("div", { className: "vg-rp-gradehead" }, /* @__PURE__ */ React.createElement(
       "span",
       {

@@ -1238,14 +1238,26 @@ class Store:
         }
 
     def list_spx_forecasts_by_run(self, run_id: str) -> list[dict]:
-        """Every forecast of one replay run, chronological (as_of ASC)."""
+        """Every forecast of one replay run, chronological (as_of ASC).
+
+        ``live:{symbol}:{day}`` is a PSEUDO run id: the day's automatic live
+        forecasts (run_id IS NULL) — the 15-minute loop's actual record,
+        browsable exactly like a generated replay (open-ended-edge sibling:
+        the live sequence is the more honest 'run')."""
         if not self.uses_sqlite:
             return []
         conn = self._backend._conn()
         try:
-            rows = conn.execute(
-                "SELECT * FROM spx_forecast WHERE run_id=? ORDER BY as_of ASC, id ASC",
-                (run_id,)).fetchall()
+            if run_id.startswith("live:"):
+                _, symbol, day = run_id.split(":", 2)
+                rows = conn.execute(
+                    "SELECT * FROM spx_forecast WHERE run_id IS NULL "
+                    "AND symbol=? AND day=? ORDER BY as_of ASC, id ASC",
+                    (symbol, day)).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM spx_forecast WHERE run_id=? ORDER BY as_of ASC, id ASC",
+                    (run_id,)).fetchall()
         finally:
             conn.close()
         return [self._forecast_row(r) for r in rows]
@@ -1276,7 +1288,26 @@ class Store:
             d = dict(r)
             d["graded"] = d["run_id"] in cal_runs
             out.append(d)
-        return out
+        # LIVE sessions as pseudo-runs: the automatic 15-minute loop's forecasts
+        # (run_id IS NULL) grouped by day — browsable in the Replay panel like
+        # any generated run, under run_id 'live:{symbol}:{day}'.
+        conn = self._backend._conn()
+        try:
+            live = conn.execute(
+                "SELECT symbol, day, COUNT(*) AS n, "
+                "  SUM(CASE WHEN scored_at IS NOT NULL THEN 1 ELSE 0 END) AS n_scored, "
+                "  MIN(created_at) AS created_at "
+                "FROM spx_forecast WHERE run_id IS NULL AND day IS NOT NULL "
+                "GROUP BY symbol, day ORDER BY day DESC LIMIT ?",
+                (int(limit),)).fetchall()
+        finally:
+            conn.close()
+        for r in live:
+            d = dict(r)
+            d.update(run_id=f"live:{d['symbol']}:{d['day']}", live=True, graded=False)
+            out.append(d)
+        out.sort(key=lambda d: str(d.get("created_at") or ""), reverse=True)
+        return out[:int(limit)]
 
     def list_spx_forecasts(self, symbol: str = "SPX", day: str | None = None,
                            limit: int = 50) -> list[dict]:

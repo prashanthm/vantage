@@ -347,7 +347,7 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
             setRunId(e.target.value || null); setActiveCallId(null); }}>
           {runs.map((r, i) => (
             <option key={r.run_id} value={r.run_id}>
-              {r.day}{i === 0 ? " (latest)" : ""} · {r.n} calls{r.n_scored ? ` · ${r.n_scored} scored` : ""}
+              {r.day}{r.live ? " · LIVE session" : ""}{i === 0 ? " (latest)" : ""} · {r.n} calls{r.n_scored ? ` · ${r.n_scored} scored` : ""}
             </option>))}
         </select>
       </div>

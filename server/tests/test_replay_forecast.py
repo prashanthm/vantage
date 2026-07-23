@@ -300,6 +300,28 @@ def test_list_replay_runs_summarizes_newest_first(tmp_path):
     assert b["symbol"] == "QQQ" and b["graded"] is True
 
 
+def test_live_sessions_appear_as_pseudo_runs(tmp_path):
+    """The automatic loop's forecasts (run_id NULL) surface in the runs list as
+    live:{symbol}:{day} pseudo-runs, and the by_run detail resolves them —
+    yesterday's 15-minute live sequence is browsable like any replay."""
+    store = _sqlite_store(tmp_path)
+    _seed_day(store, "2026-07-16")
+    d1 = store.load_intraday_bars("^GSPC", "2026-07-16", "1m")
+    for k in (30, 60, 90):
+        fid = store.save_spx_forecast(
+            symbol="SPX", day="2026-07-16", as_of=d1["ts"][k], price_at=d1["close"][k],
+            snapshot={}, forecast={"plot": {"bias": "up"}}, forecast_text="", run_id=None)
+    store.save_spx_forecast_score(fid, {"verdict": "hit target"})
+    runs = store.list_replay_runs()
+    live = next(r for r in runs if r["run_id"] == "live:SPX:2026-07-16")
+    assert live["live"] is True and live["n"] == 3 and live["n_scored"] == 1
+    rows = store.list_spx_forecasts_by_run("live:SPX:2026-07-16")
+    assert len(rows) == 3
+    assert [r["as_of"] for r in rows] == sorted(r["as_of"] for r in rows)
+    # real run ids are untouched by the live: dispatch
+    assert store.list_spx_forecasts_by_run("run-A") == []
+
+
 def test_grade_prompt_forbids_computing_scores(tmp_path):
     # the anti-reward-hacking clause must be in the prompt the grader receives
     store = _sqlite_store(tmp_path)
