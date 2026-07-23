@@ -62,9 +62,48 @@ def _nearest(price: float, step: float) -> float:
     return round(round(price / step) * step, 2)
 
 
-def spread_from_hit(hit: dict) -> dict | None:
+def chain_debit(symbol: str, expiry: _dt.date, right: str,
+                long_strike: float, short_strike: float) -> float | None:
+    """REAL debit for the spread from the yfinance option chain (delayed,
+    best-effort): mid(long leg) − mid(short leg). None when the chain, the
+    strikes, or the quotes are unavailable/nonsense — callers fall back to the
+    modeled width×DEBIT_FRAC. Never raises."""
+    try:
+        import yfinance as yf  # noqa: PLC0415
+        oc = yf.Ticker(symbol).option_chain(expiry.isoformat())
+        df = oc.calls if right.upper() == "C" else oc.puts
+
+        def _mid(strike: float) -> float | None:
+            r = df[df["strike"] == strike]
+            if r.empty:
+                return None
+            bid = float(r["bid"].iloc[0] or 0)
+            ask = float(r["ask"].iloc[0] or 0)
+            if bid > 0 and ask >= bid:
+                return (bid + ask) / 2
+            last = float(r["lastPrice"].iloc[0] or 0)
+            return last or None
+
+        ml, ms = _mid(long_strike), _mid(short_strike)
+        if ml is None or ms is None:
+            return None
+        debit = round(ml - ms, 2)
+        width = abs(short_strike - long_strike)
+        # sanity: a debit spread costs more than 0 and less than its width
+        return debit if 0 < debit < width else None
+    except Exception:  # noqa: BLE001 — junk chain/network must not break the scan
+        return None
+
+
+def spread_from_hit(hit: dict, price_chain: bool = False) -> dict | None:
     """Build the debit-spread ticket dict from a scanner hit, or None if the setup
     can't form a spread (missing fields, or strikes collapse to one increment).
+
+    ``price_chain=True`` prices ``est_debit`` from the real option chain
+    (``chain_debit``; network, best-effort) instead of the modeled width×0.5 —
+    the modeled 1:1 payoff sits exactly on the break-even knife edge and makes
+    the track record uninformative. Default False keeps the builder pure for
+    tests/self-checks.
 
     Returned dict maps onto paper_trades' v24 spread columns + the shared fields
     record_paper_trade expects (signal/side/symbol/spy_entry so legacy code paths
@@ -98,7 +137,13 @@ def spread_from_hit(hit: dict) -> dict | None:
 
     structure = "debit_call_spread" if direction == "long" else "debit_put_spread"
     width = round(abs(short_strike - long_strike), 2)
-    est_debit = round(width * DEBIT_FRAC, 2)
+    est_debit, debit_src = round(width * DEBIT_FRAC, 2), "modeled"
+    if price_chain:
+        expiry = pick_expiration(_dt.date.fromisoformat(str(as_of)[:10]))
+        real = chain_debit(symbol, expiry, "C" if direction == "long" else "P",
+                           long_strike, short_strike)
+        if real is not None:
+            est_debit, debit_src = real, "chain-mid"
     setup_key = f"{symbol}:{as_of}:{long_strike}:{short_strike}"
     label = (f"{symbol} {'CALL' if direction == 'long' else 'PUT'} debit "
              f"{long_strike}/{short_strike}")
@@ -123,8 +168,9 @@ def spread_from_hit(hit: dict) -> dict | None:
         "underlying_target": short_strike,
         "underlying_invalid": round(float(invalid), 2),
         "setup_key": setup_key,
-        # width isn't a column — kept for callers/self-check
+        # width/debit_src aren't columns — kept for callers/self-check
         "width": width,
+        "debit_src": debit_src,
     }
 
 

@@ -45,8 +45,9 @@ def last_price(symbol: str) -> float | None:
 def _spread_pnl(row: dict, exit_reason: str) -> float:
     """Modeled P&L at resolution (Alpaca fills are real; the CLOSE mark is modeled
     from the debit-spread payoff): target → (width − debit) × contracts × 100;
-    invalidation → −debit × contracts × 100."""
-    debit = float(row.get("est_debit") or 0)
+    invalidation → −debit × contracts × 100. The debit is the REAL Alpaca fill
+    when the reconcile recorded one — est_debit is the modeled fallback."""
+    debit = float(row.get("filled_avg") or row.get("est_debit") or 0)
     n = int(row.get("contracts") or 4)
     width = abs(float(row.get("short_strike") or 0) - float(row.get("long_strike") or 0))
     if exit_reason == "target":

@@ -552,7 +552,8 @@ def _settle_spread(store, t: dict) -> dict | None:
     opened = t.get("filled_at") or t.get("opened_at") or ""
     long_k = float(t["long_strike"]); short_k = float(t["short_strike"])
     invalid = float(t["underlying_invalid"])
-    debit = float(t.get("est_debit") or 0.0)
+    # real Alpaca fill when the reconcile recorded one; modeled est_debit else
+    debit = float(t.get("filled_avg") or t.get("est_debit") or 0.0)
     n = int(t.get("contracts") or 4)
     width = abs(short_k - long_k)
     is_call = (t.get("structure") == "debit_call_spread")

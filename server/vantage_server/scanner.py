@@ -411,14 +411,24 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
         return 0
     from . import scanner_spread as _sp
     known = store.paper_setup_keys()
+    # setup_key embeds the hit's as_of, so every re-scan mints a NEW key — the
+    # July dupes (XEL ×3, MELI/CRM/ABBV ×2) were the same strikes re-armed by
+    # later scans. One open position per (underlying, strikes); re-entry is
+    # allowed once the old one closes.
+    open_now = {(r.get("underlying") or r.get("symbol"),
+                 r.get("long_strike"), r.get("short_strike"))
+                for r in store.load_paper_trades(status="open", book="scanner-spread")}
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
     use_alpaca = _alpaca_paper_creds()
     logged = 0
     for hit in scan_result.get("hits") or []:
         if hit.get("tier") != "A+":
             continue
-        spread = _sp.spread_from_hit(hit)
+        spread = _sp.spread_from_hit(hit, price_chain=True)
         if spread is None or spread["setup_key"] in known:
+            continue
+        pos_key = (spread["underlying"], spread["long_strike"], spread["short_strike"])
+        if pos_key in open_now:
             continue
         broker_fields = _submit_paper_spread(spread) if use_alpaca else None
         row = {
@@ -428,7 +438,7 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
             "source": "scanner-auto",
             "status": "open",
             "filled_at": now,
-            "opened_price_src": "scanner A+ setup",
+            "opened_price_src": f"scanner A+ setup · debit {spread.get('debit_src', 'modeled')}",
         }
         if broker_fields:
             # real Alpaca-paper order: pending its fill (the reconcile loop confirms).
@@ -438,6 +448,7 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
             row["fill_status"] = "filled"
         store.record_paper_trade(row)
         known.add(spread["setup_key"])
+        open_now.add(pos_key)
         logged += 1
     return logged
 

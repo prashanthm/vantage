@@ -93,8 +93,9 @@ def test_scan_ict_htf_matches_htf_setup(tmp_path):
 
 
 def test_scan_gates_stale_setups(tmp_path, monkeypatch):
-    # a setup that triggered long ago (bars_ago > _FRESH_BARS) is NOT surfaced —
-    # the scanner shows current signals only.
+    # a setup that triggered long ago (bars_ago > _FRESH_BARS) is tagged stale
+    # with a resolved outcome — run_scan retires stale setups to history, so
+    # they never reach `hits` (and thus never arm paper spreads).
     store = _sqlite_store(tmp_path)
     _seed_hourly_from_frozen(store, "AAPL")
     monkeypatch.setattr(sc._htf, "htf_setup",
@@ -102,7 +103,8 @@ def test_scan_gates_stale_setups(tmp_path, monkeypatch):
                                          "ce": 1, "entry_zone": [1, 2], "invalid": 2,
                                          "bars_ago": sc._FRESH_BARS + 5})
     got = sc._scan_ict_htf(store, "AAPL")
-    assert got["present"] is False and got.get("stale_bars_ago") == sc._FRESH_BARS + 5
+    assert got["stale"] is True and got.get("outcome") == "open"
+    assert got["present"] is True     # kept + tagged, not hidden (retired by run_scan)
 
 
 def test_scan_none_without_enough_bars(tmp_path):
