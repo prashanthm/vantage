@@ -51,12 +51,32 @@ def test_spread_pnl_prefers_real_fill_debit():
 
 # ------------------------------------------------------ dedup
 
+def test_arm_gates_contract_risk(tmp_path, monkeypatch):
+    """debit × 100 > MAX_CONTRACT_RISK → recorded as skipped (exit_reason=
+    'contract_risk', $0), never opened. The ladder needs ×4 contracts, so
+    over-risk setups are gated, not downsized. Skips don't grade the book."""
+    from vantage_server import paper
+    store = _sqlite_store(tmp_path)
+    monkeypatch.setattr(scanner, "_alpaca_paper_creds", lambda: False)
+    # AMAT width-50 spread, chain says $25.00 debit → $2,500/contract > $1,000
+    monkeypatch.setattr(scanner_spread, "chain_debit", lambda *a, **k: 25.0)
+    assert scanner.arm_scanner_spreads(store, {"hits": [_hit()]}) == 0
+    assert store.load_paper_trades(status="open", book="scanner-spread") == []
+    closed = store.load_paper_trades(status="closed", book="scanner-spread")
+    assert len(closed) == 1 and closed[0]["exit_reason"] == "contract_risk"
+    assert closed[0]["pnl"] == 0.0
+    book = paper.build_spread_book(store)
+    assert book["stats"] == {"n": 0}          # skips never grade the book
+    assert len(book["closed"]) == 1           # but stay visible in the record
+
+
 def test_arm_dedupes_same_strikes_across_rescans(tmp_path, monkeypatch):
     """Re-scans mint new setup_keys (as_of differs) — the same strikes must not
     open twice while a position is riding (the XEL×3 / MELI×2 July dupes)."""
     store = _sqlite_store(tmp_path)
     monkeypatch.setattr(scanner, "_alpaca_paper_creds", lambda: False)
-    monkeypatch.setattr(scanner_spread, "chain_debit", lambda *a, **k: None)
+    # $8 debit = $800/contract — under the risk cap so the arm goes through
+    monkeypatch.setattr(scanner_spread, "chain_debit", lambda *a, **k: 8.0)
     n1 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T15:30:00-04:00")]})
     n2 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T16:30:00-04:00")]})
     assert n1 == 1 and n2 == 0

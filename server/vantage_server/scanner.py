@@ -430,6 +430,22 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
         pos_key = (spread["underlying"], spread["long_strike"], spread["short_strike"])
         if pos_key in open_now:
             continue
+        # CONTRACT-RISK GATE: debit × 100 per contract capped. Over-risk setups
+        # are RECORDED as skipped (visible in the book), never submitted.
+        risk_per_contract = float(spread.get("est_debit") or 0) * 100
+        if risk_per_contract > _sp.MAX_CONTRACT_RISK:
+            tid = store.record_paper_trade({
+                **spread, "opened_at": now,
+                "session": (hit.get("as_of") or "")[:10] or None,
+                "source": "scanner-auto", "status": "open", "fill_status": "pending",
+                "opened_price_src": (f"scanner A+ setup · debit {spread.get('debit_src', 'modeled')}"
+                                     f" · ${risk_per_contract:.0f}/contract > "
+                                     f"${_sp.MAX_CONTRACT_RISK:.0f} cap"),
+            })
+            store.close_paper_trade(tid, spy_exit=0.0, exit_reason="contract_risk",
+                                    pnl=0.0, pnl_pct=0.0, closed_at=now)
+            known.add(spread["setup_key"])
+            continue
         broker_fields = _submit_paper_spread(spread) if use_alpaca else None
         row = {
             **spread,

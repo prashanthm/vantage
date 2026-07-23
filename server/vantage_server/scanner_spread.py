@@ -18,6 +18,12 @@ import datetime as _dt
 CONTRACTS = 4          # ×4 so the 50/25/25 ladder is whole (2/1/1)
 DEBIT_FRAC = 0.5       # modeled debit ≈ half the spread width (no live chain)
 TARGET_DTE = 35        # aim ~35 days out for a swing spread; roll to the 3rd Friday
+#: max debit risk per CONTRACT (debit × 100). A GATE, not a sizer — the exit
+#: ladder needs ×4 contracts, so a spread that costs more than this per
+#: contract is recorded as skipped (exit_reason='contract_risk'), never
+#: downsized. Pre-gate record: risk ranged $200–$10,000/position; the single
+#: AMAT width-50 loss (−$10k) exceeded the whole book's net.
+MAX_CONTRACT_RISK = 1000.0
 
 
 def _third_friday(year: int, month: int) -> _dt.date:

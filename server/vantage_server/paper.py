@@ -773,12 +773,16 @@ def build_spread_book(store: Store) -> dict:
     rows = store.load_paper_trades(book="scanner-spread")
     open_rows = [r for r in rows if r.get("status") == "open"]
     closed = [r for r in rows if r.get("status") == "closed"]
+    # $0 non-trades (no fill / contract-risk gate) stay VISIBLE in the closed
+    # list but never grade the book — only money-at-risk closes do.
+    real = [r for r in closed
+            if r.get("exit_reason") not in ("never_filled", "contract_risk")]
     return {
         "book": "scanner-spread",
         "open": open_rows,
         "closed": sorted(closed, key=lambda r: (r.get("closed_at") or ""), reverse=True),
-        "stats": paper_stats(closed),
-        "equity_curve": equity_curve(closed),
+        "stats": paper_stats(real),
+        "equity_curve": equity_curve(real),
     }
 
 
