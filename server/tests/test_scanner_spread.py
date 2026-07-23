@@ -49,6 +49,66 @@ def test_spread_pnl_prefers_real_fill_debit():
     assert scanner_exec._spread_pnl(row, "invalidation") == -1000.0  # modeled fallback
 
 
+# ------------------------------------------------------ broker close (mleg)
+
+def test_occ_parse_roundtrip():
+    import datetime as dt
+    sym = scanner_spread.occ_symbol("AMAT", dt.date(2026, 8, 21), "C", 540.0)
+    root, expiry, right, strike = scanner_exec.occ_parse(sym)
+    assert (root, expiry, right, strike) == ("AMAT", dt.date(2026, 8, 21), "C", 540.0)
+    assert scanner_exec.occ_parse("SPY") is None
+    assert scanner_exec.occ_parse("") is None
+
+
+def test_place_close_sends_both_legs_to_close(monkeypatch):
+    """The close must be the SAME mleg structure reversed — a single-leg close
+    (the old behavior) left the short leg naked at the broker."""
+    calls = {}
+
+    class _FakeAx:
+        @staticmethod
+        def place_exit(side, symbol, qty, **kw):
+            calls.update(side=side, symbol=symbol, qty=qty, **kw)
+            return {"order_id": "x1"}
+
+    row = {"id": 7, "structure": "debit_call_spread", "underlying": "AMAT",
+           "contracts": 4, "short_strike": 590.0,
+           "alpaca_symbol": "AMAT260821C00540000"}
+    scanner_exec._place_close(_FakeAx, row, lambda r: None)
+    legs = calls["legs"]
+    assert [l["position_intent"] for l in legs] == ["sell_to_close", "buy_to_close"]
+    assert legs[0]["symbol"] == "AMAT260821C00540000"
+    assert legs[1]["symbol"] == "AMAT260821C00590000"
+    assert calls["side"] == "long" and calls["qty"] == 4 and calls["paper"] is True
+
+
+def test_place_exit_legs_shape_and_tif():
+    """Options exits: tif 'day' (Alpaca options rule — gtc 422s), mleg body with
+    *_to_close intents only; equity exits keep gtc + reduce_only."""
+    from vantage_server.brokers import alpaca_execution as ax
+    legs = [{"symbol": "AMAT260821C00540000", "side": "sell",
+             "position_intent": "sell_to_close", "ratio_qty": 1},
+            {"symbol": "AMAT260821C00590000", "side": "buy",
+             "position_intent": "buy_to_close", "ratio_qty": 1}]
+    res = ax.place_exit("long", "AMAT", 4, strategy="scanner-spread",
+                        audit=lambda r: None, legs=legs)     # no live/paper → dry_run
+    assert res["mode"] == "dry_run"
+    o = res["order"]
+    assert o["time_in_force"] == "day" and o["legs"] == legs and not o["reduce_only"]
+    body = ax._alpaca_body(o)
+    assert body["order_class"] == "mleg" and "symbol" not in body
+    assert [l["position_intent"] for l in body["legs"]] == ["sell_to_close", "buy_to_close"]
+    # equity exit unchanged: gtc + reduce_only, no legs
+    res_eq = ax.place_exit("long", "SPY", 10, strategy="x", audit=lambda r: None)
+    assert res_eq["order"]["time_in_force"] == "gtc" and res_eq["order"]["reduce_only"]
+    # a leg that could OPEN exposure is refused outright
+    import pytest
+    with pytest.raises(ax.ExecutionViolation):
+        ax.place_exit("long", "AMAT", 4, strategy="x", audit=lambda r: None,
+                      legs=[{"symbol": "AMAT260821C00540000", "side": "buy",
+                             "position_intent": "buy_to_open", "ratio_qty": 1}])
+
+
 # ------------------------------------------------------ dedup
 
 def test_arm_gates_contract_risk(tmp_path, monkeypatch):

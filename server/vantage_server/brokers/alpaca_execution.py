@@ -252,12 +252,20 @@ def submit_strategy_order(order: dict, *, strategy: str, live_eligible: bool,
 def place_exit(position_side: str, symbol: str, qty: int, *, strategy: str,
                audit, order_type: str = "market", limit_price: float | None = None,
                stop_price: float | None = None, live: bool = False,
-               paper: bool = False) -> dict:
+               paper: bool = False, legs: list[dict] | None = None) -> dict:
     """Reduce-only exit for a strategy position (ADR-015, mirrors ADR-010 v3).
     Side is DERIVED from the position side, so this can never open/increase
     exposure — structural, not conventional. Exits are NOT capped or
     live-eligibility-gated (reducing risk is always allowed).
 
+    - **legs**: closing a MULTI-LEG options position — the caller supplies the
+      full leg set with ``*_to_close`` position intents (both legs of a spread;
+      a single-leg close leaves the other leg NAKED at the broker). The intent
+      is the structural reduce-only guarantee for options; Alpaca's
+      ``reduce_only`` body flag applies to the equity path only.
+    - Alpaca options orders accept ONLY time_in_force='day' (docs: options are
+      market/limit, day) — an OCC symbol or a legs order gets 'day'; the old
+      unconditional 'gtc' meant every option exit 422'd at the broker.
     - **paper=True** (endpoint is paper): the PAPER carve-out — submits the
       reduce-only close to Alpaca PAPER without the live-arming gates (the
       scanner-spread stop-loss). Refused if the endpoint is LIVE.
@@ -265,13 +273,24 @@ def place_exit(position_side: str, symbol: str, qty: int, *, strategy: str,
     Always audited."""
     if position_side not in ("long", "short"):
         raise ValueError(f"position_side must be long|short, got {position_side!r}")
+    if legs:
+        bad = [l for l in legs
+               if str(l.get("position_intent", "")).lower()
+               not in ("sell_to_close", "buy_to_close")]
+        if bad:
+            raise ExecutionViolation(
+                f"exit legs must all be *_to_close (reduce-only), got {bad}")
+    # OCC option symbols are root+YYMMDD+C/P+8 digits (≥16 chars) — options
+    # take tif 'day' (Alpaca rule); equity exits keep gtc protection.
+    is_option = bool(legs) or len(str(symbol)) >= 16
     order = {
         "symbol": str(symbol).upper(),
         "side": "sell" if position_side == "long" else "buy",   # reduce-only
         "qty": int(qty), "type": order_type, "est_usd": 0.0,
         "limit_price": limit_price, "stop_price": stop_price,
-        "time_in_force": "gtc",   # an exit that dies at the close protects nothing
-        "reduce_only": True,
+        "time_in_force": "day" if is_option else "gtc",
+        "reduce_only": not legs,
+        "legs": legs,
     }
     gates = {"live_requested": bool(live), "paper_requested": bool(paper),
              "autonomous_armed": autonomous_allowed(), "paper_endpoint": is_paper()}

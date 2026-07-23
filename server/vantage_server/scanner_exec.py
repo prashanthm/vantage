@@ -31,8 +31,34 @@ def _now() -> str:
     return _dt.datetime.now(_dt.timezone.utc).isoformat()
 
 
+def alpaca_last(symbol: str) -> float | None:
+    """Latest trade for the underlying from Alpaca's data API (IEX feed —
+    real-time-ish, vs yfinance's ~15m delay; the stop watcher's trigger quality
+    is only as good as this quote). Same paper keys; best-effort."""
+    import json as _json  # noqa: PLC0415
+    import os  # noqa: PLC0415
+    import urllib.request  # noqa: PLC0415
+    key = os.environ.get("ALPACA_API_KEY", "")
+    secret = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not key or not secret:
+        return None
+    try:
+        req = urllib.request.Request(
+            f"https://data.alpaca.markets/v2/stocks/{symbol.upper()}/trades/latest",
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            px = ((_json.loads(resp.read().decode("utf-8")) or {}).get("trade") or {}).get("p")
+        return float(px) if px else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def last_price(symbol: str) -> float | None:
-    """Latest trade price for the underlying (yfinance, ~15m delayed). Best-effort."""
+    """Latest trade price for the underlying: Alpaca data API first (real-time-ish
+    IEX), yfinance fast_info (~15m delayed) as the no-creds fallback."""
+    px = alpaca_last(symbol)
+    if px is not None:
+        return px
     try:
         import yfinance as yf  # noqa: PLC0415
         fi = yf.Ticker(symbol).fast_info
@@ -124,17 +150,55 @@ def tick(store, *, price_of=last_price) -> list[dict]:
     return actions
 
 
-def _place_close(_ax, row: dict, audit) -> None:
-    """Submit the reduce-only close of the spread to Alpaca paper (the exit leg).
-    Best-effort — a broker failure still books the modeled close in our ledger."""
+def occ_parse(sym: str) -> tuple[str, "_dt.date", str, float] | None:
+    """(root, expiry, right, strike) from an OCC-21 symbol, or None. Inverse of
+    scanner_spread.occ_symbol — the stored alpaca_symbol is the long leg, and
+    the close must rebuild BOTH legs at the same expiry."""
     try:
-        side = "long" if row.get("structure") == "debit_call_spread" else "short"
-        res = _ax.place_exit(side, row.get("alpaca_symbol") or row["underlying"],
-                             int(row.get("contracts") or 4), strategy="scanner-spread",
-                             audit=audit, paper=True)
+        tail = sym[-15:]
+        right = tail[6].upper()
+        if right not in ("C", "P") or not tail[:6].isdigit() or not tail[7:].isdigit():
+            return None
+        expiry = _dt.datetime.strptime(tail[:6], "%y%m%d").date()
+        return sym[:-15], expiry, right, int(tail[7:]) / 1000.0
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _close_legs(row: dict) -> list[dict] | None:
+    """The mleg CLOSE for a spread row: sell_to_close the long leg, buy_to_close
+    the short leg — both, always. A single-leg close (the pre-2026-07-23 bug)
+    left the short leg naked at the broker."""
+    from . import scanner_spread as _sp
+    parsed = occ_parse(str(row.get("alpaca_symbol") or ""))
+    if parsed is None or row.get("short_strike") is None:
+        return None
+    root, expiry, right, _ = parsed
+    short_sym = _sp.occ_symbol(root, expiry, right, float(row["short_strike"]))
+    return [
+        {"symbol": row["alpaca_symbol"], "side": "sell",
+         "position_intent": "sell_to_close", "ratio_qty": 1},
+        {"symbol": short_sym, "side": "buy",
+         "position_intent": "buy_to_close", "ratio_qty": 1},
+    ]
+
+
+def _place_close(_ax, row: dict, audit) -> None:
+    """Submit the reduce-only close of the spread to Alpaca paper — the SAME mleg
+    structure as the entry, reversed (both legs *_to_close). Best-effort — a
+    broker failure still books the modeled close in our ledger."""
+    try:
+        legs = _close_legs(row)
+        if legs is None:
+            log.warning("scanner_exec: row %s has no parseable alpaca_symbol — "
+                        "skipping broker close (ledger books modeled)", row.get("id"))
+            return
+        res = _ax.place_exit("long",   # a debit spread is a net-long position
+                             row["underlying"], int(row.get("contracts") or 4),
+                             strategy="scanner-spread", audit=audit, paper=True,
+                             legs=legs)
         if res.get("order_id"):
-            row_store_exit = res["order_id"]
-            log.info("scanner_exec: exit order %s for row %s", row_store_exit, row["id"])
+            log.info("scanner_exec: exit order %s for row %s", res["order_id"], row["id"])
     except Exception as e:  # noqa: BLE001
         log.warning("scanner_exec: exit submit failed for row %s: %s", row.get("id"), e)
 
