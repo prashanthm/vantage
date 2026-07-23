@@ -83,3 +83,62 @@ def test_htf_setup_aligned_flag(monkeypatch):
 def test_none_when_no_entry_time():
     assert dna._ict_at_entry(_FakeStore({}), "2026-07-16", "SPX", None,
                              {"strategy": "long_call"}) is None
+
+
+# ── entry-anchored FVG adjacency + hourly sweep context ──────────────────────
+
+def _sqlite_store(tmp_path):
+    from vantage_server.store import Store, _SqliteBackend
+    db_path = tmp_path / "vantage.db"
+    store = Store.__new__(Store)
+    store.data_dir = tmp_path
+    store._db_path = db_path
+    store._backend = _SqliteBackend(tmp_path, db_path)
+    return store
+
+
+def test_fvg_sweep_context(tmp_path):
+    """Two-day synthetic tape: a PRIOR-day hourly swing high (7520) is swept on
+    the current morning (wick 7522, close back), and a bull FVG straddling the
+    entry price shows on 1m. Everything anchored to the ENTRY bar."""
+    from zoneinfo import ZoneInfo
+
+    def _seed(store, day, spike_hi=None, spike_minute=None, fvg=False):
+        ts, op, hi, lo, cl = [], [], [], [], []
+        for i in range(390):
+            m = 570 + i
+            ts.append(f"{day}T{m // 60:02d}:{m % 60:02d}:00-04:00")
+            o = c = 7500.0
+            h, l = 7500.5, 7499.5
+            if spike_minute is not None and i == spike_minute:
+                h = spike_hi
+                c = 7515.0 if spike_hi > 7520 else c   # sweep bar closes back below
+            if fvg and i == 200:
+                o = c = 7503.0; h, l = 7504.0, 7502.0
+            elif fvg and i == 201:
+                o = c = 7506.0; h, l = 7508.5, 7503.5
+            elif fvg and i == 202:
+                o = c = 7509.0; h, l = 7510.0, 7508.0
+            op.append(o); cl.append(c); hi.append(h); lo.append(l)
+        store.save_intraday_bars("^GSPC", day, "1m",
+                                 {"ts": ts, "open": op, "high": hi, "low": lo,
+                                  "close": cl, "volume": [1000] * 390})
+
+    store = _sqlite_store(tmp_path)
+    # prior day: a 12:00-hour swing high at 7520 (the hourly pivot to sweep)
+    _seed(store, "2026-07-15", spike_hi=7520.0, spike_minute=150)
+    # current day: 10:15 wick to 7522 closing 7515 (the sweep) + the 1m FVG
+    _seed(store, "2026-07-16", spike_hi=7522.0, spike_minute=45, fvg=True)
+
+    entry = _dt.datetime(2026, 7, 16, 13, 0, tzinfo=ZoneInfo("America/New_York"))
+    ctx = dna._fvg_sweep_context(store, "2026-07-16", "SPX", entry, 7506.0)
+    assert ctx and ctx["entry_price"] == 7506.0
+    g1 = ctx["fvgs_at_entry"]["1m"]
+    assert any(g["side"] == "bull" and g["lo"] == 7504.0 and g["hi"] == 7508.0
+               and g["inside"] for g in g1)
+    assert any(s["side"] == "BSL" and s["level"] == 7520.0
+               for s in ctx["htf_sweeps"])
+    # entry BEFORE the FVG formed -> not visible (anchored to entry, no lookahead)
+    early = _dt.datetime(2026, 7, 16, 12, 0, tzinfo=ZoneInfo("America/New_York"))
+    ctx2 = dna._fvg_sweep_context(store, "2026-07-16", "SPX", early, 7506.0)
+    assert not any(g["lo"] == 7504.0 for g in ctx2["fvgs_at_entry"]["1m"])

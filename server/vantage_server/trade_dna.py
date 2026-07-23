@@ -173,6 +173,100 @@ def _trade_dir(trade: dict) -> int:
     return 0
 
 
+def _bucket(ts: list, hi: list, lo: list, minutes: int, upto: int):
+    """1m highs/lows → N-minute buckets over [0..upto], wall-clock aligned.
+    Returns (b_ts, b_hi, b_lo) — enough for FVG detection (no O/C needed)."""
+    import datetime as _d
+    b_ts, b_hi, b_lo = [], [], []
+    key = None
+    for k in range(upto + 1):
+        t = _d.datetime.fromisoformat(ts[k])
+        bkey = t.replace(minute=(t.minute // minutes) * minutes, second=0, microsecond=0)
+        if key is None or bkey != key:
+            key = bkey
+            b_ts.append(bkey.isoformat()); b_hi.append(hi[k]); b_lo.append(lo[k])
+        else:
+            b_hi[-1] = max(b_hi[-1], hi[k]); b_lo[-1] = min(b_lo[-1], lo[k])
+    return b_ts, b_hi, b_lo
+
+
+#: an FVG counts as "adjacent to the entry" when its zone overlaps
+#: price ± this fraction (0.15% — the app's confluence tolerance).
+FVG_ADJ_TOL_PCT = 0.15
+#: HTF sweep lookback: hourly bars before entry scanned for sweep events.
+HTF_SWEEP_LOOKBACK = 12
+
+
+def _fvg_sweep_context(store, day: str, underlying: str, entry_et,
+                       entry_price: float | None) -> dict | None:
+    """The entry-anchored multi-timeframe read the journal review asks for:
+    which unfilled FVGs (1m / 5m / 15m) sat ADJACENT to the entry price at the
+    moment of entry, and whether a HIGHER-TIMEFRAME (hourly) swing had just
+    been liquidity-swept (wick through a pivot, close back). Deterministic
+    context for Mira — the breaker-fvg-anchor goal showed FVG/level adjacency
+    carries no standalone edge, so this is framed as context, never a signal."""
+    from . import ict as _ict
+    from .spx_snapshot import _resample_hourly
+    bar_sym = "^GSPC" if underlying == "SPX" else underlying
+    ohlc = store.load_intraday_bars_range(bar_sym, day, "1m", days=5)
+    if not ohlc or not ohlc.get("ts"):
+        ohlc = store.load_intraday_bars(bar_sym, day, "1m")
+    if not ohlc or not ohlc.get("ts") or entry_et is None:
+        return None
+    ts, op = ohlc["ts"], ohlc["open"]
+    hi, lo, cl = ohlc["high"], ohlc["low"], ohlc["close"]
+    iso = entry_et.isoformat()
+    ei = max((k for k in range(len(ts)) if ts[k] <= iso), default=None)
+    if ei is None or ei < 3:
+        return None
+    price = float(entry_price) if entry_price is not None else float(cl[ei])
+    tol = price * FVG_ADJ_TOL_PCT / 100.0
+
+    fvgs_by_tf = {}
+    for name, mins in (("1m", 1), ("5m", 5), ("15m", 15)):
+        if mins == 1:
+            f_ts, f_hi, f_lo, f_ei = ts, hi, lo, ei
+        else:
+            f_ts, f_hi, f_lo = _bucket(ts, hi, lo, mins, ei)
+            f_ei = len(f_ts) - 1
+        rows = []
+        for g in _ict.fresh_fvgs(f_hi, f_lo, upto=f_ei):
+            if g["lo"] - tol <= price <= g["hi"] + tol:
+                rows.append({
+                    "side": g["side"], "lo": round(g["lo"], 2), "hi": round(g["hi"], 2),
+                    "formed_at": str(f_ts[g["formed_i"]])[11:16],
+                    "inside": bool(g["lo"] <= price <= g["hi"]),
+                    "dist_pt": 0.0 if g["lo"] <= price <= g["hi"]
+                        else round(min(abs(price - g["lo"]), abs(price - g["hi"])), 2),
+                })
+        # nearest first, capped — ±0.15% is ~11pt at SPX prices and 1m gaps
+        # are plentiful; the read is "what sat AT the fill", not a census.
+        rows.sort(key=lambda r: r["dist_pt"])
+        fvgs_by_tf[name] = rows[:4]
+
+    # hourly sweeps: pivot (3/3) wicked through with a close back inside,
+    # within the last HTF_SWEEP_LOOKBACK hourly bars before entry.
+    h_op, h_hi, h_lo, h_cl, _ = _resample_hourly(ts, op, hi, lo, cl, ei)
+    ph, pl = _ict.pivots(h_hi, h_lo, n=3)
+    n_h = len(h_hi)
+    sweeps = []
+    for is_high, book in ((True, ph), (False, pl)):
+        for pi, level in book.items():
+            for j in range(pi + 3, n_h):
+                wicked = h_hi[j] > level if is_high else h_lo[j] < level
+                if not wicked:
+                    continue
+                back = h_cl[j] < level if is_high else h_cl[j] > level
+                if back and n_h - 1 - j < HTF_SWEEP_LOOKBACK:
+                    sweeps.append({"side": "BSL" if is_high else "SSL",
+                                   "level": round(level, 2),
+                                   "hours_before_entry": n_h - 1 - j})
+                break   # first violation resolves the level (sweep or break)
+    sweeps.sort(key=lambda s: s["hours_before_entry"])
+    return {"entry_price": round(price, 2), "tol_pct": FVG_ADJ_TOL_PCT,
+            "fvgs_at_entry": fvgs_by_tf, "htf_sweeps": sweeps[:3]}
+
+
 def _ict_at_entry(store, day: str, underlying: str, entry_et, trade: dict) -> dict | None:
     """The ICT structure AS OF the trade's entry — reuses build_snapshot(as_of=…)
     so the liquidity / order-blocks / FVGs / draw / hourly ict_htf are exactly the
@@ -213,6 +307,14 @@ def _ict_at_entry(store, day: str, underlying: str, entry_et, trade: dict) -> di
         setup_sign = 1 if htf.get("dir") == "long" else -1
         htf_setup_aligned = (tdir == setup_sign)
 
+    # entry-anchored multi-TF FVG adjacency + hourly sweep read (best-effort)
+    tf_ctx = None
+    try:
+        tf_ctx = _fvg_sweep_context(store, day, underlying, entry_et,
+                                    trade.get("spot_at_entry"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("DNA fvg/sweep context failed for %s %s: %s", underlying, day, e)
+
     return {
         "as_of": snap.get("as_of"),
         "price": snap.get("price"),
@@ -226,6 +328,10 @@ def _ict_at_entry(store, day: str, underlying: str, entry_et, trade: dict) -> di
             "midday_entry": midday_entry,
             "htf_setup_aligned": htf_setup_aligned,
         },
+        # FVGs adjacent to the ENTRY PRICE per timeframe + recent hourly
+        # liquidity sweeps — {entry_price, tol_pct, fvgs_at_entry:{1m,5m,15m},
+        # htf_sweeps}. Context, not signal (breaker-fvg-anchor goal).
+        "entry_context": tf_ctx,
     }
 
 

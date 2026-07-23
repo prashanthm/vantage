@@ -1492,6 +1492,60 @@ function DnaReadout({ dna }) {
             : <td><b className={dna.realized >= 0 ? "vg-up" : "vg-down"}>{dna.realized >= 0 ? "+" : "−"}${Math.abs(dna.realized).toLocaleString()}</b>
               {" "}· {dna.status.replace("_", " ")}</td>}</tr>
       </tbody></table>
+      <FvgAtEntry ict={dna.ict} />
+    </div>
+  );
+}
+
+// FVGs adjacent to the entry price, one dropdown per timeframe, + the recent
+// hourly liquidity sweeps. Deterministic context (breaker-fvg-anchor goal:
+// adjacency alone is NOT a signal) — shown so the operator and Mira judge the
+// entry against the same structure.
+function FvgAtEntry({ ict }) {
+  const ctx = ict && ict.entry_context;
+  if (!ctx) return null;
+  const tfs = ["1m", "5m", "15m"];
+  const fvgs = ctx.fvgs_at_entry || {};
+  return (
+    <div style={{ marginTop: 8 }}>
+      <div className="vg-kicker" style={{ fontSize: 12 }}>
+        Structure at entry <span className="vg-note" style={{ fontWeight: 400 }}>
+          — unfilled gaps within ±{ctx.tol_pct}% of the {ctx.entry_price} fill · code, never Mira</span>
+      </div>
+      <div className="vg-row" style={{ gap: 10, alignItems: "flex-start", flexWrap: "wrap", marginTop: 4 }}>
+        {tfs.map((tf) => {
+          const rows = fvgs[tf] || [];
+          return (
+            <details key={tf} style={{ minWidth: 150 }}>
+              <summary className="vg-note" style={{ cursor: "pointer" }}>
+                {tf} gaps <b className={rows.length ? undefined : "vg-faint"}>({rows.length})</b>
+              </summary>
+              {rows.length ? (
+                <table className="vg-mini" style={{ marginTop: 4 }}><tbody>
+                  {rows.map((g, i) => (
+                    <tr key={i}>
+                      <td><span className={cls("vg-badge", g.side === "bull" ? "good" : "bad")}>{g.side}</span></td>
+                      <td className="num">{g.lo}–{g.hi}</td>
+                      <td className="vg-note">{g.formed_at}{g.inside ? " · entry inside" : ` · ${g.dist_pt}pt away`}</td>
+                    </tr>
+                  ))}
+                </tbody></table>
+              ) : <p className="vg-note" style={{ margin: "4px 0 0" }}>none adjacent</p>}
+            </details>
+          );
+        })}
+        <span className="vg-note">
+          HTF sweeps:{" "}
+          {(ctx.htf_sweeps || []).length
+            ? ctx.htf_sweeps.map((s, i) => (
+                <span key={i} className={cls("vg-badge", s.side === "SSL" ? "good" : "bad")}
+                  style={{ marginRight: 4 }}
+                  title={`hourly swing ${s.level} wicked through and reclaimed ${s.hours_before_entry}h before entry`}>
+                  {s.side} {s.level} · {s.hours_before_entry}h ago
+                </span>))
+            : "none in the last 12 hourly bars"}
+        </span>
+      </div>
     </div>
   );
 }
@@ -1535,6 +1589,12 @@ function buildAnalystPrompt(dna, operator, session) {
     `EXIT at ${dna.underlying} ${x.spot}${x.is_settlement ? " (this was the expiry settlement, not a sell)" : ""}. Nearest forecast level: ${j(x.correlation && x.correlation.nearest)}. Technicals at exit: ${j(x.technicals)}. Fill-quality read: ${j(x.quality)}.`,
     `Price action around the exit:`,
     win(x.window),
+    ``,
+    dna.ict ? [
+      `ICT STRUCTURE AT ENTRY (deterministic engine, time-anchored to the fill): draw ${j(dna.ict.draw)} · flags ${j(dna.ict.flags)} · hourly setup ${j(dna.ict.htf_setup)}.`,
+      dna.ict.entry_context ? `FVGs ADJACENT TO THE ENTRY PRICE (${dna.ict.entry_context.entry_price}, ±${dna.ict.entry_context.tol_pct}%) by timeframe: ${j(dna.ict.entry_context.fvgs_at_entry)}. RECENT HOURLY LIQUIDITY SWEEPS before entry (wick through a swing, close back): ${j(dna.ict.entry_context.htf_sweeps)}.` : ``,
+      `WEIGH THIS STRUCTURE: was the entry into/off an adjacent FVG, and did it follow an HTF sweep? Say whether the structure supported or fought this entry — as context alongside the tape, not as a signal by itself (level/FVG adjacency has no standalone backtested edge here).`,
+    ].filter(Boolean).join("\n") : ``,
     ``,
     dna.news ? `NEWS & SENTIMENT for ${dna.news.symbol} that session (sentiment is an ESTIMATED lexicon lean over headlines, not ground truth — cite it as such): ${j(dna.news)}.` : `No news available for the session.`,
     ``,
