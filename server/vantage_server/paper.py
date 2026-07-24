@@ -792,11 +792,20 @@ def build_spread_book(store: Store) -> dict:
     # list but never grade the book — only money-at-risk closes do.
     real = [r for r in closed
             if r.get("exit_reason") not in ("never_filled", "contract_risk")]
+    # per-STRATEGY track record: rows are tagged with the scanner that armed
+    # them (setup column; legacy NULL rows predate reclaim_long = ict_htf).
+    by_strategy = {}
+    strat = lambda r: r.get("setup") or "ict_htf"  # noqa: E731
+    for name in sorted({strat(r) for r in real} | {strat(r) for r in open_rows}):
+        rows_s = [r for r in real if strat(r) == name]
+        by_strategy[name] = {**paper_stats(rows_s),
+                             "open": sum(1 for r in open_rows if strat(r) == name)}
     return {
         "book": "scanner-spread",
         "open": open_rows,
         "closed": sorted(closed, key=lambda r: (r.get("closed_at") or ""), reverse=True),
         "stats": paper_stats(real),
+        "by_strategy": by_strategy,
         "equity_curve": equity_curve(real),
     }
 

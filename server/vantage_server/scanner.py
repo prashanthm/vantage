@@ -267,8 +267,99 @@ def _scan_ict_htf(store, symbol: str) -> dict | None:
     return setup
 
 
+def _scan_breakout_hold(store, symbol: str) -> dict | None:
+    """LONG-ONLY hourly breakout-hold (scanner-families goal, 2026-07-24).
+
+    The research twist: the originally-framed "reclaim" edge decomposed into
+    two classes. TRUE support-reclaims (level held above first, lost, then
+    reclaimed) are marginal: PF 1.40, halves 1.04/1.34 — NOT shipped. The
+    money was the other class: a >=2-pivot resistance cluster price had
+    NEVER held above, then 3 CONSECUTIVE hourly closes above it — the
+    breakout that holds. n=416 longs, WR 0.822, PF 3.61, halves 6.10/2.37,
+    positive every year, survives ex-top-5 symbols. Shorts: graveyard.
+
+    signal: zone = >=2 hourly 3/3 pivots within 0.4% (level = mean); price
+    below the level (a close < level − 0.1×ATR) with NO prior close above
+    level + 0.1×ATR since the zone was born; then 3 consecutive closes
+    above the level. entry = 3rd close; invalid = level − 0.5×ATR; target =
+    next zone above within 5×ATR (A+ when present — the with-target
+    population is what validated; B otherwise). Only the most recent
+    completed signal is surfaced; older than _FRESH_BARS => stale."""
+    from . import ict as _ict
+    ser = load_hourly_series(store, symbol, days=90)
+    if not ser or not ser.get("ts") or len(ser["ts"]) < 250:
+        return None
+    ts, hi, lo, cl = ser["ts"], ser["high"], ser["low"], ser["close"]
+    n = len(cl)
+    ph, pl = _ict.pivots(hi, lo, n=3)
+    pts = sorted([(i, p) for i, p in ph.items()] + [(i, p) for i, p in pl.items()],
+                 key=lambda x: x[1])
+    zones, cur = [], []
+    for i, p in pts:
+        if cur and abs(p - cur[-1][1]) / cur[-1][1] > 0.004:
+            if len(cur) >= 2:
+                zones.append((sum(x[1] for x in cur) / len(cur), max(x[0] for x in cur) + 3))
+            cur = []
+        cur.append((i, p))
+    if len(cur) >= 2:
+        zones.append((sum(x[1] for x in cur) / len(cur), max(x[0] for x in cur) + 3))
+    if not zones:
+        return {"present": False, "symbol": symbol, "as_of": ts[-1],
+                "bars": n, "last_bar": ts[-1]}
+    levels = sorted(z[0] for z in zones)
+    best = None
+    for level, born in zones:
+        # fresh-breakout precondition: below the level, never held above it
+        bi = None
+        for j in range(born, n):
+            a = _ict.atr(hi, lo, cl, j)
+            if a <= 0:
+                continue
+            if cl[j] > level + 0.10 * a:
+                bi = None
+                break                      # held above before breaking — reclaim class, skip
+            if cl[j] < level - 0.10 * a:
+                bi = j
+                break                      # confirmed below; watch for the breakout
+        if bi is None:
+            continue
+        streak = 0
+        for j in range(bi + 1, n):
+            streak = streak + 1 if cl[j] > level else 0
+            if streak >= 3:
+                a = _ict.atr(hi, lo, cl, j)
+                if a <= 0:
+                    break
+                tgts = [p for p in levels
+                        if p > cl[j] and p - cl[j] <= 5 * a
+                        and abs(p - level) / level > 0.004]
+                cand = {"level": round(level, 2), "entry_i": j,
+                        "ce": round(cl[j], 2),
+                        "invalid": round(level - 0.5 * a, 2),
+                        "targets": ([{"r": 1, "price": round(min(tgts), 2)}]
+                                    if tgts else []),
+                        "tier": "A+" if tgts else "B"}
+                if best is None or cand["entry_i"] > best["entry_i"]:
+                    best = cand
+                break
+    if best is None:
+        return {"present": False, "symbol": symbol, "as_of": ts[-1],
+                "bars": n, "last_bar": ts[-1]}
+    bars_ago = n - 1 - best["entry_i"]
+    out = {"present": True, "symbol": symbol, "dir": "long",
+           "tier": best["tier"], "ce": best["ce"], "invalid": best["invalid"],
+           "targets": best["targets"], "level": best["level"],
+           "bars_ago": bars_ago, "as_of": ts[best["entry_i"]],
+           "bars": n, "last_bar": ts[-1],
+           "note": f"first 3-close hold above the {best['level']} pivot cluster"}
+    if bars_ago > _FRESH_BARS:
+        out["stale"] = True
+        out["outcome"] = "open"
+    return out
+
+
 #: scanner registry — id → per-symbol detector. Add a scanner = add an entry.
-SCANNERS = {"ict_htf": _scan_ict_htf}
+SCANNERS = {"ict_htf": _scan_ict_htf, "breakout_hold": _scan_breakout_hold}
 
 #: tier sort weight (A+ first, then B, then present-no-tier).
 _TIER_RANK = {"A+": 0, "B": 1}
@@ -447,14 +538,18 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
             known.add(spread["setup_key"])
             continue
         broker_fields = _submit_paper_spread(spread) if use_alpaca else None
+        strategy = scan_result.get("scanner") or "ict_htf"
         row = {
             **spread,
             "opened_at": now,
             "session": (hit.get("as_of") or "")[:10] or None,
             "source": "scanner-auto",
+            # which scanner STRATEGY armed this trade — the per-strategy
+            # track record keys off this (legacy NULL rows read as ict_htf)
+            "setup": strategy,
             "status": "open",
             "filled_at": now,
-            "opened_price_src": f"scanner A+ setup · debit {spread.get('debit_src', 'modeled')}",
+            "opened_price_src": f"scanner A+ setup ({strategy}) · debit {spread.get('debit_src', 'modeled')}",
         }
         if broker_fields:
             # real Alpaca-paper order: pending its fill (the reconcile loop confirms).

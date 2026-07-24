@@ -19,3 +19,9 @@ if [ -f "$LOG" ] && [ "$(wc -c < "$LOG")" -gt 2097152 ]; then mv "$LOG" "$LOG.1"
 CONTAINER="${VANTAGE_BACKEND_CONTAINER:-vantage-vantage-backend-1}"
 OUT=$(docker exec "$CONTAINER" python -m vantage_server.scanner --scanner ict_htf 2>&1 || true)
 printf '%s scanner: %s\n' "$STAMP" "$OUT" >> "$LOG"
+# second strategy family: long-only hourly breakout-hold (scanner-families
+# goal — longs PF 3.60 validated; arms through the same A+ pipe, tagged
+# setup=breakout_hold for the per-strategy track record). Bars already seeded
+# by the ict_htf pass — this one detects only.
+OUT=$(docker exec "$CONTAINER" python -m vantage_server.scanner --scanner breakout_hold 2>&1 || true)
+printf '%s scanner: %s\n' "$STAMP" "$OUT" >> "$LOG"

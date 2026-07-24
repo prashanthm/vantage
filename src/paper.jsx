@@ -333,6 +333,31 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           {onAlpaca && <> · <b style={{ color: "var(--vg-up)" }}>Alpaca paper</b> (real fills)</>}
         </span>
       </div>
+      {d.by_strategy && Object.keys(d.by_strategy).length > 0 && (
+        <div className="vg-tablewrap" style={{ marginTop: 10 }}>
+          <div className="vg-kicker" style={{ fontSize: 12, marginBottom: 4 }}>
+            By strategy
+            <span className="vg-note" style={{ fontWeight: 400 }}> — which scanner armed the trade · money-at-risk closes only</span>
+          </div>
+          <table className="vg-table">
+            <thead><tr><th>Strategy</th><th className="num">Open</th><th className="num">Closed</th>
+              <th className="num">Win rate</th><th className="num">PF</th><th className="num">Net P&amp;L</th></tr></thead>
+            <tbody>
+              {Object.entries(d.by_strategy).map(([name, s]) => (
+                <tr key={name}>
+                  <td><span className="vg-badge plain">{name}</span></td>
+                  <td className="num">{s.open || 0}</td>
+                  <td className="num">{s.n || 0}</td>
+                  <td className="num">{s.n ? pct(s.win_rate) : "—"}</td>
+                  <td className="num">{s.profit_factor != null ? s.profit_factor.toFixed(2) : "—"}</td>
+                  <td className="num">{s.n
+                    ? <b className={s.total_pnl >= 0 ? "vg-up" : "vg-down"}>{usd(s.total_pnl)}</b> : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {stats.n > 0 && (
         <div className="vg-stats" style={{ marginTop: 10 }}>
           <Tile label="Net P&L" value={usd(stats.total_pnl)} tone={stats.total_pnl >= 0 ? "good" : "bad"} />

@@ -125,16 +125,24 @@ def h1_signals(d):
             L = z["level"]
             i = z["born_i"]
             n = len(cl)
-            # find the BREAK (first close through by >= BREAK_ATR x ATR)
+            # find the BREAK (first close through by >= BREAK_ATR x ATR) with the
+            # HELD-FIRST guard: the level must have been respected from the other
+            # side before the break counts (a pivot cluster sitting beyond flat
+            # price otherwise reads as perpetually broken — degenerate reclaims).
             bi = bside = None
+            seen_above = seen_below = False
             for j in range(i, n):
                 a = _atr(hi, lo, cl, j)
                 if a <= 0:
                     continue
                 if cl[j] > L + BREAK_ATR * a:
-                    bi, bside = j, +1; break          # broke UP through
-                if cl[j] < L - BREAK_ATR * a:
-                    bi, bside = j, -1; break          # broke DOWN through
+                    if seen_below:
+                        bi, bside = j, +1; break      # held as resistance, broke UP
+                    seen_above = True
+                elif cl[j] < L - BREAK_ATR * a:
+                    if seen_above:
+                        bi, bside = j, -1; break      # held as support, broke DOWN
+                    seen_below = True
             if bi is None:
                 continue
             # reclaim: RECLAIM_CLOSES consecutive closes back through L

@@ -58,6 +58,9 @@ _PAPER_ADDED_COLUMNS = {
     "broker_status": "TEXT",        # new|accepted|partially_filled|filled|canceled|rejected
     "filled_avg": "REAL",           # real entry fill price from Alpaca
     "alpaca_symbol": "TEXT",        # the OCC option symbol / leg reference
+    # v26: which scanner STRATEGY armed the trade ('ict_htf' | 'reclaim_long');
+    # NULL = legacy pre-tag rows (all ict_htf). Keys the per-strategy record.
+    "setup": "TEXT",
 }
 
 DB_FILENAME = "vantage.db"

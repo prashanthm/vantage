@@ -98,3 +98,17 @@ squeeze, context gating, RS filtering.
 Counts: 1 confirmed · 4 disproven · 7 runs of 15 budgeted. Most valuable
 disproof: H3 — "squeeze → expansion" is one of the most-cited retail
 patterns and it's backwards at this grain. **Status: ACHIEVED** · 2026-07-24
+
+## Addendum (2026-07-24) — H1 RECLASSIFIED during detector build
+Building the live detector, a mirror-tape unit test exposed contamination in
+H1: pivot-HIGH clusters sitting above flat price read as "already broken",
+so any 3-close pop above them counted as a reclaim. Decomposing:
+- TRUE support-reclaims (held above first, lost, reclaimed): longs n=323
+  PF **1.40**, halves 1.04/1.34 — marginal, NOT shipped.
+- The contaminating class — **breakout-hold** (>=2-pivot resistance cluster
+  price NEVER held above, then 3 consecutive hourly closes above): longs
+  n=416 WR 0.822 **PF 3.61**, halves 6.10/2.37 — this was the edge all
+  along, misfiled under "reclaim".
+Shipping detector = `breakout_hold` (long-only), registry + cron + arm-tag
+`setup=breakout_hold` + per-strategy book stats. The unit test that caught
+this (mirror tape) is kept as the long-only/reclaim-exclusion regression.

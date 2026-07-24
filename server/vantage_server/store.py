@@ -1603,7 +1603,9 @@ class Store:
                 "underlying_invalid", "setup_key",
                 # v25 Alpaca-paper execution ledger (NULL for sim rows)
                 "broker", "entry_order_id", "exit_order_id", "broker_status",
-                "filled_avg", "alpaca_symbol")
+                "filled_avg", "alpaca_symbol",
+                # v26 arming-strategy tag (per-strategy track record)
+                "setup")
         import json as _json
 
         def _val(c):
