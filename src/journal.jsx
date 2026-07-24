@@ -967,12 +967,16 @@ function JournalAnalysisPanel({ sym }) {
     setRead({ text, data, mode: data ? "structured" : "prose" });
     if (text.trim()) {
       const b = res.bundle;
+      // the SWOT now lives as one section of the generic schema (cf50ddc) —
+      // pull it out of the parsed response for the stored row's quad render
+      const swotSec = data && Array.isArray(data.sections)
+        ? data.sections.find((s) => s && s.kind === "swot") : null;
       saveJournalAnalysis({
         period: win.period, window_from: win.from, window_to: win.to,
         underlying: sym, rubric_version: b.rubric_version,
         trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
         patterns: b.patterns, recommendations: b.recommendations,
-        swot: swot || null, narrative: text,
+        swot: (swotSec && swotSec.swot) || null, narrative: text,
       }).then((r) => {
         setSaved(true);
         // the run is now a saved history row — clear the live view and expand
@@ -981,6 +985,10 @@ function JournalAnalysisPanel({ sym }) {
           setRead(null); setBundle(null);
           if (r && r.id) setOpenId(r.id);
         });
+      }).catch((e) => {
+        // the streamed text stays on screen; say plainly that it didn't stick
+        setRead((cur) => ({ ...(cur || {}), text,
+          error: `analysis rendered but SAVE FAILED: ${String((e && e.message) || e)}` }));
       });
     }
   };

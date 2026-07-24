@@ -1933,8 +1933,8 @@ ${ref}`;
   function SwotQuad({ kind, title, tag, items }) {
     return /* @__PURE__ */ React.createElement("div", { className: cls("vg-swot-q", kind) }, /* @__PURE__ */ React.createElement("div", { className: "vg-swot-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-swot-badge" }, kind.toUpperCase()), /* @__PURE__ */ React.createElement("b", null, title), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-swot-tag" }, tag)), items.length ? /* @__PURE__ */ React.createElement("ul", { className: "vg-swot-items" }, items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-cite", kind) }, c)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 13 } }, "none noted this window"));
   }
-  function SwotRender({ swot: swot2 }) {
-    const s = swot2 && swot2.swot || swot2 || {};
+  function SwotRender({ swot }) {
+    const s = swot && swot.swot || swot || {};
     return /* @__PURE__ */ React.createElement("div", { className: "vg-swot vg-swot-grid" }, SWOT_QUADS.map((q) => /* @__PURE__ */ React.createElement(SwotQuad, { key: q.key, kind: q.kind, title: q.title, tag: q.tag, items: s[q.key] || [] })));
   }
   var TONE = { good: "vg-up", bad: "vg-down", warn: "vg-warn" };
@@ -6773,6 +6773,7 @@ ${ref}`;
       setRead({ text, data, mode: data ? "structured" : "prose" });
       if (text.trim()) {
         const b2 = res.bundle;
+        const swotSec = data && Array.isArray(data.sections) ? data.sections.find((s) => s && s.kind === "swot") : null;
         saveJournalAnalysis({
           period: win.period,
           window_from: win.from,
@@ -6784,7 +6785,7 @@ ${ref}`;
           scores: b2.scores,
           patterns: b2.patterns,
           recommendations: b2.recommendations,
-          swot: swot || null,
+          swot: swotSec && swotSec.swot || null,
           narrative: text
         }).then((r) => {
           setSaved(true);
@@ -6793,6 +6794,12 @@ ${ref}`;
             setBundle(null);
             if (r && r.id) setOpenId(r.id);
           });
+        }).catch((e) => {
+          setRead((cur) => ({
+            ...cur || {},
+            text,
+            error: `analysis rendered but SAVE FAILED: ${String(e && e.message || e)}`
+          }));
         });
       }
     };
