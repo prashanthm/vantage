@@ -5109,7 +5109,11 @@ ${ref}`;
 
   // src/scanner.jsx
   var { useState: useState9, useEffect: useEffect7 } = React;
-  var SCANNERS = [{ id: "ict_htf", label: "A+ ICT hourly setup" }];
+  var SCANNERS = [
+    { id: "ict_htf", label: "A+ ICT hourly setup" },
+    { id: "breakout_hold", label: "Breakout hold \u2014 3 closes above a pivot cluster (long)" },
+    { id: "rsi2_mr", label: "RSI(2) dip in uptrend \u2014 time/MA exit (long)" }
+  ];
   function ago(iso) {
     if (!iso) return "never";
     const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1e3);

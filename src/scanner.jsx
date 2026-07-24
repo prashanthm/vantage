@@ -7,7 +7,13 @@ import { useLive, getScanner, refreshScanner, addScannerTicker, removeScannerTic
 
 const { useState, useEffect } = React;
 
-const SCANNERS = [{ id: "ict_htf", label: "A+ ICT hourly setup" }];
+// one entry per strategy family (mirror server SCANNERS; labels carry the
+// validated read so the picker doubles as the strategy legend)
+const SCANNERS = [
+  { id: "ict_htf", label: "A+ ICT hourly setup" },
+  { id: "breakout_hold", label: "Breakout hold — 3 closes above a pivot cluster (long)" },
+  { id: "rsi2_mr", label: "RSI(2) dip in uptrend — time/MA exit (long)" },
+];
 
 // "3h ago" from an ISO ran_at.
 function ago(iso) {
