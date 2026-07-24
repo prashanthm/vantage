@@ -181,3 +181,20 @@ goal: 2 confirmed (breakout_hold, RSI2-MR) · 4 disproven · 3 inconclusive ·
 11 runs of 15. Follow-up candidate: H6 detector as a third scanner family —
 note its exit is time/MA-based (2–5 sessions), so the trade expression
 needs its own design (the debit-spread arm assumes a level target).
+
+# Wave 3 — exit-ladder for breakout_hold (2026-07-24, pre-registered before run)
+
+## H10 laddered exit on H1-longs (breakout_hold class)
+Ladder mirrors the validated ICT ladder, adapted to keep the FINAL exit at
+the validated zone target (execution-neutral for the spread pipe — the
+short strike is targets[-1] and must not move):
+  - tgt ≤ 1R           → single full exit at tgt (ladder degenerates to baseline)
+  - 1R < tgt ≤ 2R      → 50% at 1R (stop→breakeven after), 50% at tgt
+  - tgt > 2R           → 50% at 1R (BE after), 25% at 2R, 25% at tgt
+Stop-first on ambiguous bars, TIME_CAP mark-to-close on the残 remainder —
+same conventions as _simulate.
+prediction: ladder RAISES win rate and cuts avg loss ≥25% (the BE move
+after TP1 converts full-stop losses into scratches); PF stays ≥ 2/3 of the
+H1-longs baseline (≥ ~2.4). Halves must both stay ≥ 1.1. If PF < 2/3
+baseline → disproven: ladder stays OFF breakout_hold cards (single target
+remains the displayed plan).
