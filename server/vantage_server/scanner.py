@@ -278,9 +278,12 @@ def _bh_ladder(entry: float, invalid: float, zone: float) -> list[dict]:
         return [{"r": 1.0, "price": round(zone, 2), "size": 1.0, "note": "zone target"}]
     rr = round((zone - entry) / risk, 1)
     tp1, tp2 = entry + risk, entry + 2 * risk
-    if zone <= tp1:
+    # a rung within 0.15R of the zone is a duplicate price on the card — merge
+    # it into the zone rung (degenerating TOWARD the validated full-exit-at-zone)
+    near = 0.15 * risk
+    if zone <= tp1 + near:
         return [{"r": rr, "price": round(zone, 2), "size": 1.0, "note": "zone target"}]
-    if zone <= tp2:
+    if zone <= tp2 + near:
         return [{"r": 1.0, "price": round(tp1, 2), "size": 0.5,
                  "note": "bank ½ · stop → breakeven"},
                 {"r": rr, "price": round(zone, 2), "size": 0.5, "note": "zone target"}]
