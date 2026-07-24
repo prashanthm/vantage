@@ -394,3 +394,41 @@ def test_tickets_still_carry_the_trigger_end_to_end(tmp_path):
         now=_dt.datetime(2026, 7, 10, 10, 0))
     t = store.load_paper_trades("open")[0]
     assert t["id"] == tid and t["entry_note"] == "note"
+
+
+# ------------------------------------------------------------- live mirrors
+
+def test_live_mirror_matching():
+    """Manual broker spreads correlate onto their scanner paper rows: same
+    underlying + option type, opened inside the arm window, nearest LONG strike
+    (operator's width is free). One real position annotates one paper row."""
+    from vantage_server.paper import _annotate_live_mirrors, _real_spread_positions
+
+    class _S:
+        def load_history(self):
+            leg = lambda sym, side, qty, amt: {  # noqa: E731
+                "kind": "option", "symbol": sym, "side": side, "quantity": qty,
+                "amount": amt, "date": "2026-07-24T19:14:32Z",
+                "position_effect": "open", "description": "long_call_spread open (debit)"}
+            return [
+                leg("BKR 2026-08-21 55C", "buy", 2.0, -850.0),
+                leg("BKR 2026-08-21 65C", "sell", 2.0, 130.0),
+                # $0-amount order events (canceled/replaced) must be ignored
+                leg("BKR 2026-08-21 55C", "buy", 2.0, 0.0),
+            ]
+
+    reals = _real_spread_positions(_S())
+    assert len(reals) == 1
+    (r,) = reals
+    assert r["strikes"] == [55.0, 65.0] and r["status"] == "open" and r["cost"] == 720.0
+
+    mk = lambda long_k, short_k, setup: {  # noqa: E731
+        "book": "scanner-spread", "structure": "debit_call_spread",
+        "underlying": "BKR", "long_strike": long_k, "short_strike": short_k,
+        "opened_at": "2026-07-24T18:56:00+00:00", "setup": setup, "status": "open"}
+    ict, brk = mk(55.0, 60.0, "ict_htf"), mk(60.0, 65.0, "breakout_hold")
+    rows = [ict, brk]
+    _annotate_live_mirrors(rows, reals)
+    # exact long-strike match (55) wins over the 60 breakout row
+    assert ict.get("live") and ict["live"]["label"] == "BKR 55/65 ×2"
+    assert "live" not in brk

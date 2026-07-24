@@ -869,12 +869,115 @@ def equity_curve(closed: list[dict]) -> list[dict]:
     return out
 
 
+_OPT_SYM_RE = None  # compiled lazily (re imported here only)
+
+
+def _real_spread_positions(store) -> list[dict]:
+    """Reconstruct MANUAL option-SPREAD positions from broker history fills, so
+    scanner picks the operator takes live correlate back to the paper book.
+    Legs of one order share a date stamp; open/close orders net per strike
+    pair. Single-leg orders are ignored — this tracker's scope is spreads."""
+    global _OPT_SYM_RE
+    import re as _re
+    if _OPT_SYM_RE is None:
+        _OPT_SYM_RE = _re.compile(r"^([A-Z.]+) (\d{4}-\d{2}-\d{2}) (\d+(?:\.\d+)?)([CP])$")
+    try:
+        hist = store.load_history()
+    except Exception:
+        return []
+    orders: dict = {}
+    for h in hist:
+        if h.get("kind") != "option" or not h.get("amount"):
+            continue                              # order events with no cash = not fills
+        m = _OPT_SYM_RE.match(str(h.get("symbol") or ""))
+        if not m:
+            continue
+        eff = h.get("position_effect") or (
+            "open" if "open" in str(h.get("description") or "") else "close")
+        orders.setdefault((h.get("date"), m.group(1), m.group(2), m.group(4)), []).append(
+            {"strike": float(m.group(3)), "qty": float(h.get("quantity") or 0),
+             "amount": float(h.get("amount") or 0.0), "effect": eff})
+    pos: dict = {}
+    for (date, und, exp, cp), legs in sorted(orders.items()):
+        if len(legs) != 2 or legs[0]["strike"] == legs[1]["strike"]:
+            continue
+        ks = sorted(l["strike"] for l in legs)
+        p = pos.setdefault((und, exp, cp, ks[0], ks[1]), {
+            "underlying": und, "expiration": exp, "kind": cp, "strikes": ks,
+            "qty": 0.0, "peak_qty": 0.0, "cash": 0.0, "opened_at": date, "last_at": date})
+        p["qty"] += legs[0]["qty"] if legs[0]["effect"] == "open" else -legs[0]["qty"]
+        p["peak_qty"] = max(p["peak_qty"], p["qty"])
+        p["cash"] += sum(l["amount"] for l in legs)
+        p["opened_at"] = min(p["opened_at"], date)
+        p["last_at"] = max(p["last_at"], date)
+    out = []
+    for p in pos.values():
+        closed = p["qty"] <= 0
+        out.append({**p, "status": "closed" if closed else "open",
+                    "realized": round(p["cash"], 2) if closed else None,
+                    "cost": round(-p["cash"], 2) if not closed else None})
+    return out
+
+
+#: match window: the live trade opens within [-1 day, +3 days] of the arm, and
+#: the LONG strike sits within 3.5% of the paper's — the operator chooses their
+#: own width, so the short strike is deliberately free.
+_LIVE_WINDOW_BEFORE_S = 24 * 3600
+_LIVE_WINDOW_AFTER_S = 72 * 3600
+_LIVE_STRIKE_TOL = 0.035
+
+
+def _annotate_live_mirrors(rows: list[dict], reals: list[dict]) -> None:
+    """Attach each real spread to its best paper row as row['live'] (one real →
+    one paper, nearest long strike wins). Mutates rows in place."""
+    def _ts(s):
+        try:
+            return _dt.datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
+    for real in reals:
+        want_kind = real["kind"]
+        r_open = _ts(real["opened_at"])
+        # paper long strike: calls buy the LOWER strike, puts the HIGHER
+        r_long = real["strikes"][0] if want_kind == "C" else real["strikes"][1]
+        best, best_d = None, None
+        for r in rows:
+            if r.get("book") != "scanner-spread":
+                continue
+            structure = r.get("structure") or ""
+            if (want_kind == "C") != ("call" in structure):
+                continue
+            und = (r.get("underlying") or r.get("symbol") or "").upper()
+            if und != real["underlying"]:
+                continue
+            p_open = _ts(r.get("opened_at"))
+            if r_open is None or p_open is None or \
+               not (-_LIVE_WINDOW_BEFORE_S <= r_open - p_open <= _LIVE_WINDOW_AFTER_S):
+                continue
+            p_long = float(r.get("long_strike") or 0)
+            if not p_long:
+                continue
+            d = abs(r_long - p_long) / p_long
+            if d <= _LIVE_STRIKE_TOL and (best_d is None or d < best_d):
+                best, best_d = r, d
+        if best is not None and "live" not in best:
+            ks = real["strikes"]
+            best["live"] = {
+                "label": f"{real['underlying']} {ks[0]:g}/{ks[1]:g} ×{int(real['peak_qty'])}",
+                "status": real["status"], "opened_at": real["opened_at"],
+                "expiration": real["expiration"],
+                "realized": real["realized"], "cost": real["cost"],
+            }
+
+
 def build_spread_book(store: Store) -> dict:
     """The scanner debit-spread track record — its OWN book, never mixed with the
     SPX reclaim record (different P&L basis). Returns open + closed + stats +
     equity curve for the 'scanner-spread' book."""
     rows = (store.load_paper_trades(book="scanner-spread")
             + store.load_paper_trades(book="scanner-shares"))
+    # correlate manually-taken LIVE twins (broker history) onto their paper rows
+    _annotate_live_mirrors(rows, _real_spread_positions(store))
     open_rows = [r for r in rows if r.get("status") == "open"]
     closed = [r for r in rows if r.get("status") == "closed"]
     # $0 non-trades (no fill / contract-risk gate) stay VISIBLE in the closed
@@ -887,8 +990,13 @@ def build_spread_book(store: Store) -> dict:
     strat = lambda r: r.get("setup") or "ict_htf"  # noqa: E731
     for name in sorted({strat(r) for r in real} | {strat(r) for r in open_rows}):
         rows_s = [r for r in real if strat(r) == name]
+        live_s = [r["live"] for r in rows if strat(r) == name and r.get("live")]
         by_strategy[name] = {**paper_stats(rows_s),
-                             "open": sum(1 for r in open_rows if strat(r) == name)}
+                             "open": sum(1 for r in open_rows if strat(r) == name),
+                             "live_taken": len(live_s),
+                             "live_realized": round(sum(
+                                 lv["realized"] for lv in live_s
+                                 if lv.get("realized") is not None), 2)}
     return {
         "book": "scanner-spread",
         "open": open_rows,

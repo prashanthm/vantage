@@ -79,6 +79,7 @@ function TrackRecordTable({ rows, label, detail, reason }) {
         <span className={cls("vg-tr-pnl", tone)}>{pnl === 0 ? "—" : usd(pnl)}</span>
         <span className="vg-tr-label">{label(r)}</span>
         <span className="vg-tr-detail">{detail(r)}</span>
+        {r.live && <LiveTwin live={r.live} />}
         <span className={cls("vg-tr-reason", reason(r))}>{reason(r)}</span>
       </div>
     );
@@ -91,6 +92,8 @@ function TrackRecordTable({ rows, label, detail, reason }) {
           show {real.length - 15} more
         </button>
       )}
+      {/* a $0 paper row the operator took for REAL still matters — surface it */}
+      {flat.filter((r) => r.live).map(Row)}
       {flat.length > 0 && (
         <div className="vg-tr-flat">
           {flat.length} no-fill / voided ({flat.filter((r) => reason(r) === "never_filled").length} never filled ·
@@ -293,6 +296,21 @@ function spreadLabel(r) {
 // The scanner debit-spread book: auto-logged A+ setups, settled on each
 // underlying's bars. Kept SEPARATE from the SPX reclaim record — the two have
 // different P&L bases, so blending their win-rate would be meaningless.
+// The operator took this scanner pick in the REAL account — the correlated
+// broker position (matched by underlying/type/arm-window/long-strike).
+function LiveTwin({ live }) {
+  const closedWin = live.status === "closed" && live.realized != null;
+  return (
+    <span className={cls("vg-badge", closedWin ? (live.realized >= 0 ? "good" : "bad") : "warn")}
+      style={{ fontSize: 12 }}
+      title={`Real trade correlated to this scanner setup · opened ${live.opened_at} · exp ${live.expiration}`}>
+      LIVE {live.label}{live.status === "closed"
+        ? ` ${usd(live.realized)}`
+        : live.cost ? ` · $${Math.round(live.cost)} in` : ""}
+    </span>
+  );
+}
+
 export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
   const q = useLive(() => getSpreadBook(), null, [refreshNonce]);
   const d = q.data;
@@ -341,7 +359,8 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           </div>
           <table className="vg-table">
             <thead><tr><th>Strategy</th><th className="num">Open</th><th className="num">Closed</th>
-              <th className="num">Win rate</th><th className="num">PF</th><th className="num">Net P&amp;L</th></tr></thead>
+              <th className="num">Win rate</th><th className="num">PF</th><th className="num">Net P&amp;L</th>
+              <th className="num">Taken live</th></tr></thead>
             <tbody>
               {Object.entries(d.by_strategy).map(([name, s]) => (
                 <tr key={name}>
@@ -352,6 +371,11 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
                   <td className="num">{s.profit_factor != null ? s.profit_factor.toFixed(2) : "—"}</td>
                   <td className="num">{s.n
                     ? <b className={s.total_pnl >= 0 ? "vg-up" : "vg-down"}>{usd(s.total_pnl)}</b> : "—"}</td>
+                  <td className="num">{s.live_taken
+                    ? <>{s.live_taken}{s.live_realized
+                        ? <> · <b className={s.live_realized >= 0 ? "vg-up" : "vg-down"}>{usd(s.live_realized)}</b></>
+                        : null}</>
+                    : "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -393,6 +417,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
                   </span>
                   <span style={{ fontSize: 14 }}>{spreadLabel(r)}</span>
                   {bs && <span className={cls("vg-badge", bs.tone)} style={{ fontSize: 12 }}>{bs.text}</span>}
+                  {r.live && <LiveTwin live={r.live} />}
                   <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                     target {px(r.short_strike)} · invalid {px(r.underlying_invalid)}
                   </span>
