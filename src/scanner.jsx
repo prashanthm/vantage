@@ -60,10 +60,10 @@ function SignalCard({ h, onOpen }) {
             return (
               <div key={i} className="vg-scan-rung">
                 <span className="vg-scan-rung-r">
-                  {runner ? (h.runner_is_pool ? "draw" : "3R") : `${t.r}R`}
+                  {runner && h.runner_is_pool ? "draw" : `${t.r ?? "?"}R`}
                 </span>
                 <span className="vg-scan-rung-px">{t.price}</span>
-                <span className="vg-scan-rung-sz">{Math.round(t.size * 100)}%</span>
+                <span className="vg-scan-rung-sz">{t.size != null ? `${Math.round(t.size * 100)}%` : ""}</span>
               </div>);
           })}
         </div>

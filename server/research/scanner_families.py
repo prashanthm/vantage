@@ -162,7 +162,7 @@ def h1_signals(d):
                         break
                     tgt = min(cands, key=lambda p: abs(p - entry))
                     pnl = _simulate(hi, lo, cl, j, side, entry, stop, tgt)
-                    out.append((sym, b["ts"][j], j, side, pnl))
+                    out.append((sym, b["ts"][j], j, side, pnl, entry, stop, tgt))
                     break
     return out
 
@@ -318,6 +318,95 @@ def h5(d, sig):
     _report("H5 RS-filtered longs  ", [s[4] for s in filt])
 
 
+def _sim_ladder(hi, lo, cl, entry_i, entry, stop, tgt):
+    """H10: laddered exit for LONGS, final rung pinned at the zone target.
+    tgt<=1R -> full exit at tgt; <=2R -> 50@1R(BE)/50@tgt; else 50/25/25.
+    Stop-first on ambiguous bars (same convention as _simulate); stop moves
+    to breakeven on the first banked rung, effective the NEXT bar."""
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    tp1, tp2 = entry + risk, entry + 2 * risk
+    if tgt <= tp1:
+        rungs = [(1.0, tgt)]
+    elif tgt <= tp2:
+        rungs = [(0.5, tp1), (0.5, tgt)]
+    else:
+        rungs = [(0.5, tp1), (0.25, tp2), (0.25, tgt)]
+    end = min(len(cl) - 1, entry_i + TIME_CAP)
+    pnl, remaining, cur_stop, k = 0.0, 1.0, stop, 0
+    for j in range(entry_i + 1, end + 1):
+        if lo[j] <= cur_stop:
+            return pnl + remaining * (cur_stop - entry) / entry * 100
+        while k < len(rungs) and hi[j] >= rungs[k][1]:
+            sz, px = rungs[k]
+            pnl += sz * (px - entry) / entry * 100
+            remaining -= sz
+            k += 1
+            cur_stop = entry
+            if remaining <= 1e-9:
+                return pnl
+    return pnl + remaining * (cl[end] - entry) / entry * 100
+
+
+def bh_signals(d):
+    """Breakout-hold class (the H1 addendum decomposition, = live _scan_breakout_hold):
+    pivot cluster price NEVER held above (no close > L + BREAK_ATR x ATR since the
+    zone was born), first confirmed close below, then RECLAIM_CLOSES consecutive
+    closes above L. Long-only. Yields (sym, ts, entry_i, entry, stop, tgt)."""
+    out = []
+    for sym, b in d["bars"].items():
+        hi, lo, cl = b["high"], b["low"], b["close"]
+        zones = _zones(hi, lo)
+        levels = sorted(z["level"] for z in zones)
+        for z in zones:
+            L, i, n = z["level"], z["born_i"], len(cl)
+            bi = None
+            for j in range(i, n):
+                a = _atr(hi, lo, cl, j)
+                if a <= 0:
+                    continue
+                if cl[j] > L + BREAK_ATR * a:
+                    break                          # held above first — reclaim class
+                if cl[j] < L - BREAK_ATR * a:
+                    bi = j; break                  # confirmed below; watch the breakout
+            if bi is None:
+                continue
+            streak = 0
+            for j in range(bi + 1, n):
+                streak = streak + 1 if cl[j] > L else 0
+                if streak >= RECLAIM_CLOSES:
+                    a = _atr(hi, lo, cl, j)
+                    entry = cl[j]
+                    cands = [p for p in levels
+                             if p > entry and p - entry <= TGT_MAX_ATR * a
+                             and abs(p - L) / L > ZONE_TOL]
+                    if cands and a > 0:
+                        out.append((sym, b["ts"][j], j, entry, L - STOP_ATR * a,
+                                    min(cands)))
+                    break
+    return out
+
+
+def h10(d):
+    sig = bh_signals(d)
+    base, lad = [], []
+    for sym, ts_, j, entry, stop, tgt in sig:
+        b = d["bars"][sym]
+        base.append((ts_, _simulate(b["high"], b["low"], b["close"], j, +1,
+                                    entry, stop, tgt)))
+        p = _sim_ladder(b["high"], b["low"], b["close"], j, entry, stop, tgt)
+        if p is not None:
+            lad.append((ts_, p))
+    _report("H10 baseline (breakout_hold, full exit @ zone)", [p for _, p in base])
+    _report("H10 ladder 50@1R(BE)/25@2R/25@zone           ", [p for _, p in lad])
+    for name, rows in (("baseline", base), ("ladder  ", lad)):
+        if rows:
+            mid = sorted(t for t, _ in rows)[len(rows) // 2]
+            _report(f"  {name} half A", [p for t, p in rows if t <= mid])
+            _report(f"  {name} half B", [p for t, p in rows if t > mid])
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--freeze", action="store_true")
@@ -337,6 +426,8 @@ def main(argv=None) -> int:
         h4(d, sig)
     if a.h in (0, 5) and sig is not None:
         h5(d, sig)
+    if a.h == 10:
+        h10(d)
     return 0
 
 

@@ -187,6 +187,14 @@ def test_breakout_hold_detector(monkeypatch):
     assert abs(s["ce"] - 100.5) < 0.01
     assert s["invalid"] < s["level"] <= 100.5      # stop below the broken cluster
     assert not s.get("stale")                      # held 3 closes, 2 bars ago
+    # H10 exit ladder: sizes sum to 1, rungs ascend, and the FINAL rung is the
+    # zone target — the spread pipe keys its short strike off targets[-1], so
+    # the ladder must never move it.
+    tgts = s["targets"]
+    assert abs(sum(t["size"] for t in tgts) - 1.0) < 1e-9
+    assert [t["price"] for t in tgts] == sorted(t["price"] for t in tgts)
+    assert 102.0 < tgts[-1]["price"] < 103.5      # the ~103 bump zone
+    assert all(t.get("r") is not None for t in tgts)
 
 
 def test_breakout_hold_is_long_only_and_skips_reclaims(monkeypatch):

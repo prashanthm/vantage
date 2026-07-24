@@ -191,10 +191,22 @@ short strike is targets[-1] and must not move):
   - tgt ≤ 1R           → single full exit at tgt (ladder degenerates to baseline)
   - 1R < tgt ≤ 2R      → 50% at 1R (stop→breakeven after), 50% at tgt
   - tgt > 2R           → 50% at 1R (BE after), 25% at 2R, 25% at tgt
-Stop-first on ambiguous bars, TIME_CAP mark-to-close on the残 remainder —
+Stop-first on ambiguous bars, TIME_CAP mark-to-close on the remainder —
 same conventions as _simulate.
 prediction: ladder RAISES win rate and cuts avg loss ≥25% (the BE move
 after TP1 converts full-stop losses into scratches); PF stays ≥ 2/3 of the
 H1-longs baseline (≥ ~2.4). Halves must both stay ≥ 1.1. If PF < 2/3
 baseline → disproven: ladder stays OFF breakout_hold cards (single target
 remains the displayed plan).
+
+result (frozen tape, bh_signals reproduces the addendum class, n=491
+baseline PF 3.822 halves 5.91/2.73):
+  ladder: n=491 WR 0.849 PF 3.625 net +375% (vs +415%) · halves 5.54/2.63
+verdict: **CONFIRMED-AS-SAFE, mechanism disproven** — PF holds at 95% of
+baseline (kill floor was 2/3), WR +1.2pt, halves stable; but the predicted
+avg-loss cut did NOT materialize (avgL -1.84 -> -1.93). The ladder trades
+~10% of net for banked partials/smoothness — acceptable for the promotion
+path, no edge added. SHIPPED to breakout_hold cards: rungs 50%@1R
+(stop->BE) / 25%@2R / 25%@zone, final rung PINNED at the validated zone so
+the spread short strike (targets[-1]) is byte-identical. Degenerate cases:
+zone<=1R single full exit; zone<=2R two rungs 50/50.

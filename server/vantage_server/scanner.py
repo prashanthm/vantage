@@ -267,6 +267,30 @@ def _scan_ict_htf(store, symbol: str) -> dict | None:
     return setup
 
 
+def _bh_ladder(entry: float, invalid: float, zone: float) -> list[dict]:
+    """Exit ladder for breakout_hold (H10, scanner-families log): 50%@1R
+    (stop→breakeven) / 25%@2R / 25%@zone. The FINAL rung is always the
+    validated zone target — the spread pipe keys its short strike off
+    targets[-1], so the ladder never moves execution. Rungs beyond the zone
+    are dropped and their size rolls into the zone rung."""
+    risk = entry - invalid
+    if risk <= 0:
+        return [{"r": 1.0, "price": round(zone, 2), "size": 1.0, "note": "zone target"}]
+    rr = round((zone - entry) / risk, 1)
+    tp1, tp2 = entry + risk, entry + 2 * risk
+    if zone <= tp1:
+        return [{"r": rr, "price": round(zone, 2), "size": 1.0, "note": "zone target"}]
+    if zone <= tp2:
+        return [{"r": 1.0, "price": round(tp1, 2), "size": 0.5,
+                 "note": "bank ½ · stop → breakeven"},
+                {"r": rr, "price": round(zone, 2), "size": 0.5, "note": "zone target"}]
+    return [{"r": 1.0, "price": round(tp1, 2), "size": 0.5,
+             "note": "bank ½ · stop → breakeven"},
+            {"r": 2.0, "price": round(tp2, 2), "size": 0.25, "note": "bank ¼"},
+            {"r": rr, "price": round(zone, 2), "size": 0.25,
+             "note": "runner · zone target"}]
+
+
 def _scan_breakout_hold(store, symbol: str) -> dict | None:
     """LONG-ONLY hourly breakout-hold (scanner-families goal, 2026-07-24).
 
@@ -336,7 +360,7 @@ def _scan_breakout_hold(store, symbol: str) -> dict | None:
                 cand = {"level": round(level, 2), "entry_i": j,
                         "ce": round(cl[j], 2),
                         "invalid": round(level - 0.5 * a, 2),
-                        "targets": ([{"r": 1, "price": round(min(tgts), 2)}]
+                        "targets": (_bh_ladder(cl[j], level - 0.5 * a, min(tgts))
                                     if tgts else []),
                         "tier": "A+" if tgts else "B"}
                 if best is None or cand["entry_i"] > best["entry_i"]:
