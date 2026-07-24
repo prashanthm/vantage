@@ -112,3 +112,72 @@ so any 3-close pop above them counted as a reclaim. Decomposing:
 Shipping detector = `breakout_hold` (long-only), registry + cron + arm-tag
 `setup=breakout_hold` + per-strategy book stats. The unit test that caught
 this (mirror tape) is kept as the long-only/reclaim-exclusion regression.
+
+---
+
+# Wave 2 (2026-07-24) — popular-strategy survey, pre-registered BEFORE runs
+
+Survey of widely-used retail/quant families not yet tested here, mapped to
+testability on the existing frozen tape (daily series derived from
+scanner_univ_hourly.json). Excluded without testing: ORB (already dead),
+AVWAP pullbacks (placebo, level-folklore), overnight effects (strongest
+null), Wyckoff springs (= the reclaim class, PF 1.40), BB-squeeze (= H3,
+inverted), PEAD (no earnings data), monthly rotation (portfolio-level, not
+a scanner). Pairs/stat-arb deferred (build cost, wave 3 candidate).
+
+## H6 RSI(2) mean reversion (Connors) — the most-cited MR system
+signal: daily RSI(2) < 10 while close > 200-day MA → buy close; exit on
+close > 5-day MA or after 5 sessions.
+prediction: CONFIRMED — PF ≥ 1.3, n ≥ 150, both halves ≥ 1.1. This family
+rhymes with the validated washed-tape bounce; dip-buying quality in
+uptrends is the one direction edge with a live pedigree here.
+
+## H7 golden-cross pullback (trend-following staple)
+signal: 50MA > 200MA and close pulls back to ≤ 20MA → buy close; exit
+after 10 sessions or at close < entry − 2×ATR(14).
+prediction: INCONCLUSIVE — PF 1.0–1.3 with a big half-split (the 2-year
+up-tape flatters trend entries; half-B decay will disqualify it).
+
+## H8 Donchian 55-day breakout (turtle/new-highs momentum)
+signal: close > prior 55-day high → buy close; exit at close < prior
+20-day low.
+prediction: CONFIRMED-WITH-CAVEAT at best — PF ≥ 1.3 overall but driven by
+the tailwind; classify honestly on the halves. If halves diverge > 2×,
+log INCONCLUSIVE regardless of the aggregate.
+
+## H9 big-dip buying in quality (retail favorite "buy the dip")
+signal: daily return ≤ −4% while close > 200-day MA → buy close; exit
+after 5 sessions.
+prediction: CONFIRMED — PF ≥ 1.3, n ≥ 80. Same mean-reversion physics as
+H6/breadth-bounce; the −4% bar keeps it to genuine washouts.
+
+# Wave 2 results (daily series from the frozen hourly cache; halves = date split)
+
+## H6 RSI(2) mean reversion: **CONFIRMED** — the wave's one keeper
+n=532 WR 0.703 PF 1.487 · halves **1.517 / 1.463** — stable, meets every
+pre-registered bar (PF≥1.3, n≥150, halves≥1.1). Dip-buying quality names in
+uptrends is the one direction edge that keeps validating here (rhymes with
+the breadth-bounce). Complements breakout_hold (momentum long) with a
+mean-reversion long.
+
+## H7 golden-cross pullback: **INCONCLUSIVE** (as registered)
+PF 1.349 but halves 1.119 / 1.620 — the aggregate is the up-tape talking;
+half A is barely alive. Not a scanner.
+
+## H8 Donchian 55 breakout: **INCONCLUSIVE per the pre-committed rule**
+Aggregate PF 2.536 looks spectacular — and the halves are 1.241 / 4.818
+(3.9× divergence; the whole edge is the recent runaway-trend leg). The
+"if halves diverge >2×, inconclusive regardless of aggregate" clause was
+written for exactly this. Not shipped; re-examine after a down regime.
+
+## H9 big-dip (−4% in uptrend): passed its letter-bar, **NOT SHIPPED**
+Aggregate PF 1.443 (bar was ≥1.3 ✓) but halves 0.927 / 2.098 — half A
+LOSES money. Fails the stability standard the rest of the wave was held
+to, and H6 captures the same mean-reversion physics with stable halves.
+Logged as inconclusive-in-practice; superseded by H6.
+
+Wave-2 counts: 1 confirmed (H6) · 3 inconclusive. Running totals for the
+goal: 2 confirmed (breakout_hold, RSI2-MR) · 4 disproven · 3 inconclusive ·
+11 runs of 15. Follow-up candidate: H6 detector as a third scanner family —
+note its exit is time/MA-based (2–5 sessions), so the trade expression
+needs its own design (the debit-spread arm assumes a level target).

@@ -342,3 +342,104 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ── wave 2: popular daily strategies (H6–H9) ─────────────────────────────────
+
+def _daily(d):
+    """Per-symbol daily OHLC derived from the hourly cache."""
+    out = {}
+    for sym, b in d["bars"].items():
+        ts, hi, lo, cl = b["ts"], b["high"], b["low"], b["close"]
+        days = {}
+        for i, t in enumerate(ts):
+            days.setdefault(t[:10], []).append(i)
+        dl = sorted(days)
+        out[sym] = {
+            "ts": dl,
+            "high": [max(hi[i] for i in days[t]) for t in dl],
+            "low": [min(lo[i] for i in days[t]) for t in dl],
+            "close": [cl[days[t][-1]] for t in dl],
+        }
+    return out
+
+
+def _sma_at(cl, i, n):
+    return sum(cl[i - n + 1:i + 1]) / n if i >= n - 1 else None
+
+
+def _rsi2(cl, i):
+    if i < 3:
+        return None
+    gains = losses = 0.0
+    for k in (i - 1, i):
+        ch = cl[k] - cl[k - 1]
+        gains += max(ch, 0); losses += max(-ch, 0)
+    if losses == 0:
+        return 100.0
+    rs = (gains / 2) / (losses / 2)
+    return 100 - 100 / (1 + rs)
+
+
+def _atr_d(hi, lo, cl, i, n=14):
+    if i < n:
+        return None
+    trs = [max(hi[k] - lo[k], abs(hi[k] - cl[k - 1]), abs(lo[k] - cl[k - 1]))
+           for k in range(i - n + 1, i + 1)]
+    return sum(trs) / n
+
+
+def wave2(d):
+    daily = _daily(d)
+    h6, h7, h8, h9 = [], [], [], []
+    for sym, b in daily.items():
+        hi, lo, cl, ts = b["high"], b["low"], b["close"], b["ts"]
+        n = len(cl)
+        in_pos_until = {"h6": -1, "h7": -1, "h8": -1, "h9": -1}
+        for i in range(200, n - 1):
+            ma200 = _sma_at(cl, i, 200); ma50 = _sma_at(cl, i, 50)
+            ma20 = _sma_at(cl, i, 20)
+            if ma200 is None:
+                continue
+            # H6 RSI(2) < 10 in uptrend → exit close > 5MA or 5 sessions
+            if i > in_pos_until["h6"] and cl[i] > ma200 and (_rsi2(cl, i) or 99) < 10:
+                exit_i = min(i + 5, n - 1)
+                for j in range(i + 1, min(i + 6, n)):
+                    m5 = _sma_at(cl, j, 5)
+                    if m5 and cl[j] > m5:
+                        exit_i = j; break
+                h6.append((ts[i], (cl[exit_i] / cl[i] - 1) * 100))
+                in_pos_until["h6"] = exit_i
+            # H7 golden-cross pullback → 10 sessions or −2 ATR stop
+            a = _atr_d(hi, lo, cl, i)
+            if (i > in_pos_until["h7"] and ma50 and ma20 and a
+                    and ma50 > ma200 and cl[i] <= ma20):
+                stop = cl[i] - 2 * a
+                exit_i = min(i + 10, n - 1); px = cl[exit_i]
+                for j in range(i + 1, min(i + 11, n)):
+                    if cl[j] < stop:
+                        exit_i, px = j, cl[j]; break
+                h7.append((ts[i], (px / cl[i] - 1) * 100))
+                in_pos_until["h7"] = exit_i
+            # H8 Donchian 55 breakout → exit close < prior 20-day low
+            if i > in_pos_until["h8"] and i >= 55 and cl[i] > max(hi[i - 55:i]):
+                exit_i = n - 1
+                for j in range(i + 1, n):
+                    if cl[j] < min(lo[j - 20:j]):
+                        exit_i = j; break
+                h8.append((ts[i], (cl[exit_i] / cl[i] - 1) * 100))
+                in_pos_until["h8"] = exit_i
+            # H9 −4% day in uptrend → hold 5 sessions
+            if (i > in_pos_until["h9"] and cl[i] > ma200
+                    and (cl[i] / cl[i - 1] - 1) * 100 <= -4.0):
+                exit_i = min(i + 5, n - 1)
+                h9.append((ts[i], (cl[exit_i] / cl[i] - 1) * 100))
+                in_pos_until["h9"] = exit_i
+    for name, rows in (("H6 RSI2-MR", h6), ("H7 GC-pullback", h7),
+                       ("H8 Donchian55", h8), ("H9 big-dip", h9)):
+        pnls = [p for _, p in rows]
+        _report(name, pnls)
+        if rows:
+            mid = sorted(t for t, _ in rows)[len(rows) // 2]
+            _report("   half A", [p for t, p in rows if t <= mid])
+            _report("   half B", [p for t, p in rows if t > mid])
