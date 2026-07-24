@@ -25,3 +25,10 @@ printf '%s scanner: %s\n' "$STAMP" "$OUT" >> "$LOG"
 # by the ict_htf pass — this one detects only.
 OUT=$(docker exec "$CONTAINER" python -m vantage_server.scanner --scanner breakout_hold 2>&1 || true)
 printf '%s scanner: %s\n' "$STAMP" "$OUT" >> "$LOG"
+# third family: RSI(2) mean reversion — a DAILY-close signal with a time/MA
+# exit (shares book, not spreads). Scan only in the last half hour so the
+# near-close print approximates the daily close the study validated.
+if [ "$HHMM" -ge 1530 ]; then
+  OUT=$(docker exec "$CONTAINER" python -m vantage_server.scanner --scanner rsi2_mr 2>&1 || true)
+  printf '%s scanner: %s\n' "$STAMP" "$OUT" >> "$LOG"
+fi

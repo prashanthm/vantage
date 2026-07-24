@@ -358,8 +358,101 @@ def _scan_breakout_hold(store, symbol: str) -> dict | None:
     return out
 
 
+def _daily_closes(symbol: str, period: str = "320d"):
+    """Daily closes for the RSI(2) detector (yfinance; monkeypatchable in tests).
+    Returns (dates, closes) or (None, None)."""
+    try:
+        import yfinance as yf
+        h = yf.Ticker(symbol).history(period=period, interval="1d")
+        if h.empty:
+            return None, None
+        return [str(t)[:10] for t in h.index], [float(v) for v in h["Close"]]
+    except Exception:  # noqa: BLE001
+        return None, None
+
+
+def _scan_rsi2_mr(store, symbol: str) -> dict | None:
+    """RSI(2) mean reversion in an uptrend (scanner-families wave 2, 2026-07-24:
+    n=532 WR 0.703 PF 1.49, halves 1.52/1.46 — the stable dip-buy).
+
+    signal: daily RSI(2) < 10 while close > 200-day MA → LONG at the close.
+    EXIT IS TIME/MA-BASED, NOT LEVEL-BASED: close > 5-day MA, or 5 sessions —
+    so this strategy arms a SHARES paper trade (scanner-shares book), never a
+    debit spread (STRATEGY_EXECUTION routes it). The signal is a DAILY-close
+    condition: the cron scans it only in the last half hour, using the
+    near-close print (a small, honest divergence from the daily-close study).
+    """
+    dates, cl = _daily_closes(symbol)
+    if not cl or len(cl) < 210:
+        return None
+    i = len(cl) - 1
+    ma200 = sum(cl[i - 199:i + 1]) / 200
+    gains = losses = 0.0
+    for k in (i - 1, i):
+        ch = cl[k] - cl[k - 1]
+        gains += max(ch, 0.0); losses += max(-ch, 0.0)
+    rsi2 = 100.0 if losses == 0 else 100 - 100 / (1 + (gains / 2) / (losses / 2))
+    present = cl[i] > ma200 and rsi2 < 10
+    out = {"present": bool(present), "symbol": symbol, "as_of": dates[i],
+           "bars": len(cl), "last_bar": dates[i]}
+    if present:
+        out.update(dir="long", tier="A+", ce=round(cl[i], 2),
+                   invalid=None, targets=[], bars_ago=0, rsi2=round(rsi2, 1),
+                   note=f"RSI(2) {rsi2:.0f} in uptrend (close {cl[i]:.2f} > 200MA "
+                        f"{ma200:.2f}) — exit: close > 5MA or 5 sessions")
+    return out
+
+
 #: scanner registry — id → per-symbol detector. Add a scanner = add an entry.
-SCANNERS = {"ict_htf": _scan_ict_htf, "breakout_hold": _scan_breakout_hold}
+SCANNERS = {"ict_htf": _scan_ict_htf, "breakout_hold": _scan_breakout_hold,
+            "rsi2_mr": _scan_rsi2_mr}
+
+#: how each strategy's A+ hits are EXPRESSED as paper trades. "debit_spread"
+#: rides the level-target spread pipe (snap-to-chain, risk gate, Alpaca);
+#: "shares_time_ma" opens a sim shares position whose exit is the strategy's
+#: own rule (paper._settle_shares_time_ma) — a time/MA strategy must never be
+#: forced into a level-target mold.
+STRATEGY_EXECUTION = {"ict_htf": "debit_spread", "breakout_hold": "debit_spread",
+                      "rsi2_mr": "shares_time_ma"}
+
+#: per-strategy exit rules for the shares book (paper.settle reads this)
+SHARES_EXIT_SPECS = {"rsi2_mr": {"exit_ma": 5, "max_sessions": 5}}
+
+#: notional per shares paper position (sizing is fixed-dollar, not fixed-shares)
+SHARES_NOTIONAL_USD = 5000.0
+
+
+def arm_scanner_shares(store, scan_result: dict) -> int:
+    """Open sim SHARES paper trades for fresh A+ hits of a shares-expressed
+    strategy (book='scanner-shares'). One open position per (symbol, strategy);
+    fixed $ notional; no stop — the exit is the strategy's own time/MA rule."""
+    if not getattr(store, "uses_sqlite", False):
+        return 0
+    strategy = scan_result.get("scanner") or ""
+    open_keys = {(r.get("symbol"), r.get("setup"))
+                 for r in store.load_paper_trades(status="open", book="scanner-shares")}
+    now = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    logged = 0
+    for hit in scan_result.get("hits") or []:
+        if hit.get("tier") != "A+" or not hit.get("present"):
+            continue
+        sym, px = hit.get("symbol"), hit.get("ce")
+        if not sym or not px or (sym, strategy) in open_keys:
+            continue
+        shares = max(1, round(SHARES_NOTIONAL_USD / float(px)))
+        store.record_paper_trade({
+            "opened_at": now, "session": (hit.get("as_of") or "")[:10] or None,
+            "signal": hit.get("note") or f"{strategy} {sym}",
+            "side": "long", "symbol": sym, "spy_entry": float(px),
+            "spy_target": None, "spy_stop": None, "shares": shares,
+            "source": "scanner-auto", "setup": strategy,
+            "book": "scanner-shares", "underlying": sym,
+            "status": "open", "fill_status": "filled", "filled_at": now,
+            "opened_price_src": f"scanner A+ ({strategy}) · ${SHARES_NOTIONAL_USD:.0f} notional sim",
+        })
+        open_keys.add((sym, strategy))
+        logged += 1
+    return logged
 
 #: tier sort weight (A+ first, then B, then present-no-tier).
 _TIER_RANK = {"A+": 0, "B": 1}
@@ -449,14 +542,17 @@ def run_scan(store, scanner: str = "ict_htf", refresh_bars: bool = False,
     }
     if hasattr(store, "save_scanner_result"):
         store.save_scanner_result(scanner, result)
-    # auto-log A+ setups as paper debit spreads (deduped). Best-effort — a logging
-    # failure must never break a scan.
+    # auto-log A+ setups as paper trades, routed by the strategy's OWN
+    # execution mold (debit spread vs shares+time/MA exit). Best-effort — a
+    # logging failure must never break a scan.
     try:
-        n = arm_scanner_spreads(store, result)
+        expr = STRATEGY_EXECUTION.get(scanner, "debit_spread")
+        n = (arm_scanner_shares(store, result) if expr == "shares_time_ma"
+             else arm_scanner_spreads(store, result))
         if n:
-            log.info("scanner %s: logged %d new paper spread(s)", scanner, n)
+            log.info("scanner %s: logged %d new paper trade(s) [%s]", scanner, n, expr)
     except Exception as e:  # noqa: BLE001
-        log.warning("scanner-spread auto-log failed: %s", e)
+        log.warning("scanner paper auto-log failed: %s", e)
     return result
 
 

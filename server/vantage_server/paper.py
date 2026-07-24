@@ -542,6 +542,37 @@ def _settle_one(trade: dict, bars) -> dict | None:
     return None
 
 
+def _settle_shares_time_ma(t: dict, fetch_daily=None) -> dict | None:
+    """Exit a scanner-shares position by ITS STRATEGY'S OWN rule (the whole
+    point of per-strategy pipelines): close > N-day MA, or max_sessions
+    elapsed — whichever daily close comes first AFTER the open. Exit at that
+    day's close. Specs per strategy live in scanner.SHARES_EXIT_SPECS."""
+    from .scanner import SHARES_EXIT_SPECS, _daily_closes
+    spec = SHARES_EXIT_SPECS.get(t.get("setup") or "")
+    if not spec:
+        return None
+    fetch = fetch_daily or _daily_closes
+    dates, cl = fetch(t.get("symbol"))
+    if not cl:
+        return None
+    open_day = str(t.get("filled_at") or t.get("opened_at") or "")[:10]
+    after = [(d, c) for d, c in zip(dates, cl) if d > open_day]
+    if not after:
+        return None
+    ma_n, cap = int(spec["exit_ma"]), int(spec["max_sessions"])
+    entry = float(t["spy_entry"]); shares = float(t.get("shares") or 1)
+    for k, (d, c) in enumerate(after, start=1):
+        i = dates.index(d)
+        ma = sum(cl[i - ma_n + 1:i + 1]) / ma_n if i >= ma_n - 1 else None
+        if (ma is not None and c > ma) or k >= cap:
+            reason = "ma_exit" if (ma is not None and c > ma) else "time"
+            pnl = round((c - entry) * shares, 2)
+            return {"spy_exit": round(c, 2), "exit_reason": reason, "pnl": pnl,
+                    "pnl_pct": round((c / entry - 1) * 100, 3),
+                    "closed_at": f"{d}T16:00:00-04:00"}
+    return None
+
+
 #: how many trading days a scanner spread stays open before it's closed at the
 #: modeled intrinsic (a swing horizon, not 0DTE).
 SPREAD_HORIZON_DAYS = 30
@@ -638,6 +669,15 @@ def settle_open(store: Store) -> dict:
         # them. The sim runs ONLY for the fallback rows that never reached the broker
         # (no creds / submit failed → broker=NULL).
         if t.get("book") == "scanner-spread" and t.get("broker") == "alpaca-paper":
+            continue
+        # shares-expressed strategies exit on their OWN rule (time/MA — the
+        # strategy's native exit, never a level target).
+        if t.get("book") == "scanner-shares":
+            res = _settle_shares_time_ma(t)
+            if res and store.close_paper_trade(
+                    t["id"], spy_exit=res["spy_exit"], exit_reason=res["exit_reason"],
+                    pnl=res["pnl"], pnl_pct=res["pnl_pct"], closed_at=res["closed_at"]):
+                closed += 1
             continue
         # scanner debit spreads settle on their OWN underlying's daily bars, with
         # spread P&L — a different basis from the SPY-proxy reclaim trades.
@@ -785,7 +825,8 @@ def build_spread_book(store: Store) -> dict:
     """The scanner debit-spread track record — its OWN book, never mixed with the
     SPX reclaim record (different P&L basis). Returns open + closed + stats +
     equity curve for the 'scanner-spread' book."""
-    rows = store.load_paper_trades(book="scanner-spread")
+    rows = (store.load_paper_trades(book="scanner-spread")
+            + store.load_paper_trades(book="scanner-shares"))
     open_rows = [r for r in rows if r.get("status") == "open"]
     closed = [r for r in rows if r.get("status") == "closed"]
     # $0 non-trades (no fill / contract-risk gate) stay VISIBLE in the closed

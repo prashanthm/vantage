@@ -372,6 +372,19 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           <div className="vg-pb-ladder">
             {open.map((r) => {
               const bs = brokerLabel(r);
+              if (r.book === "scanner-shares") {
+                // shares-expressed strategy: no strikes, the exit is its own rule
+                return (
+                  <div key={r.id} className="vg-pb-lvl">
+                    <span className="vg-badge good" style={{ minWidth: 44, textAlign: "center" }}>SHARES</span>
+                    <span style={{ fontSize: 14 }}>{r.symbol} ×{Math.round(r.shares)} @ {px(r.spy_entry)}</span>
+                    <span className="vg-badge plain" style={{ fontSize: 12 }}>{r.setup}</span>
+                    <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
+                      exit: close &gt; 5-day MA or 5 sessions · sim
+                    </span>
+                  </div>
+                );
+              }
               return (
                 <div key={r.id} className="vg-pb-lvl">
                   <span className={cls("vg-badge", r.side === "long" ? "good" : "bad")}

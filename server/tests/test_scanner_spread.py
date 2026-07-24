@@ -219,3 +219,52 @@ def test_arm_tags_strategy_and_by_strategy_stats(tmp_path, monkeypatch):
     book = paper.build_spread_book(store)
     assert book["by_strategy"]["breakout_hold"]["n"] == 1
     assert book["by_strategy"]["breakout_hold"]["total_pnl"] == 1000.0
+
+
+# ------------------------------------------------------ rsi2_mr (shares pipe)
+
+def test_rsi2_detector_and_shares_arm(tmp_path, monkeypatch):
+    """A time/MA strategy rides its OWN pipeline: RSI(2)<10 in an uptrend arms
+    a SHARES paper trade (scanner-shares book), never a debit spread."""
+    # 220 rising closes (uptrend, close > 200MA) with two sharp down days at
+    # the end -> RSI(2) pinned near 0.
+    cl = [100 + 0.3 * i for i in range(218)] + [160.0, 155.0]
+    dates = [f"2026-{1 + i // 200}{'' if i // 200 else ''}" for i in range(220)]  # placeholder
+    dates = [f"2026-01-{(i % 28) + 1:02d}" if i < 28 else f"d{i}" for i in range(220)]
+    dates = [f"D{i:03d}" for i in range(220)]
+    monkeypatch.setattr(scanner, "_daily_closes", lambda *a, **k: (dates, cl))
+    s = scanner._scan_rsi2_mr(object(), "TEST")
+    assert s and s["present"] is True and s["tier"] == "A+" and s["dir"] == "long"
+    assert s["ce"] == 155.0 and s["targets"] == []
+
+    store = _sqlite_store(tmp_path)
+    n = scanner.arm_scanner_shares(store, {"scanner": "rsi2_mr",
+                                           "hits": [dict(s)]})
+    assert n == 1
+    row = store.load_paper_trades(status="open", book="scanner-shares")[0]
+    assert row["setup"] == "rsi2_mr" and row["spy_target"] is None
+    assert row["shares"] == round(5000 / 155.0)
+    # dedup: same (symbol, strategy) doesn't double-arm while open
+    assert scanner.arm_scanner_shares(store, {"scanner": "rsi2_mr",
+                                              "hits": [dict(s)]}) == 0
+
+
+def test_shares_time_ma_exit(tmp_path, monkeypatch):
+    """The shares book exits by the strategy's own rule: close > 5MA wins the
+    race here (day 2), NOT a level target."""
+    from vantage_server import paper
+    store = _sqlite_store(tmp_path)
+    scanner_hit = {"tier": "A+", "present": True, "symbol": "TEST", "ce": 100.0,
+                   "as_of": "2026-07-20"}
+    scanner.arm_scanner_shares(store, {"scanner": "rsi2_mr", "hits": [scanner_hit]})
+    row = store.load_paper_trades(status="open", book="scanner-shares")[0]
+    # force a known open day
+    with store._sqlite_txn() as conn:
+        conn.execute("UPDATE paper_trades SET opened_at=?, filled_at=? WHERE id=?",
+                     ("2026-07-20T19:55:00+00:00", "2026-07-20T19:55:00+00:00", row["id"]))
+    row = store.load_paper_trades(status="open", book="scanner-shares")[0]
+    dates = [f"2026-07-{d:02d}" for d in (14, 15, 16, 17, 20, 21, 22)]
+    cl = [100, 100, 100, 100, 100, 99.0, 103.0]   # day+2 closes above the 5MA
+    res = paper._settle_shares_time_ma(row, fetch_daily=lambda *a, **k: (dates, cl))
+    assert res and res["exit_reason"] == "ma_exit" and res["spy_exit"] == 103.0
+    assert res["pnl"] == round((103.0 - 100.0) * row["shares"], 2)
