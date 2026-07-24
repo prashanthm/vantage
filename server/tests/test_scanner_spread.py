@@ -268,3 +268,24 @@ def test_shares_time_ma_exit(tmp_path, monkeypatch):
     res = paper._settle_shares_time_ma(row, fetch_daily=lambda *a, **k: (dates, cl))
     assert res and res["exit_reason"] == "ma_exit" and res["spy_exit"] == 103.0
     assert res["pnl"] == round((103.0 - 100.0) * row["shares"], 2)
+
+
+def test_account_budget_caps_cluster_arms(tmp_path, monkeypatch):
+    """The $100k Alpaca paper budget is shared across scanner books: a cluster
+    of A+ hits arms strongest-first until the budget is spent, then skips."""
+    store = _sqlite_store(tmp_path)
+    monkeypatch.setattr(scanner, "SCANNER_BUDGET_USD", 12_000.0)
+    hits = [{"tier": "A+", "present": True, "symbol": f"S{i}", "ce": 100.0,
+             "as_of": "2026-07-24", "rsi2": float(i)} for i in range(5)]
+    n = scanner.arm_scanner_shares(store, {"scanner": "rsi2_mr", "hits": hits})
+    assert n == 2                                    # 2 × $5k fits in $12k
+    got = {r["symbol"] for r in store.load_paper_trades(status="open", book="scanner-shares")}
+    assert got == {"S0", "S1"}                       # deepest RSI(2) first
+    # exposure now blocks the spread book too
+    monkeypatch.setattr(scanner, "_alpaca_paper_creds", lambda: False)
+    monkeypatch.setattr(scanner_spread, "snap_to_chain",
+                        lambda *a, **k: {"expiry": "2026-09-18", "long_strike": 540.0,
+                                         "short_strike": 590.0, "debit": 8.0})
+    # $10k open + spread risk 8*4*100 = $3,200 > $2k remaining → skipped
+    assert scanner.arm_scanner_spreads(store, {"scanner": "breakout_hold",
+                                               "hits": [_hit()]}) == 0

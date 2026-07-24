@@ -421,6 +421,25 @@ SHARES_EXIT_SPECS = {"rsi2_mr": {"exit_ma": 5, "max_sessions": 5}}
 #: notional per shares paper position (sizing is fixed-dollar, not fixed-shares)
 SHARES_NOTIONAL_USD = 5000.0
 
+#: the Alpaca PAPER account is $100k — BOTH scanner books (spread debit risk +
+#: shares notional) share this budget at ARM time. Cluster days (rsi2_mr found
+#: 26 names on 2026-07-24 = $130k) must not oversubscribe the account; skipped
+#: arms are LOGGED, never silent.
+SCANNER_BUDGET_USD = 100_000.0
+
+
+def _scanner_open_exposure(store) -> float:
+    """Capital already committed across the scanner paper books: debit×contracts
+    ×100 for open spreads (real fill when known) + entry notional for open
+    shares. Entry-basis, not marked-to-market — it's an arming cap."""
+    total = 0.0
+    for r in store.load_paper_trades(status="open", book="scanner-spread"):
+        debit = float(r.get("filled_avg") or r.get("est_debit") or 0)
+        total += debit * int(r.get("contracts") or 4) * 100
+    for r in store.load_paper_trades(status="open", book="scanner-shares"):
+        total += float(r.get("spy_entry") or 0) * float(r.get("shares") or 0)
+    return total
+
 
 def arm_scanner_shares(store, scan_result: dict) -> int:
     """Open sim SHARES paper trades for fresh A+ hits of a shares-expressed
@@ -432,13 +451,22 @@ def arm_scanner_shares(store, scan_result: dict) -> int:
     open_keys = {(r.get("symbol"), r.get("setup"))
                  for r in store.load_paper_trades(status="open", book="scanner-shares")}
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
-    logged = 0
-    for hit in scan_result.get("hits") or []:
+    budget = SCANNER_BUDGET_USD - _scanner_open_exposure(store)
+    logged = skipped_budget = 0
+    # strongest signal first on cluster days (deepest RSI(2) dip), so the
+    # budget goes to the best setups, not alphabetical luck
+    hits = sorted((h for h in scan_result.get("hits") or []),
+                  key=lambda h: h.get("rsi2", 999))
+    for hit in hits:
         if hit.get("tier") != "A+" or not hit.get("present"):
             continue
         sym, px = hit.get("symbol"), hit.get("ce")
         if not sym or not px or (sym, strategy) in open_keys:
             continue
+        if budget < SHARES_NOTIONAL_USD:
+            skipped_budget += 1
+            continue
+        budget -= SHARES_NOTIONAL_USD
         shares = max(1, round(SHARES_NOTIONAL_USD / float(px)))
         store.record_paper_trade({
             "opened_at": now, "session": (hit.get("as_of") or "")[:10] or None,
@@ -452,6 +480,10 @@ def arm_scanner_shares(store, scan_result: dict) -> int:
         })
         open_keys.add((sym, strategy))
         logged += 1
+    if skipped_budget:
+        log.warning("scanner %s: %d A+ hit(s) skipped — $%.0f account budget "
+                    "exhausted (never silent)", strategy, skipped_budget,
+                    SCANNER_BUDGET_USD)
     return logged
 
 #: tier sort weight (A+ first, then B, then present-no-tier).
@@ -607,7 +639,8 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
                 for r in store.load_paper_trades(status="open", book="scanner-spread")}
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
     use_alpaca = _alpaca_paper_creds()
-    logged = 0
+    budget_left = SCANNER_BUDGET_USD - _scanner_open_exposure(store)
+    logged = skipped_budget = 0
     for hit in scan_result.get("hits") or []:
         if hit.get("tier") != "A+":
             continue
@@ -616,6 +649,12 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
             continue
         pos_key = (spread["underlying"], spread["long_strike"], spread["short_strike"])
         if pos_key in open_now:
+            continue
+        # ACCOUNT BUDGET: both scanner books share the $100k Alpaca paper
+        # account — an arm that would oversubscribe it is skipped and logged.
+        position_risk = float(spread.get("est_debit") or 0) * int(spread.get("contracts") or 4) * 100
+        if position_risk > budget_left:
+            skipped_budget += 1
             continue
         # CONTRACT-RISK GATE: debit × 100 per contract capped. Over-risk setups
         # are RECORDED as skipped (visible in the book), never submitted.
@@ -656,7 +695,13 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
         store.record_paper_trade(row)
         known.add(spread["setup_key"])
         open_now.add(pos_key)
+        budget_left -= position_risk
         logged += 1
+    if skipped_budget:
+        log.warning("scanner %s: %d A+ spread(s) skipped — $%.0f account "
+                    "budget exhausted (never silent)",
+                    scan_result.get("scanner") or "ict_htf", skipped_budget,
+                    SCANNER_BUDGET_USD)
     return logged
 
 
