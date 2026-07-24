@@ -270,22 +270,25 @@ def test_shares_time_ma_exit(tmp_path, monkeypatch):
     assert res["pnl"] == round((103.0 - 100.0) * row["shares"], 2)
 
 
-def test_account_budget_caps_cluster_arms(tmp_path, monkeypatch):
-    """The $100k Alpaca paper budget is shared across scanner books: a cluster
-    of A+ hits arms strongest-first until the budget is spent, then skips."""
+def test_per_strategy_allocation_caps_arms(tmp_path, monkeypatch):
+    """The $100k account splits ACROSS strategies by weight: a cluster in one
+    family spends only ITS slice (strongest-first) and cannot starve the
+    others' allocations."""
     store = _sqlite_store(tmp_path)
-    monkeypatch.setattr(scanner, "SCANNER_BUDGET_USD", 12_000.0)
+    monkeypatch.setattr(scanner, "SCANNER_BUDGET_USD", 30_000.0)   # 3 × $10k slices
     hits = [{"tier": "A+", "present": True, "symbol": f"S{i}", "ce": 100.0,
              "as_of": "2026-07-24", "rsi2": float(i)} for i in range(5)]
     n = scanner.arm_scanner_shares(store, {"scanner": "rsi2_mr", "hits": hits})
-    assert n == 2                                    # 2 × $5k fits in $12k
+    assert n == 2                                    # 2 × $5k fills rsi2's $10k slice
     got = {r["symbol"] for r in store.load_paper_trades(status="open", book="scanner-shares")}
     assert got == {"S0", "S1"}                       # deepest RSI(2) first
-    # exposure now blocks the spread book too
+    # breakout_hold's OWN slice is untouched — its arm still goes through
     monkeypatch.setattr(scanner, "_alpaca_paper_creds", lambda: False)
     monkeypatch.setattr(scanner_spread, "snap_to_chain",
                         lambda *a, **k: {"expiry": "2026-09-18", "long_strike": 540.0,
                                          "short_strike": 590.0, "debit": 8.0})
-    # $10k open + spread risk 8*4*100 = $3,200 > $2k remaining → skipped
     assert scanner.arm_scanner_spreads(store, {"scanner": "breakout_hold",
-                                               "hits": [_hit()]}) == 0
+                                               "hits": [_hit()]}) == 1
+    # ...but a spread bigger than the remaining slice is skipped
+    assert scanner.arm_scanner_spreads(store, {"scanner": "breakout_hold",
+                                               "hits": [_hit("2026-07-17T16:31:00-04:00")]}) == 0

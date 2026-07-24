@@ -421,22 +421,35 @@ SHARES_EXIT_SPECS = {"rsi2_mr": {"exit_ma": 5, "max_sessions": 5}}
 #: notional per shares paper position (sizing is fixed-dollar, not fixed-shares)
 SHARES_NOTIONAL_USD = 5000.0
 
-#: the Alpaca PAPER account is $100k — BOTH scanner books (spread debit risk +
-#: shares notional) share this budget at ARM time. Cluster days (rsi2_mr found
-#: 26 names on 2026-07-24 = $130k) must not oversubscribe the account; skipped
-#: arms are LOGGED, never silent.
+#: the Alpaca PAPER account is $100k (user-set) — split ACROSS strategies by
+#: weight, so one family's cluster day can never starve the others. Equal
+#: weights until a live record earns a different split; adding a strategy
+#: automatically rebalances. Skipped arms are LOGGED, never silent.
 SCANNER_BUDGET_USD = 100_000.0
+STRATEGY_ALLOC_WEIGHTS = {"ict_htf": 1.0, "breakout_hold": 1.0, "rsi2_mr": 1.0}
 
 
-def _scanner_open_exposure(store) -> float:
-    """Capital already committed across the scanner paper books: debit×contracts
-    ×100 for open spreads (real fill when known) + entry notional for open
-    shares. Entry-basis, not marked-to-market — it's an arming cap."""
+def strategy_budget(strategy: str) -> float:
+    """This strategy's slice of the account budget (weight-normalized)."""
+    w = STRATEGY_ALLOC_WEIGHTS.get(strategy, 1.0)
+    total = sum(STRATEGY_ALLOC_WEIGHTS.values()) or 1.0
+    return SCANNER_BUDGET_USD * w / total
+
+
+def _strategy_open_exposure(store, strategy: str) -> float:
+    """Capital this STRATEGY has committed: debit×contracts×100 for its open
+    spreads (real fill when known) + entry notional for its open shares.
+    Legacy untagged spread rows count as ict_htf. Entry-basis — an arming cap,
+    not a mark-to-market."""
     total = 0.0
     for r in store.load_paper_trades(status="open", book="scanner-spread"):
+        if (r.get("setup") or "ict_htf") != strategy:
+            continue
         debit = float(r.get("filled_avg") or r.get("est_debit") or 0)
         total += debit * int(r.get("contracts") or 4) * 100
     for r in store.load_paper_trades(status="open", book="scanner-shares"):
+        if (r.get("setup") or "") != strategy:
+            continue
         total += float(r.get("spy_entry") or 0) * float(r.get("shares") or 0)
     return total
 
@@ -451,7 +464,7 @@ def arm_scanner_shares(store, scan_result: dict) -> int:
     open_keys = {(r.get("symbol"), r.get("setup"))
                  for r in store.load_paper_trades(status="open", book="scanner-shares")}
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
-    budget = SCANNER_BUDGET_USD - _scanner_open_exposure(store)
+    budget = strategy_budget(strategy) - _strategy_open_exposure(store, strategy)
     logged = skipped_budget = 0
     # strongest signal first on cluster days (deepest RSI(2) dip), so the
     # budget goes to the best setups, not alphabetical luck
@@ -639,7 +652,8 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
                 for r in store.load_paper_trades(status="open", book="scanner-spread")}
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
     use_alpaca = _alpaca_paper_creds()
-    budget_left = SCANNER_BUDGET_USD - _scanner_open_exposure(store)
+    _strat = scan_result.get("scanner") or "ict_htf"
+    budget_left = strategy_budget(_strat) - _strategy_open_exposure(store, _strat)
     logged = skipped_budget = 0
     for hit in scan_result.get("hits") or []:
         if hit.get("tier") != "A+":
