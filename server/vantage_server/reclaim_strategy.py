@@ -29,8 +29,24 @@ STOP_PAD_PCT = 0.20
 #: A pending reclaim that never confirms within this window expires unfilled.
 PENDING_EXPIRE_HOURS = 48.0
 
-#: Default notional size for P&L display / paper trades.
+#: Default notional size for P&L display / paper trades (legacy fallback for
+#: rows that carry no share count).
 DEFAULT_SHARES = 100
+
+#: PROMOTABLE sizing (2026-07-24, operator): a paper position must be sized
+#: the way real capital would deploy it — 100 SPY shares was ~$74k/position,
+#: unpromotable on a $100k account. Tickets now size shares from a fixed
+#: dollar notional. Percent metrics (WR/PF/pnl_pct — everything the harness
+#: validates) are sizing-invariant; only the dollar record rescales, from
+#: this date forward (older rows keep their as-traded sizes).
+POSITION_NOTIONAL_USD = 5000.0
+
+
+def shares_for(entry_price: float) -> int:
+    """Share count for a paper position: fixed dollar notional at the entry."""
+    if not entry_price or entry_price <= 0:
+        return DEFAULT_SHARES
+    return max(1, round(POSITION_NOTIONAL_USD / float(entry_price)))
 
 
 def stop_for(level: float, side: str) -> float:

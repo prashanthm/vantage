@@ -329,7 +329,7 @@ def build_tickets(scaffold: dict, spy_price: float, ratio: float,
                 to_spy(r["price"], ratio) for r in resistances) if side == "long"
                 else sorted((to_spy(s["price"], ratio) for s in supports),
                             reverse=True),
-            "shares": DEFAULT_SHARES,
+            "shares": _spec.shares_for(entry_spy),   # $-notional sizing (promotable)
             "ref_strike": nearest_strike(entry_spy),
             "otm_strike": otm,                 # time-of-day OTM suggestion
             "otm_note": otm_note,
