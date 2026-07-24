@@ -542,6 +542,49 @@ def _settle_one(trade: dict, bars) -> dict | None:
     return None
 
 
+def _mirror_equity_open(store, trade_id: int, symbol: str, side: str,
+                        shares: float, strategy: str) -> None:
+    """Open the broker mirror for a just-filled sim position (long=buy,
+    short=sell-to-open). Best-effort; the sim ledger stays the book of record."""
+    try:
+        from .scanner_exec import submit_paper_equity
+        bf = submit_paper_equity(symbol, "buy" if side == "long" else "sell",
+                                 int(abs(shares)), strategy)
+        if bf:
+            store.set_broker_fill(trade_id, broker=bf["broker"],
+                                  entry_order_id=bf["entry_order_id"],
+                                  broker_status=bf["broker_status"],
+                                  filled_avg=bf.get("filled_avg"))
+    except Exception as e:  # noqa: BLE001
+        log.warning("equity mirror open failed for #%s %s: %s", trade_id, symbol, e)
+
+
+def _mirror_equity_close(store, t: dict) -> None:
+    """Close the broker mirror when the SIM closes a position (the sim's exit
+    rules are the strategy's own; the broker just mirrors them)."""
+    if t.get("broker") != "alpaca-paper":
+        return
+    try:
+        from .brokers import alpaca_execution as _ax
+        res = _ax.place_exit("long" if t.get("side") == "long" else "short",
+                             t.get("symbol"), int(abs(float(t.get("shares") or 0))),
+                             strategy=f"paper-{t.get('setup') or 'reclaim'}",
+                             audit=lambda r: None, paper=True)
+        if res.get("order_id"):
+            store.set_broker_fill(t["id"], exit_order_id=res["order_id"])
+    except Exception as e:  # noqa: BLE001
+        # entry mirror still WORKING (e.g. queued overnight) → Alpaca's
+        # wash-trade guard 403s an opposing order; the honest mirror of a
+        # sim close against an unfilled entry is cancel-the-entry.
+        if "wash trade" in str(e) and t.get("entry_order_id"):
+            from .scanner_exec import cancel_paper_order
+            if cancel_paper_order(t["entry_order_id"]):
+                store.set_broker_fill(t["id"], broker_status="canceled")
+                log.info("equity mirror #%s: unfilled entry canceled instead of closed", t.get("id"))
+                return
+        log.warning("equity mirror close failed for #%s %s: %s", t.get("id"), t.get("symbol"), e)
+
+
 def _settle_shares_time_ma(t: dict, fetch_daily=None) -> dict | None:
     """Exit a scanner-shares position by ITS STRATEGY'S OWN rule (the whole
     point of per-strategy pipelines): close > N-day MA, or max_sessions
@@ -677,6 +720,7 @@ def settle_open(store: Store) -> dict:
             if res and store.close_paper_trade(
                     t["id"], spy_exit=res["spy_exit"], exit_reason=res["exit_reason"],
                     pnl=res["pnl"], pnl_pct=res["pnl_pct"], closed_at=res["closed_at"]):
+                _mirror_equity_close(store, t)
                 closed += 1
             continue
         # scanner debit spreads settle on their OWN underlying's daily bars, with
@@ -719,8 +763,11 @@ def settle_open(store: Store) -> dict:
                         t["id"], spy_entry=entry, filled_at=fill["filled_at"],
                         spy_target=tgt, set_target=True):
                     filled += 1
+                    _mirror_equity_open(store, t["id"], proxy, t["side"],
+                                        float(t.get("shares") or 0), "paper-reclaim")
                     t = dict(t, spy_entry=entry, spy_target=tgt,
-                             filled_at=fill["filled_at"], fill_status="filled")
+                             filled_at=fill["filled_at"], fill_status="filled",
+                             broker="alpaca-paper")
             elif _pending_expired(t, df):
                 if store.close_paper_trade(
                         t["id"], spy_exit=0.0, exit_reason="never_filled",
@@ -734,6 +781,7 @@ def settle_open(store: Store) -> dict:
         if res and store.close_paper_trade(
                 t["id"], spy_exit=res["spy_exit"], exit_reason=res["exit_reason"],
                 pnl=res["pnl"], pnl_pct=res["pnl_pct"], closed_at=res["closed_at"]):
+            _mirror_equity_close(store, t)
             closed += 1
     return {"checked": len(open_trades), "filled": filled,
             "expired": expired, "closed": closed}

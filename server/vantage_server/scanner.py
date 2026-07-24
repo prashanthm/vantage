@@ -481,7 +481,11 @@ def arm_scanner_shares(store, scan_result: dict) -> int:
             continue
         budget -= SHARES_NOTIONAL_USD
         shares = max(1, round(SHARES_NOTIONAL_USD / float(px)))
+        # mirror the position at the broker: real Alpaca-paper equity fill
+        from .scanner_exec import submit_paper_equity
+        bf = submit_paper_equity(sym, "buy", shares, f"scanner-{strategy}") or {}
         store.record_paper_trade({
+            **bf,
             "opened_at": now, "session": (hit.get("as_of") or "")[:10] or None,
             "signal": hit.get("note") or f"{strategy} {sym}",
             "side": "long", "symbol": sym, "spy_entry": float(px),

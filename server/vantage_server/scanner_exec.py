@@ -265,3 +265,64 @@ if __name__ == "__main__":  # pragma: no cover
     else:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
         run_loop(Store(None), float(sys.argv[1]) if len(sys.argv) > 1 else 60.0)
+
+
+def submit_paper_equity(symbol: str, side: str, qty: int, strategy: str) -> dict | None:
+    """Submit a plain EQUITY market order to Alpaca PAPER — the broker mirror
+    of a sim shares/reclaim position ('everything paper in Alpaca', operator
+    2026-07-24). Best-effort: None on missing creds / live endpoint / any
+    broker error (the sim ledger stays the book of record either way).
+    Returns {broker, entry_order_id, broker_status, filled_avg?}."""
+    import os
+    if os.environ.get("ALPACA_PAPER", "1") == "0":
+        return None
+    if not (os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY")):
+        return None
+    try:
+        from .brokers import alpaca_broker as _ab
+        from .brokers import alpaca_execution as _ax
+        order = {"symbol": str(symbol).upper(), "side": side, "qty": int(qty),
+                 "type": "market", "time_in_force": "day", "est_usd": 0.0}
+        res = _ax.submit_strategy_order(
+            order, strategy=strategy, live_eligible=False, caps={}, context={},
+            audit=lambda r: log.info("paper-equity order: %s", r.get("mode")),
+            paper=True)
+        if res.get("mode") != "paper" or not res.get("order_id"):
+            return None
+        out = {"broker": "alpaca-paper", "entry_order_id": res["order_id"],
+               "broker_status": (res.get("result") or {}).get("status") or "accepted"}
+        try:  # market orders fill ~instantly during RTH — one immediate poll
+            st = _ab.AlpacaConnection().order_status(res["order_id"])
+            if st.get("status") == "filled":
+                out["broker_status"] = "filled"
+                if st.get("filled_avg_price"):
+                    out["filled_avg"] = float(st["filled_avg_price"])
+        except Exception:  # noqa: BLE001
+            pass
+        return out
+    except Exception as e:  # noqa: BLE001
+        log.warning("paper equity submit failed %s %s x%s: %s", side, symbol, qty, e)
+        return None
+
+
+def cancel_paper_order(order_id: str) -> bool:
+    """Cancel a working Alpaca-paper order (DELETE /v2/orders/{id}). Used when
+    a sim close meets a still-unfilled entry mirror — the honest broker action
+    is cancel-the-entry, not an opposing order (Alpaca wash-trade guard 403s
+    that). Best-effort."""
+    import os
+    import urllib.request
+    key = os.environ.get("ALPACA_API_KEY", "")
+    sec = os.environ.get("ALPACA_SECRET_KEY", "")
+    if not key or not sec or not order_id:
+        return False
+    try:
+        req = urllib.request.Request(
+            f"https://paper-api.alpaca.markets/v2/orders/{order_id}",
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": sec},
+            method="DELETE")
+        urllib.request.urlopen(req, timeout=15)
+        return True
+    except Exception as e:  # noqa: BLE001
+        log.warning("cancel_paper_order %s failed: %s", order_id[:8], e)
+        return False

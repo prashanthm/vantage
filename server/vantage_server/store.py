@@ -1680,7 +1680,8 @@ class Store:
             conn.close()
         return {r["setup_key"] for r in rows}
 
-    def set_broker_fill(self, trade_id: int, *, broker_status: str | None = None,
+    def set_broker_fill(self, trade_id: int, *, broker: str | None = None,
+                        broker_status: str | None = None,
                         filled_avg: float | None = None, entry_order_id: str | None = None,
                         exit_order_id: str | None = None, fill_status: str | None = None,
                         filled_at: str | None = None) -> bool:
@@ -1690,7 +1691,8 @@ class Store:
         if not self.uses_sqlite:
             return False
         sets, params = [], []
-        for col, val in (("broker_status", broker_status), ("filled_avg", filled_avg),
+        for col, val in (("broker", broker), ("broker_status", broker_status),
+                         ("filled_avg", filled_avg),
                          ("entry_order_id", entry_order_id), ("exit_order_id", exit_order_id),
                          ("fill_status", fill_status), ("filled_at", filled_at)):
             if val is not None:
