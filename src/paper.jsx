@@ -390,6 +390,21 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           <Tile label="Closed" value={stats.n} />
         </div>
       )}
+      {(d.live_manual || []).length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <div className="vg-kicker" style={{ fontSize: 12, marginBottom: 4 }}>
+            Taken live — manual tags
+            <span className="vg-note" style={{ fontWeight: 400 }}> — real trades from older scans, no paper twin; tagged by the operator</span>
+          </div>
+          {d.live_manual.map((m, i) => (
+            <div key={i} className="vg-pb-lvl">
+              <LiveTwin live={m} />
+              <span className="vg-badge plain" style={{ fontSize: 12 }}>{m.strategy}</span>
+              <span className="vg-note" style={{ fontSize: 12 }}>manual tag · exp {m.expiration}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {open.length > 0 && (
         <>
           <div className="vg-note" style={{ fontSize: 12, margin: "12px 0 4px" }}>Open ({open.length})</div>

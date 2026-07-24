@@ -1705,6 +1705,31 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note="Paper trading requires the SQLite backend.")
         return envelope(snap, available=True, **_paper.build_spread_book(store))
 
+    @app.post("/api/paper/live-tag")
+    def paper_live_tag(body: dict = Body(default={})):
+        """Manually tag a REAL broker spread (one with no scanner paper twin —
+        e.g. taken off an older scan whose result was overwritten) as belonging
+        to a strategy, so it counts in the by-strategy 'Taken live' record.
+        Body: {underlying, expiration, kind: 'C'|'P', strikes: [lo, hi],
+        strategy}. Store-only write (ADR-010)."""
+        from . import paper as _paper
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="SQLite backend required.")
+        try:
+            ks = sorted(float(k) for k in (body.get("strikes") or []))
+            real = {"underlying": str(body["underlying"]).upper(),
+                    "expiration": str(body["expiration"]),
+                    "kind": str(body["kind"]).upper(), "strikes": ks}
+            strategy = str(body["strategy"])
+            assert len(ks) == 2 and real["kind"] in ("C", "P") and strategy
+        except (KeyError, ValueError, AssertionError):
+            return envelope(snap, available=False,
+                            note="need underlying, expiration, kind C|P, strikes[2], strategy")
+        store.set_meta(_paper.live_tag_key(real), strategy)
+        return envelope(snap, available=True, key=_paper.live_tag_key(real),
+                        strategy=strategy)
+
     @app.post("/api/scanner/reconcile")
     def scanner_reconcile():
         """One reconcile pass over open Alpaca-PAPER scanner spreads: confirm entry

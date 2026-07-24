@@ -432,3 +432,15 @@ def test_live_mirror_matching():
     # exact long-strike match (55) wins over the 60 breakout row
     assert ict.get("live") and ict["live"]["label"] == "BKR 55/65 ×2"
     assert "live" not in brk
+
+
+def test_live_mirror_unmatched_returned():
+    """A real spread with no paper twin comes back from the matcher so a
+    manual strategy tag (meta kv) can pick it up."""
+    from vantage_server.paper import _annotate_live_mirrors, live_tag_key
+    real = {"underlying": "MA", "expiration": "2026-07-24", "kind": "P",
+            "strikes": [535.0, 545.0], "peak_qty": 4.0, "status": "closed",
+            "opened_at": "2026-07-20T18:14:18Z", "realized": 1350.0, "cost": None}
+    unmatched = _annotate_live_mirrors([], [real])
+    assert unmatched == [real]
+    assert live_tag_key(real) == "live_tag:MA:2026-07-24:P:535:545"

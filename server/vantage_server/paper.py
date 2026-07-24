@@ -927,14 +927,24 @@ _LIVE_WINDOW_AFTER_S = 72 * 3600
 _LIVE_STRIKE_TOL = 0.035
 
 
-def _annotate_live_mirrors(rows: list[dict], reals: list[dict]) -> None:
+def live_tag_key(real: dict) -> str:
+    """Meta key for a MANUAL strategy tag on a real spread with no paper twin
+    (older scans predate the arm pipeline; results were overwritten)."""
+    ks = real["strikes"]
+    return (f"live_tag:{real['underlying']}:{real['expiration']}:"
+            f"{real['kind']}:{ks[0]:g}:{ks[1]:g}")
+
+
+def _annotate_live_mirrors(rows: list[dict], reals: list[dict]) -> list[dict]:
     """Attach each real spread to its best paper row as row['live'] (one real →
-    one paper, nearest long strike wins). Mutates rows in place."""
+    one paper, nearest long strike wins). Mutates rows in place; returns the
+    reals that matched NO paper row (manual-tag candidates)."""
     def _ts(s):
         try:
             return _dt.datetime.fromisoformat(str(s).replace("Z", "+00:00")).timestamp()
         except ValueError:
             return None
+    unmatched = []
     for real in reals:
         want_kind = real["kind"]
         r_open = _ts(real["opened_at"])
@@ -968,6 +978,9 @@ def _annotate_live_mirrors(rows: list[dict], reals: list[dict]) -> None:
                 "expiration": real["expiration"],
                 "realized": real["realized"], "cost": real["cost"],
             }
+        else:
+            unmatched.append(real)
+    return unmatched
 
 
 def build_spread_book(store: Store) -> dict:
@@ -976,8 +989,20 @@ def build_spread_book(store: Store) -> dict:
     equity curve for the 'scanner-spread' book."""
     rows = (store.load_paper_trades(book="scanner-spread")
             + store.load_paper_trades(book="scanner-shares"))
-    # correlate manually-taken LIVE twins (broker history) onto their paper rows
-    _annotate_live_mirrors(rows, _real_spread_positions(store))
+    # correlate manually-taken LIVE twins (broker history) onto their paper rows;
+    # reals with no paper twin can carry an operator-set strategy tag (meta kv)
+    unmatched = _annotate_live_mirrors(rows, _real_spread_positions(store))
+    live_manual = []
+    for real in unmatched:
+        tag = store.get_meta(live_tag_key(real)) if getattr(store, "uses_sqlite", False) else None
+        if tag:
+            ks = real["strikes"]
+            live_manual.append({
+                "label": f"{real['underlying']} {ks[0]:g}/{ks[1]:g} ×{int(real['peak_qty'])}",
+                "status": real["status"], "opened_at": real["opened_at"],
+                "expiration": real["expiration"], "realized": real["realized"],
+                "cost": real["cost"], "strategy": tag, "manual": True,
+            })
     open_rows = [r for r in rows if r.get("status") == "open"]
     closed = [r for r in rows if r.get("status") == "closed"]
     # $0 non-trades (no fill / contract-risk gate) stay VISIBLE in the closed
@@ -988,9 +1013,12 @@ def build_spread_book(store: Store) -> dict:
     # them (setup column; legacy NULL rows predate reclaim_long = ict_htf).
     by_strategy = {}
     strat = lambda r: r.get("setup") or "ict_htf"  # noqa: E731
-    for name in sorted({strat(r) for r in real} | {strat(r) for r in open_rows}):
+    names = ({strat(r) for r in real} | {strat(r) for r in open_rows}
+             | {m["strategy"] for m in live_manual})
+    for name in sorted(names):
         rows_s = [r for r in real if strat(r) == name]
-        live_s = [r["live"] for r in rows if strat(r) == name and r.get("live")]
+        live_s = ([r["live"] for r in rows if strat(r) == name and r.get("live")]
+                  + [m for m in live_manual if m["strategy"] == name])
         by_strategy[name] = {**paper_stats(rows_s),
                              "open": sum(1 for r in open_rows if strat(r) == name),
                              "live_taken": len(live_s),
@@ -1003,6 +1031,7 @@ def build_spread_book(store: Store) -> dict:
         "closed": sorted(closed, key=lambda r: (r.get("closed_at") or ""), reverse=True),
         "stats": paper_stats(real),
         "by_strategy": by_strategy,
+        "live_manual": live_manual,
         "equity_curve": equity_curve(real),
     }
 
