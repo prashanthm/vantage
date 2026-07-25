@@ -103,17 +103,6 @@ exit marked ↗ + nav footer explains it; (9) cmd-K hint in the nav footer;
 (10) P&L tone through the Text component (dark-safe). Follow-up caught in
 verification: Weight column wrap at the new cap — widened + nowrap.
 
-## Density + separation pass (this commit)
-DOM probe proved Astryx Section is semantic-only — no border, no surface
-(the only bordered element on the Journal was a <select>); pages read as
-white-on-white walls. Fix: Panel primitive (hairline border + surface +
-radius) aliased over every Section usage (`import { Panel as Section }`),
---vg-hairline token, .vg-divlist row dividers (scanner history), hairline
-rules between all table rows inside panels, inner padding 3->2, sibling
-gaps to 8px. Verified: Journal trade rows read as a bordered ledger;
-Performance and Scanner tables rule every row; whole-day Journal content
-fits ~1.5 screens vs ~3.
-
 Waves remaining: W6 — delete vg-*/buildless shell + flip all legacy
 redirects at parity (incl. the W5 gaps + analyzer actions + tickets).
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO

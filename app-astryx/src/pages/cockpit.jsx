@@ -8,7 +8,7 @@ import { Banner } from "@astryxdesign/core/Banner";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Link } from "@astryxdesign/core/Link";
-import { Panel as Section } from "../templates.jsx";
+import { Section } from "@astryxdesign/core/Section";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -145,7 +145,7 @@ function NowCard({ d, isToday }) {
   const flat = flatAction(call, price);
   return (
     <Section>
-      <VStack gap={2} padding={2}>
+      <VStack gap={2} padding={3}>
         <HStack gap={2} align="center" justify="between" wrap="wrap">
           <Text type="label" color="secondary">{closed ? "Session closed — final call" : "Next 15 minutes"}</Text>
           <Text type="supporting" color="secondary">
@@ -196,7 +196,7 @@ function Checklist({ d, planRows }) {
   if (!items.length) return null;
   return (
     <Section>
-      <VStack gap={2} padding={2}>
+      <VStack gap={2} padding={3}>
         <HStack gap={2} align="center" justify="between">
           <Text type="label" color="secondary">Before you trade — code, never Mira</Text>
           <Link href={links.dailyPlan()}>plan →</Link>
@@ -220,7 +220,7 @@ function LevelsWatch({ d, rows }) {
   });
   return (
     <Section>
-      <VStack gap={2} padding={2}>
+      <VStack gap={2} padding={3}>
         <HStack gap={2} align="center" justify="between">
           <Text type="label" color="secondary">Levels watch — plan vs now (last {price})</Text>
           <Link href={links.chart("SPX")}>chart →</Link>
@@ -252,7 +252,7 @@ function Discipline({ d }) {
   if (!d.verdict && !(d.commentary || []).length) return null;
   return (
     <Section>
-      <VStack gap={2} padding={2}>
+      <VStack gap={2} padding={3}>
         <Text type="label" color="secondary">Discipline · code, never Mira</Text>
         {d.verdict && <Banner status="warning" title={d.verdict} />}
         {(d.commentary || []).map((c, i) => <DotLine key={i} tone={c.tone} text={c.text} />)}
@@ -266,7 +266,7 @@ function FramesTable({ d }) {
   if (!frames.length) return <Text type="supporting" color="secondary">No frames — no stored bars or fills.</Text>;
   return (
     <Section>
-      <VStack gap={2} padding={2}>
+      <VStack gap={2} padding={3}>
         <HStack gap={2} align="center" justify="between">
           <Text type="label" color="secondary">
             Every 15 minutes · {frames.length} frames — newest first · ✓ with / ✗ against the call

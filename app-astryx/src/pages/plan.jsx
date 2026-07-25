@@ -10,7 +10,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Link } from "@astryxdesign/core/Link";
-import { Panel as Section } from "../templates.jsx";
+import { Section } from "@astryxdesign/core/Section";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Table, proportional, pixel } from "@astryxdesign/core/Table";
@@ -44,7 +44,7 @@ function Tile({ label, value, tone }) {
 function ScenarioCard({ s, symbol }) {
   return (
     <Section>
-      <VStack gap={2} padding={2}>
+      <VStack gap={2} padding={3}>
         <Text type="label">{s.trigger}</Text>
         <Text type="supporting" color="secondary">{s.bias}</Text>
         {s.structure && <Text type="supporting">{s.structure}</Text>}
@@ -138,7 +138,7 @@ export function PlanPage() {
       {!loading && !d && <Banner status="error" title={`No plan for ${symbol} — run the nightly or Refresh plan.`} />}
       {pine && (
         <Section>
-          <VStack gap={2} padding={2}>
+          <VStack gap={2} padding={3}>
             <HStack gap={2} align="center" justify="between">
               <Text type="label" color="secondary">TradingView Pine — today&apos;s levels as an indicator</Text>
               <Button label={copied ? "Copied ✓" : "Copy"} variant="secondary" onClick={() => {
@@ -163,7 +163,7 @@ export function PlanPage() {
           )}
           <div className="vg-cols wide">
             <Section>
-              <VStack gap={2} padding={2} className="vg-dense">
+              <VStack gap={2} padding={3} className="vg-dense">
                 <HStack gap={2} align="center" justify="between">
                   <Text type="label" color="secondary">The level ladder — computed, chart-linked</Text>
                   <Link href={links.chart(symbol)}>chart →</Link>
@@ -189,7 +189,7 @@ export function PlanPage() {
             <VStack gap={3}>
               {bullets.length > 0 && (
                 <Section>
-                  <VStack gap={1} padding={2}>
+                  <VStack gap={1} padding={3}>
                     <Text type="label" color="secondary">Market context</Text>
                     {bullets.map((b, i) => (
                       <Text key={i} type="supporting">{typeof b === "string" ? b : (b.text || JSON.stringify(b))}</Text>
@@ -199,7 +199,7 @@ export function PlanPage() {
               )}
               {caveats.length > 0 && (
                 <Section>
-                  <VStack gap={1} padding={2}>
+                  <VStack gap={1} padding={3}>
                     <Text type="label" color="secondary">Caveats — read before leaning on the map</Text>
                     {caveats.map((c, i) => <Text key={i} type="supporting" color="secondary">{c}</Text>)}
                   </VStack>

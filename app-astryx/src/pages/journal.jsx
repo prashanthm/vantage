@@ -11,7 +11,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Link } from "@astryxdesign/core/Link";
-import { Panel as Section } from "../templates.jsx";
+import { Section } from "@astryxdesign/core/Section";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Spinner } from "@astryxdesign/core/Spinner";
@@ -494,7 +494,7 @@ function TradesPanel({ snap, thoughts, onThought, notesDirty, onSaveNotes, savin
 
       {(liveSyn || storedSyn) && (
         <Section>
-          <VStack gap={2} padding={2}>
+          <VStack gap={2} padding={3}>
             <HStack gap={2} align="center" justify="between" wrap="wrap">
               <Text type="label" color="secondary">Day synthesis — the book, not the trades</Text>
               {storedSyn && synHist.length > 1 && (
@@ -607,7 +607,7 @@ function DayDetail({ s, onDelete, onSaveEntry, onAttach, saving }) {
         notesDirty={notesDirty} onSaveNotes={save} saving={saving} />
 
       <Section>
-        <VStack gap={2} padding={2}>
+        <VStack gap={2} padding={3}>
           <Text type="label" color="secondary">
             Forecast vs. actual{sc && sc.level_accuracy != null ? ` · levels ${pct(sc.level_accuracy)}` : ""}
             {sc && sc.regime ? ` · ${sc.regime.outcome} (${sc.regime.moved_pct}%)` : ""}
@@ -644,7 +644,7 @@ function DayDetail({ s, onDelete, onSaveEntry, onAttach, saving }) {
       </Section>
 
       <Section>
-        <VStack gap={2} padding={2}>
+        <VStack gap={2} padding={3}>
           <Text type="label" color="secondary">My journal — the day overall</Text>
           <div className="vg-cols">
             {ENTRY_FIELDS.map(([k, label, ph]) => (
@@ -763,7 +763,7 @@ function AnalysisPanel({ sym }) {
   return (
     <VStack gap={3}>
       <Section>
-        <VStack gap={2} padding={2}>
+        <VStack gap={2} padding={3}>
           <HStack gap={2} align="end" wrap="wrap">
             <VStack gap={0}><Text type="supporting" color="secondary">From</Text>
               <input type="date" style={inputStyle} value={win.from}
