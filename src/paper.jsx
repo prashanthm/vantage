@@ -310,13 +310,17 @@ function LiveTwin({ live }) {
   );
 }
 
-export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
+// section: "open" (Paper tab — live positions) | "performance" (record + gate
+// inputs) | undefined (everything). One fetch either way.
+export function ScannerSpreadBook({ refreshNonce, alwaysShow, section }) {
   const q = useLive(() => getSpreadBook(), null, [refreshNonce]);
   const d = q.data;
   if (!d || d.available === false) return null;
   const open = d.open || [];
   const closed = d.closed || [];
   const stats = d.stats || {};
+  const showOpen = section !== "performance";
+  const showPerf = section !== "open";
   // alwaysShow (Positions page): render the section header + an empty-state even
   // when nothing has fired yet, so paper trades have a permanent, findable home.
   if (!open.length && !closed.length) {
@@ -350,7 +354,14 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           {onAlpaca && <> · <b style={{ color: "var(--vg-up)" }}>Alpaca paper</b> (real fills)</>}
         </span>
       </div>
-      {d.by_strategy && Object.keys(d.by_strategy).length > 0 && (
+      {showOpen && section === "open" && stats.n > 0 && (
+        <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 13 }}>
+          realized to date <b className={stats.total_pnl >= 0 ? "vg-up" : "vg-down"}>{usd(stats.total_pnl)}</b>
+          {" "}over {stats.n} closed · unrealized on open spreads needs live marks (pending) ·
+          full record on the <a className="vg-linkbtn" href="#/scanner/performance">Performance tab</a>
+        </p>
+      )}
+      {showPerf && d.by_strategy && Object.keys(d.by_strategy).length > 0 && (
         <div className="vg-tablewrap" style={{ marginTop: 10 }}>
           <div className="vg-kicker" style={{ fontSize: 12, marginBottom: 4 }}>
             By strategy
@@ -381,7 +392,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           </table>
         </div>
       )}
-      {stats.n > 0 && (
+      {showPerf && stats.n > 0 && (
         <div className="vg-stats" style={{ marginTop: 10 }}>
           <Tile label="Net P&L" value={usd(stats.total_pnl)} tone={stats.total_pnl >= 0 ? "good" : "bad"} />
           <Tile label="Win rate" value={pct(stats.win_rate)} termKey="win_rate" />
@@ -389,7 +400,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           <Tile label="Closed" value={stats.n} />
         </div>
       )}
-      {(d.live_manual || []).length > 0 && (
+      {showPerf && (d.live_manual || []).length > 0 && (
         <div style={{ marginTop: 10 }}>
           <div className="vg-kicker" style={{ fontSize: 12, marginBottom: 4 }}>
             Taken live — manual tags
@@ -404,7 +415,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           ))}
         </div>
       )}
-      {open.length > 0 && (
+      {showOpen && open.length > 0 && (
         <>
           <div className="vg-note" style={{ fontSize: 12, margin: "12px 0 4px" }}>Open ({open.length})</div>
           <div className="vg-pb-ladder">
@@ -441,7 +452,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
           </div>
         </>
       )}
-      {closed.length > 0 && (
+      {showPerf && closed.length > 0 && (
         <>
           {d.equity_curve && d.equity_curve.length > 1 && (
             <div className="vg-tr-curve"><EquityCurve curve={d.equity_curve} /></div>)}

@@ -108,7 +108,7 @@ function StrategyPulseBlock({ refreshNonce }) {
     <div className="vg-card" style={{ marginTop: 10 }}>
       <div className="vg-spread">
         <span className="vg-kicker" style={{ marginBottom: 0 }}>Strategy pulse</span>
-        <a className="vg-note" href="#/scanner" style={{ fontSize: 12 }}>book →</a>
+        <a className="vg-note" href="#/scanner/performance" style={{ fontSize: 12 }}>book →</a>
       </div>
       <table className="vg-mini" style={{ marginTop: 6, width: "100%" }}><tbody>
         {Object.entries(bs).map(([name, s]) => (

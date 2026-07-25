@@ -166,6 +166,10 @@ answer these; "no" to any = fix it, don't ship around it:
    omitted to look cleaner.
 6. **Both themes.** Anything styled must read in light AND dark (tokens do this
    for free — verify if you hardcoded a color).
+7. **No long scrolling pages.** A surface answers one question per view; when
+   merging surfaces, merge into TABS on one route (Journal Days/Analysis,
+   Positions by-underlying/by-structure are the pattern) — never a vertical
+   stack of sections. Operator rule, stated 2026-07-25.
 
 ## Routing table
 

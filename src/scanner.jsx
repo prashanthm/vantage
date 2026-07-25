@@ -6,7 +6,7 @@
 // book renders as the record section, and the reclaim paper book (playbook
 // tickets) rides along collapsed.
 import { cls, dirCls, LoadBar } from "./util.jsx";
-import { useLive, getScanner, refreshScanner, addScannerTicker, removeScannerTicker } from "./live.js";
+import { useLive, getScanner, refreshScanner, addScannerTicker, removeScannerTicker, getSpreadBook } from "./live.js";
 import { ScannerSpreadBook, PaperView } from "./paper.jsx";
 import { LifecycleBoard } from "./strategies_view.jsx";
 
@@ -35,7 +35,7 @@ const hhmm = (iso) => (iso ? String(iso).slice(11, 16) : "");
 // hits of a tier — it names the SETUP TYPE, not the ticker — so it's hoisted into
 // one caption above the grid, and the card shows only what varies: direction (as a
 // colored edge), symbol, the entry→invalid numbers, freshness, and OB-backing.
-function SignalCard({ h, onOpen }) {
+function SignalCard({ h, onOpen, inPaper }) {
   const long = h.dir === "long";
   const dir = long ? 1 : -1;
   const z = Array.isArray(h.entry_zone) ? h.entry_zone : null;
@@ -47,6 +47,8 @@ function SignalCard({ h, onOpen }) {
         <span className="vg-scan-sym">{h.symbol}</span>
         <b className={cls("vg-scan-dir", dirCls(dir))}>{long ? "LONG" : "SHORT"}</b>
         {h.ob_backed && <span className="vg-scan-ob" title="order-block backed">OB</span>}
+        {inPaper && <span className="vg-badge info" style={{ marginLeft: "auto" }}
+          title="a paper spread is open for this setup — see the Paper tab">→ in paper</span>}
       </div>
       <div className="vg-scan-nums">
         <div className="vg-scan-num">
@@ -83,14 +85,15 @@ function SignalCard({ h, onOpen }) {
 // A tier's hits, split into LONG and SHORT sub-blocks. The setup rationale is
 // captioned once for the tier (identical across its hits); each side is its own
 // labeled column so direction is read from structure, not a per-card marker.
-function TierGroup({ label, hits, onOpen }) {
+function TierGroup({ label, hits, onOpen, paperSyms }) {
   const longs = hits.filter((h) => h.dir === "long");
   const shorts = hits.filter((h) => h.dir !== "long");
   const side = (name, list) => list.length > 0 && (
     <div className="vg-scan-side">
       <div className="vg-scan-sidehd">{name} · {list.length}</div>
       <div className="vg-scan-grid">
-        {list.map((h) => <SignalCard key={h.symbol} h={h} onOpen={onOpen} />)}
+        {list.map((h) => <SignalCard key={h.symbol} h={h} onOpen={onOpen}
+          inPaper={paperSyms && paperSyms.has(h.symbol)} />)}
       </div>
     </div>);
   return (
@@ -191,17 +194,27 @@ function HistoryTable({ rows, onOpen }) {
     </div>);
 }
 
-export function ScannerView({ onOpenSymbol }) {
+export function ScannerView({ onOpenSymbol, tab, onTab }) {
+  const active = tab === "paper" || tab === "performance" ? tab : "scan";
   const [scanner, setScanner] = useState("ict_htf");
   const [nonce, setNonce] = useState(0);
   const [note, setNote] = useState(null);
   const [entry, setEntry] = useState("");
+  const [symFilter, setSymFilter] = useState("");
+
+  // open paper spreads → the "→ in paper" badge on scan cards (client join)
+  const bookQ = useLive(() => getSpreadBook(), null, [nonce]);
+  const paperSyms = new Set(((bookQ.data && bookQ.data.open) || [])
+    .map((r) => r.underlying || r.symbol).filter(Boolean));
 
   const q = useLive(() => getScanner(scanner), null, [scanner, nonce]);
   const d = q.data && q.data.available ? q.data : null;
   const running = d && d.status === "running";
   const prog = (d && d.progress) || null;
-  const hits = (d && d.hits) || [];
+  const allHits = (d && d.hits) || [];
+  const hits = symFilter
+    ? allHits.filter((h) => h.symbol.includes(symFilter.trim().toUpperCase()))
+    : allHits;
   const aplus = hits.filter((h) => h.tier === "A+");
   const bs = hits.filter((h) => h.tier !== "A+");
   const history = (d && d.history) || [];
@@ -246,20 +259,33 @@ export function ScannerView({ onOpenSymbol }) {
 
       <div className="vg-spread" style={{ marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Strategies</h2>
+          <div className="vg-row" style={{ gap: 10, alignItems: "baseline" }}>
+            <h2 style={{ margin: 0, fontSize: 19 }}>Strategies</h2>
+            <div className="vg-row" style={{ gap: 4 }}>
+              {[["scan", "Scan"], ["paper", "Paper"], ["performance", "Performance"]].map(([k, l]) => (
+                <button key={k} className={cls("vg-seg-btn", active === k && "on")}
+                  onClick={() => onTab && onTab(k)}>{l}</button>
+              ))}
+            </div>
+          </div>
           <p className="vg-sub" style={{ margin: "4px 0 0" }}>
-            Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 —
-            executed on paper below, promoted to real money when the gate passes.
+            {active === "scan" && "Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 · A+ setups auto-open a paper spread."}
+            {active === "paper" && "Open paper positions from the scans — the live sample the promotion gate judges."}
+            {active === "performance" && "The record per strategy, and the gate to real money."}
           </p>
         </div>
       </div>
 
+      {active === "scan" && <>
       {/* universe status strip */}
       <div className="vg-card vg-scan-strip" style={{ padding: 12, marginBottom: 12 }}>
         <select value={scanner} onChange={(e) => setScanner(e.target.value)}
           aria-label="scanner type" className="vg-fc-syminput" style={{ width: "auto" }}>
           {SCANNERS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
         </select>
+        <input className="vg-fc-syminput" value={symFilter} spellCheck={false}
+          onChange={(e) => setSymFilter(e.target.value.toUpperCase())}
+          placeholder="filter symbol" aria-label="filter setups by symbol" style={{ width: 110 }} />
         {running ? (
           <span className="vg-note">
             {prog ? `${prog.phase}… ${prog.done}/${prog.total}` : "scanning…"}
@@ -304,8 +330,8 @@ export function ScannerView({ onOpenSymbol }) {
 
       {/* ranked signal cards — shared rationale captioned once per tier, then the
           hits split into LONG / SHORT sub-blocks so direction is structural. */}
-      {aplus.length > 0 && <TierGroup label="A+ setups" hits={aplus} onOpen={onOpenSymbol} />}
-      {bs.length > 0 && <TierGroup label="B setups" hits={bs} onOpen={onOpenSymbol} />}
+      {aplus.length > 0 && <TierGroup label="A+ setups" hits={aplus} onOpen={onOpenSymbol} paperSyms={paperSyms} />}
+      {bs.length > 0 && <TierGroup label="B setups" hits={bs} onOpen={onOpenSymbol} paperSyms={paperSyms} />}
 
       {d && hits.length === 0 && (
         <div className="vg-card" style={{ padding: 18 }}>
@@ -328,21 +354,24 @@ export function ScannerView({ onOpenSymbol }) {
       <p className="vg-note" style={{ marginTop: 8, fontSize: 12, color: "var(--vg-dim)" }}>
         Hourly setups (validated timeframe) · a heads-up to drop to a lower timeframe for entry · not advice.
       </p>
+      </>}
 
-      {/* ---- the paper record: what executing these scans actually returned ---- */}
-      <ScannerSpreadBook refreshNonce={0} alwaysShow />
+      {active === "paper" && <>
+        <ScannerSpreadBook refreshNonce={nonce} alwaysShow section="open" />
+        {/* the reclaim paper book — playbook-ticket fills, the other paper feeder */}
+        <details className="vg-card" style={{ marginTop: 12 }}>
+          <summary className="vg-kicker" style={{ cursor: "pointer" }}>
+            Reclaim paper book (playbook tickets)</summary>
+          <PaperView refreshNonce={nonce} />
+        </details>
+      </>}
 
-      {/* the reclaim paper book — playbook-ticket fills, the other paper feeder */}
-      <details className="vg-card" style={{ marginTop: 12 }}>
-        <summary className="vg-kicker" style={{ cursor: "pointer" }}>
-          Reclaim paper book (playbook tickets)</summary>
-        <PaperView refreshNonce={0} />
-      </details>
-
-      {/* ---- the promotion gate: paper record vs frozen baseline -> real money ---- */}
-      <div style={{ marginTop: 16 }}>
-        <LifecycleBoard />
-      </div>
+      {active === "performance" && <>
+        <ScannerSpreadBook refreshNonce={nonce} alwaysShow section="performance" />
+        <div style={{ marginTop: 16 }}>
+          <LifecycleBoard />
+        </div>
+      </>}
     </div>
   );
 }

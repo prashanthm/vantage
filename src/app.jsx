@@ -84,7 +84,8 @@ function useHashRoute() {
     if (r === "today" || r === "home" || r === "playbook") return { route: "cockpit", param: null };
     if (r === "dashboard") return { route: "portfolio", param: null };
     if (r === "options") return { route: "holdings", param: null };
-    if (r === "paper" || r === "strategies") return { route: "scanner", param: null };
+    if (r === "paper") return { route: "scanner", param: "paper" };
+    if (r === "strategies") return { route: "scanner", param: rest[0] === "paper" ? "paper" : null };
     const route = ROUTES.includes(r) ? r : defaultRoute();
     const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
     return { route, param };
@@ -451,7 +452,9 @@ function App() {
           {route === "activity" && <ActivityView {...viewProps} />}
           {route === "tax" && <TaxView {...viewProps} />}
           {route === "recs" && <RecsView {...viewProps} />}
-          {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
+          {route === "scanner" && (
+            <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }}
+              tab={routeParam} onTab={(k) => go("scanner", k === "scan" ? "" : k)} />)}
           {route === "journal" && (
             <JournalView refreshNonce={refreshNonce}
               tab={routeParam === "analysis" ? "analysis" : "days"}

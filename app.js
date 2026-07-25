@@ -1945,7 +1945,7 @@ ${ref}`;
     const q = useLive(() => getJson(`${backend()}/api/paper/spreads`), null, [refreshNonce]);
     const bs = q.data && q.data.by_strategy || null;
     if (!bs || !Object.keys(bs).length) return null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, "Strategy pulse"), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "#/scanner", style: { fontSize: 12 } }, "book \u2192")), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 6, width: "100%" } }, /* @__PURE__ */ React.createElement("tbody", null, Object.entries(bs).map(([name, s]) => /* @__PURE__ */ React.createElement("tr", { key: name }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, name), /* @__PURE__ */ React.createElement("td", { className: "vg-note", style: { fontSize: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" } }, s.open || 0, " open", s.n ? ` \xB7 ${Math.round((s.win_rate || 0) * 100)}%` : ""), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontVariantNumeric: "tabular-nums" } }, s.n ? /* @__PURE__ */ React.createElement("b", { className: s.total_pnl >= 0 ? "vg-up" : "vg-down", style: { fontSize: 12 } }, money4(s.total_pnl)) : /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "\u2014"), s.live_taken ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", style: { fontSize: 10, marginLeft: 4 } }, s.live_taken, " live") : null))))));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { marginBottom: 0 } }, "Strategy pulse"), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "#/scanner/performance", style: { fontSize: 12 } }, "book \u2192")), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 6, width: "100%" } }, /* @__PURE__ */ React.createElement("tbody", null, Object.entries(bs).map(([name, s]) => /* @__PURE__ */ React.createElement("tr", { key: name }, /* @__PURE__ */ React.createElement("td", { style: { fontSize: 12 } }, name), /* @__PURE__ */ React.createElement("td", { className: "vg-note", style: { fontSize: 12, textAlign: "right", fontVariantNumeric: "tabular-nums" } }, s.open || 0, " open", s.n ? ` \xB7 ${Math.round((s.win_rate || 0) * 100)}%` : ""), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontVariantNumeric: "tabular-nums" } }, s.n ? /* @__PURE__ */ React.createElement("b", { className: s.total_pnl >= 0 ? "vg-up" : "vg-down", style: { fontSize: 12 } }, money4(s.total_pnl)) : /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "\u2014"), s.live_taken ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", style: { fontSize: 10, marginLeft: 4 } }, s.live_taken, " live") : null))))));
   }
   var ORDER = {
     scanner: [AlertsBlock, OpenRiskBlock],
@@ -5081,13 +5081,15 @@ ${ref}`;
       live.status === "closed" ? ` ${usd2(live.realized)}` : live.cost ? ` \xB7 $${Math.round(live.cost)} in` : ""
     );
   }
-  function ScannerSpreadBook({ refreshNonce, alwaysShow }) {
+  function ScannerSpreadBook({ refreshNonce, alwaysShow, section }) {
     const q = useLive(() => getSpreadBook(), null, [refreshNonce]);
     const d = q.data;
     if (!d || d.available === false) return null;
     const open = d.open || [];
     const closed = d.closed || [];
     const stats = d.stats || {};
+    const showOpen = section !== "performance";
+    const showPerf = section !== "open";
     if (!open.length && !closed.length) {
       if (!alwaysShow) return null;
       return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Paper trades \u2014 scanner spreads"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0", fontSize: 13 } }, "No paper spreads yet. When an A+ scanner setup fires it opens a debit spread here (on Alpaca paper when configured) \u2014 open positions + a closed track record with win-rate. Separate from the SPX reclaim book."));
@@ -5099,7 +5101,7 @@ ${ref}`;
       if (r.broker_status === "filled" || r.fill_status === "filled") return { text: "filled", tone: "good" };
       return { text: r.broker_status || "working", tone: "plain" };
     };
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Scanner spreads"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "auto-logged from A+ setups \xB7 debit spreads \xB7 separate from the reclaim record", onAlpaca && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("b", { style: { color: "var(--vg-up)" } }, "Alpaca paper"), " (real fills)"))), d.by_strategy && Object.keys(d.by_strategy).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-tablewrap", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12, marginBottom: 4 } }, "By strategy", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 which scanner armed the trade \xB7 money-at-risk closes only")), /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Strategy"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Open"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Closed"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Win rate"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "PF"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Net P&L"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Taken live"))), /* @__PURE__ */ React.createElement("tbody", null, Object.entries(d.by_strategy).map(([name, s]) => /* @__PURE__ */ React.createElement("tr", { key: name }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, name)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.open || 0), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.n || 0), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.n ? pct2(s.win_rate) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.profit_factor != null ? s.profit_factor.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.n ? /* @__PURE__ */ React.createElement("b", { className: s.total_pnl >= 0 ? "vg-up" : "vg-down" }, usd2(s.total_pnl)) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.live_taken ? /* @__PURE__ */ React.createElement(React.Fragment, null, s.live_taken, s.live_realized ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("b", { className: s.live_realized >= 0 ? "vg-up" : "vg-down" }, usd2(s.live_realized))) : null) : "\u2014")))))), stats.n > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(Tile, { label: "Net P&L", value: usd2(stats.total_pnl), tone: stats.total_pnl >= 0 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile, { label: "Win rate", value: pct2(stats.win_rate), termKey: "win_rate" }), /* @__PURE__ */ React.createElement(Tile, { label: "Profit factor", value: stats.profit_factor != null ? stats.profit_factor.toFixed(2) : "\u2014", termKey: "profit_factor" }), /* @__PURE__ */ React.createElement(Tile, { label: "Closed", value: stats.n })), (d.live_manual || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12, marginBottom: 4 } }, "Taken live \u2014 manual tags", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 real trades from older scans, no paper twin; tagged by the operator")), d.live_manual.map((m, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(LiveTwin, { live: m }), /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 12 } }, m.strategy), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "manual tag \xB7 exp ", m.expiration)))), open.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, margin: "12px 0 4px" } }, "Open (", open.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, open.map((r) => {
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Scanner spreads"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "auto-logged from A+ setups \xB7 debit spreads \xB7 separate from the reclaim record", onAlpaca && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("b", { style: { color: "var(--vg-up)" } }, "Alpaca paper"), " (real fills)"))), showOpen && section === "open" && stats.n > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0", fontSize: 13 } }, "realized to date ", /* @__PURE__ */ React.createElement("b", { className: stats.total_pnl >= 0 ? "vg-up" : "vg-down" }, usd2(stats.total_pnl)), " ", "over ", stats.n, " closed \xB7 unrealized on open spreads needs live marks (pending) \xB7 full record on the ", /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#/scanner/performance" }, "Performance tab")), showPerf && d.by_strategy && Object.keys(d.by_strategy).length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-tablewrap", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12, marginBottom: 4 } }, "By strategy", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 which scanner armed the trade \xB7 money-at-risk closes only")), /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Strategy"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Open"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Closed"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Win rate"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "PF"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Net P&L"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Taken live"))), /* @__PURE__ */ React.createElement("tbody", null, Object.entries(d.by_strategy).map(([name, s]) => /* @__PURE__ */ React.createElement("tr", { key: name }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, name)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.open || 0), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.n || 0), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.n ? pct2(s.win_rate) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.profit_factor != null ? s.profit_factor.toFixed(2) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.n ? /* @__PURE__ */ React.createElement("b", { className: s.total_pnl >= 0 ? "vg-up" : "vg-down" }, usd2(s.total_pnl)) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.live_taken ? /* @__PURE__ */ React.createElement(React.Fragment, null, s.live_taken, s.live_realized ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("b", { className: s.live_realized >= 0 ? "vg-up" : "vg-down" }, usd2(s.live_realized))) : null) : "\u2014")))))), showPerf && stats.n > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement(Tile, { label: "Net P&L", value: usd2(stats.total_pnl), tone: stats.total_pnl >= 0 ? "good" : "bad" }), /* @__PURE__ */ React.createElement(Tile, { label: "Win rate", value: pct2(stats.win_rate), termKey: "win_rate" }), /* @__PURE__ */ React.createElement(Tile, { label: "Profit factor", value: stats.profit_factor != null ? stats.profit_factor.toFixed(2) : "\u2014", termKey: "profit_factor" }), /* @__PURE__ */ React.createElement(Tile, { label: "Closed", value: stats.n })), showPerf && (d.live_manual || []).length > 0 && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12, marginBottom: 4 } }, "Taken live \u2014 manual tags", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 real trades from older scans, no paper twin; tagged by the operator")), d.live_manual.map((m, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(LiveTwin, { live: m }), /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 12 } }, m.strategy), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "manual tag \xB7 exp ", m.expiration)))), showOpen && open.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, margin: "12px 0 4px" } }, "Open (", open.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, open.map((r) => {
       const bs = brokerLabel(r);
       if (r.book === "scanner-shares") {
         return /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { className: "vg-badge good", style: { minWidth: 44, textAlign: "center" } }, "SHARES"), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.symbol, " \xD7", Math.round(r.shares), " @ ", px(r.spy_entry)), /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 12 } }, r.setup), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 12 } }, "exit: close > 5-day MA or 5 sessions \xB7 sim"));
@@ -5112,7 +5114,7 @@ ${ref}`;
         },
         r.side === "long" ? "CALL" : "PUT"
       ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, spreadLabel(r)), bs && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", bs.tone), style: { fontSize: 12 } }, bs.text), r.live && /* @__PURE__ */ React.createElement(LiveTwin, { live: r.live }), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 12 } }, "target ", px(r.short_strike), " \xB7 invalid ", px(r.underlying_invalid)));
-    }))), closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, d.equity_curve && d.equity_curve.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "vg-tr-curve" }, /* @__PURE__ */ React.createElement(EquityCurve, { curve: d.equity_curve })), /* @__PURE__ */ React.createElement(
+    }))), showPerf && closed.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, d.equity_curve && d.equity_curve.length > 1 && /* @__PURE__ */ React.createElement("div", { className: "vg-tr-curve" }, /* @__PURE__ */ React.createElement(EquityCurve, { curve: d.equity_curve })), /* @__PURE__ */ React.createElement(
       TrackRecordTable,
       {
         rows: closed,
@@ -5242,7 +5244,7 @@ ${ref}`;
     return `${Math.round(s / 86400)}d ago`;
   }
   var hhmm = (iso) => iso ? String(iso).slice(11, 16) : "";
-  function SignalCard({ h, onOpen }) {
+  function SignalCard({ h, onOpen, inPaper }) {
     const long = h.dir === "long";
     const dir = long ? 1 : -1;
     const z = Array.isArray(h.entry_zone) ? h.entry_zone : null;
@@ -5253,7 +5255,15 @@ ${ref}`;
         onClick: () => onOpen && onOpen(h.symbol),
         title: `open ${h.symbol} chart`
       },
-      /* @__PURE__ */ React.createElement("div", { className: "vg-scan-cardhead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-sym" }, h.symbol), /* @__PURE__ */ React.createElement("b", { className: cls("vg-scan-dir", dirCls(dir)) }, long ? "LONG" : "SHORT"), h.ob_backed && /* @__PURE__ */ React.createElement("span", { className: "vg-scan-ob", title: "order-block backed" }, "OB")),
+      /* @__PURE__ */ React.createElement("div", { className: "vg-scan-cardhead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-sym" }, h.symbol), /* @__PURE__ */ React.createElement("b", { className: cls("vg-scan-dir", dirCls(dir)) }, long ? "LONG" : "SHORT"), h.ob_backed && /* @__PURE__ */ React.createElement("span", { className: "vg-scan-ob", title: "order-block backed" }, "OB"), inPaper && /* @__PURE__ */ React.createElement(
+        "span",
+        {
+          className: "vg-badge info",
+          style: { marginLeft: "auto" },
+          title: "a paper spread is open for this setup \u2014 see the Paper tab"
+        },
+        "\u2192 in paper"
+      )),
       /* @__PURE__ */ React.createElement("div", { className: "vg-scan-nums" }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-num" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numlbl" }, "entry"), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numval" }, z ? `${z[0]}\u2013${z[1]}` : h.ce ?? "\u2014")), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-num" }, /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numlbl" }, "invalid"), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-numval down" }, h.invalid ?? "\u2014"))),
       Array.isArray(h.targets) && h.targets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-ladder" }, h.targets.map((t, i) => {
         const runner = i === h.targets.length - 1;
@@ -5262,10 +5272,18 @@ ${ref}`;
       /* @__PURE__ */ React.createElement("div", { className: "vg-scan-foot vg-note" }, "@ ", hhmm(h.as_of), h.bars_ago != null ? ` \xB7 ${h.bars_ago}h ago` : "")
     );
   }
-  function TierGroup({ label, hits, onOpen }) {
+  function TierGroup({ label, hits, onOpen, paperSyms }) {
     const longs = hits.filter((h) => h.dir === "long");
     const shorts = hits.filter((h) => h.dir !== "long");
-    const side = (name, list) => list.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-side" }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-sidehd" }, name, " \xB7 ", list.length), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grid" }, list.map((h) => /* @__PURE__ */ React.createElement(SignalCard, { key: h.symbol, h, onOpen }))));
+    const side = (name, list) => list.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-side" }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-sidehd" }, name, " \xB7 ", list.length), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grid" }, list.map((h) => /* @__PURE__ */ React.createElement(
+      SignalCard,
+      {
+        key: h.symbol,
+        h,
+        onOpen,
+        inPaper: paperSyms && paperSyms.has(h.symbol)
+      }
+    ))));
     return /* @__PURE__ */ React.createElement("div", { className: "vg-scan-group" }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grouphead" }, /* @__PURE__ */ React.createElement("span", { className: "vg-kicker" }, label, " \xB7 ", hits.length), hits[0].reason && /* @__PURE__ */ React.createElement("span", { className: "vg-scan-rationale" }, hits[0].reason)), /* @__PURE__ */ React.createElement("div", { className: "vg-scan-sides" }, side("Long", longs), side("Short", shorts)));
   }
   function HistoryTable({ rows, onOpen }) {
@@ -5318,16 +5336,21 @@ ${ref}`;
       ), expanded && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-histbody" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginBottom: 4 } }, "triggered ", h.hour || String(h.as_of || "").slice(11, 16), " \xB7", " ", h.ob_backed ? "OB-backed" : "no OB", " \xB7", " ", h.runner_is_pool ? "runner = liquidity pool" : "runner = fixed R"), (h.targets || []).map((t, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-scan-histtgt" }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "T", i + 1, " \xB7 ", t.r, "R"), /* @__PURE__ */ React.createElement("b", null, t.price), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, Math.round((t.size || 0) * 100), "%", t.note ? ` \xB7 ${t.note}` : "")))));
     }), !shown.length && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { padding: 12 } }, "no setups match the filters")));
   }
-  function ScannerView({ onOpenSymbol }) {
+  function ScannerView({ onOpenSymbol, tab, onTab }) {
+    const active = tab === "paper" || tab === "performance" ? tab : "scan";
     const [scanner, setScanner] = useState13("ict_htf");
     const [nonce, setNonce] = useState13(0);
     const [note, setNote] = useState13(null);
     const [entry, setEntry] = useState13("");
+    const [symFilter, setSymFilter] = useState13("");
+    const bookQ = useLive(() => getSpreadBook(), null, [nonce]);
+    const paperSyms = new Set((bookQ.data && bookQ.data.open || []).map((r) => r.underlying || r.symbol).filter(Boolean));
     const q = useLive(() => getScanner(scanner), null, [scanner, nonce]);
     const d = q.data && q.data.available ? q.data : null;
     const running = d && d.status === "running";
     const prog = d && d.progress || null;
-    const hits = d && d.hits || [];
+    const allHits = d && d.hits || [];
+    const hits = symFilter ? allHits.filter((h) => h.symbol.includes(symFilter.trim().toUpperCase())) : allHits;
     const aplus = hits.filter((h) => h.tier === "A+");
     const bs = hits.filter((h) => h.tier !== "A+");
     const history = d && d.history || [];
@@ -5356,7 +5379,15 @@ ${ref}`;
     const removeTicker = (s) => removeScannerTicker(s).then(() => setNonce((n) => n + 1)).catch(() => {
     });
     const pct7 = prog && prog.total ? Math.round(prog.done / prog.total * 100) : 0;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-loadhost" }, (q.loading || running) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 12, flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Strategies"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, "Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 \u2014 executed on paper below, promoted to real money when the gate passes."))), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-scan-strip", style: { padding: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-loadhost" }, (q.loading || running) && /* @__PURE__ */ React.createElement(LoadBar, null), /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 12, flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Strategies"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 4 } }, [["scan", "Scan"], ["paper", "Paper"], ["performance", "Performance"]].map(([k, l]) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: k,
+        className: cls("vg-seg-btn", active === k && "on"),
+        onClick: () => onTab && onTab(k)
+      },
+      l
+    )))), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, active === "scan" && "Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 \xB7 A+ setups auto-open a paper spread.", active === "paper" && "Open paper positions from the scans \u2014 the live sample the promotion gate judges.", active === "performance" && "The record per strategy, and the gate to real money."))), active === "scan" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-scan-strip", style: { padding: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
       "select",
       {
         value: scanner,
@@ -5366,6 +5397,17 @@ ${ref}`;
         style: { width: "auto" }
       },
       SCANNERS.map((s) => /* @__PURE__ */ React.createElement("option", { key: s.id, value: s.id }, s.label))
+    ), /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "vg-fc-syminput",
+        value: symFilter,
+        spellCheck: false,
+        onChange: (e) => setSymFilter(e.target.value.toUpperCase()),
+        placeholder: "filter symbol",
+        "aria-label": "filter setups by symbol",
+        style: { width: 110 }
+      }
     ), running ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, prog ? `${prog.phase}\u2026 ${prog.done}/${prog.total}` : "scanning\u2026") : d ? /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "covered ", /* @__PURE__ */ React.createElement("b", null, d.covered_n), "/", /* @__PURE__ */ React.createElement("b", null, d.universe_n), " \xB7 ", aplus.length, " A+ \xB7 ", bs.length, " B \xB7 last run ", ago(d.ran_at), isStaleData && dataThrough && /* @__PURE__ */ React.createElement("span", { className: "vg-scan-stale" }, " \xB7 \u26A0 data through ", hhmm(dataThrough), " ", String(dataThrough).slice(5, 10), " (market closed \u2014 setups as of then)")) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "no scan yet \u2014 run a refresh to seed data + scan"), /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -5397,7 +5439,7 @@ ${ref}`;
         }
       ),
       /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "\uFF0B add")
-    ), manual.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-chips" }, manual.map((s) => /* @__PURE__ */ React.createElement("span", { key: s, className: "vg-scan-chip" }, s, /* @__PURE__ */ React.createElement("button", { className: "vg-scan-chip-x", title: "remove", onClick: () => removeTicker(s) }, "\u2715")))), manual.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "none \u2014 add ad-hoc names to always scan them.")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { color: "var(--vg-down)", marginBottom: 10 } }, note), aplus.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "A+ setups", hits: aplus, onOpen: onOpenSymbol }), bs.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "B setups", hits: bs, onOpen: onOpenSymbol }), d && hits.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 18 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No CURRENT hourly setups across ", d.covered_n, " covered tickers. A+ is a high-conviction, deliberately rare tier \u2014 a quiet scan is normal.", history.length > 0 && " Recently-played-out setups are in history below.")), history.length > 0 && /* @__PURE__ */ React.createElement(HistoryTable, { rows: history, onOpen: onOpenSymbol }), d && (d.no_data || []).length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12, fontSize: 12, color: "var(--vg-dim)" } }, "no data (", d.no_data.length, "): ", d.no_data.join(", "), " \u2014 hourly bars not fetched yet; refresh to seed."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12, color: "var(--vg-dim)" } }, "Hourly setups (validated timeframe) \xB7 a heads-up to drop to a lower timeframe for entry \xB7 not advice."), /* @__PURE__ */ React.createElement(ScannerSpreadBook, { refreshNonce: 0, alwaysShow: true }), /* @__PURE__ */ React.createElement("details", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Reclaim paper book (playbook tickets)"), /* @__PURE__ */ React.createElement(PaperView, { refreshNonce: 0 })), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement(LifecycleBoard, null)));
+    ), manual.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-scan-chips" }, manual.map((s) => /* @__PURE__ */ React.createElement("span", { key: s, className: "vg-scan-chip" }, s, /* @__PURE__ */ React.createElement("button", { className: "vg-scan-chip-x", title: "remove", onClick: () => removeTicker(s) }, "\u2715")))), manual.length === 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "none \u2014 add ad-hoc names to always scan them.")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { color: "var(--vg-down)", marginBottom: 10 } }, note), aplus.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "A+ setups", hits: aplus, onOpen: onOpenSymbol, paperSyms }), bs.length > 0 && /* @__PURE__ */ React.createElement(TierGroup, { label: "B setups", hits: bs, onOpen: onOpenSymbol, paperSyms }), d && hits.length === 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { padding: 18 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0 } }, "No CURRENT hourly setups across ", d.covered_n, " covered tickers. A+ is a high-conviction, deliberately rare tier \u2014 a quiet scan is normal.", history.length > 0 && " Recently-played-out setups are in history below.")), history.length > 0 && /* @__PURE__ */ React.createElement(HistoryTable, { rows: history, onOpen: onOpenSymbol }), d && (d.no_data || []).length > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12, fontSize: 12, color: "var(--vg-dim)" } }, "no data (", d.no_data.length, "): ", d.no_data.join(", "), " \u2014 hourly bars not fetched yet; refresh to seed."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12, color: "var(--vg-dim)" } }, "Hourly setups (validated timeframe) \xB7 a heads-up to drop to a lower timeframe for entry \xB7 not advice.")), active === "paper" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ScannerSpreadBook, { refreshNonce: nonce, alwaysShow: true, section: "open" }), /* @__PURE__ */ React.createElement("details", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Reclaim paper book (playbook tickets)"), /* @__PURE__ */ React.createElement(PaperView, { refreshNonce: nonce }))), active === "performance" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(ScannerSpreadBook, { refreshNonce: nonce, alwaysShow: true, section: "performance" }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 16 } }, /* @__PURE__ */ React.createElement(LifecycleBoard, null))));
   }
 
   // src/chart_replay_panel.jsx
@@ -7207,7 +7249,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       if (r === "today" || r === "home" || r === "playbook") return { route: "cockpit", param: null };
       if (r === "dashboard") return { route: "portfolio", param: null };
       if (r === "options") return { route: "holdings", param: null };
-      if (r === "paper" || r === "strategies") return { route: "scanner", param: null };
+      if (r === "paper") return { route: "scanner", param: "paper" };
+      if (r === "strategies") return { route: "scanner", param: rest[0] === "paper" ? "paper" : null };
       const route = ROUTES.includes(r) ? r : defaultRoute();
       const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
       return { route, param };
@@ -7568,10 +7611,17 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         lead: /* @__PURE__ */ React.createElement(BookToday, { ...viewProps }),
         onAccountsChanged: () => setRefreshNonce((n) => n + 1)
       }
-    ), route === "cockpit" && /* @__PURE__ */ React.createElement(CockpitView, { refreshNonce }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
-      setSymbol(sym);
-      go("ic", sym);
-    } }), route === "journal" && /* @__PURE__ */ React.createElement(
+    ), route === "cockpit" && /* @__PURE__ */ React.createElement(CockpitView, { refreshNonce }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "scanner" && /* @__PURE__ */ React.createElement(
+      ScannerView,
+      {
+        onOpenSymbol: (sym) => {
+          setSymbol(sym);
+          go("ic", sym);
+        },
+        tab: routeParam,
+        onTab: (k) => go("scanner", k === "scan" ? "" : k)
+      }
+    ), route === "journal" && /* @__PURE__ */ React.createElement(
       JournalView,
       {
         refreshNonce,
