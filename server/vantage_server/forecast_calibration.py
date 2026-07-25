@@ -56,7 +56,11 @@ def calibration(store: Store, symbol: str = "SPX") -> dict:
         b = buckets.setdefault((gamma, hour), {"n": 0, "hit": 0, "invalidated": 0})
         for d in (b, tot):
             d["n"] += 1
-            d["hit"] += verdict == "hit"
+            # production verdicts: "hit target" · "invalidated" · "direction
+            # correct/wrong" (spx_snapshot.score_forecast) — count hits as
+            # target-hits; "direction correct" is NOT a hit (the target-
+            # discipline lesson from the forecast-accuracy goal)
+            d["hit"] += verdict == "hit target"
             d["invalidated"] += verdict.startswith("invalid")
     conds = []
     for (gamma, hour), b in sorted(buckets.items()):

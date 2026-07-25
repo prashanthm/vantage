@@ -34,13 +34,13 @@ def test_forecast_calibration_buckets(tmp_path):
     for i in range(10):   # 10 negative-gamma late calls: 7 hits, 3 invalidated
         rows.append(("SPX", "2026-07-21", f"2026-07-21T14:{30+i//4:02d}:00-04:00",
                      _json.dumps({"regime": {"gamma": "negative"}}),
-                     _json.dumps({"verdict": "hit" if i < 7 else "invalidated"}), None))
+                     _json.dumps({"verdict": "hit target" if i < 7 else "invalidated"}), None))
     rows.append(("SPX", "2026-07-21", "2026-07-21T09:45:00-04:00",
                  _json.dumps({"regime": {"gamma": "positive"}}),
-                 _json.dumps({"verdict": "hit"}), None))           # small bucket
+                 _json.dumps({"verdict": "hit target"}), None))           # small bucket
     rows.append(("SPX", "2026-07-21", "2026-07-21T14:45:00-04:00",
                  _json.dumps({"regime": {"gamma": "negative"}}),
-                 _json.dumps({"verdict": "hit"}), "exp-run"))      # replay: excluded
+                 _json.dumps({"verdict": "hit target"}), "exp-run"))      # replay: excluded
     for sym, day, as_of, snap, score, run in rows:
         conn.execute("INSERT INTO spx_forecast(symbol,day,as_of,created_at,snapshot,score,run_id) "
                      "VALUES(?,?,?,?,?,?,?)", (sym, day, as_of, as_of, snap, score, run))
