@@ -56,7 +56,13 @@ symbol chart-linked. vg-cols grid = 4 cards across on a wide desk.
 Verified: ict_htf + rsi2_mr live data, strategy switch, filters render.
 Nav flipped to page; legacy #/scanner stays routable (redirect at W6).
 
-## W4b — Daily plan · TODO (next)
-Brief template; today's read + ladder + market context; pine export and
-ticket staging stay legacy-linked until ported.
+## W4b — Daily plan · DONE (this commit)
+In-shell plan page: regime banner (CALM/AMPLIFY plain narrative), symbol
+segmented control (SPX/QQQ/IWM), spot/VIX/gamma tiles, Refresh-plan POST,
+the two trigger scenarios side by side, the computed level ladder
+(chart-linked, dense) beside market context + caveats. PARITY GAP before
+#/playbook redirect: pine export + ticket staging (legacy-linked).
+
+Waves remaining: W5 Journal (LAST, feature-freeze during) · W6 delete
+vg-*/buildless shell + flip all legacy redirects at parity.
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO

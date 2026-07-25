@@ -13,7 +13,7 @@ import { links } from "./links.js";
 // legacy. Waves flip entries from href to page — the nav never changes shape.
 export const SURFACES = [
   { group: "Desk", id: "cockpit", label: "Cockpit", page: true },
-  { group: "Desk", id: "plan", label: "Daily plan", href: links.dailyPlan() },
+  { group: "Desk", id: "plan", label: "Daily plan", page: true },
   { group: "Desk", id: "scanner", label: "Scanner", page: true },
   { group: "Desk", id: "chart", label: "Chart", href: links.chart("SPX") },
   { group: "Book", id: "book", label: "Book", page: true },
