@@ -564,7 +564,7 @@ function AmbientBrief() {
         </div>
       )}
       <div className="vg-note" style={{ fontSize: "var(--vg-text-xs)", marginTop: 4, opacity: 0.7 }}>
-        context, not signals · full read on the <a className="vg-linkbtn" href="#/playbook">Daily plan</a>
+        context, not signals · full read on the <a className="vg-linkbtn" href="#/cockpit">Cockpit</a>
       </div>
     </div>
   );

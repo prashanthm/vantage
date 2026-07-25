@@ -12,10 +12,11 @@
 // Everything renders deterministically from stored data (ADR-008); Mira text
 // appears only where Mira already spoke (the stored trade analyses).
 import { cls } from "./util.jsx";
-import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getCoachPine, getDayReviews, getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook } from "./live.js";
+import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getDayReviews, getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook } from "./live.js";
 import { ToneCompareCard } from "./tone_card.jsx";
 import { SignalsCard, StrategyCard, MachineCard } from "./ops_cards.jsx";
-import { TicketModal } from "./playbook.jsx";
+import { TicketModal, PlanHalf } from "./playbook.jsx";
+import { AlertsBlock } from "./desk_rail.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { MiraRender, parseMira } from "./mira-render.jsx";
 
@@ -215,81 +216,6 @@ function ChecklistCard({ d, planRows }) {
 
 // ── panel sections ──────────────────────────────────────────────────────────
 
-// Pre-market CENTER face: the plan as a decision document — the one-line read,
-// each setup as a card, and the ladder with what price is EXPECTED to do at
-// each level (the playbook's own `expect` text, previously buried).
-function PlanFace() {
-  const q = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, []);
-  const sc = q.data && q.data.available ? (q.data.scaffold || {}) : null;
-  if (!sc) return null;
-  const r = sc.regime || {};
-  const tbl = sc.table || {};
-  const roleTone = (role) => (role === "support" ? "good" : role === "resistance" ? "bad" : "plain");
-  return (
-    <>
-      <div className="vg-card" style={{ marginTop: 14 }}>
-        <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
-          <div className="vg-kicker">Today&apos;s plan
-            <span className="vg-note" style={{ fontWeight: 400 }}> — code computes the levels, Mira narrates</span></div>
-          <a className="vg-note" href="#/playbook">full read →</a>
-        </div>
-        <div className="vg-row" style={{ gap: 6, marginTop: 6, flexWrap: "wrap" }}>
-          {r.gamma_text && <span className={cls("vg-badge", r.gamma === "negative" ? "warn" : "plain")}>{r.gamma_text}</span>}
-          {r.vwap_regime && <span className="vg-badge plain">{r.vwap_regime}</span>}
-          {r.vix != null && <span className="vg-badge plain" style={{ fontVariantNumeric: "tabular-nums" }}>VIX {r.vix} · {r.vix_band}</span>}
-        </div>
-        {tbl.read && <p style={{ margin: "10px 0 0", fontSize: "var(--vg-text-md)" }}>
-          <b>The read:</b> {tbl.read}</p>}
-        <p className="vg-note" style={{ margin: "8px 0 0" }}>
-          Gap cheat sheet (backtested, 730 sessions): small gaps (&lt;0.2%) close the gap
-          8 times in 10 · big gaps (&gt;0.5%) keep going 6–7 times in 10 and close only
-          2–3 in 10 — never fade a big gap before 10:00.</p>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12, marginTop: 12 }}>
-        {(sc.setups || []).map((s, i) => (
-          <div key={i} className="vg-card">
-            <b style={{ fontSize: "var(--vg-text-md)" }}>SETUP {i + 1} — {s.trigger}</b>
-            <p className="vg-note" style={{ margin: "3px 0 8px" }}>{s.bias}</p>
-            {(s.targets || []).length > 0 && (
-              <>
-                <div className="vg-kicker" style={{ fontSize: "var(--vg-text-xs)", marginBottom: 4 }}>Targets, in order</div>
-                <div className="vg-row" style={{ gap: 6, flexWrap: "wrap" }}>
-                  {s.targets.slice(0, 3).map((t, j) => (
-                    <span key={j} className="vg-badge good" style={{ fontVariantNumeric: "tabular-nums" }}
-                      title={t.kind}>{t.price} · {t.pts_from_trigger}pt · {t.kind}</span>
-                  ))}
-                </div>
-              </>
-            )}
-            {s.structure && <p className="vg-note" style={{ margin: "8px 0 0" }}>{s.structure}</p>}
-          </div>
-        ))}
-      </div>
-
-      {(tbl.rows || []).length > 0 && (
-        <div className="vg-card vg-tablewrap" style={{ marginTop: 12, padding: "10px 14px" }}>
-          <div className="vg-kicker" style={{ marginBottom: 6 }}>The ladder
-            <span className="vg-note" style={{ fontWeight: 400 }}> — each level + what price is expected to do there</span></div>
-          <table className="vg-table">
-            <thead><tr><th>Price</th><th>Level</th><th>Expect</th></tr></thead>
-            <tbody>
-              {tbl.rows.map((row, i) => (
-                <tr key={i}>
-                  <td className="num" style={{ textAlign: "left" }}>{row.price}</td>
-                  <td><span className={cls("vg-badge", roleTone(row.role))}>{(row.role || "?").slice(0, 3)}</span>
-                    {" "}<span className="vg-note">{row.label}</span></td>
-                  <td className="vg-note">{row.expect}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  );
-}
-
 // Pane, pre-open: yesterday's debrief homework — the day-review's "do next"
 // items, carried into the morning where they can actually change behavior.
 function CarriedRulesCard() {
@@ -318,25 +244,6 @@ function CarriedRulesCard() {
           </li>
         ))}
       </ol>
-    </div>
-  );
-}
-
-// Pane, pre-open: the 0DTE vol read (code-computed).
-function VolMiniCard() {
-  const q = useLive(() => getOdteRead("SPY"), null, []);
-  const d = q.data && q.data.available ? q.data : null;
-  if (!d || !d.verdict) return null;
-  const tone = /BUY|LONG/.test(d.verdict) ? "warn" : /SELL/.test(d.verdict) ? "good" : "plain";
-  return (
-    <div className="vg-card" style={{ marginTop: 12 }}>
-      <div className="vg-kicker">0DTE vol read
-        <span className="vg-note" style={{ fontWeight: 400 }}> · code</span></div>
-      <span className={cls("vg-badge", tone)} style={{ fontWeight: 800, fontSize: "var(--vg-text-md)", padding: "4px 10px" }}>{d.verdict}</span>
-      {d.implied_move_pct != null && d.realized_scaled_pct != null && (
-        <p className="vg-note" style={{ margin: "6px 0 0" }}>
-          straddle implies {d.implied_move_pct}% vs {d.realized_scaled_pct}% typically delivered
-          {d.ratio != null ? ` (ratio ${d.ratio})` : ""}</p>)}
     </div>
   );
 }
@@ -606,41 +513,15 @@ export function CockpitPanel({ refreshNonce }) {
   const q = useLive(() => getFrames(undefined), null, [tick, refreshNonce]);
   const d = q.data && q.data.available ? q.data : null;
   // the playbook table rows feed both the checklist's zone test and the watch
-  const [planNonce, setPlanNonce] = useState(0);
-  const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, [planNonce]);
+  const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 30000 }), null, [refreshNonce]);
   const planRows = (((pq.data && pq.data.available && pq.data.scaffold) || {}).table || {}).rows || [];
-  const recompute = async () => {
-    if (busy) return;
-    setBusy(true);
-    try { await recomputePlaybook(undefined, "SPX"); } catch (e) { /* surfaced on refetch */ }
-    setBusy(false); setPlanNonce((n) => n + 1);
-  };
-  const copyPine = async () => {
-    try {
-      const res = await getCoachPine(undefined, "SPX");
-      if (res && res.available && res.script) {
-        await navigator.clipboard.writeText(res.script);
-        setCopied(true); setTimeout(() => setCopied(false), 4000);
-      }
-    } catch (e) { /* clipboard denied — the Daily plan page has the full modal */ }
-  };
   const preOpen = etMinNow() < 570;
   return (
     <div className="vg-pane-body">
       {preOpen && <CarriedRulesCard />}
-      {preOpen && <VolMiniCard />}
       {d && !preOpen && <NowCard d={d} isToday />}
       {d && !preOpen && <ChecklistCard d={d} planRows={planRows} />}
-      <div className="vg-row" style={{ gap: 6, marginTop: 12, flexWrap: "wrap" }}>
-        <button className="vg-btn-sm" disabled={busy} onClick={recompute}
-          title="Rebuild the levels + GEX from the latest bars at the current price. Chart-derived levels (shelves/fib/VWAP/PoC) fully refresh; GEX re-anchors to spot but its open interest is still overnight (0DTE-blind).">
-          {busy ? "recomputing…" : "⟳ Recompute levels + GEX"}</button>
-        <button className="vg-btn-sm" onClick={copyPine}
-          title="Copy the COACH indicator (WAIT/ENTER/EXIT discipline + the current session's GEX/pivot levels baked in) for TradingView">
-          {copied ? "Coach Pine copied ✓" : "Copy coach Pine →"}</button>
-      </div>
+      <AlertsBlock refreshNonce={refreshNonce} />
       {d && <LevelsWatch d={d} rows={planRows} />}
       {d && <DisciplineCard d={d} />}
       {!d && <p className="vg-note" style={{ marginTop: 12 }}>
@@ -716,6 +597,7 @@ function FrameTr({ f, selected, onSelect }) {
 export function CockpitView({ refreshNonce }) {
   const [day, setDay] = useState(todayET());
   const isToday = day === todayET();
+  const preOpen = isToday && etMinNow() < 570;
   const [tick, setTick] = useState(0);
   useEffect(() => {
     if (!isToday) return undefined;
@@ -765,7 +647,11 @@ export function CockpitView({ refreshNonce }) {
         </div>
       </div>
 
-      {isToday && (etMinNow() < 570 ? <PlanFace /> : chartMode === "hidden" ? null : (
+      {/* pre-open the plan leads (the full playbook, not a reprise); during
+          RTH the live tape leads and the plan waits below the log */}
+      {preOpen && <PlanHalf refreshNonce={refreshNonce} />}
+
+      {isToday && !preOpen && chartMode !== "hidden" && (
         <div className="vg-card" style={{ marginTop: 8, padding: 8 }}>
           <InstrumentChartCard symbol="SPX" defaultTf="5m" compact={!chartBig}
             seriesType={chartBig ? "candles" : "line"}
@@ -773,7 +659,7 @@ export function CockpitView({ refreshNonce }) {
               : Math.max(460, Math.round(window.innerHeight * 0.55))}
             initialLayers={["levels", "forecast", "calls"]} />
         </div>
-      ))}
+      )}
 
       {/* the log (tone strip + frames) on the left; the clicked frame's briefing
           expands beside it and collapses on ✕ / re-click. Flex-wrap folds the
@@ -821,6 +707,9 @@ export function CockpitView({ refreshNonce }) {
           existed nowhere else. Today-only; historical days show the day's story
           above, not the machine room. */}
       {isToday && <OpsBlock />}
+
+      {/* the plan half after the live half once the session is underway */}
+      {isToday && !preOpen && <PlanHalf refreshNonce={refreshNonce} />}
     </div>
   );
 }

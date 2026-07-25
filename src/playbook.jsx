@@ -1,12 +1,12 @@
-// PlaybookView — the daily 0DTE SPX playbook (Intelligence nav).
-// SPX is not a holding, so this is its own top-level view (not a ticker
-// notebook). It shows: a pinned regime summary (gamma · flip · walls ·
-// catalyst), the plain-English narrative (Mira's LLM polish of the templated
-// scaffold), and collapsible structured sections (level ladder, conditional
-// setups, lookback edges). Refreshed nightly by the Vantage batch; the view
-// reads the latest. Context, not a signal (ADR-008) — no orders placed.
+// PlanHalf — the daily 0DTE SPX playbook, rendered as the plan half of the
+// merged Cockpit page (no standalone route since the IA streamline). It shows:
+// a pinned regime summary (gamma · flip · walls · catalyst), the plain-English
+// narrative (Mira's LLM polish of the templated scaffold), and collapsible
+// structured sections (level ladder, conditional setups, lookback edges).
+// Refreshed nightly by the Vantage batch; the view reads the latest.
+// Context, not a signal (ADR-008) — no orders placed.
 import { cls, SymbolSwitcher } from "./util.jsx";
-import { Term, GlossaryCard } from "./glossary.jsx";
+import { GlossaryCard } from "./glossary.jsx";
 import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket, getOdteRead, getChart } from "./live.js";
 
 const { useMemo, useState, useEffect } = React;
@@ -23,7 +23,7 @@ function levelTone(kind) {
   return "plain";
 }
 
-export function PlaybookView({ refreshNonce }) {
+export function PlanHalf({ refreshNonce }) {
   // Local reload nonce so Recompute re-pulls without a full app refresh.
   const [nonce, setNonce] = useState(0);
   const [sym, setSym] = useState("SPX");     // SPX | QQQ | IWM
@@ -75,6 +75,14 @@ export function PlaybookView({ refreshNonce }) {
   const cat = (p && p.catalysts) || {};
   const spot = reg.spot;
 
+  // Plan staleness (ported from the old NowBanner): live 1m close vs the spot
+  // the plan was written at — a >15pt drift means the read is describing a
+  // different tape, so nudge the operator to ⟳ Refresh.
+  const liveQ = useLive(() => getChart(sym, "1m", 2), null, [sym, nonce]);
+  const liveCandles = (liveQ.data && liveQ.data.available && liveQ.data.candles) || [];
+  const liveClose = liveCandles.length ? liveCandles[liveCandles.length - 1].close : null;
+  const drift = liveClose != null && spot != null ? Math.abs(liveClose - spot) : null;
+
   // The flip/walls for the pinned summary, pulled off the ladder by kind.
   const keyLevels = useMemo(() => {
     const out = { flip: null, call: null, put: null };
@@ -89,7 +97,7 @@ export function PlaybookView({ refreshNonce }) {
 
   if (p && p.available === false) {
     return (
-      <div className="vg-pane-body">
+      <div className="vg-playbook" style={{ marginTop: 14 }}>
         <h2 style={{ margin: "0 0 6px", fontSize: 19 }}>0DTE SPX Playbook</h2>
         <p className="vg-note">
           No playbook generated yet. Run <code>python -m vantage_server.spx_playbook</code>{" "}
@@ -101,7 +109,7 @@ export function PlaybookView({ refreshNonce }) {
   }
 
   return (
-    <div className="vg-pane-body vg-playbook">
+    <div className="vg-playbook" style={{ marginTop: 14 }}>
       {/* ---- pinned summary ---- */}
       <div className="vg-pb-head">
         <div>
@@ -113,6 +121,11 @@ export function PlaybookView({ refreshNonce }) {
             {p ? `for ${p.session || "the next session"}` : "loading…"}
             {reg.gamma ? ` · gamma ${reg.gamma}` : ""}
             {reg.vix != null ? ` · VIX ${fmtP(reg.vix)}${reg.vix_band ? ` (${reg.vix_band})` : ""}` : ""}
+            {drift != null && drift > 15 && (
+              <span className="vg-badge warn" style={{ marginLeft: 8, fontSize: "var(--vg-text-xs)" }}>
+                plan written at {fmtP(spot)} — {drift.toFixed(0)}pt away · hit ⟳ Refresh
+              </span>
+            )}
           </div>
           <div className="vg-row" style={{ gap: 6, marginTop: 8 }}>
             <button className="vg-btn-sm" onClick={exportPine}>Export to Pine</button>
@@ -137,11 +150,6 @@ export function PlaybookView({ refreshNonce }) {
           ⚠️ Catalyst today: <b>{cat.today}</b> — expect bigger moves; size down.
         </div>
       )}
-
-      {/* ---- RIGHT NOW: deterministic live-spot vs pivot banner (code, not
-           narrative) — which setup's condition is met at this minute, and how
-           stale the written plan is. ---- */}
-      <NowBanner flip={keyLevels.flip} planSpot={spot} sym={sym} nonce={nonce} />
 
       {/* ---- the plain-English narrative ---- */}
       <div className="vg-card">
@@ -174,11 +182,6 @@ export function PlaybookView({ refreshNonce }) {
       {/* ---- market context: breadth · VIX term structure · sectors · intermarket ---- */}
       {p && (reg.breadth_pct_above_50ma != null || reg.vix != null || reg.intermarket) && (
         <MarketContextCard reg={reg} sectors={(p && p.sectors) || []} />
-      )}
-
-      {/* ---- plain-English explanation of today's regime + how to trade it ---- */}
-      {p && reg.gamma && (
-        <PlainEnglish reg={reg} keyLevels={keyLevels} />
       )}
 
       {/* ---- durable memory levels (respected across many sessions) ---- */}
@@ -360,7 +363,7 @@ function parseRead(text) {
 
 // The read as UI (A2UI): regime chips + setup cards. The key-levels text block
 // is intentionally NOT rendered (the level ladder below is the better view),
-// the model's "right now" line is dropped (the live NowBanner above is truer),
+// the model's "right now" line is dropped (the NOW lens in the right pane is truer),
 // and the caveat pile collapses to one fixed line.
 function ReadCards({ parsed }) {
   const tone = (k) => (k === "Wrong if" ? "vg-down" : k === "Targets" ? "vg-up" : undefined);
@@ -386,88 +389,6 @@ function ReadCards({ parsed }) {
       </div>
       <div className="vg-note" style={{ marginTop: 8, fontSize: "var(--vg-text-xs)", opacity: 0.75 }}>
         GEX uses overnight OI — blind to 0DTE (~half of volume) · context, not a signal (ADR-008) · no orders (ADR-010) · not financial advice · full level ladder below
-      </div>
-    </div>
-  );
-}
-
-// RIGHT NOW — deterministic: live 1m close vs the plan's pivot decides which
-// conditional setup is currently ACTIVE, with the distance to flipping. Also
-// flags plan staleness (live spot vs the spot the plan was written at) so the
-// operator knows when to hit ⟳ Refresh. Pure arithmetic; no model.
-function NowBanner({ flip, planSpot, sym, nonce }) {
-  const q = useLive(() => getChart(sym === "SPX" ? "SPX" : sym, "1m", 2), null, [sym, nonce]);
-  const candles = (q.data && q.data.available && q.data.candles) || [];
-  const last = candles.length ? candles[candles.length - 1] : null;
-  if (!last || flip == null) return null;
-  const S = last.close;
-  const t = String(last.time_et || last.time || "").slice(11, 16);
-  const above = S >= flip;
-  const dist = Math.abs(S - flip).toFixed(1);
-  const drift = planSpot != null ? Math.abs(S - planSpot) : null;
-  return (
-    <div className="vg-card vg-pb-now">
-      <div className="vg-row" style={{ gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
-        <span className="vg-kicker" style={{ margin: 0 }}>Right now</span>
-        <b style={{ fontFamily: "var(--vg-font-data)", fontVariantNumeric: "tabular-nums" }}>
-          {sym} {S.toFixed(1)}{t ? ` (${t} bar)` : ""}</b>
-        <span className={cls("vg-badge", above ? "good" : "bad")} style={{ fontWeight: 700 }}>
-          {above ? "ABOVE" : "BELOW"} PIVOT {flip}
-        </span>
-        <span className="vg-note">
-          setup {above ? "2 (range / sell rallies)" : "1 (trend / don't fight it)"} territory ·
-          {" "}{dist}pt from flipping to setup {above ? "1" : "2"}
-        </span>
-        {drift != null && drift > 15 && (
-          <span className="vg-badge warn" style={{ fontSize: "var(--vg-text-xs)" }}>
-            plan written at {planSpot} — {drift.toFixed(0)}pt away · hit ⟳ Refresh
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// "Today, in plain English" — turns the regime + key levels into a readable
-// story with hoverable jargon, so a non-options reader knows what to actually do.
-function PlainEnglish({ reg, keyLevels }) {
-  const pos = reg.gamma === "positive";
-  const spot = reg.spot;
-  const { flip, call, put } = keyLevels;
-  return (
-    <div className="vg-card">
-      <div className="vg-kicker">Today, in plain English</div>
-      <div style={{ fontSize: 14, lineHeight: 1.6, marginTop: 6 }}>
-        <p style={{ margin: "0 0 8px" }}>
-          Dealers are in{" "}
-          <b><Term k={pos ? "positive_gamma" : "negative_gamma"}>{pos ? "positive gamma" : "negative gamma"}</Term></b>{" "}
-          today{reg.vix != null ? ` (VIX ${fmtP(reg.vix)})` : ""}. {pos ? (
-            <>That means their hedging works like a shock absorber — selling rallies
-            and buying dips — so this is a{" "}
-            <b><Term k="mean_reversion">mean-reversion</Term></b> day: expect price to
-            chop in a range rather than trend hard. The play is to{" "}
-            <b><Term k="fade">fade</Term> the edges</b> — sell rallies into resistance,
-            buy dips into support — instead of chasing breakouts.</>
-          ) : (
-            <>That means their hedging <i>amplifies</i> moves — selling into drops,
-            buying into rallies — so moves can run. This is a momentum tape: trade{" "}
-            <b>with</b> the move, not against it, and respect breakouts.</>
-          )}
-        </p>
-        <p style={{ margin: 0 }}>
-          {flip != null && spot != null && (
-            <>Your line in the sand is the{" "}
-            <b><Term k="gamma_flip">gamma flip</Term> at {fmtP(flip)}</b>: while price
-            holds above it you're in the {pos ? "calm, range-bound" : "current"} regime;
-            a break below flips it to the faster, trending mode. </>
-          )}
-          {call != null && (
-            <>Rallies tend to stall at the{" "}
-            <b><Term k="call_wall">call wall</Term> ({fmtP(call)})</b>
-            {put != null ? <>, and dips get bought near the{" "}
-            <b><Term k="put_wall">put wall</Term> ({fmtP(put)})</b></> : null}.</>
-          )}
-        </p>
       </div>
     </div>
   );

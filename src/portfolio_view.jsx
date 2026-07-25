@@ -310,7 +310,7 @@ function AccountManagerCard({ ba, accounts, accountId, setAccountId, refreshing,
 // both the inventory ("what do I own") AND the lens (scope recomputes every card),
 // so this is a control, not a footer — it lives above the analysis.
 function AccountBar({ ba, accounts, accountId, setAccountId, refreshing,
-                     onRefreshAccount, onChanged }) {
+                     onRefreshAccount, onRefreshAll, refreshNote, onChanged }) {
   const [manage, setManage] = useState(false);
   const list = accounts || [];
   const total = list.reduce((m, a) => { const c = a.currency || "USD"; m[c] = (m[c] || 0) + (a.value || 0); return m; }, {});
@@ -324,14 +324,24 @@ function AccountBar({ ba, accounts, accountId, setAccountId, refreshing,
         </button>
         {list.map((a) => (
           <button key={a.id} className={cls("vg-pf-chip-acct", accountId === a.id && "on")}
-            onClick={() => setAccountId && setAccountId(a.id)} title={`Scope to ${a.name || a.short}`}>
+            onClick={() => setAccountId && setAccountId(a.id)}
+            title={`Scope to ${a.name || a.short}${a.lastSynced !== undefined ? ` · synced ${syncedAgo(a.lastSynced)}` : ""}`}>
             <b>{a.short}</b> <span className="vg-note">{money(a.value, a.currency || "USD")}</span>
           </button>))}
+        {onRefreshAll && (
+          <button className={cls("vg-btn sm", refreshing && refreshing.all && "on")}
+            disabled={!!(refreshing && refreshing.all)} onClick={onRefreshAll}
+            title="Refresh every API-linked account">
+            ⟳ {refreshing && refreshing.all ? "Refreshing…" : "Refresh all"}
+          </button>)}
         <button className={cls("vg-btn sm vg-pf-manage", manage && "on")}
           onClick={() => setManage((v) => !v)} title="Add / import / sync / remove accounts">
           ⚙ {manage ? "Done" : "Manage"}
         </button>
       </div>
+      {refreshNote && (
+        <p className="vg-note" style={{ margin: "6px 0 0" }}>{refreshNote.text}</p>
+      )}
       {manage && (
         <AccountManagerCard ba={ba} accounts={accounts} accountId={accountId}
           setAccountId={setAccountId} refreshing={refreshing}
@@ -432,7 +442,8 @@ function AnalyzePane({ account }) {
 }
 
 export function PortfolioView({ accountId, setAccountId, scopeAccounts,
-                               refreshing, onRefreshAccount, onAccountsChanged }) {
+                               refreshing, onRefreshAccount, onRefreshAll,
+                               refreshNote, lead, onAccountsChanged }) {
   const account = accountId || "all";
   // Coalesce rapid data changes (uploading holdings + transactions to several
   // accounts fires onChanged repeatedly) into ONE refresh, so the account-list
@@ -477,7 +488,11 @@ export function PortfolioView({ accountId, setAccountId, scopeAccounts,
           above the analysis it drives. */}
       <AccountBar ba={d?.by_account} accounts={scopeAccounts} accountId={account}
         setAccountId={setAccountId} refreshing={refreshing}
-        onRefreshAccount={onRefreshAccount} onChanged={changed} />
+        onRefreshAccount={onRefreshAccount} onRefreshAll={onRefreshAll}
+        refreshNote={refreshNote} onChanged={changed} />
+      {/* today's headline P&L + the actions queue (moved from the retired
+          Dashboard — the Book's "what happened / what needs me" lead) */}
+      {lead}
       {/* honesty: accounts with no holdings imported are $0 → excluded from every
           card. Say so, so the numbers are never silently partial. */}
       {(() => {

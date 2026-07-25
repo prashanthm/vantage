@@ -18,7 +18,7 @@ const todayISO = () => new Intl.DateTimeFormat("en-CA",
   { timeZone: "America/New_York" }).format(new Date());
 
 // ── armed level alerts, with live distance to spot ──────────────────────────
-function AlertsBlock({ refreshNonce }) {
+export function AlertsBlock({ refreshNonce }) {
   const [nonce, setNonce] = useState(0);
   const alertsQ = useLive(() => getJson(`${backend()}/api/alerts`), null, [refreshNonce, nonce]);
   const spotQ = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`), null, [refreshNonce]);
@@ -34,7 +34,7 @@ function AlertsBlock({ refreshNonce }) {
     <div className="vg-card" style={{ marginTop: 10 }}>
       <div className="vg-spread">
         <span className="vg-kicker" style={{ marginBottom: 0 }}>Alerts</span>
-        <a className="vg-note" href="#/playbook" style={{ fontSize: 12 }}>arm on the ladder →</a>
+        <a className="vg-note" href="#/cockpit" style={{ fontSize: 12 }}>arm on the ladder →</a>
       </div>
       {armed.length === 0 && (
         <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 13 }}>
@@ -132,7 +132,6 @@ function StrategyPulseBlock({ refreshNonce }) {
 
 // route → which blocks lead (all three are cheap; order = relevance)
 const ORDER = {
-  playbook: [AlertsBlock, OpenRiskBlock, StrategyPulseBlock],
   scanner: [StrategyPulseBlock, AlertsBlock, OpenRiskBlock],
   journal: [OpenRiskBlock, AlertsBlock, StrategyPulseBlock],
   trades: [OpenRiskBlock, StrategyPulseBlock, AlertsBlock],
@@ -141,7 +140,7 @@ const ORDER = {
 };
 
 export function DeskRail({ route, refreshNonce }) {
-  const blocks = ORDER[route] || ORDER.playbook;
+  const blocks = ORDER[route] || ORDER.scanner;
   return (
     <div className="vg-pane-body" style={{ paddingTop: 0 }}>
       {blocks.map((B, i) => <B key={i} refreshNonce={refreshNonce} />)}

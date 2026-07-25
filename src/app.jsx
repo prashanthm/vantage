@@ -16,7 +16,6 @@ import { MiraRender } from "./mira-render.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { PortfolioView } from "./portfolio_view.jsx";
 import { OptionsView } from "./options.jsx";
-import { PlaybookView } from "./playbook.jsx";
 import { ScannerView } from "./scanner.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
@@ -41,20 +40,15 @@ const EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }
 // an edge → promote). Route ids are UNCHANGED so every bookmark keeps working.
 const NAV = [
   { group: "Desk", items: [
-    // Home: one route, three faces (brief / cockpit / debrief) picked by the
-    // market clock — the landing surface. Faces render the existing screens.
-    // Today RETIRED (W2 of the Astryx migration): its unique surfaces
-    // (signals/execute, bot record, nightly health) moved into CockpitView's
-    // ops block; #/today redirects to the Home cockpit face below.
-    // resolves as a drilldown for old links.
-    { id: "home", label: "Home", icon: "home" },
-    { id: "playbook", label: "Daily plan", icon: "plan" },
+    // Cockpit: the app's home — the merged Daily plan + live day surface.
+    // Home/faces and the standalone Daily plan RETIRED (IA streamline):
+    // #/home*, #/today, #/playbook all redirect here; #/dashboard → portfolio.
+    { id: "cockpit", label: "Cockpit", icon: "home" },
     { id: "scanner", label: "Scanner", icon: "scanner" },
     // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
     { id: "ic", label: "Chart", icon: "chart" },
   ]},
   { group: "Book", items: [
-    { id: "dashboard", label: "Dashboard", icon: "dashboard" },
     { id: "portfolio", label: "Portfolio", icon: "portfolio" },
     { id: "holdings", label: "Positions", icon: "positions" },
     { id: "options", label: "Options", icon: "options" },
@@ -71,61 +65,17 @@ const NAV = [
 // sidebar reads as a strategist's brief, not an operations console:
 //   charts   — opened from a Positions row or an Action ("view chart")
 //   activity — per-position transactions, reached from a holding
-//   recs     — the full decision journal, reached from the Dashboard Actions "All →"
+//   recs     — the full decision journal, reached from Portfolio's Actions "All →"
 //   markets  — live pattern signals, reached from Market read links
 // `paper` is a reachable drilldown route → the Strategies Track-record tab. (The
 // signalbot/exits tabs + views were retired in the pipeline-only refactor.)
 const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper", "futures"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
-// The market clock decides which FACE of Home the operator needs: pre-market →
-// the morning brief, RTH → the cockpit, post-close → the debrief. The clock is
-// state the app already has; the operator never manages a "mode" — Home picks,
-// and a pill overrides for the session.
-function clockFace() {
-  try {
-    const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/New_York", weekday: "short",
-      hour: "2-digit", minute: "2-digit", hour12: false,
-    }).formatToParts(new Date()).map((p) => [p.type, p.value]));
-    if (parts.weekday === "Sat" || parts.weekday === "Sun") return "brief";
-    const mins = (+parts.hour) * 60 + (+parts.minute);
-    if (mins < 9 * 60 + 30) return "brief";    // pre-market
-    if (mins < 16 * 60) return "cockpit";      // RTH
-    return "debrief";                          // post-close
-  } catch (e) { return "brief"; }
-}
-// With no hash, land on Home (which applies the clock).
-const defaultRoute = () => "home";
-
-// Home — one route, three faces, chosen by the clock with a manual override.
-// Each face IS the existing screen (Dashboard / Today / Journal) rendered via a
-// render prop — no duplicated views, Home only decides which one is "now".
-const HOME_FACES = [
-  { key: "brief", label: "Morning brief" },
-  { key: "cockpit", label: "Cockpit" },
-  { key: "debrief", label: "Debrief" },
-];
-function HomeView({ face, onFace, renderFace }) {
-  // face comes from the hash (#/home/cockpit) so it's linkable + back-button
-  // friendly; with no param the market clock picks.
-  const active = HOME_FACES.some((f) => f.key === face) ? face : clockFace();
-  return (
-    <div className="vg-home">
-      <div className="vg-row" style={{ gap: 4, marginBottom: 6 }}>
-        {HOME_FACES.map((f) => (
-          <button key={f.key} className={cls("vg-seg-btn", active === f.key && "on")}
-            onClick={() => onFace(f.key)}
-            title={active === f.key ? "current face (picked by the market clock; pills deep-link)"
-              : `switch to the ${f.label.toLowerCase()}`}>
-            {f.label}
-          </button>
-        ))}
-      </div>
-      {renderFace(active)}
-    </div>
-  );
-}
+// With no hash, land on the Cockpit — the merged plan + live-day surface.
+// The page itself orders plan-first pre-open, live-first during RTH; the
+// Journal (Review) is the post-close debrief. No clock-driven face switching.
+const defaultRoute = () => "cockpit";
 
 // Parses `#/route` and `#/route/param` (e.g. #/ic/NVDA → route "ic", param "NVDA").
 // Deep-linkable: bookmark or share a specific symbol's chart. `param` is the raw
@@ -135,7 +85,8 @@ function useHashRoute() {
     const h = window.location.hash.replace(/^#\/?/, "");
     const [r, ...rest] = h.split("/");
     // retired routes redirect to their surviving canon (old links keep working)
-    if (r === "today") return { route: "home", param: "cockpit" };
+    if (r === "today" || r === "home" || r === "playbook") return { route: "cockpit", param: null };
+    if (r === "dashboard") return { route: "portfolio", param: null };
     const route = ROUTES.includes(r) ? r : defaultRoute();
     const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
     return { route, param };
@@ -328,7 +279,6 @@ function App() {
   // Top market strip: live index band only (no demo ticker). Empty until the
   // quote feed responds; blanks on outage.
   const marketBand = useLive(() => live.quotes().then(live.mapMarketBand), null, [settings, refreshNonce]).data;
-  const scopeOutage = scopeLive.outage;
   const unread = notifs.filter((n) => !n.read && settings.notifPrefs[n.type]).length;
 
   // -- refresh handlers: the ONLY writes the SPA issues. Read broker tools
@@ -366,10 +316,6 @@ function App() {
   };
 
   const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh, go, setNotifOpen, refreshNonce };
-  // The Dashboard "Accounts today" section reuses the live account rail + its
-  // refresh handlers so "how is each account doing" is answered in the brief,
-  // not only in the scope selector.
-  const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
   // Replay (chart-first): the run selection + which call is highlighted are shared
   // between the chart overlay (center) and the ReplayPanel (right pane). `replayOn`
   // makes the right pane show the panel and the chart draw the run's markers.
@@ -386,12 +332,10 @@ function App() {
   const showReplayPanel = route === "ic" && replayOn;
   // desk/review routes get the context rail (alerts · open risk · strategy
   // pulse) instead of the route-blind ticker Notebook.
-  const showDeskRail = ["playbook", "scanner", "journal", "trades", "strategies", "paper"].includes(route);
+  const showDeskRail = ["scanner", "journal", "trades", "strategies", "paper"].includes(route);
   // Cockpit: the right pane becomes the cockpit's instrument panel (NOW state /
   // a clicked frame's briefing) — same lifted-state pattern as Replay.
-  const homeFace = route === "home"
-    ? (HOME_FACES.some((f) => f.key === routeParam) ? routeParam : clockFace()) : null;
-  const showCockpitPanel = homeFace === "cockpit";
+  const showCockpitPanel = route === "cockpit";
   // the chart-first route: the instrument the chart is showing (URL param → SPX).
   const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
   // keep the shared `symbol` in sync with the chart route so the right-pane
@@ -501,24 +445,16 @@ function App() {
             <PortfolioView accountId={accountId} setAccountId={setAccountId}
               scopeAccounts={scopeAccounts} refreshing={refreshing}
               onRefreshAccount={onRefreshAccount} onRefreshAll={onRefreshAll}
+              refreshNote={refreshNote}
+              lead={<BookToday {...viewProps} />}
               onAccountsChanged={() => setRefreshNonce((n) => n + 1)} />)}
-          {route === "home" && (
-            <HomeView face={routeParam} onFace={(f) => go("home", f)}
-              renderFace={(face) => (
-                face === "cockpit"
-                  ? <CockpitView refreshNonce={refreshNonce} />
-                : face === "debrief" ? <JournalView refreshNonce={refreshNonce} />
-                : <DashboardView {...viewProps} {...dashProps} notifs={notifs} />
-              )} />
-          )}
-          {route === "dashboard" && <DashboardView {...viewProps} {...dashProps} notifs={notifs} />}
+          {route === "cockpit" && <CockpitView refreshNonce={refreshNonce} />}
           {route === "holdings" && <HoldingsView {...viewProps} />}
           {route === "activity" && <ActivityView {...viewProps} />}
           {route === "tax" && <TaxView {...viewProps} />}
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
-          {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
           {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
           {route === "strategies" && (
             <StrategiesView tab={routeParam} refreshNonce={refreshNonce}
@@ -747,10 +683,11 @@ function buildActionQueue({ decisions, tlh, alloc, totalValue, accountId, settin
   return out.sort((a, b) => a.weight - b.weight);
 }
 
-function DashboardView({
-  accountId, setAccountId, settings, tlh, go, setSymbol, refreshNonce,
-  scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll,
-}) {
+// BookToday — the Dashboard's surviving blocks (headline P&L tiles + the
+// actions queue), rendered as the lead of the Portfolio page since the IA
+// streamline killed the Dashboard route. Accounts UI lives in Portfolio's
+// own AccountBar (it already owned scope + sync).
+function BookToday({ accountId, settings, tlh, go, setSymbol, refreshNonce }) {
   // Live engine only — empty fallbacks, no demo. blankOnOutage keeps the app
   // honest: an outage shows an empty book, never fabricated positions.
   const posLive = useLive(() => live.positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true });
@@ -774,22 +711,15 @@ function DashboardView({
   const harvestable = tlh.filter((c) => c.status === "clear");  // TLH is US-only (gated server-side)
   const harvestableLoss = harvestable.reduce((s, c) => s + -c.unrl, 0);
   const estBenefit = harvestableLoss * (settings.taxRate / 100);
-  const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
 
   const actions = buildActionQueue({ decisions, tlh, alloc, totalValue, accountId, settings, go, setSymbol });
 
   return (
     <div className="vg-loadhost">
       {dashLoading && <LoadBar />}
-      <div className="vg-spread">
-        <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>Dashboard</h2>
-          <p className="vg-sub">{acctLabel} · your morning brief · marked to last close</p>
-        </div>
-      </div>
 
       {/* ---------- How is my portfolio doing today? ---------- */}
-      <div className="vg-kicker" style={{ margin: "14px 2px 6px" }}>Portfolio today</div>
+      <div className="vg-kicker" style={{ margin: "14px 2px 6px" }}>Today · marked to last close</div>
       <div className="vg-stats">
         <StatTile label="Total value" value={isMixed ? moneyByCcy(byCurrency) : usd(totalValue)} />
         <StatTile label="Day P/L" value={isMixed ? Object.keys(dayPlByCcy).sort().map((c)=>signMoney(dayPlByCcy[c],c)).join(" · ") : signUsd(dayPl)} deltaDir={dirCls(dayPl)}
@@ -799,49 +729,6 @@ function DashboardView({
         <StatTile label="Harvestable losses" value={usd(harvestableLoss)}
           note={`≈ ${usd(estBenefit)} est. benefit at ${settings.taxRate}%`} />
       </div>
-
-      {/* ---------- How are my accounts doing today? ---------- */}
-      <div className="vg-spread" style={{ margin: "20px 2px 6px" }}>
-        <div className="vg-kicker" style={{ marginBottom: 0 }}>Accounts today</div>
-        <button className={cls("vg-refresh", refreshing.all && "spinning")} title="Refresh all accounts"
-          aria-label="Refresh all accounts" disabled={!!refreshing.all} onClick={onRefreshAll}>
-          <span className="ic">⟳</span> <span style={{ fontSize: 13 }}>refresh all</span>
-        </button>
-      </div>
-      {scopeAccounts.length === 0 ? (
-        <div className="vg-card">
-          <p className="vg-note" style={{ margin: 0 }}>
-            {scopeOutage ? "Backend unreachable — no accounts to show." : "No linked accounts yet — import a broker."}
-          </p>
-        </div>
-      ) : (
-        <div className="vg-acctgrid">
-          {scopeAccounts.map((a) => {
-            const csvOnly = a.refreshable === false;
-            const pending = !!refreshing[a.id];
-            return (
-              <div key={a.id} className={cls("vg-acctcard", accountId === a.id && "sel")}>
-                <button className="vg-acctcard-main" onClick={() => setAccountId(a.id)} title={`Scope to ${a.short}`}>
-                  <div className="vg-acctcard-name">{a.short}</div>
-                  <div className="vg-acctcard-val">{money(a.value, a.currency || "USD")}</div>
-                  <div className="vg-note">{a.type}{a.lastSynced !== undefined ? ` · synced ${syncedAgo(a.lastSynced)}` : ""}</div>
-                </button>
-                <button className={cls("vg-refresh", pending && "spinning")}
-                  title={csvOnly ? "re-import CSV to refresh — no live API" : `Refresh ${a.short}`}
-                  aria-label={`Refresh ${a.short}`} disabled={pending || csvOnly}
-                  onClick={(e) => { e.stopPropagation(); if (!csvOnly) onRefreshAccount(a.id); }}>
-                  <span className="ic">⟳</span>
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {refreshNote && (
-        <p className="vg-note" style={{ marginTop: 8, color: refreshNote.tone === "warn" ? "var(--color-grey)" : undefined }}>
-          {refreshNote.text}
-        </p>
-      )}
 
       {/* ---------- Are there any actions I need to take? ---------- */}
       <div className="vg-spread" style={{ margin: "20px 2px 6px" }}>
