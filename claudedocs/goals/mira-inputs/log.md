@@ -214,4 +214,33 @@ the 3 covered fixed days (07-21/23/24, ~81 steps) ≥ +5 with wrong-side
 verdicts (invalidated-no-target + direction-wrong) shrinking; CONFIRMED
 ≥ +7 · INCONCLUSIVE +3..+6 · DISPROVEN < +3 or wrong-sides unchanged.
 Mira-run experiment (~1h, 3 days).
-result: PENDING
+result: 07-21: 0.741 (+2) · 07-23: 0.778 (+3) · 07-24: 0.385 (−4).
+Paired: +7/−6 = net +1 (bar ≥ +7). Verdict mix: invalidated 25 vs 25 —
+IDENTICAL; wrong-sides unchanged.
+verdict: **DISPROVEN** — the flow read moved nothing mechanistically; the
+day-level swings were redistribution within noise. The last untested real
+data input is now tested.
+
+## GOAL STATUS after 8 of 12 experiments — the evidence-backed answer
+The user's question was "what additional inputs does Mira need?" The
+loop's answer: NONE of the available ones move scored forecast quality.
+Every lever class is now tested:
+- prompt-side inputs/rules (E1 freshness, E2 self-feedback, E4 clock):
+  null — behavior is set by the snapshot + core prompt;
+- real market data (E7 dealer flow): null — bias quality untouched;
+- code-side claim geometry (E5/E5b/E6): honest ceiling ≈ +0.03 pooled,
+  capped by a structural theorem: near targets + falsifiable stops +
+  23.8pt median wicks cannot coexist at the 15-min scale;
+- instrument (E3): model sampling noise flips 17% of steps net-zero.
+The REAL discoveries: 67% of "misses" are shakeouts (direction+target
+were right); truly-wrong calls are 12% and cluster at 14:00; the
+forecast's weak claim is the invalidation, stated ~4× tighter than the
+path. The +0.05 predicate is very unlikely reachable with the remaining
+4 experiments inside the current scope/metric.
+DECISION PENDING (operator): (a) close the goal — findings stand, budget
+partially unspent; (b) amend scope to test the 14:00 STAND-DOWN window —
+requires a metric change (precision-of-directional-calls + coverage,
+since stand-downs lower raw hit-rate by construction); (c) pivot the
+remaining budget to a LIVE A/B of the small-but-real E5b/E6 stop-parity
+post-processor. Amendments (b)/(c) change the confirmed contract → the
+operator's call, not the loop's.
