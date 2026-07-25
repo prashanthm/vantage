@@ -244,3 +244,20 @@ since stand-downs lower raw hit-rate by construction); (c) pivot the
 remaining budget to a LIVE A/B of the small-but-real E5b/E6 stop-parity
 post-processor. Amendments (b)/(c) change the confirmed contract → the
 operator's call, not the loop's.
+
+## E8 · stop-parity LIVE A/B (pre-registered BEFORE any live data; operator
+## chose option (c) 2026-07-25 — remaining budget goes to the live test)
+The E6 parity rule ships to the PRODUCTION save path as a post-processor
+(code, not prompt), A/B-armed: invalidation distance floored at 1.0×
+target distance (R:R ≥ 1 symmetric falsifiability), never tighter than
+stated. Zone-edge term dropped — E6 measured it never binding (median
+ratio exactly 1.00; nearest opposing zones sit 50-80pt out).
+arms: deterministic by issuance time — as_of 15-min bucket even = TREATED
+(parity applied), odd = CONTROL (stored as stated). Live forecasts only
+(run_id NULL); replay runs untouched. plot carries parity_ab +
+invalidation_stated so the split is exact and reversible.
+measurement: after ≥10 RTH sessions (~135 scored per arm), compare arms
+with the production scorer. CONFIRMED if treated hit-rate − control
+≥ +0.05 (the goal's own bar) AND treated invalidated-rate lower;
+DISPROVEN if ≤ 0; else INCONCLUSIVE and the flag comes out either way.
+env gate: VANTAGE_STOP_PARITY_AB=1 (default off → no behavior change).
