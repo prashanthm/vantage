@@ -5397,7 +5397,7 @@ ${ref}`;
         onClick: () => onTab && onTab(k)
       },
       l
-    )))), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, active === "scan" && "Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 \xB7 A+ setups auto-open a paper spread.", active === "paper" && "Open paper positions from the scans \u2014 the live sample the promotion gate judges.", active === "performance" && "The record per strategy, and the gate to real money."))), active === "scan" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-scan-strip", style: { padding: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
+    )))), /* @__PURE__ */ React.createElement("p", { className: "vg-sub", style: { margin: "4px 0 0" } }, active === "scan" && "Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 \xB7 long A+ setups auto-open a paper spread (shorts are display-only \u2014 H11).", active === "paper" && "Open paper positions from the scans \u2014 the live sample the promotion gate judges.", active === "performance" && "The record per strategy, and the gate to real money."))), active === "scan" && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-scan-strip", style: { padding: 12, marginBottom: 12 } }, /* @__PURE__ */ React.createElement(
       "select",
       {
         value: scanner,

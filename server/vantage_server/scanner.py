@@ -689,6 +689,12 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
     for hit in scan_result.get("hits") or []:
         if hit.get("tier") != "A+":
             continue
+        # LONG-ONLY arming (H11, scanner-families log 2026-07-25): A+ shorts
+        # win 0.329 vs longs 0.4295 on the frozen tape (n=2234, 10.1pp gap,
+        # long halves 1.03 odds-stable). Shorts stay VISIBLE on the Scan tab
+        # but never arm a paper spread — same posture as every other family.
+        if hit.get("dir") != "long":
+            continue
         spread = _sp.spread_from_hit(hit, price_chain=True)
         if spread is None or spread["setup_key"] in known:
             continue

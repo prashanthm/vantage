@@ -305,3 +305,16 @@ AND long halves within 2× odds → SHIP long-only arming for ict_htf spreads
 (shorts stay visible on the Scan tab, never auto-armed to paper) AND the
 ict_htf gate baseline becomes the long-only WR. ELSE keep both-side arming
 and the 0.3782 baseline. Frozen after this run.
+
+## H11 result — CONFIRMED, both actions shipped
+long: n=1099 WR 0.4295 halves 0.4335/0.4255 (odds 1.03 — the stablest split
+in this goal) · short: n=1135 WR 0.3286 halves 0.289/0.368 (odds 1.43).
+Gap 10.1pp ≥ 5pp ✓ · long n ≥ 300 ✓ · long halves < 2× ✓ → per the
+pre-committed rule:
+1. ict_htf pipe arms LONG-ONLY (scanner.py run_scan; shorts stay on the
+   Scan tab, display-only) — now every armed family is long-only.
+2. ict_htf gate baseline = 0.4295 (long-only WR), strategy.py provenance
+   updated. Still below the ~1:1 debit breakeven → the PF ≥ 1.0 floor
+   stays load-bearing.
+Frozen. Prediction verified exactly as registered (shorts drag, longs
+stable) — the fourth long-only confirmation on this tape.

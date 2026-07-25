@@ -118,7 +118,7 @@ def test_scanner_family_gate_sources(store, monkeypatch):
     from vantage_server import paper as P
 
     # frozen constants come straight off the strategy class (no cache needed)
-    assert L.backtest_baseline("ict_htf") == 0.378
+    assert L.backtest_baseline("ict_htf") == 0.4295
     assert L.backtest_baseline("breakout_hold") == 0.822
     assert L.backtest_baseline("rsi2_mr") == 0.703
 
@@ -129,12 +129,16 @@ def test_scanner_family_gate_sources(store, monkeypatch):
     # a family with no closes yet → (None, 0), gate stays paper
     assert L.paper_win_rate(store, "breakout_hold") == (None, 0)
 
-    # end to end: ict_htf paper 0.42 ≥ measured baseline 0.378, but the PF
-    # floor blocks a losing book from reading eligible (the WR blind spot)
-    monkeypatch.setattr(L, "_scanner_paper_pf", lambda s, sid: 0.72)
+    # end to end: ict_htf paper 0.42 < long-only baseline 0.4295 → below bar
+    g = L.evaluate_gate(store, "ict_htf")
+    assert g["passes"] is False and "below backtest baseline" in g["reason"]
+    # WR above the bar but a losing book → the PF floor blocks eligibility
+    monkeypatch.setattr(P, "build_spread_book", lambda s: {
+        "by_strategy": {"ict_htf": {"win_rate": 0.50, "n": 45, "profit_factor": 0.72}}})
     g = L.evaluate_gate(store, "ict_htf")
     assert g["passes"] is False and "profit factor 0.72" in g["reason"]
-    # a profitable book with the same WR clears the gate
-    monkeypatch.setattr(L, "_scanner_paper_pf", lambda s, sid: 1.4)
+    # WR above the bar AND a profitable book clears the gate
+    monkeypatch.setattr(P, "build_spread_book", lambda s: {
+        "by_strategy": {"ict_htf": {"win_rate": 0.50, "n": 45, "profit_factor": 1.4}}})
     g = L.evaluate_gate(store, "ict_htf")
     assert g["passes"] is True
