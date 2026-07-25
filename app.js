@@ -1393,6 +1393,117 @@ ${ref}`;
     return { data: fb, isLive: false, outage: blanked, loading };
   }
 
+  // src/tone_card.jsx
+  var { useState, useEffect } = React;
+  var money2 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(Number(v)).toFixed(0)}`;
+  function ToneCompareCard({ marketOpen, day, slim }) {
+    const [tick, setTick] = useState(0);
+    useEffect(() => {
+      if (!marketOpen) return void 0;
+      const t = setInterval(() => setTick((n) => n + 1), 18e4);
+      return () => clearInterval(t);
+    }, [marketOpen]);
+    const q = useLive(() => getCoachTone(day), null, [tick, day]);
+    const d = q.data && q.data.available ? q.data : null;
+    if (!d || !(d.buckets || []).length) return null;
+    const SLOTS = 26;
+    const slotOf = (startMin) => Math.max(0, Math.min(SLOTS - 1, Math.floor((startMin - 570) / 15)));
+    const market = new Array(SLOTS).fill(null);
+    for (const b of d.buckets) market[slotOf(b.start_min)] = b;
+    const tradeSlots = new Array(SLOTS).fill(null).map(() => []);
+    for (const t of d.trades || []) {
+      if (t.start_min >= 570 && t.start_min < 960) tradeSlots[slotOf(t.start_min)].push(t);
+    }
+    const toneColor = (tn) => tn === "bull" ? "var(--vg-up)" : tn === "bear" ? "var(--vg-down)" : "var(--vg-hairline)";
+    const al = d.alignment || {};
+    const last = d.buckets[d.buckets.length - 1];
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Market tone vs your trades", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " ", "\u2014 15-min snapshots", d.gap_pct != null ? ` \xB7 gap ${d.gap_pct > 0 ? "+" : ""}${d.gap_pct}%` : "", last ? ` \xB7 session ${last.session_tone.toUpperCase()} (${last.session_ret_pct > 0 ? "+" : ""}${last.session_ret_pct}%)` : "")), (al.with || al.against) && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontVariantNumeric: "tabular-nums" } }, "with-trend ", /* @__PURE__ */ React.createElement("b", { className: al.with.pnl >= 0 ? "vg-up" : "vg-down" }, al.with.n, " \xB7 ", money2(al.with.pnl)), "  \xB7  ", "against ", /* @__PURE__ */ React.createElement("b", { className: al.against.pnl >= 0 ? "vg-up" : "vg-down" }, al.against.n, " \xB7 ", money2(al.against.pnl)))), /* @__PURE__ */ React.createElement("div", { className: "vg-tone-grid", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-tone-lbl" }, "market"), market.map((b, i) => /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        key: i,
+        className: "vg-tone-cell",
+        title: b ? `${b.t} \xB7 ${b.tone} (${b.ret_pct > 0 ? "+" : ""}${b.ret_pct}%) \xB7 session ${b.session_tone}` : "",
+        style: {
+          background: b ? toneColor(b.tone) : "transparent",
+          opacity: b ? b.tone === "flat" ? 0.5 : 0.9 : 0.15,
+          border: b ? "none" : "1px dashed var(--vg-hairline)"
+        }
+      }
+    )), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-tone-lbl" }, "you"), tradeSlots.map((ts, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "vg-tone-cell vg-tone-tradecell" }, ts.map((t, j) => /* @__PURE__ */ React.createElement(
+      "span",
+      {
+        key: j,
+        className: "vg-tone-dot",
+        title: `${t.time} ${t.label} \xB7 ${t.dir}${t.with_trend == null ? "" : t.with_trend ? " \xB7 WITH trend" : " \xB7 AGAINST trend"}${t.realized != null ? ` \xB7 ${money2(t.realized)}` : " \xB7 open"}`,
+        style: {
+          background: t.dir === "bullish" ? "var(--vg-up)" : "var(--vg-down)",
+          boxShadow: t.with_trend === false ? "0 0 0 2px var(--vg-warn)" : "none"
+        }
+      }
+    ))))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6, fontSize: "var(--vg-text-xs)" } }, "dot = your entry (green long \xB7 red short) \xB7 amber ring = against the session tone at entry"), d.verdict && !slim && /* @__PURE__ */ React.createElement("div", { className: "vg-tone-verdict" }, "\u26A0 ", d.verdict), (d.commentary || []).length > 0 && !slim && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, d.commentary.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-tone-note" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-tone-notedot", c.tone) }), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: {
+      fontSize: "var(--vg-text-sm)",
+      color: c.tone === "bad" ? "var(--vg-down)" : void 0
+    } }, c.text)))));
+  }
+
+  // src/ops_cards.jsx
+  var { useState: useState2, useEffect: useEffect2 } = React;
+  var fmt = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
+  var money3 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(Number(v)).toFixed(0)}`;
+  function SignalsCard({ live, armed, spot, onExecute }) {
+    const n = live.length;
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Signals \xB7 ", n, " confirmed", armed.length ? `, ${armed.length} waiting` : "")), n === 0 && armed.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, "Nothing armed yet \u2014 the bot arms each session's playbook levels at its next pass."), live.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, onExecute })), armed.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, armed: true })));
+  }
+  function SignalRow({ t, armed, onExecute }) {
+    const long = t.side === "long";
+    const risk = t.spy_entry != null && t.spy_stop != null ? Math.abs(t.spy_entry - t.spy_stop) * (t.shares || 100) : null;
+    const reward = t.spy_target != null && t.spy_entry != null ? long ? t.spy_target - t.spy_entry : t.spy_entry - t.spy_target : null;
+    const rr = reward != null && t.spy_stop != null && t.spy_entry != null ? reward / Math.abs(t.spy_entry - t.spy_stop) : null;
+    const badEdge = !armed && rr != null && rr < 1;
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-sigrow", armed && "armed", !armed && (long ? "live-long" : "live-short")) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, armed ? "\u25CB" : "\u{1F514}"), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 650, letterSpacing: "-.01em" } }, /* @__PURE__ */ React.createElement("span", { className: long ? "vg-up" : "vg-down" }, t.side.toUpperCase()), " ", t.symbol, " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, armed ? `armed at ${fmt(t.spy_level)}` : `${long ? "reclaimed" : "rejected"} ${fmt(t.spy_level)}`)), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 3, fontVariantNumeric: "tabular-nums" } }, armed ? /* @__PURE__ */ React.createElement(React.Fragment, null, "waiting for the 3\xD75m reclaim \xB7 stop ", fmt(t.spy_stop), " \xB7 target ", fmt(t.spy_target)) : /* @__PURE__ */ React.createElement(React.Fragment, null, "entry ", /* @__PURE__ */ React.createElement("b", null, fmt(t.spy_entry)), " \xB7 stop ", /* @__PURE__ */ React.createElement("b", null, fmt(t.spy_stop)), " \xB7", " ", t.spy_target != null ? /* @__PURE__ */ React.createElement(React.Fragment, null, "target ", /* @__PURE__ */ React.createElement("b", null, fmt(t.spy_target))) : /* @__PURE__ */ React.createElement("span", { className: "vg-warn-text" }, "no target \u2014 open-ended"), risk != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 risk ", /* @__PURE__ */ React.createElement("b", null, "$", risk.toFixed(0))), rr != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 R:R ", /* @__PURE__ */ React.createElement("b", { className: badEdge ? "vg-down" : void 0 }, rr.toFixed(2))))), badEdge && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4, color: "var(--vg-down)", fontWeight: 600 } }, "\u26A0\uFE0F negative edge \u2014 the target is nearer than the stop. Not executable.")), armed ? /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: true, style: { opacity: 0.45 } }, "Waiting") : badEdge ? /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-btn-sm",
+        disabled: true,
+        style: { opacity: 0.45 },
+        title: "refused: R:R below 1 \u2014 the execute path would reject this"
+      },
+      "Blocked"
+    ) : /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm vg-btn-primary", onClick: () => onExecute(t) }, "Execute"));
+  }
+  function StrategyCard({ perf }) {
+    const s = perf && perf.summary || null;
+    if (!s) return /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the strategy working?"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, "No closed signals yet."));
+    const losing = s.paper_pnl < 0;
+    const thin = s.paper_closed < 20;
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", losing && "vg-card-alarm") }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the strategy working?"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 22, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
+      Metric,
+      {
+        label: "win rate",
+        bad: losing,
+        value: s.paper_win_rate == null ? "\u2014" : `${Math.round(s.paper_win_rate * 100)}%`
+      }
+    ), /* @__PURE__ */ React.createElement(Metric, { label: "net P&L", bad: losing, value: money3(s.paper_pnl) }), /* @__PURE__ */ React.createElement(Metric, { label: "closed", value: String(s.paper_closed) })), losing && /* @__PURE__ */ React.createElement("p", { className: "vg-verdict" }, "\u26A0\uFE0F Losing money over ", s.paper_closed, " trades.", thin ? " Small sample \u2014 but do not size up." : " Stop and re-validate before taking more."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "The bot's OWN trades, every underlying, losses included.", s.live_taken > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " Live: ", s.live_taken, " taken \xB7 ", money3(s.live_pnl), ".")));
+  }
+  function MachineCard({ run }) {
+    if (!run) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the machine OK?"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, "No nightly run recorded yet."));
+    }
+    const jobs = run.jobs || [];
+    const bad = jobs.filter((j) => !j.ok);
+    const total = jobs.reduce((a, j) => a + (j.duration_sec || 0), 0);
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", bad.length && "vg-card-alarm") }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the machine OK?"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 22, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Metric, { label: "jobs ok", value: `${jobs.length - bad.length}\u2713` }), /* @__PURE__ */ React.createElement(Metric, { label: "failed", value: `${bad.length}\u2717`, bad: bad.length > 0 }), /* @__PURE__ */ React.createElement(Metric, { label: "runtime", value: total >= 60 ? `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s` : `${total}s` })), bad.map((j, i) => /* @__PURE__ */ React.createElement("p", { key: i, className: "vg-note", style: { marginTop: 6, color: "var(--vg-down)" } }, "\u2717 ", /* @__PURE__ */ React.createElement("b", null, j.job), " \u2014 ", (j.tail || "").split("\n").slice(-1)[0].slice(0, 60))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "last run ", String(run.started_at || "").slice(0, 16).replace("T", " ")));
+  }
+  function Metric({ label, value, bad }) {
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: {
+      fontSize: 20,
+      fontWeight: 650,
+      letterSpacing: "-.01em",
+      fontVariantNumeric: "tabular-nums",
+      color: bad ? "var(--vg-down)" : void 0
+    } }, value), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em" } }, label));
+  }
+
   // src/glossary.jsx
   var GLOSSARY = {
     positive_gamma: {
@@ -1492,7 +1603,7 @@ ${ref}`;
   }
 
   // src/playbook.jsx
-  var { useMemo, useState } = React;
+  var { useMemo, useState: useState3 } = React;
   var fmtP = (v) => v == null ? "\u2014" : Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1);
   function levelTone(kind) {
     const k = (kind || "").toLowerCase();
@@ -1502,12 +1613,12 @@ ${ref}`;
     return "plain";
   }
   function PlaybookView({ refreshNonce }) {
-    const [nonce, setNonce] = useState(0);
-    const [sym, setSym] = useState("SPX");
-    const [pine, setPine] = useState(null);
-    const [busy, setBusy] = useState(false);
-    const [ticket, setTicket] = useState(null);
-    const [didRecompute, setDidRecompute] = useState(false);
+    const [nonce, setNonce] = useState3(0);
+    const [sym, setSym] = useState3("SPX");
+    const [pine, setPine] = useState3(null);
+    const [busy, setBusy] = useState3(false);
+    const [ticket, setTicket] = useState3(null);
+    const [didRecompute, setDidRecompute] = useState3(false);
     const pb = useLive(
       () => getPlaybook(void 0, { refresh: didRecompute, symbol: sym }),
       null,
@@ -1671,11 +1782,11 @@ ${ref}`;
   }
   function TicketModal({ sym, spot, seed, onClose, signalPaperId }) {
     const defSide = seed.role === "support" ? "long" : seed.role === "resistance" ? "short" : spot != null && seed.level > spot ? "short" : "long";
-    const [side, setSide] = useState(defSide);
-    const [risk, setRisk] = useState(500);
-    const [res, setRes] = useState(null);
-    const [copied, setCopied] = useState(false);
-    const [account, setAccount] = useState(
+    const [side, setSide] = useState3(defSide);
+    const [risk, setRisk] = useState3(500);
+    const [res, setRes] = useState3(null);
+    const [copied, setCopied] = useState3(false);
+    const [account, setAccount] = useState3(
       () => {
         try {
           return localStorage.getItem("vantage.exec.account") || "";
@@ -1684,9 +1795,9 @@ ${ref}`;
         }
       }
     );
-    const [policy, setPolicy] = useState("ladder");
-    const [exec, setExec] = useState(null);
-    const [armed, setArmed] = useState(false);
+    const [policy, setPolicy] = useState3("ladder");
+    const [exec, setExec] = useState3(null);
+    const [armed, setArmed] = useState3(false);
     const stage = async () => {
       setRes({ loading: true });
       setCopied(false);
@@ -1791,7 +1902,7 @@ ${ref}`;
     )), exec && exec.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0" } }, exec.note), exec && exec.execution && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: 0, fontSize: 13 } }, /* @__PURE__ */ React.createElement("b", null, exec.execution.mode === "live" ? "LIVE" : "dry run"), " \xB7 ", exec.execution.legs.length, " leg(s)", exec.execution.managed_position_id != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 managed position #", exec.execution.managed_position_id, " \u2192 see Managed Exits")), /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { marginTop: 6, fontSize: 13 } }, /* @__PURE__ */ React.createElement("tbody", null, exec.execution.legs.map((l, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, l.leg), /* @__PURE__ */ React.createElement("td", null, l.side, " ", l.quantity, " ", l.type, l.limit_price != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " @ ", l.limit_price), l.stop_price != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " stop ", l.stop_price), " \xB7 ", l.status))))), (exec.execution.warnings || []).map((w, i) => /* @__PURE__ */ React.createElement("p", { key: i, className: "vg-note", style: { margin: "4px 0 0", fontSize: 12 } }, "\u26A0 ", w))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "8px 0 0", fontSize: 12 } }, "Dry-run always; live needs the confirm AND server env VANTAGE_LIVE_OK=1. Keep the exit monitor running while a live position is open.")))));
   }
   function PineModal({ pine, session, onClose, title = "TradingView Pine", symbol = "SPX" }) {
-    const [copied, setCopied] = useState(false);
+    const [copied, setCopied] = useState3(false);
     const copy = async () => {
       try {
         await navigator.clipboard.writeText(pine.script || "");
@@ -1810,451 +1921,6 @@ ${ref}`;
         rows: 16
       }
     ), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: copy }, copied ? "Copied \u2713" : "Copy script")))));
-  }
-
-  // src/positions_table.jsx
-  var fmt = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
-  var signed = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(Number(v)).toFixed(0)}`;
-  function Protection({ p }) {
-    return p.managed ? /* @__PURE__ */ React.createElement("span", { className: "vg-badge good", title: p.managed_id ? `managed position #${p.managed_id}` : void 0 }, "stop ", fmt(p.stop_price)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "unprotected");
-  }
-  function PositionsTable({ rows, dayPl = false, warn }) {
-    const held = (rows || []).filter((p) => (p.shares || 0) !== 0);
-    if (!held.length) return null;
-    const naked = held.filter((p) => !p.managed);
-    return /* @__PURE__ */ React.createElement("div", { style: { overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { fontSize: 14 } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "symbol"), /* @__PURE__ */ React.createElement("th", null, "shares"), /* @__PURE__ */ React.createElement("th", null, "cost"), /* @__PURE__ */ React.createElement("th", null, "value"), /* @__PURE__ */ React.createElement("th", null, "unrealized"), dayPl && /* @__PURE__ */ React.createElement("th", null, "day P/L"), /* @__PURE__ */ React.createElement("th", null, "protection"))), /* @__PURE__ */ React.createElement("tbody", null, held.map((p) => /* @__PURE__ */ React.createElement("tr", { key: p.symbol }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, p.symbol)), /* @__PURE__ */ React.createElement("td", { style: { fontVariantNumeric: "tabular-nums" } }, fmt(p.shares, 0)), /* @__PURE__ */ React.createElement("td", { style: { fontVariantNumeric: "tabular-nums" } }, fmt(p.cost)), /* @__PURE__ */ React.createElement("td", { style: { fontVariantNumeric: "tabular-nums" } }, fmt(p.value)), /* @__PURE__ */ React.createElement(
-      "td",
-      {
-        className: p.unrealized >= 0 ? "vg-up" : "vg-down",
-        style: { fontVariantNumeric: "tabular-nums" }
-      },
-      signed(p.unrealized)
-    ), dayPl && /* @__PURE__ */ React.createElement(
-      "td",
-      {
-        className: p.day_pl >= 0 ? "vg-up" : "vg-down",
-        style: { fontVariantNumeric: "tabular-nums" }
-      },
-      signed(p.day_pl)
-    ), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement(Protection, { p })))))), naked.length > 0 && warn && /* @__PURE__ */ React.createElement(
-      "p",
-      {
-        className: cls("vg-note", warn.verdict && "vg-verdict"),
-        style: warn.verdict ? void 0 : { marginTop: 6, color: "var(--vg-down)" }
-      },
-      "\u26A0\uFE0F ",
-      warn.text(naked)
-    ));
-  }
-
-  // src/mira-render.jsx
-  var { useMemo: useMemo2 } = React;
-  function extractJson(text) {
-    if (!text) return null;
-    let raw = String(text).trim();
-    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
-    if (fence) raw = fence[1].trim();
-    const start = raw.indexOf("{");
-    if (start < 0) return null;
-    let depth = 0, end = -1;
-    for (let i = start; i < raw.length; i++) {
-      if (raw[i] === "{") depth++;
-      else if (raw[i] === "}") {
-        depth--;
-        if (depth === 0) {
-          end = i;
-          break;
-        }
-      }
-    }
-    if (end < 0) return null;
-    try {
-      return JSON.parse(raw.slice(start, end + 1));
-    } catch {
-      return null;
-    }
-  }
-  function validateMira(o) {
-    if (!o || typeof o !== "object") return false;
-    if (isSwot(o.swot)) return true;
-    if (typeof o.headline === "string" && o.headline.trim()) return true;
-    return Array.isArray(o.sections) && o.sections.some(isRenderableSection);
-  }
-  function parseMira(text) {
-    const o = extractJson(text);
-    if (!o || !validateMira(o)) return null;
-    return normalize(o);
-  }
-  function isSwot(s) {
-    if (!s || typeof s !== "object") return false;
-    const quads = ["strengths", "weaknesses", "opportunities", "threats"];
-    for (const q of quads) {
-      if (!Array.isArray(s[q])) return false;
-      if (s[q].some((it) => !it || typeof it.point !== "string")) return false;
-    }
-    return quads.some((q) => s[q].length > 0);
-  }
-  function isRenderableSection(s) {
-    if (!s || typeof s !== "object") return false;
-    switch (s.kind) {
-      case "swot":
-        return isSwot(s.swot);
-      case "list":
-      case "donext":
-        return Array.isArray(s.items) && s.items.length > 0;
-      case "keyvals":
-      case "scorecard":
-        return Array.isArray(s.rows) && s.rows.length > 0;
-      case "callout":
-      case "prose":
-        return typeof s.text === "string" && s.text.trim().length > 0;
-      default:
-        return false;
-    }
-  }
-  function normalize(o) {
-    if (Array.isArray(o.sections)) return o;
-    const sections = [];
-    if (isSwot(o.swot)) sections.push({ kind: "swot", swot: o.swot });
-    if (o.pattern) sections.push({ kind: "callout", title: "The pattern", text: String(o.pattern) });
-    if (o.scores_read) sections.push({ kind: "prose", text: String(o.scores_read) });
-    if (Array.isArray(o.do_next) && o.do_next.length) sections.push({ kind: "donext", items: o.do_next });
-    return { headline: o.headline, sections };
-  }
-  var SWOT_QUADS = [
-    { key: "strengths", kind: "s", title: "Strengths", tag: "keep" },
-    { key: "weaknesses", kind: "w", title: "Weaknesses", tag: "fix" },
-    { key: "opportunities", kind: "o", title: "Opportunities", tag: "capture" },
-    { key: "threats", kind: "t", title: "Threats", tag: "guard" }
-  ];
-  function normItem(it) {
-    return typeof it === "string" ? { point: it, cites: [] } : it || { point: "" };
-  }
-  function SwotQuad({ kind, title, tag, items }) {
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-swot-q", kind) }, /* @__PURE__ */ React.createElement("div", { className: "vg-swot-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-swot-badge" }, kind.toUpperCase()), /* @__PURE__ */ React.createElement("b", null, title), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-swot-tag" }, tag)), items.length ? /* @__PURE__ */ React.createElement("ul", { className: "vg-swot-items" }, items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-cite", kind) }, c)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 13 } }, "none noted this window"));
-  }
-  function SwotRender({ swot }) {
-    const s = swot && swot.swot || swot || {};
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-swot vg-swot-grid" }, SWOT_QUADS.map((q) => /* @__PURE__ */ React.createElement(SwotQuad, { key: q.key, kind: q.kind, title: q.title, tag: q.tag, items: s[q.key] || [] })));
-  }
-  var TONE = { good: "vg-up", bad: "vg-down", warn: "vg-warn" };
-  function Section({ s }) {
-    if (s.kind === "swot") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement(SwotRender, { swot: s.swot }));
-    }
-    if (s.kind === "prose") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("p", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap", margin: s.title ? "4px 0 0" : 0 } }, s.text));
-    }
-    if (s.kind === "callout") {
-      return /* @__PURE__ */ React.createElement("div", { className: cls("vg-mr-callout", s.tone && `t-${s.tone}`) }, s.title && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { margin: 0 } }, s.title), /* @__PURE__ */ React.createElement("p", { style: { margin: s.title ? "4px 0 0" : 0 } }, s.text));
-    }
-    if (s.kind === "list") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("ul", { className: "vg-mr-list" }, s.items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: "vg-cite" }, c)))))));
-    }
-    if (s.kind === "donext") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title || "Do this next"), /* @__PURE__ */ React.createElement("ol", { className: "vg-donext" }, s.items.map((d, i) => {
-        const item = typeof d === "string" ? { title: d } : d || {};
-        return /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("b", null, item.title), item.detail ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, item.detail)) : null);
-      })));
-    }
-    if (s.kind === "keyvals") {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 110 } }, /* @__PURE__ */ React.createElement("b", null, r.k)), /* @__PURE__ */ React.createElement("td", { className: cls(r.tone && TONE[r.tone]) }, r.v))))));
-    }
-    if (s.kind === "scorecard") {
-      const tone = (n) => n >= 70 ? "good" : n >= 45 ? "warn" : "bad";
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.label), /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${tone(r.score)}`) }, r.score)), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${tone(r.score)}`), style: { width: `${Math.max(0, Math.min(100, r.score))}%` } }))))));
-    }
-    return null;
-  }
-  function MiraRender({ data, text }) {
-    const obj = useMemo2(() => data || parseMira(text), [data, text]);
-    if (!obj) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap" } }, text || "");
-    }
-    const sections = obj.sections || [];
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-mr" }, obj.headline && /* @__PURE__ */ React.createElement("h3", { className: "vg-mr-headline" }, obj.headline), sections.filter(isRenderableSection).map((s, i) => /* @__PURE__ */ React.createElement(Section, { key: i, s })));
-  }
-
-  // src/today.jsx
-  var { useEffect, useState: useState2 } = React;
-  var fmt2 = (v, d = 2) => v == null ? "\u2014" : Number(v).toFixed(d);
-  var money2 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(Number(v)).toFixed(0)}`;
-  function TodayView({ refreshNonce }) {
-    const [status, setStatus] = useState2(null);
-    const [perf, setPerf] = useState2(null);
-    const [nightly, setNightly] = useState2(null);
-    const [pb, setPb] = useState2(null);
-    const [pos, setPos] = useState2(null);
-    const [ticket, setTicket] = useState2(null);
-    const load = async () => {
-      const [s, p, n, b, q] = await Promise.all([
-        getBotStatus(),
-        getBotPerformance(),
-        getNightlyStatus(1),
-        getPlaybook(null),
-        getTradeablePositions()
-      ]);
-      setStatus(s && s.available !== false ? s : null);
-      setPerf(p && p.available !== false ? p : null);
-      setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
-      setPb(b && b.available ? b : null);
-      setPos(q && q.positions ? q.positions : []);
-    };
-    useEffect(() => {
-      load();
-    }, [refreshNonce]);
-    useEffect(() => {
-      if (!status || !status.market_open) return void 0;
-      const t = setInterval(load, 6e4);
-      return () => clearInterval(t);
-    }, [status && status.market_open]);
-    if (!status) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Needs the SQLite backend \u2014 check the backend URL in Settings."));
-    }
-    const live = status.live_signals || [];
-    const armed = status.armed || [];
-    const spot = pb && pb.scaffold && pb.scaffold.regime && pb.scaffold.regime.spot || null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Today"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Everything you need to trade, in one screen", spot ? ` \xB7 SPX ${fmt2(spot, 1)}` : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, alignItems: "center" } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.market_open ? "good" : "plain") }, status.market_open ? "MARKET OPEN" : "MARKET CLOSED"), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", status.telegram ? "good" : "warn") }, status.telegram ? "BOT ON" : "BOT OFF"))), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: !!status.market_open }), /* @__PURE__ */ React.createElement(NextCallCard, null), /* @__PURE__ */ React.createElement(
-      SignalsCard,
-      {
-        live,
-        armed,
-        spot,
-        onExecute: (t) => setTicket({
-          // the signal already names symbol + side + level: seed the ticket
-          // with them so the user never re-derives what the app knows.
-          sym: t.symbol,
-          spot,
-          seed: {
-            level: t.spy_level,
-            entry: t.spy_entry,
-            role: t.side === "long" ? "support" : "resistance"
-          },
-          signalId: t.id
-        })
-      }
-    ), /* @__PURE__ */ React.createElement(PositionsCard, { rows: pos }), /* @__PURE__ */ React.createElement(WhyCard, { pb, onReload: load }), /* @__PURE__ */ React.createElement(DeskReviewsCard, null), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
-      TicketModal,
-      {
-        sym: ticket.sym,
-        spot: ticket.spot,
-        seed: ticket.seed,
-        signalPaperId: ticket.signalId,
-        onClose: () => setTicket(null)
-      }
-    ));
-  }
-  function ToneCompareCard({ marketOpen, day, slim }) {
-    const [tick, setTick] = useState2(0);
-    useEffect(() => {
-      if (!marketOpen) return void 0;
-      const t = setInterval(() => setTick((n) => n + 1), 18e4);
-      return () => clearInterval(t);
-    }, [marketOpen]);
-    const q = useLive(() => getCoachTone(day), null, [tick, day]);
-    const d = q.data && q.data.available ? q.data : null;
-    if (!d || !(d.buckets || []).length) return null;
-    const SLOTS = 26;
-    const slotOf = (startMin) => Math.max(0, Math.min(SLOTS - 1, Math.floor((startMin - 570) / 15)));
-    const market = new Array(SLOTS).fill(null);
-    for (const b of d.buckets) market[slotOf(b.start_min)] = b;
-    const tradeSlots = new Array(SLOTS).fill(null).map(() => []);
-    for (const t of d.trades || []) {
-      if (t.start_min >= 570 && t.start_min < 960) tradeSlots[slotOf(t.start_min)].push(t);
-    }
-    const toneColor = (tn) => tn === "bull" ? "var(--vg-up)" : tn === "bear" ? "var(--vg-down)" : "var(--vg-hairline)";
-    const al = d.alignment || {};
-    const last = d.buckets[d.buckets.length - 1];
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Market tone vs your trades", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " ", "\u2014 15-min snapshots", d.gap_pct != null ? ` \xB7 gap ${d.gap_pct > 0 ? "+" : ""}${d.gap_pct}%` : "", last ? ` \xB7 session ${last.session_tone.toUpperCase()} (${last.session_ret_pct > 0 ? "+" : ""}${last.session_ret_pct}%)` : "")), (al.with || al.against) && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontVariantNumeric: "tabular-nums" } }, "with-trend ", /* @__PURE__ */ React.createElement("b", { className: al.with.pnl >= 0 ? "vg-up" : "vg-down" }, al.with.n, " \xB7 ", money2(al.with.pnl)), "  \xB7  ", "against ", /* @__PURE__ */ React.createElement("b", { className: al.against.pnl >= 0 ? "vg-up" : "vg-down" }, al.against.n, " \xB7 ", money2(al.against.pnl)))), /* @__PURE__ */ React.createElement("div", { className: "vg-tone-grid", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-tone-lbl" }, "market"), market.map((b, i) => /* @__PURE__ */ React.createElement(
-      "span",
-      {
-        key: i,
-        className: "vg-tone-cell",
-        title: b ? `${b.t} \xB7 ${b.tone} (${b.ret_pct > 0 ? "+" : ""}${b.ret_pct}%) \xB7 session ${b.session_tone}` : "",
-        style: {
-          background: b ? toneColor(b.tone) : "transparent",
-          opacity: b ? b.tone === "flat" ? 0.5 : 0.9 : 0.15,
-          border: b ? "none" : "1px dashed var(--vg-hairline)"
-        }
-      }
-    )), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-tone-lbl" }, "you"), tradeSlots.map((ts, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "vg-tone-cell vg-tone-tradecell" }, ts.map((t, j) => /* @__PURE__ */ React.createElement(
-      "span",
-      {
-        key: j,
-        className: "vg-tone-dot",
-        title: `${t.time} ${t.label} \xB7 ${t.dir}${t.with_trend == null ? "" : t.with_trend ? " \xB7 WITH trend" : " \xB7 AGAINST trend"}${t.realized != null ? ` \xB7 ${money2(t.realized)}` : " \xB7 open"}`,
-        style: {
-          background: t.dir === "bullish" ? "var(--vg-up)" : "var(--vg-down)",
-          boxShadow: t.with_trend === false ? "0 0 0 2px var(--vg-warn)" : "none"
-        }
-      }
-    ))))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6, fontSize: "var(--vg-text-xs)" } }, "dot = your entry (green long \xB7 red short) \xB7 amber ring = against the session tone at entry"), d.verdict && !slim && /* @__PURE__ */ React.createElement("div", { className: "vg-tone-verdict" }, "\u26A0 ", d.verdict), (d.commentary || []).length > 0 && !slim && /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, d.commentary.map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-tone-note" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-tone-notedot", c.tone) }), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: {
-      fontSize: "var(--vg-text-sm)",
-      color: c.tone === "bad" ? "var(--vg-down)" : void 0
-    } }, c.text)))));
-  }
-  function NextCallCard() {
-    const [tick, setTick] = useState2(0);
-    useEffect(() => {
-      const t = setInterval(() => setTick((n) => n + 1), 12e4);
-      return () => clearInterval(t);
-    }, []);
-    const q = useLive(() => getSpxForecasts(void 0, "SPX", 1), null, [tick]);
-    const f = (q.data && q.data.forecasts || [])[0];
-    if (!f) return null;
-    const plot = f.forecast && f.forecast.plot || {};
-    const bias = String(plot.bias || "?").toLowerCase();
-    const tone = bias.includes("up") || bias.includes("bull") ? "good" : bias.includes("down") || bias.includes("bear") ? "bad" : "plain";
-    let age = null;
-    try {
-      age = Math.round((Date.now() - new Date(f.as_of).getTime()) / 6e4);
-    } catch (e) {
-    }
-    const path = Array.isArray(plot.path) ? plot.path.filter((s2) => s2 && s2.price != null) : [];
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Next 15 minutes ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, "\u2014 analyst call @ SPX ", f.price_at, age != null ? ` \xB7 ${age}m ago` : "", age != null && age > 20 ? " \xB7 STALE" : "")), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", tone), style: { fontWeight: 700 } }, String(plot.bias || "no call").toUpperCase(), plot.born_invalid ? " \xB7 BORN-INVALID" : "")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 18, marginTop: 8, flexWrap: "wrap", fontVariantNumeric: "tabular-nums" } }, plot.target != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "target ", /* @__PURE__ */ React.createElement("b", { className: "vg-up" }, plot.target)), path.slice(0, 3).map((s2, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "vg-note" }, i + 1, "\xB7 ", /* @__PURE__ */ React.createElement("b", null, s2.price), s2.note ? ` ${String(s2.note).slice(0, 22)}` : "")), plot.invalidation != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "wrong if ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, plot.invalidation))), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 6, fontSize: "var(--vg-text-xs)", opacity: 0.75 } }, "auto-refreshed ~15 min during RTH \xB7 full read on the chart (Replay panel) \xB7 context, not a signal (ADR-008)"));
-  }
-  function DeskReviewsCard() {
-    const [tick, setTick] = useState2(0);
-    const [open, setOpen] = useState2(null);
-    useEffect(() => {
-      const t = setInterval(() => setTick((n) => n + 1), 18e4);
-      return () => clearInterval(t);
-    }, []);
-    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York" }).format(/* @__PURE__ */ new Date());
-    const q = useLive(() => getTradeAnalyses(today), null, [tick]);
-    const rows = q.data && q.data.available && q.data.analyses || [];
-    if (!rows.length) return null;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Desk reviews \xB7 ", rows.length, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \u2014 each close auto-analyzed within minutes")), rows.map((r) => {
-      const parsed = parseMira(r.analysis);
-      const head = parsed && parsed.headline || String(r.analysis || "").slice(0, 120);
-      const isOpen = open === r.trade_key;
-      return /* @__PURE__ */ React.createElement("div", { key: r.trade_key, className: "vg-review-row" }, /* @__PURE__ */ React.createElement("div", { className: "vg-review-head", onClick: () => setOpen(isOpen ? null : r.trade_key) }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "var(--vg-text-sm)", whiteSpace: "nowrap" } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: {
-        fontSize: "var(--vg-text-sm)",
-        flex: 1,
-        minWidth: 0,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: isOpen ? "normal" : "nowrap"
-      } }, head), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, isOpen ? "\u25BE" : "\u25B8")), isOpen && /* @__PURE__ */ React.createElement("div", { style: { padding: "4px 2px 8px" } }, /* @__PURE__ */ React.createElement(MiraRender, { data: parsed, text: r.analysis })));
-    }));
-  }
-  function SignalsCard({ live, armed, spot, onExecute }) {
-    const n = live.length;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Signals \xB7 ", n, " confirmed", armed.length ? `, ${armed.length} waiting` : "")), n === 0 && armed.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, "Nothing armed yet \u2014 the bot arms each session's playbook levels at its next pass."), live.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, onExecute })), armed.map((t) => /* @__PURE__ */ React.createElement(SignalRow, { key: t.id, t, armed: true })));
-  }
-  function SignalRow({ t, armed, onExecute }) {
-    const long = t.side === "long";
-    const risk = t.spy_entry != null && t.spy_stop != null ? Math.abs(t.spy_entry - t.spy_stop) * (t.shares || 100) : null;
-    const reward = t.spy_target != null && t.spy_entry != null ? long ? t.spy_target - t.spy_entry : t.spy_entry - t.spy_target : null;
-    const rr = reward != null && t.spy_stop != null && t.spy_entry != null ? reward / Math.abs(t.spy_entry - t.spy_stop) : null;
-    const badEdge = !armed && rr != null && rr < 1;
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-sigrow", armed && "armed", !armed && (long ? "live-long" : "live-short")) }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, armed ? "\u25CB" : "\u{1F514}"), /* @__PURE__ */ React.createElement("div", { style: { minWidth: 0 } }, /* @__PURE__ */ React.createElement("div", { style: { fontSize: 15, fontWeight: 650, letterSpacing: "-.01em" } }, /* @__PURE__ */ React.createElement("span", { className: long ? "vg-up" : "vg-down" }, t.side.toUpperCase()), " ", t.symbol, " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, armed ? `armed at ${fmt2(t.spy_level)}` : `${long ? "reclaimed" : "rejected"} ${fmt2(t.spy_level)}`)), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 3, fontVariantNumeric: "tabular-nums" } }, armed ? /* @__PURE__ */ React.createElement(React.Fragment, null, "waiting for the 3\xD75m reclaim \xB7 stop ", fmt2(t.spy_stop), " \xB7 target ", fmt2(t.spy_target)) : /* @__PURE__ */ React.createElement(React.Fragment, null, "entry ", /* @__PURE__ */ React.createElement("b", null, fmt2(t.spy_entry)), " \xB7 stop ", /* @__PURE__ */ React.createElement("b", null, fmt2(t.spy_stop)), " \xB7", " ", t.spy_target != null ? /* @__PURE__ */ React.createElement(React.Fragment, null, "target ", /* @__PURE__ */ React.createElement("b", null, fmt2(t.spy_target))) : /* @__PURE__ */ React.createElement("span", { className: "vg-warn-text" }, "no target \u2014 open-ended"), risk != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 risk ", /* @__PURE__ */ React.createElement("b", null, "$", risk.toFixed(0))), rr != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 R:R ", /* @__PURE__ */ React.createElement("b", { className: badEdge ? "vg-down" : void 0 }, rr.toFixed(2))))), badEdge && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4, color: "var(--vg-down)", fontWeight: 600 } }, "\u26A0\uFE0F negative edge \u2014 the target is nearer than the stop. Not executable.")), armed ? /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: true, style: { opacity: 0.45 } }, "Waiting") : badEdge ? /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: "vg-btn-sm",
-        disabled: true,
-        style: { opacity: 0.45 },
-        title: "refused: R:R below 1 \u2014 the execute path would reject this"
-      },
-      "Blocked"
-    ) : /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm vg-btn-primary", onClick: () => onExecute(t) }, "Execute"));
-  }
-  function PositionsCard({ rows }) {
-    if (!rows || rows.length === 0) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Positions \xB7 flat"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, "No SPY/QQQ/IWM position open \u2014 nothing at risk right now."));
-    }
-    const naked = rows.filter((p) => !p.managed);
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", naked.length && "vg-card-alarm"), style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Positions \xB7 ", rows.length, " open"), /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#holdings" }, "full book \u2192")), /* @__PURE__ */ React.createElement(PositionsTable, { rows, warn: {
-      verdict: true,
-      text: (n) => `${n.map((p) => p.symbol).join(", ")} ${n.length === 1 ? "has" : "have"} no monitor stop \u2014 the exit monitor is not protecting ${n.length === 1 ? "it" : "them"}.`
-    } }));
-  }
-  function WhyCard({ pb, onReload }) {
-    const [busy, setBusy] = useState2(false);
-    const [pine, setPine] = useState2(null);
-    const [pineTitle, setPineTitle] = useState2("TradingView Pine");
-    const [note, setNote] = useState2(null);
-    if (!pb) return null;
-    const sc = pb.scaffold || {};
-    const reg = sc.regime || {};
-    const sym = sc.symbol || "SPX";
-    const levels = (sc.confluence || []).slice(0, 6);
-    const gex = (sc.level_ladder || []).filter((r) => String(r.source || "").toUpperCase() === "GEX").map((r) => ({ price: r.price, label: String(r.kind || "").replace(/\s*\(.*\)$/, "") }));
-    const lede = (pb.narrative || "").split("\n").filter(Boolean)[0] || null;
-    const regenerate = async () => {
-      setBusy(true);
-      setNote(null);
-      try {
-        await recomputePlaybook(void 0, sym);
-        if (onReload) await onReload();
-        setNote("levels regenerated");
-      } catch (e) {
-        setNote("regenerate failed");
-      } finally {
-        setBusy(false);
-      }
-    };
-    const showPine = async (kind) => {
-      setPineTitle(kind === "reclaim" ? "Reclaim Strategy Pine" : kind === "coach" ? "Coach Pine (live discipline)" : "Playbook Pine");
-      setPine({ loading: true });
-      const res = kind === "reclaim" ? await getReclaimPine(void 0, sym) : kind === "coach" ? await getCoachPine(void 0, sym) : await getPlaybookPine(void 0, sym);
-      setPine(res && res.available ? { script: res.script } : { error: true });
-    };
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Why \xB7 today's read"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: regenerate }, busy ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Regenerating\u2026") : "\u21BB Regenerate levels"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("playbook") }, "Pine"), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy, onClick: () => showPine("reclaim") }, "Reclaim Pine"), /* @__PURE__ */ React.createElement(
-      "button",
-      {
-        className: "vg-btn-sm",
-        disabled: busy,
-        onClick: () => showPine("coach"),
-        title: "Live discipline coach \u2014 WAIT/ENTER/EXIT/HOLD/WARN with your GEX levels baked in"
-      },
-      "\u{1F3AF} Coach Pine"
-    ))), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: {
-      margin: "4px 0 0",
-      fontSize: 12,
-      color: note.includes("fail") ? "var(--vg-down)" : "var(--vg-up)"
-    } }, "\u2713 ", note), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6, color: "var(--vg-dim)" } }, lede || /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("b", null, reg.gamma === "negative" ? "Negative" : "Positive", " gamma"), reg.vix ? /* @__PURE__ */ React.createElement(React.Fragment, null, ", VIX ", fmt2(reg.vix, 1)) : null, reg.gamma === "negative" ? " \u2014 dealer hedging amplifies moves: a momentum tape. Trade with the move, not against it." : " \u2014 dealer hedging dampens moves: expect mean reversion between the walls.")), gex.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8, flexWrap: "wrap" } }, gex.map((g, i) => /* @__PURE__ */ React.createElement("span", { key: i, className: "vg-badge plain", title: g.label }, g.label, ": ", /* @__PURE__ */ React.createElement("b", null, fmt2(g.price, 0))))), /* @__PURE__ */ React.createElement("details", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-note", style: { cursor: "pointer", fontWeight: 600 } }, "levels & full playbook"), /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { marginTop: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("tbody", null, levels.map((z, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, (z.kinds || []).join(" + ") || z.role), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right", fontVariantNumeric: "tabular-nums" } }, /* @__PURE__ */ React.createElement("b", null, fmt2(z.price, 1))))))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("a", { className: "vg-linkbtn", href: "#playbook" }, "open the full playbook \u2192"))), pine && /* @__PURE__ */ React.createElement(
-      PineModal,
-      {
-        pine,
-        session: pb.session,
-        title: pineTitle,
-        symbol: sym,
-        onClose: () => setPine(null)
-      }
-    ));
-  }
-  function StrategyCard({ perf }) {
-    const s = perf && perf.summary || null;
-    if (!s) return /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the strategy working?"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, "No closed signals yet."));
-    const losing = s.paper_pnl < 0;
-    const thin = s.paper_closed < 20;
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", losing && "vg-card-alarm") }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the strategy working?"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 22, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
-      Metric,
-      {
-        label: "win rate",
-        bad: losing,
-        value: s.paper_win_rate == null ? "\u2014" : `${Math.round(s.paper_win_rate * 100)}%`
-      }
-    ), /* @__PURE__ */ React.createElement(Metric, { label: "net P&L", bad: losing, value: money2(s.paper_pnl) }), /* @__PURE__ */ React.createElement(Metric, { label: "closed", value: String(s.paper_closed) })), losing && /* @__PURE__ */ React.createElement("p", { className: "vg-verdict" }, "\u26A0\uFE0F Losing money over ", s.paper_closed, " trades.", thin ? " Small sample \u2014 but do not size up." : " Stop and re-validate before taking more."), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "The bot's OWN trades, every underlying, losses included.", s.live_taken > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, " Live: ", s.live_taken, " taken \xB7 ", money2(s.live_pnl), ".")));
-  }
-  function MachineCard({ run }) {
-    if (!run) {
-      return /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the machine OK?"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, "No nightly run recorded yet."));
-    }
-    const jobs = run.jobs || [];
-    const bad = jobs.filter((j) => !j.ok);
-    const total = jobs.reduce((a, j) => a + (j.duration_sec || 0), 0);
-    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-card", bad.length && "vg-card-alarm") }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Is the machine OK?"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 22, marginTop: 8, flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(Metric, { label: "jobs ok", value: `${jobs.length - bad.length}\u2713` }), /* @__PURE__ */ React.createElement(Metric, { label: "failed", value: `${bad.length}\u2717`, bad: bad.length > 0 }), /* @__PURE__ */ React.createElement(Metric, { label: "runtime", value: total >= 60 ? `${Math.floor(total / 60)}m${String(total % 60).padStart(2, "0")}s` : `${total}s` })), bad.map((j, i) => /* @__PURE__ */ React.createElement("p", { key: i, className: "vg-note", style: { marginTop: 6, color: "var(--vg-down)" } }, "\u2717 ", /* @__PURE__ */ React.createElement("b", null, j.job), " \u2014 ", (j.tail || "").split("\n").slice(-1)[0].slice(0, 60))), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 12 } }, "last run ", String(run.started_at || "").slice(0, 16).replace("T", " ")));
-  }
-  function Metric({ label, value, bad }) {
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { style: {
-      fontSize: 20,
-      fontWeight: 650,
-      letterSpacing: "-.01em",
-      fontVariantNumeric: "tabular-nums",
-      color: bad ? "var(--vg-down)" : void 0
-    } }, value), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, textTransform: "uppercase", letterSpacing: ".08em" } }, label));
   }
 
   // src/chart_theme.jsx
@@ -2832,7 +2498,7 @@ ${ref}`;
   }
 
   // src/chart_core.jsx
-  var { useState: useState3, useRef, useEffect: useEffect2, useCallback } = React;
+  var { useState: useState4, useRef, useEffect: useEffect3, useCallback } = React;
   var TOOLS = [
     { key: "cursor", label: "\u2316", title: "Cursor / pan", pts: 0 },
     { key: "hline", label: "\u2500", title: "Horizontal line", pts: 1 },
@@ -2949,7 +2615,7 @@ ${ref}`;
     seriesType = "candles"
   }) {
     const elRef = useRef(null);
-    const [symInput, setSymInput] = useState3("");
+    const [symInput, setSymInput] = useState4("");
     const chartRef = useRef(null);
     const candleRef = useRef(null);
     const fittedKey = useRef(null);
@@ -2962,20 +2628,20 @@ ${ref}`;
     });
     const levelClickRef = useRef(() => {
     });
-    const [hover, setHover] = useState3(null);
-    const [nonce, setNonce] = useState3(0);
-    const [chartEpoch, setChartEpoch] = useState3(0);
-    const [refreshing, setRefreshing] = useState3(false);
-    const [active, setActive] = useState3(loadPref);
-    const [tool, setTool] = useState3("cursor");
-    const [drawings, setDrawings] = useState3([]);
-    const [pendingN, setPendingN] = useState3(0);
-    const [activeLayers, setActiveLayers] = useState3(
+    const [hover, setHover] = useState4(null);
+    const [nonce, setNonce] = useState4(0);
+    const [chartEpoch, setChartEpoch] = useState4(0);
+    const [refreshing, setRefreshing] = useState4(false);
+    const [active, setActive] = useState4(loadPref);
+    const [tool, setTool] = useState4("cursor");
+    const [drawings, setDrawings] = useState4([]);
+    const [pendingN, setPendingN] = useState4(0);
+    const [activeLayers, setActiveLayers] = useState4(
       () => initialLayers ? new Set(initialLayers) : loadLayerPref()
     );
     const persistLayers = initialLayers ? () => {
     } : saveLayerPref;
-    const [selectedLevel, setSelectedLevel] = useState3(null);
+    const [selectedLevel, setSelectedLevel] = useState4(null);
     const selectedLevelRef = useRef(null);
     selectedLevelRef.current = selectedLevel;
     const layerHandlesRef = useRef({});
@@ -2992,7 +2658,7 @@ ${ref}`;
       [symbol, forecastNonce]
     );
     const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
-    useEffect2(() => {
+    useEffect3(() => {
       if (!forecastNonce) return;
       setActiveLayers((prev) => {
         if (prev.has("forecast")) return prev;
@@ -3106,10 +2772,10 @@ ${ref}`;
       }
     }, [symbol]);
     commitDrawingRef.current = commitDrawing;
-    useEffect2(() => {
+    useEffect3(() => {
       if (!activeLayers.has("levels")) setSelectedLevel(null);
     }, [activeLayers]);
-    useEffect2(() => {
+    useEffect3(() => {
       setSelectedLevel(null);
     }, [symbol]);
     const clearDrawings = useCallback(async () => {
@@ -3191,7 +2857,7 @@ ${ref}`;
       setSelectedLevel(lv.price);
     }, [layerData, candles]);
     levelClickRef.current = frameToLevel;
-    useEffect2(() => {
+    useEffect3(() => {
       const el = elRef.current;
       if (!el || !hasLW()) return void 0;
       const LW = window.LightweightCharts;
@@ -3288,7 +2954,7 @@ ${ref}`;
         chartRef.current = candleRef.current = null;
       };
     }, [seriesType]);
-    useEffect2(() => {
+    useEffect3(() => {
       const candle = candleRef.current, chart = chartRef.current;
       if (!candle || !candles.length) return;
       candle.setData(seriesType === "line" ? candles.map((c) => ({ time: c.time, value: c.close })) : candles);
@@ -3303,7 +2969,7 @@ ${ref}`;
         });
       }
     }, [candles, symbol, tf, seriesType, chartEpoch]);
-    useEffect2(() => {
+    useEffect3(() => {
       if (!overlays || !chartRef.current || !candleRef.current || !candles.length) return void 0;
       return overlays({
         chart: chartRef.current,
@@ -3312,7 +2978,7 @@ ${ref}`;
         candles
       });
     }, [overlays, candles, chartEpoch]);
-    useEffect2(() => {
+    useEffect3(() => {
       const chart = chartRef.current;
       if (!chart) return void 0;
       const th = chartTheme();
@@ -3420,7 +3086,7 @@ ${ref}`;
       }
       return void 0;
     }, [candles, active, tf, chartEpoch]);
-    useEffect2(() => {
+    useEffect3(() => {
       let alive = true;
       pendingRef.current = [];
       setPendingN(0);
@@ -3436,7 +3102,7 @@ ${ref}`;
         alive = false;
       };
     }, [symbol]);
-    useEffect2(() => {
+    useEffect3(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const drawn = drawnRef.current;
@@ -3458,7 +3124,7 @@ ${ref}`;
       }
       return void 0;
     }, [drawings, candles, chartEpoch]);
-    useEffect2(() => {
+    useEffect3(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const handles = layerHandlesRef.current;
@@ -3496,7 +3162,7 @@ ${ref}`;
       }
       return void 0;
     }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, dayCallsData, selectedLevel, candles, chartEpoch]);
-    useEffect2(() => {
+    useEffect3(() => {
       const chart = chartRef.current;
       const src = replayShown && replayData || callsOn && dayCallsData || null;
       if (!chart || !src || !candles.length) return;
@@ -3676,7 +3342,7 @@ ${ref}`;
     compact,
     seriesType
   }) {
-    const [tf, setTf] = useState3(defaultTf);
+    const [tf, setTf] = useState4(defaultTf);
     return /* @__PURE__ */ React.createElement(
       InstrumentChart,
       {
@@ -3700,8 +3366,136 @@ ${ref}`;
     );
   }
 
+  // src/mira-render.jsx
+  var { useMemo: useMemo2 } = React;
+  function extractJson(text) {
+    if (!text) return null;
+    let raw = String(text).trim();
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fence) raw = fence[1].trim();
+    const start = raw.indexOf("{");
+    if (start < 0) return null;
+    let depth = 0, end = -1;
+    for (let i = start; i < raw.length; i++) {
+      if (raw[i] === "{") depth++;
+      else if (raw[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    if (end < 0) return null;
+    try {
+      return JSON.parse(raw.slice(start, end + 1));
+    } catch {
+      return null;
+    }
+  }
+  function validateMira(o) {
+    if (!o || typeof o !== "object") return false;
+    if (isSwot(o.swot)) return true;
+    if (typeof o.headline === "string" && o.headline.trim()) return true;
+    return Array.isArray(o.sections) && o.sections.some(isRenderableSection);
+  }
+  function parseMira(text) {
+    const o = extractJson(text);
+    if (!o || !validateMira(o)) return null;
+    return normalize(o);
+  }
+  function isSwot(s) {
+    if (!s || typeof s !== "object") return false;
+    const quads = ["strengths", "weaknesses", "opportunities", "threats"];
+    for (const q of quads) {
+      if (!Array.isArray(s[q])) return false;
+      if (s[q].some((it) => !it || typeof it.point !== "string")) return false;
+    }
+    return quads.some((q) => s[q].length > 0);
+  }
+  function isRenderableSection(s) {
+    if (!s || typeof s !== "object") return false;
+    switch (s.kind) {
+      case "swot":
+        return isSwot(s.swot);
+      case "list":
+      case "donext":
+        return Array.isArray(s.items) && s.items.length > 0;
+      case "keyvals":
+      case "scorecard":
+        return Array.isArray(s.rows) && s.rows.length > 0;
+      case "callout":
+      case "prose":
+        return typeof s.text === "string" && s.text.trim().length > 0;
+      default:
+        return false;
+    }
+  }
+  function normalize(o) {
+    if (Array.isArray(o.sections)) return o;
+    const sections = [];
+    if (isSwot(o.swot)) sections.push({ kind: "swot", swot: o.swot });
+    if (o.pattern) sections.push({ kind: "callout", title: "The pattern", text: String(o.pattern) });
+    if (o.scores_read) sections.push({ kind: "prose", text: String(o.scores_read) });
+    if (Array.isArray(o.do_next) && o.do_next.length) sections.push({ kind: "donext", items: o.do_next });
+    return { headline: o.headline, sections };
+  }
+  var SWOT_QUADS = [
+    { key: "strengths", kind: "s", title: "Strengths", tag: "keep" },
+    { key: "weaknesses", kind: "w", title: "Weaknesses", tag: "fix" },
+    { key: "opportunities", kind: "o", title: "Opportunities", tag: "capture" },
+    { key: "threats", kind: "t", title: "Threats", tag: "guard" }
+  ];
+  function normItem(it) {
+    return typeof it === "string" ? { point: it, cites: [] } : it || { point: "" };
+  }
+  function SwotQuad({ kind, title, tag, items }) {
+    return /* @__PURE__ */ React.createElement("div", { className: cls("vg-swot-q", kind) }, /* @__PURE__ */ React.createElement("div", { className: "vg-swot-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-swot-badge" }, kind.toUpperCase()), /* @__PURE__ */ React.createElement("b", null, title), /* @__PURE__ */ React.createElement("span", { className: "vg-note vg-swot-tag" }, tag)), items.length ? /* @__PURE__ */ React.createElement("ul", { className: "vg-swot-items" }, items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-cite", kind) }, c)))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "4px 0 0", fontSize: 13 } }, "none noted this window"));
+  }
+  function SwotRender({ swot }) {
+    const s = swot && swot.swot || swot || {};
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-swot vg-swot-grid" }, SWOT_QUADS.map((q) => /* @__PURE__ */ React.createElement(SwotQuad, { key: q.key, kind: q.kind, title: q.title, tag: q.tag, items: s[q.key] || [] })));
+  }
+  var TONE = { good: "vg-up", bad: "vg-down", warn: "vg-warn" };
+  function Section({ s }) {
+    if (s.kind === "swot") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement(SwotRender, { swot: s.swot }));
+    }
+    if (s.kind === "prose") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("p", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap", margin: s.title ? "4px 0 0" : 0 } }, s.text));
+    }
+    if (s.kind === "callout") {
+      return /* @__PURE__ */ React.createElement("div", { className: cls("vg-mr-callout", s.tone && `t-${s.tone}`) }, s.title && /* @__PURE__ */ React.createElement("span", { className: "vg-kicker", style: { margin: 0 } }, s.title), /* @__PURE__ */ React.createElement("p", { style: { margin: s.title ? "4px 0 0" : 0 } }, s.text));
+    }
+    if (s.kind === "list") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("ul", { className: "vg-mr-list" }, s.items.map(normItem).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("span", null, it.point), Array.isArray(it.cites) && it.cites.length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-swot-cites" }, it.cites.map((c, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: "vg-cite" }, c)))))));
+    }
+    if (s.kind === "donext") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title || "Do this next"), /* @__PURE__ */ React.createElement("ol", { className: "vg-donext" }, s.items.map((d, i) => {
+        const item = typeof d === "string" ? { title: d } : d || {};
+        return /* @__PURE__ */ React.createElement("li", { key: i }, /* @__PURE__ */ React.createElement("b", null, item.title), item.detail ? /* @__PURE__ */ React.createElement(React.Fragment, null, " \u2014 ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, item.detail)) : null);
+      })));
+    }
+    if (s.kind === "keyvals") {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 110 } }, /* @__PURE__ */ React.createElement("b", null, r.k)), /* @__PURE__ */ React.createElement("td", { className: cls(r.tone && TONE[r.tone]) }, r.v))))));
+    }
+    if (s.kind === "scorecard") {
+      const tone = (n) => n >= 70 ? "good" : n >= 45 ? "warn" : "bad";
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-section" }, s.title && /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, s.title), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, s.rows.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.label), /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${tone(r.score)}`) }, r.score)), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${tone(r.score)}`), style: { width: `${Math.max(0, Math.min(100, r.score))}%` } }))))));
+    }
+    return null;
+  }
+  function MiraRender({ data, text }) {
+    const obj = useMemo2(() => data || parseMira(text), [data, text]);
+    if (!obj) {
+      return /* @__PURE__ */ React.createElement("div", { className: "vg-mr-prose", style: { whiteSpace: "pre-wrap" } }, text || "");
+    }
+    const sections = obj.sections || [];
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-mr" }, obj.headline && /* @__PURE__ */ React.createElement("h3", { className: "vg-mr-headline" }, obj.headline), sections.filter(isRenderableSection).map((s, i) => /* @__PURE__ */ React.createElement(Section, { key: i, s })));
+  }
+
   // src/cockpit.jsx
-  var { useState: useState4, useEffect: useEffect3 } = React;
+  var { useState: useState5, useEffect: useEffect4 } = React;
   var backend = () => (JSON.parse(localStorage.getItem("vantage-settings") || "{}").backendUrl || "http://127.0.0.1:8641").replace(/\/+$/, "");
   var getFrames = (day) => getJson(
     `${backend()}/api/cockpit/frames${day ? `?day=${encodeURIComponent(day)}` : ""}`,
@@ -3712,7 +3506,7 @@ ${ref}`;
     const [h, m] = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hour12: false, hour: "2-digit", minute: "2-digit" }).format(/* @__PURE__ */ new Date()).split(":");
     return Number(h) * 60 + Number(m);
   };
-  var money3 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(v).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
+  var money4 = (v) => v == null ? "\u2014" : `${v >= 0 ? "+" : "\u2212"}$${Math.abs(v).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
   function callSide(bias) {
     const s = String(bias || "").toLowerCase();
     if (s.includes("up") || s.includes("bull") || s.includes("long")) return "bullish";
@@ -3835,11 +3629,11 @@ ${ref}`;
     if (etMin < 600) add("warn", "Opening window (before 10:00): 1 contract max, and never against the gap. The 09:39 five-lot cost $4,430.");
     else if (etMin >= 930) add("bad", "Past 15:30 \u2014 no new trades. Whatever this is, it can wait for tomorrow's plan.");
     if (d.day_pnl != null && d.day_pnl <= -2e3)
-      add("bad", `Down ${money3(d.day_pnl)} \u2014 the $2,000 daily stop is HIT. The day is over; anything else is revenge trading.`);
+      add("bad", `Down ${money4(d.day_pnl)} \u2014 the $2,000 daily stop is HIT. The day is over; anything else is revenge trading.`);
     else if ((d.streak || 0) >= 3)
       add("bad", `${d.streak} losses in a row \u2014 step away from the screen for 15 minutes before the next entry.`);
     else if (d.day_pnl != null && d.day_pnl < 0)
-      add("plain", `Down ${money3(d.day_pnl)} on the day \u2014 ${money3(-2e3 - d.day_pnl)} of room left before the hard stop.`);
+      add("plain", `Down ${money4(d.day_pnl)} on the day \u2014 ${money4(-2e3 - d.day_pnl)} of room left before the hard stop.`);
     if (lastEntryMin != null && etMin - lastEntryMin >= 0 && etMin - lastEntryMin < 5)
       add("warn", `You entered ${etMin - lastEntryMin} min ago \u2014 no adding, no size-up for 5 minutes. Averaging into losers is how -$4,430 happens.`);
     const glyph = (t) => t === "good" ? "\u2713" : t === "bad" ? "\u2715" : "\u26A0";
@@ -3979,7 +3773,7 @@ ${ref}`;
         className: d.day_pnl >= 0 ? "vg-up" : "vg-down",
         style: { fontVariantNumeric: "tabular-nums" }
       },
-      money3(d.day_pnl)
+      money4(d.day_pnl)
     )), d.verdict && /* @__PURE__ */ React.createElement("div", { className: "vg-tone-verdict", style: { marginTop: 8 } }, "\u26A0 ", d.verdict), (d.commentary || []).map((c, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-tone-note", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-tone-notedot", c.tone) }), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: {
       fontSize: "var(--vg-text-sm)",
       color: c.tone === "bad" ? "var(--vg-down)" : void 0
@@ -4008,12 +3802,12 @@ ${ref}`;
       const aligned = side != null ? t.dir === side : null;
       const r = forTrade(t);
       const parsed = r ? parseMira(r.analysis) : null;
-      return /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-card", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "baseline", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "var(--vg-text-sm)" } }, t.time, " \u2014 ", t.label), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", t.dir === "bullish" ? "good" : "bad") }, t.dir), aligned != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", aligned ? "good" : "bad") }, aligned ? "\u2713 with the call" : "\u2717 against the call"), t.realized != null ? /* @__PURE__ */ React.createElement("b", { className: t.realized >= 0 ? "vg-up" : "vg-down" }, money3(t.realized)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "open")), r ? /* @__PURE__ */ React.createElement("details", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-note", style: { cursor: "pointer" } }, parsed && parsed.headline || String(r.analysis || "").slice(0, 100)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: parsed, text: r.analysis }))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, t.realized == null ? "Desk review lands after the trade closes." : "Desk review pending \u2014 the auto-loop drains 2 per tick."));
+      return /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-card", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "baseline", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement("b", { style: { fontSize: "var(--vg-text-sm)" } }, t.time, " \u2014 ", t.label), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", t.dir === "bullish" ? "good" : "bad") }, t.dir), aligned != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", aligned ? "good" : "bad") }, aligned ? "\u2713 with the call" : "\u2717 against the call"), t.realized != null ? /* @__PURE__ */ React.createElement("b", { className: t.realized >= 0 ? "vg-up" : "vg-down" }, money4(t.realized)) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "open")), r ? /* @__PURE__ */ React.createElement("details", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("summary", { className: "vg-note", style: { cursor: "pointer" } }, parsed && parsed.headline || String(r.analysis || "").slice(0, 100)), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: parsed, text: r.analysis }))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, t.realized == null ? "Desk review lands after the trade closes." : "Desk review pending \u2014 the auto-loop drains 2 per tick."));
     }), !trades.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 10 } }, "No trades in this frame."));
   }
   function CockpitPanel({ refreshNonce }) {
-    const [tick, setTick] = useState4(0);
-    useEffect3(() => {
+    const [tick, setTick] = useState5(0);
+    useEffect4(() => {
       const t = setInterval(() => {
         const m = etMinNow();
         if (m >= 540 && m <= 965) setTick((n) => n + 1);
@@ -4022,9 +3816,9 @@ ${ref}`;
     }, []);
     const q = useLive(() => getFrames(void 0), null, [tick, refreshNonce]);
     const d = q.data && q.data.available ? q.data : null;
-    const [planNonce, setPlanNonce] = useState4(0);
-    const [busy, setBusy] = useState4(false);
-    const [copied, setCopied] = useState4(false);
+    const [planNonce, setPlanNonce] = useState5(0);
+    const [busy, setBusy] = useState5(false);
+    const [copied, setCopied] = useState5(false);
     const pq = useLive(() => getJson(`${backend()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, [planNonce]);
     const planRows = ((pq.data && pq.data.available && pq.data.scaffold || {}).table || {}).rows || [];
     const recompute = async () => {
@@ -4097,21 +3891,21 @@ ${ref}`;
           {
             key: i,
             className: cls("vg-badge", aligned === false ? "bad" : aligned ? "good" : "plain"),
-            title: `${t.time} \xB7 ${t.dir}${t.realized != null ? ` \xB7 ${money3(t.realized)}` : " \xB7 open"}`
+            title: `${t.time} \xB7 ${t.dir}${t.realized != null ? ` \xB7 ${money4(t.realized)}` : " \xB7 open"}`
           },
           aligned === false ? "\u2717" : aligned ? "\u2713" : "\xB7",
           " ",
           t.label
         );
       }))),
-      /* @__PURE__ */ React.createElement("td", { className: "num" }, f.frame_pnl != null && f.frame_pnl !== 0 ? /* @__PURE__ */ React.createElement("b", { className: f.frame_pnl >= 0 ? "vg-up" : "vg-down" }, money3(f.frame_pnl)) : "")
+      /* @__PURE__ */ React.createElement("td", { className: "num" }, f.frame_pnl != null && f.frame_pnl !== 0 ? /* @__PURE__ */ React.createElement("b", { className: f.frame_pnl >= 0 ? "vg-up" : "vg-down" }, money4(f.frame_pnl)) : "")
     );
   }
   function CockpitView({ refreshNonce }) {
-    const [day, setDay] = useState4(todayET());
+    const [day, setDay] = useState5(todayET());
     const isToday = day === todayET();
-    const [tick, setTick] = useState4(0);
-    useEffect3(() => {
+    const [tick, setTick] = useState5(0);
+    useEffect4(() => {
       if (!isToday) return void 0;
       const t = setInterval(() => {
         const m = etMinNow();
@@ -4121,9 +3915,9 @@ ${ref}`;
     }, [isToday]);
     const q = useLive(() => getFrames(day), null, [day, tick, refreshNonce]);
     const d = q.data && q.data.available ? q.data : null;
-    const [chartMode, setChartMode] = useState4("fit");
+    const [chartMode, setChartMode] = useState5("fit");
     const chartBig = chartMode === "big";
-    const [sel, setSel] = useState4(null);
+    const [sel, setSel] = useState5(null);
     const select = (f) => setSel((prev) => prev && prev.t === f.t && prev.day === day ? null : { ...f, day });
     return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline", flexWrap: "wrap", gap: 10 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 8, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 15 } }, "Cockpit"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "the market \xB7 the analyst's calls \xB7 you")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, alignItems: "baseline" } }, isToday && etMinNow() >= 570 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
       "button",
@@ -4141,7 +3935,7 @@ ${ref}`;
         title: "Collapse/show the chart \u2014 the log and the right pane carry the same story"
       },
       chartMode === "hidden" ? "show chart" : "hide chart"
-    )), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "/cockpit/", title: "the same cockpit, rendered in the Astryx design system" }, "Astryx cockpit \u2197"), d && d.day_pnl != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "day ", /* @__PURE__ */ React.createElement("b", { className: d.day_pnl >= 0 ? "vg-up" : "vg-down" }, money3(d.day_pnl))), /* @__PURE__ */ React.createElement(
+    )), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "/next/#/cockpit", title: "the Astryx shell \u2014 the migration target" }, "Astryx shell \u2197"), d && d.day_pnl != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "day ", /* @__PURE__ */ React.createElement("b", { className: d.day_pnl >= 0 ? "vg-up" : "vg-down" }, money4(d.day_pnl))), /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "date",
@@ -4172,11 +3966,66 @@ ${ref}`;
         onSelect: select,
         selected: !!sel && sel.t === f.t && sel.day === day
       }
-    )))), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the briefing\u2026" : "Cockpit needs the SQLite backend."))), sel && /* @__PURE__ */ React.createElement("div", { style: { flex: "2 1 400px", minWidth: 0, marginTop: 14, position: "sticky", top: 8 } }, /* @__PURE__ */ React.createElement(FrameBriefing, { sel, onClear: () => setSel(null) }))));
+    )))), d && !d.frames.length && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "No frames for ", day, " \u2014 no stored bars or fills."), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, q.loading ? "Building the briefing\u2026" : "Cockpit needs the SQLite backend."))), sel && /* @__PURE__ */ React.createElement("div", { style: { flex: "2 1 400px", minWidth: 0, marginTop: 14, position: "sticky", top: 8 } }, /* @__PURE__ */ React.createElement(FrameBriefing, { sel, onClear: () => setSel(null) }))), isToday && /* @__PURE__ */ React.createElement(OpsBlock, null));
+  }
+  function OpsBlock() {
+    const [status, setStatus] = useState5(null);
+    const [perf, setPerf] = useState5(null);
+    const [nightly, setNightly] = useState5(null);
+    const [spot, setSpot] = useState5(null);
+    const [ticket, setTicket] = useState5(null);
+    const load = async () => {
+      const [s, p, n, b] = await Promise.all([
+        getBotStatus(),
+        getBotPerformance(),
+        getNightlyStatus(1),
+        getPlaybook(null)
+      ]);
+      setStatus(s && s.available !== false ? s : null);
+      setPerf(p && p.available !== false ? p : null);
+      setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
+      setSpot(b && b.available && b.scaffold && b.scaffold.regime && b.scaffold.regime.spot || null);
+    };
+    useEffect4(() => {
+      load();
+    }, []);
+    useEffect4(() => {
+      if (!status || !status.market_open) return void 0;
+      const t = setInterval(load, 6e4);
+      return () => clearInterval(t);
+    }, [status && status.market_open]);
+    if (!status) return null;
+    return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      SignalsCard,
+      {
+        live: status.live_signals || [],
+        armed: status.armed || [],
+        spot,
+        onExecute: (t) => setTicket({
+          sym: t.symbol,
+          spot,
+          seed: {
+            level: t.spy_level,
+            entry: t.spy_entry,
+            role: t.side === "long" ? "support" : "resistance"
+          },
+          signalId: t.id
+        })
+      }
+    ), /* @__PURE__ */ React.createElement("div", { className: "vg-stats", style: { marginTop: 14, gridTemplateColumns: "1fr 1fr" } }, /* @__PURE__ */ React.createElement(StrategyCard, { perf }), /* @__PURE__ */ React.createElement(MachineCard, { run: nightly })), ticket && /* @__PURE__ */ React.createElement(
+      TicketModal,
+      {
+        sym: ticket.sym,
+        spot: ticket.spot,
+        seed: ticket.seed,
+        signalPaperId: ticket.signalId,
+        onClose: () => setTicket(null)
+      }
+    ));
   }
 
   // src/notebook.jsx
-  var { useState: useState5, useMemo: useMemo3, useEffect: useEffect4 } = React;
+  var { useState: useState6, useMemo: useMemo3, useEffect: useEffect5 } = React;
   var LEG_TONE = {
     DEFEND: "bad",
     CLOSE_LEG: "bad",
@@ -4230,7 +4079,7 @@ ${ref}`;
     const positions2 = useLive(() => positions("all").then(mapPositions), [], [refreshNonce], { blankOnOutage: true }).data;
     const nb = useLive(() => getNotebook(sym).then(mapNotebook), null, [sym, refreshNonce]);
     const notebook = nb.data;
-    const [saveNonce, setSaveNonce] = useState5(0);
+    const [saveNonce, setSaveNonce] = useState6(0);
     const nbReload = useLive(() => getNotebook(sym).then(mapNotebook), null, [sym, saveNonce]);
     const nbData = nbReload.data || notebook;
     const held = useMemo3(
@@ -4356,13 +4205,13 @@ ${ref}`;
     return nb && nb[key] ? nb[key] : null;
   }
   function PlanCard({ sym, plan, price, onSaved, embedded }) {
-    const [thesis, setThesis] = useState5("");
-    const [target, setTarget] = useState5("");
-    const [stop, setStop] = useState5("");
-    const [notes, setNotes] = useState5("");
-    const [saving, setSaving] = useState5(false);
-    const [note, setNote] = useState5(null);
-    useEffect4(() => {
+    const [thesis, setThesis] = useState6("");
+    const [target, setTarget] = useState6("");
+    const [stop, setStop] = useState6("");
+    const [notes, setNotes] = useState6("");
+    const [saving, setSaving] = useState6(false);
+    const [note, setNote] = useState6(null);
+    useEffect5(() => {
       setThesis(plan ? plan.thesis || "" : "");
       setTarget(plan && plan.target != null ? String(plan.target) : "");
       setStop(plan && plan.stop != null ? String(plan.stop) : "");
@@ -4425,8 +4274,8 @@ ${ref}`;
     ), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { marginTop: 6, justifyContent: "space-between" } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: saving, onClick: save }, saving ? "Saving\u2026" : "Save plan"), note && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { color: note.tone === "warn" ? "var(--color-grey)" : void 0 } }, note.text)));
   }
   function JournalCard({ sym, journal, onAdded, embedded }) {
-    const [draft, setDraft] = useState5("");
-    const [busy, setBusy] = useState5(false);
+    const [draft, setDraft] = useState6("");
+    const [busy, setBusy] = useState6(false);
     const add = async () => {
       const text = draft.trim();
       if (!text || busy) return;
@@ -4528,12 +4377,12 @@ ${ref}`;
     { key: "options", label: "Options", q: "What should I do with my {S} options?" }
   ];
   function AskCard({ sym, price, unrl, isHeld, decision, shares, hasLegs }) {
-    const [msgs, setMsgs] = useState5([]);
-    const [draft, setDraft] = useState5("");
-    const [busy, setBusy] = useState5(false);
+    const [msgs, setMsgs] = useState6([]);
+    const [draft, setDraft] = useState6("");
+    const [busy, setBusy] = useState6(false);
     const bodyRef = React.useRef(null);
     const abortRef = React.useRef(null);
-    useEffect4(() => {
+    useEffect5(() => {
       setMsgs([]);
       setDraft("");
       setBusy(false);
@@ -4542,10 +4391,10 @@ ${ref}`;
         abortRef.current = null;
       }
     }, [sym]);
-    useEffect4(() => {
+    useEffect5(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect4(() => () => {
+    useEffect5(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -4596,9 +4445,9 @@ ${ref}`;
     };
     const ask = (raw) => analyze((raw != null ? raw : draft).trim());
     return /* @__PURE__ */ React.createElement("div", { className: "vg-nb-ask" }, msgs.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-nb-empty" }, /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "0 0 10px" } }, "Ask Mira about ", sym, isHeld ? ` \u2014 your ${shares ? `${Math.round(shares)}-share ` : ""}position` : "", price != null ? ` at ${usd(price, 2)}` : "", ". Every answer is a multi-facet read (technical \xB7 fundamental \xB7 news \xB7 position), grounded in the Vantage engine."), /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facets" }, FACET_CHIPS.filter((c) => c.key !== "options" || hasLegs).map((c) => /* @__PURE__ */ React.createElement("button", { key: c.key, className: "vg-facet-chip", onClick: () => ask(c.q.replace("{S}", sym)) }, c.label))), /* @__PURE__ */ React.createElement(AmbientBrief, null)) : /* @__PURE__ */ React.createElement("div", { className: "vg-nb-chat", ref: bodyRef }, msgs.map((m, i) => {
-      const fmt3 = m.who === "ai" && !m.pending && m.mode !== "analyze" ? formatReply(m.text) : null;
-      const body = fmt3 && typeof fmt3 === "object" ? fmt3.text : fmt3 || m.text;
-      return /* @__PURE__ */ React.createElement("div", { key: i, className: cls("vg-msg", m.who) }, m.plan && m.plan.length > 0 && m.pending && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, m.plan.map((s, j) => /* @__PURE__ */ React.createElement("div", { key: j }, "\xB7 ", s))), m.pending && m.mode === "analyze" && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, "\xB7 fanning across technical \xB7 fundamental \xB7 news \xB7 position\u2026"), m.who === "ai" && !m.pending && body ? /* @__PURE__ */ React.createElement(MiraRender, { text: body }) : /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "pre-wrap" } }, body || (m.pending ? "\u2026" : "")), m.facets && m.facets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facetline" }, m.facets.map((fc, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-facet-tag", fc.error ? "bad" : "ok") }, fc.domain))), fmt3 && typeof fmt3 === "object" && fmt3.source && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "source: ", fmt3.source), m.offline && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "offline"), m.who === "ai" && m.corr && /* @__PURE__ */ React.createElement(ExplainToggle, { corr: m.corr }));
+      const fmt2 = m.who === "ai" && !m.pending && m.mode !== "analyze" ? formatReply(m.text) : null;
+      const body = fmt2 && typeof fmt2 === "object" ? fmt2.text : fmt2 || m.text;
+      return /* @__PURE__ */ React.createElement("div", { key: i, className: cls("vg-msg", m.who) }, m.plan && m.plan.length > 0 && m.pending && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, m.plan.map((s, j) => /* @__PURE__ */ React.createElement("div", { key: j }, "\xB7 ", s))), m.pending && m.mode === "analyze" && /* @__PURE__ */ React.createElement("div", { className: "vg-msg-plan" }, "\xB7 fanning across technical \xB7 fundamental \xB7 news \xB7 position\u2026"), m.who === "ai" && !m.pending && body ? /* @__PURE__ */ React.createElement(MiraRender, { text: body }) : /* @__PURE__ */ React.createElement("span", { style: { whiteSpace: "pre-wrap" } }, body || (m.pending ? "\u2026" : "")), m.facets && m.facets.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facetline" }, m.facets.map((fc, j) => /* @__PURE__ */ React.createElement("span", { key: j, className: cls("vg-facet-tag", fc.error ? "bad" : "ok") }, fc.domain))), fmt2 && typeof fmt2 === "object" && fmt2.source && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "source: ", fmt2.source), m.offline && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 4 } }, "offline"), m.who === "ai" && m.corr && /* @__PURE__ */ React.createElement(ExplainToggle, { corr: m.corr }));
     })), /* @__PURE__ */ React.createElement("div", { className: "vg-nb-askbar" }, msgs.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-nb-facets vg-nb-facets-inline" }, FACET_CHIPS.filter((c) => c.key !== "options" || hasLegs).map((c) => /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -4624,8 +4473,8 @@ ${ref}`;
     ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy || !draft.trim(), onClick: () => ask() }, busy ? "\u2026" : "Ask")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "Educational only \u2014 not financial advice.")));
   }
   function ExplainToggle({ corr }) {
-    const [open, setOpen] = useState5(false);
-    const [rec, setRec] = useState5(void 0);
+    const [open, setOpen] = useState6(false);
+    const [rec, setRec] = useState6(void 0);
     const toggle = () => {
       const opening = !open;
       setOpen(opening);
@@ -4641,7 +4490,7 @@ ${ref}`;
   }
 
   // src/use_stream_turn.js
-  var { useState: useState6, useRef: useRef2, useEffect: useEffect5, useCallback: useCallback2 } = React;
+  var { useState: useState7, useRef: useRef2, useEffect: useEffect6, useCallback: useCallback2 } = React;
   function collectTurn(prompt, thread, { onToken, setAbort } = {}) {
     return new Promise((resolve) => {
       let text = "";
@@ -4666,15 +4515,15 @@ ${ref}`;
     });
   }
   function useStreamTurn(deps = []) {
-    const [state, setState] = useState6(null);
+    const [state, setState] = useState7(null);
     const abortRef = useRef2(null);
     const setAbort = useCallback2((fn) => {
       abortRef.current = fn;
     }, []);
-    useEffect5(() => () => {
+    useEffect6(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
-    useEffect5(() => {
+    useEffect6(() => {
       setState(null);
     }, deps);
     const run = useCallback2((prompt, thread) => {
@@ -4694,7 +4543,7 @@ ${ref}`;
   }
 
   // src/portfolio_view.jsx
-  var { useState: useState7, useRef: useRef3 } = React;
+  var { useState: useState8, useRef: useRef3 } = React;
   var pct = (n, d = 1) => n == null ? "\u2014" : `${Number(n).toFixed(d)}%`;
   var ccyMoney = (n, ccy) => n == null ? "\u2014" : new Intl.NumberFormat(
     ccy === "INR" ? "en-IN" : "en-US",
@@ -4740,7 +4589,7 @@ ${ref}`;
   }
   function UploadCsv({ kind, acctId, broker, onDone }) {
     const ref = useRef3(null);
-    const [state, setState] = useState7(null);
+    const [state, setState] = useState8(null);
     const isPos = kind === "positions";
     const label = isPos ? "holdings" : "transactions";
     const pick = () => ref.current && ref.current.click();
@@ -4773,10 +4622,10 @@ ${ref}`;
     ), state?.result && /* @__PURE__ */ React.createElement("span", { className: "vg-note good", title: (state.result.warnings || []).join(" \xB7 ") }, " ", "\u2713 ", summary(state.result), (state.result.warnings || []).length ? ` \xB7 ${state.result.warnings.length} skipped` : "", /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", style: { marginLeft: 4 }, onClick: () => setState(null) }, "\xD7")), state?.error && /* @__PURE__ */ React.createElement("span", { className: "vg-note bad" }, " \u2715 ", state.error, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", style: { marginLeft: 4 }, onClick: () => setState(null) }, "\xD7")));
   }
   function AddAccount({ onAdded }) {
-    const [open, setOpen] = useState7(false);
-    const [f, setF] = useState7({ id: "", name: "", broker: "fidelity", currency: "USD", taxable: true });
-    const [err, setErr] = useState7(null);
-    const [busy, setBusy] = useState7(false);
+    const [open, setOpen] = useState8(false);
+    const [f, setF] = useState8({ id: "", name: "", broker: "fidelity", currency: "USD", taxable: true });
+    const [err, setErr] = useState8(null);
+    const [busy, setBusy] = useState8(false);
     const submit = () => {
       if (!f.id.trim() || !f.name.trim()) {
         setErr("id and name are required");
@@ -4868,7 +4717,7 @@ ${ref}`;
     onRefreshAccount,
     onChanged
   }) {
-    const [manage, setManage] = useState7(false);
+    const [manage, setManage] = useState8(false);
     const list = accounts2 || [];
     const total = list.reduce((m, a) => {
       const c = a.currency || "USD";
@@ -4974,7 +4823,7 @@ ${ref}`;
       if (changeTimer.current) clearTimeout(changeTimer.current);
       changeTimer.current = setTimeout(() => onAccountsChanged && onAccountsChanged(), 900);
     }, [onAccountsChanged]);
-    const [ccy, setCcy] = useState7("");
+    const [ccy, setCcy] = useState8("");
     const q = useLive(() => portfolioAnalyze(account, ccy || "USD"), null, [account, ccy]);
     const d = q.data;
     const currencies = (() => {
@@ -5018,7 +4867,7 @@ ${ref}`;
   }
 
   // src/options.jsx
-  var { useState: useState8, useEffect: useEffect6 } = React;
+  var { useState: useState9, useEffect: useEffect7 } = React;
   var { SecurityCard, FAQItem } = window.LookeyDS;
   var STRAT_PAGE = 40;
   var stratLabel = (s) => s.structure || s.name || "strategy";
@@ -5078,9 +4927,9 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("tr", { onClick: onToggle, style: { cursor: "pointer", opacity: dimmed ? 0.55 : 1 }, title: "Show legs" }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { style: { marginRight: 6, color: "var(--color-grey)" } }, expanded ? "\u25BE" : "\u25B8"), /* @__PURE__ */ React.createElement("b", null, stratLabel(s)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", kindChipCls(s.kind)), style: { marginLeft: 6 } }, kindChip(s.kind))), /* @__PURE__ */ React.createElement("td", null, s.underlying || "\u2014"), /* @__PURE__ */ React.createElement("td", null, s.direction === "credit" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "credit"), s.direction === "debit" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "debit"), s.direction !== "credit" && s.direction !== "debit" && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", { className: cls("num", s.cash == null ? "" : s.cash >= 0 ? "up" : "down") }, s.cash != null ? signUsd(s.cash) : "\u2014"), /* @__PURE__ */ React.createElement("td", null, s.state === "filled" && /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13 } }, "filled"), s.state === "cancelled" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "cancelled"), s.state === "rejected" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "rejected"), s.state && !["filled", "cancelled", "rejected"].includes(s.state) && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, s.state), !s.state && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014")), /* @__PURE__ */ React.createElement("td", null, w.day, w.time && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, w.time))), expanded && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 6, style: { background: "var(--color-light)", padding: "6px 12px" } }, legs.length ? legs.map((leg, i) => /* @__PURE__ */ React.createElement(StrategyLeg, { key: i, leg, underlying: s.underlying })) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "no leg detail"))));
   }
   function StrategiesSection({ accountId }) {
-    const [tab, setTab] = useState8("open");
-    const [shown, setShown] = useState8(STRAT_PAGE);
-    const [open, setOpen] = useState8({});
+    const [tab, setTab] = useState9("open");
+    const [shown, setShown] = useState9(STRAT_PAGE);
+    const [open, setOpen] = useState9({});
     const strat = useLive(
       () => getStrategies(accountId).then(mapStrategies),
       null,
@@ -5091,7 +4940,7 @@ ${ref}`;
       null,
       [accountId]
     ).data;
-    useEffect6(() => {
+    useEffect7(() => {
       setShown(STRAT_PAGE);
       setOpen({});
     }, [accountId, tab]);
@@ -5103,12 +4952,12 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement("div", { style: { marginBottom: 24 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { marginBottom: 2 } }, /* @__PURE__ */ React.createElement("h3", { style: { margin: 0, fontSize: 16 } }, "Strategies"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "grouped option legs \xB7 net of shorts \xB7 marks live")), !hasAny ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No option strategies"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0", maxWidth: 560 } }, "Multi-leg option positions and closed spread orders arrive with a broker import \u2014 run the importer with ", /* @__PURE__ */ React.createElement("b", null, "--breakout"), " to group individual legs into strategies. There is no demo fixture, so this stays empty offline.")) : /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px", marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { padding: "6px 4px 8px" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", tab === "open" && "sel"), onClick: () => setTab("open") }, "Open", openRows.length ? ` \xB7 ${openRows.length}` : ""), /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", tab === "history" && "sel"), onClick: () => setTab("history") }, "History", closedRows.length ? ` \xB7 ${closedRows.length}` : ""), /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", tab === "ticker" && "sel"), onClick: () => setTab("ticker") }, "By ticker", tickerRows.length ? ` \xB7 ${tickerRows.length}` : ""))), tab === "ticker" ? tickerRows.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px" } }, "No ticker books.") : /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Ticker"), /* @__PURE__ */ React.createElement("th", null, "Legs"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Net cost"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Current"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"), /* @__PURE__ */ React.createElement("th", null, "First \u2192 last"))), /* @__PURE__ */ React.createElement("tbody", null, tickerRows.map((s, i) => /* @__PURE__ */ React.createElement(TickerRow, { key: i, s, expanded: !!open[`t${i}`], onToggle: () => toggle(`t${i}`) })))) : tab === "open" ? openRows.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px" } }, "No open strategies.") : /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Strategy"), /* @__PURE__ */ React.createElement("th", null, "Underlying"), /* @__PURE__ */ React.createElement("th", null, "Exp"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Net cost"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Current"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"))), /* @__PURE__ */ React.createElement("tbody", null, openRows.map((s, i) => /* @__PURE__ */ React.createElement(OpenStrategyRow, { key: i, s, expanded: !!open[`o${i}`], onToggle: () => toggle(`o${i}`) })))) : closedRows.length === 0 ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { padding: "4px" } }, "No closed strategies.") : /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Strategy"), /* @__PURE__ */ React.createElement("th", null, "Underlying"), /* @__PURE__ */ React.createElement("th", null, "Direction"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Net"), /* @__PURE__ */ React.createElement("th", null, "State"), /* @__PURE__ */ React.createElement("th", null, "Date"))), /* @__PURE__ */ React.createElement("tbody", null, closedRows.slice(0, shown).map((s, i) => /* @__PURE__ */ React.createElement(ClosedStrategyRow, { key: i, s, expanded: !!open[`c${i}`], onToggle: () => toggle(`c${i}`) }))))), tab === "history" && closedRows.length > shown && /* @__PURE__ */ React.createElement("div", { style: { textAlign: "center", marginTop: 10 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => setShown(shown + STRAT_PAGE) }, "Show ", Math.min(STRAT_PAGE, closedRows.length - shown), " more \xB7 ", closedRows.length - shown, " remaining"))));
   }
   function OptionsView({ accountId = "all" }) {
-    const [faq, setFaq] = useState8(false);
+    const [faq, setFaq] = useState9(false);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Options"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Your live option strategies \u2014 open positions and closed spreads, rolled up by structure and ticker \xB7 educational only"), /* @__PURE__ */ React.createElement(StrategiesSection, { accountId }), /* @__PURE__ */ React.createElement("div", { className: "vg-grid2", style: { margin: "20px 0" } }, /* @__PURE__ */ React.createElement(SecurityCard, { accent: "teal", title: "Covered-call ideas live in your Actions" }, "The nightly engine flags HOLD & SELL CALL against real lots, with a suggested strike, credit, and basis reduction. Those appear in the Dashboard Action Queue \u2014 cross-checked against your Tax Center for wash risk."), /* @__PURE__ */ React.createElement(SecurityCard, { accent: "orange", title: "Approval levels differ per account" }, "Roth allows covered calls and CSPs at most brokers; 401(k)s rarely allow options at all. The engine only suggests calls on lots in accounts where they're actually executable.")), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement(FAQItem, { question: "How are covered-call ideas generated?", open: faq, onToggle: () => setFaq(!faq) }, "The nightly analysis looks for lots of 100+ shares held at a loss or near breakeven, targets a strike above cost basis at the next monthly expiry, estimates the credit, and only recommends the call when it isn't wash-blocked. Results are persisted to the decision journal \u2014 educational only, not advice.")));
   }
 
   // src/scanner.jsx
-  var { useState: useState9, useEffect: useEffect7 } = React;
+  var { useState: useState10, useEffect: useEffect8 } = React;
   var SCANNERS = [
     { id: "ict_htf", label: "A+ ICT hourly setup" },
     { id: "breakout_hold", label: "Breakout hold \u2014 3 closes above a pivot cluster (long)" },
@@ -5152,11 +5001,11 @@ ${ref}`;
   function HistoryTable({ rows, onOpen }) {
     const tone = (o) => o === "target" ? "good" : o === "invalidated" ? "bad" : "plain";
     const lbl = (o) => o === "target" ? "\u2713 target" : o === "invalidated" ? "\u2715 invalid" : "\xB7 open";
-    const [fq, setFq] = useState9("");
-    const [fTier, setFTier] = useState9("all");
-    const [fDir, setFDir] = useState9("all");
-    const [fOut, setFOut] = useState9("all");
-    const [open, setOpen] = useState9(null);
+    const [fq, setFq] = useState10("");
+    const [fTier, setFTier] = useState10("all");
+    const [fDir, setFDir] = useState10("all");
+    const [fOut, setFOut] = useState10("all");
+    const [open, setOpen] = useState10(null);
     const shown = rows.filter((h) => (!fq || String(h.symbol || "").toUpperCase().includes(fq.toUpperCase())) && (fTier === "all" || h.tier === fTier) && (fDir === "all" || h.dir === fDir) && (fOut === "all" || (h.outcome || "open") === fOut));
     const zone2 = (h) => Array.isArray(h.entry_zone) && h.entry_zone.length === 2 ? `${h.entry_zone[0]}\u2013${h.entry_zone[1]}` : h.ce ?? "\u2014";
     return /* @__PURE__ */ React.createElement("div", { className: "vg-scan-group", style: { marginTop: 20 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-scan-grouphead", style: { flexWrap: "wrap", gap: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-kicker" }, "History \xB7 ", shown.length, shown.length !== rows.length ? ` of ${rows.length}` : ""), /* @__PURE__ */ React.createElement("span", { className: "vg-scan-rationale" }, "setups that aged past current \u2014 how they played out"), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, marginLeft: "auto", flexWrap: "wrap" } }, /* @__PURE__ */ React.createElement(
@@ -5200,10 +5049,10 @@ ${ref}`;
     }), !shown.length && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { padding: 12 } }, "no setups match the filters")));
   }
   function ScannerView({ onOpenSymbol }) {
-    const [scanner, setScanner] = useState9("ict_htf");
-    const [nonce, setNonce] = useState9(0);
-    const [note, setNote] = useState9(null);
-    const [entry, setEntry] = useState9("");
+    const [scanner, setScanner] = useState10("ict_htf");
+    const [nonce, setNonce] = useState10(0);
+    const [note, setNote] = useState10(null);
+    const [entry, setEntry] = useState10("");
     const q = useLive(() => getScanner(scanner), null, [scanner, nonce]);
     const d = q.data && q.data.available ? q.data : null;
     const running = d && d.status === "running";
@@ -5216,7 +5065,7 @@ ${ref}`;
     const dataThrough = d && d.data_through;
     const staleHrs = dataThrough ? (Date.now() - new Date(dataThrough).getTime()) / 36e5 : 0;
     const isStaleData = staleHrs > 20;
-    useEffect7(() => {
+    useEffect8(() => {
       if (!running) return void 0;
       const id = setInterval(() => setNonce((n) => n + 1), 3e3);
       return () => clearInterval(id);
@@ -5282,7 +5131,7 @@ ${ref}`;
   }
 
   // src/chart_replay_panel.jsx
-  var { useState: useState10, useEffect: useEffect8, useRef: useRef4, useCallback: useCallback3 } = React;
+  var { useState: useState11, useEffect: useEffect9, useRef: useRef4, useCallback: useCallback3 } = React;
   var REPLAY_SYMBOLS2 = ["SPX", "QQQ", "IWM"];
   function verdictTone2(sc) {
     if (!sc) return "plain";
@@ -5291,7 +5140,7 @@ ${ref}`;
     return "plain";
   }
   function CallRow({ f, onScore, scoring, active, onActivate }) {
-    const [open, setOpen] = useState10(false);
+    const [open, setOpen] = useState11(false);
     const sc = f.score;
     const tone = verdictTone2(sc);
     return /* @__PURE__ */ React.createElement("div", { className: cls("vg-rp-call", active && "on") }, /* @__PURE__ */ React.createElement(
@@ -5330,21 +5179,21 @@ ${ref}`;
     ), open && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-callbody" }, /* @__PURE__ */ React.createElement(MiraRender, { data: f.forecast, text: f.forecast_text })));
   }
   function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCallId, forecastSignal, onForecastSaved }) {
-    const [scoring, setScoring] = useState10(null);
-    const [nonce, setNonce] = useState10(0);
+    const [scoring, setScoring] = useState11(null);
+    const [nonce, setNonce] = useState11(0);
     const runningRef = useRef4(false);
     const genRunRef = useRef4(null);
     const forecastModeRef = useRef4(false);
     const fcSigRef = useRef4(null);
     if (forecastSignal && forecastSignal !== fcSigRef.current) forecastModeRef.current = true;
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
-    useEffect8(() => {
+    useEffect9(() => {
       const onFocus = () => setNonce((n) => n + 1);
       window.addEventListener("focus", onFocus);
       return () => window.removeEventListener("focus", onFocus);
     }, []);
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
-    useEffect8(() => {
+    useEffect9(() => {
       if (!runs.length || runId || runningRef.current || genRunRef.current) return;
       if (forecastModeRef.current) return;
       setRunId(runs[0].run_id);
@@ -5360,20 +5209,20 @@ ${ref}`;
     const scored = forecasts.filter((f) => f.score);
     const hits = scored.filter((f) => verdictTone2(f.score) === "good").length;
     const hitRate = scored.length ? Math.round(hits / scored.length * 100) : null;
-    const [gen, setGen] = useState10(null);
-    const [showGen, setShowGen] = useState10(false);
-    const [genDay, setGenDay] = useState10(() => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
-    const [stepMin, setStepMin] = useState10(60);
-    const [note, setNote] = useState10(null);
-    const [grade, setGrade] = useState10(null);
-    const [gradeOpen, setGradeOpen] = useState10(true);
+    const [gen, setGen] = useState11(null);
+    const [showGen, setShowGen] = useState11(false);
+    const [genDay, setGenDay] = useState11(() => (/* @__PURE__ */ new Date()).toISOString().slice(0, 10));
+    const [stepMin, setStepMin] = useState11(60);
+    const [note, setNote] = useState11(null);
+    const [grade, setGrade] = useState11(null);
+    const [gradeOpen, setGradeOpen] = useState11(true);
     const stopRef = useRef4(false);
     const abortRef = useRef4(null);
-    useEffect8(() => () => {
+    useEffect9(() => () => {
       stopRef.current = true;
       if (abortRef.current) abortRef.current();
     }, []);
-    const [fc, setFc] = useState10(null);
+    const [fc, setFc] = useState11(null);
     const canForecast = REPLAY_SYMBOLS2.includes(String(symbol || "").toUpperCase());
     const priorsQ = useLive(
       () => canForecast ? getSpxForecasts(void 0, symbol, 20) : Promise.resolve(null),
@@ -5422,7 +5271,7 @@ ${ref}`;
         });
       }).catch((e) => setFc({ error: String(e && e.message || e) }));
     }, [symbol, canForecast]);
-    useEffect8(() => {
+    useEffect9(() => {
       if (!forecastSignal || forecastSignal === fcSigRef.current) return;
       fcSigRef.current = forecastSignal;
       if (!canForecast) return;
@@ -5650,7 +5499,7 @@ ${ref}`;
   }
 
   // src/paper.jsx
-  var { useState: useState11 } = React;
+  var { useState: useState12 } = React;
   var usd2 = (v) => v == null ? "\u2014" : `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`;
   var pct2 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var px = (v) => v == null ? "\u2014" : Number(v).toFixed(2);
@@ -5715,9 +5564,9 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-tr-table" }, shown.map(Row), real.length > 15 && !showAll && /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn vg-tr-more", onClick: () => setShowAll(true) }, "show ", real.length - 15, " more"), flat.filter((r) => r.live).map(Row), flat.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-tr-flat" }, flat.length, " no-fill / voided (", flat.filter((r) => reason(r) === "never_filled").length, " never filled \xB7", " ", flat.filter((r) => reason(r) === "voided").length, " voided) \u2014 $0, excluded from win-rate"));
   }
   function PaperView({ refreshNonce }) {
-    const [nonce, setNonce] = useState11(0);
-    const [busy, setBusy] = useState11("");
-    const [sym, setSym] = useState11("SPX");
+    const [nonce, setNonce] = useState12(0);
+    const [busy, setBusy] = useState12("");
+    const [sym, setSym] = useState12("SPX");
     const pv = useLive(() => getPaper(sym), null, [refreshNonce, nonce, sym]);
     const d = pv.data;
     const reload = () => setNonce((n) => n + 1);
@@ -5843,7 +5692,7 @@ ${ref}`;
   }
 
   // src/strategies_view.jsx
-  var { useState: useState12, useCallback: useCallback4, useEffect: useEffect9 } = React;
+  var { useState: useState13, useCallback: useCallback4, useEffect: useEffect10 } = React;
   var pct3 = (n, d = 1) => n == null ? "\u2014" : `${(Number(n) * 100).toFixed(d)}%`;
   var STAGE_TONE = { paper: "plain", eligible: "good", live: "info", paused: "warn" };
   var STAGE_LABEL = { paper: "PAPER", eligible: "ELIGIBLE", live: "LIVE", paused: "PAUSED" };
@@ -5860,12 +5709,12 @@ ${ref}`;
     )), /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-sl-gatewhy" }, gate.reason));
   }
   function PromoteForm({ sid, onDone }) {
-    const [acct, setAcct] = useState12("ALPACA-PAPER");
-    const [maxUsd, setMaxUsd] = useState12(5e3);
-    const [maxPos, setMaxPos] = useState12(3);
-    const [maxLoss, setMaxLoss] = useState12(1e3);
-    const [busy, setBusy] = useState12(false);
-    const [err, setErr] = useState12(null);
+    const [acct, setAcct] = useState13("ALPACA-PAPER");
+    const [maxUsd, setMaxUsd] = useState13(5e3);
+    const [maxPos, setMaxPos] = useState13(3);
+    const [maxLoss, setMaxLoss] = useState13(1e3);
+    const [busy, setBusy] = useState13(false);
+    const [err, setErr] = useState13(null);
     const submit = () => {
       setBusy(true);
       setErr(null);
@@ -5888,7 +5737,7 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-sl-promote" }, /* @__PURE__ */ React.createElement("div", { className: "vg-sl-caps" }, /* @__PURE__ */ React.createElement("label", null, "Account ", /* @__PURE__ */ React.createElement("input", { value: acct, onChange: (e) => setAcct(e.target.value) })), /* @__PURE__ */ React.createElement("label", null, "Max $/order ", /* @__PURE__ */ React.createElement("input", { type: "number", value: maxUsd, onChange: (e) => setMaxUsd(e.target.value) })), /* @__PURE__ */ React.createElement("label", null, "Max positions ", /* @__PURE__ */ React.createElement("input", { type: "number", value: maxPos, onChange: (e) => setMaxPos(e.target.value) })), /* @__PURE__ */ React.createElement("label", null, "Daily max-loss $ ", /* @__PURE__ */ React.createElement("input", { type: "number", value: maxLoss, onChange: (e) => setMaxLoss(e.target.value) }))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn sm on", onClick: submit, disabled: busy }, busy ? "Promoting\u2026" : "Promote to live"), err && /* @__PURE__ */ React.createElement("p", { className: "vg-note bad" }, err), /* @__PURE__ */ React.createElement("p", { className: "vg-note" }, "Promotion is deliberate \u2014 it enables autonomous orders for this strategy within these caps. Orders still only reach the broker when live is ARMED (below)."));
   }
   function AuditTrail({ sid }) {
-    const [open, setOpen] = useState12(false);
+    const [open, setOpen] = useState13(false);
     const q = useLive(() => open ? getStrategyAudit(sid) : Promise.resolve(null), null, [sid, open]);
     const rows = q.data && q.data.audit || [];
     return /* @__PURE__ */ React.createElement("div", { className: "vg-sl-audit" }, /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => setOpen((v) => !v) }, open ? "\u25BE" : "\u25B8", " audit trail", rows.length ? ` (${rows.length})` : ""), open && q.loading && /* @__PURE__ */ React.createElement(LoadBar, null), open && rows.length > 0 && /* @__PURE__ */ React.createElement("table", { className: "vg-sl-audittable" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "when"), /* @__PURE__ */ React.createElement("th", null, "mode"), /* @__PURE__ */ React.createElement("th", null, "order"), /* @__PURE__ */ React.createElement("th", null, "reason"))), /* @__PURE__ */ React.createElement("tbody", null, rows.map((a) => /* @__PURE__ */ React.createElement("tr", { key: a.id }, /* @__PURE__ */ React.createElement("td", { className: "vg-note" }, String(a.at || "").slice(5, 16).replace("T", " ")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: cls(
@@ -5898,7 +5747,7 @@ ${ref}`;
   }
   function StrategyCard2({ s, armed, onChange }) {
     const stage = s.stage;
-    const [busy, setBusy] = useState12(false);
+    const [busy, setBusy] = useState13(false);
     const act = (fn) => {
       setBusy(true);
       fn().then(() => {
@@ -5925,13 +5774,13 @@ ${ref}`;
     )), stage === "eligible" && /* @__PURE__ */ React.createElement(PromoteForm, { sid: s.strategy_id, onDone: onChange }), stage === "paper" && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-sl-gatewhy" }, "In paper validation \u2014 it becomes promotable when the gate passes (paper win-rate beats the frozen backtest baseline over the min sample)."), /* @__PURE__ */ React.createElement(AuditTrail, { sid: s.strategy_id }));
   }
   function LifecycleTab() {
-    const [nonce, setNonce] = useState12(0);
+    const [nonce, setNonce] = useState13(0);
     const refresh = useCallback4(() => setNonce((n) => n + 1), []);
     const q = useLive(() => getLifecycle(), null, [nonce]);
     const d = q.data;
     const strategies = d && d.strategies || [];
     const gates = d && d.gates || {};
-    const [ticking, setTicking] = useState12(false);
+    const [ticking, setTicking] = useState13(false);
     const runTick = () => {
       setTicking(true);
       lifecycleTick(false).then(() => {
@@ -5962,7 +5811,7 @@ ${ref}`;
   }
 
   // src/futures.jsx
-  var { useState: useState13 } = React;
+  var { useState: useState14 } = React;
   var pct4 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var usd3 = (v) => v == null ? "\u2014" : `${v < 0 ? "-" : ""}$${Math.abs(Math.round(v)).toLocaleString()}`;
   var pts = (v) => v == null ? "\u2014" : `${v > 0 ? "+" : ""}${v}pt`;
@@ -6019,8 +5868,8 @@ ${ref}`;
     );
   }
   function FuturesView({ refreshNonce }) {
-    const [nonce, setNonce] = useState13(0);
-    const [busy, setBusy] = useState13(false);
+    const [nonce, setNonce] = useState14(0);
+    const [busy, setBusy] = useState14(false);
     const fa = useLive(() => getFuturesAnalysis({ alignment: true }), null, [refreshNonce, nonce]);
     const a = fa.data;
     const reimport = async () => {
@@ -6138,7 +5987,7 @@ ${ref}`;
   }
 
   // src/journal.jsx
-  var { useState: useState14, useRef: useRef5, useEffect: useEffect10, useMemo: useMemo4 } = React;
+  var { useState: useState15, useRef: useRef5, useEffect: useEffect11, useMemo: useMemo4 } = React;
   var pct5 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
   var MONTHS = [
@@ -6179,20 +6028,20 @@ ${ref}`;
     return "warn";
   }
   function JournalView({ refreshNonce, tab: routeTab, onTab }) {
-    const [nonce, setNonce] = useState14(0);
-    const [busy, setBusy] = useState14("");
-    const [sym, setSym] = useState14("SPX");
-    const [localTab, setLocalTab] = useState14("days");
+    const [nonce, setNonce] = useState15(0);
+    const [busy, setBusy] = useState15("");
+    const [sym, setSym] = useState15("SPX");
+    const [localTab, setLocalTab] = useState15("days");
     const tab = routeTab || localTab;
     const setTab = onTab || setLocalTab;
-    const [selDay, setSelDay] = useState14(todayISO());
+    const [selDay, setSelDay] = useState15(todayISO());
     const now = /* @__PURE__ */ new Date();
-    const [view, setView] = useState14({ y: now.getFullYear(), m: now.getMonth() });
+    const [view, setView] = useState15({ y: now.getFullYear(), m: now.getMonth() });
     const jv = useLive(() => getJournal(sym), null, [refreshNonce, nonce, sym]);
     const d = jv.data;
     const reload = () => setNonce((n) => n + 1);
     const ensuredRef = useRef5({});
-    useEffect10(() => {
+    useEffect11(() => {
       if (ensuredRef.current[sym]) return;
       ensuredRef.current[sym] = true;
       (async () => {
@@ -6257,7 +6106,7 @@ ${ref}`;
   var WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   function DayStrip({ byDay, selDay, onSelect, sym }) {
     const stripRef = useRef5(null);
-    const [pnl, setPnl] = useState14({});
+    const [pnl, setPnl] = useState15({});
     const days = useMemo4(() => {
       const out = [];
       const d = /* @__PURE__ */ new Date();
@@ -6270,7 +6119,7 @@ ${ref}`;
       }
       return out;
     }, []);
-    useEffect10(() => {
+    useEffect11(() => {
       let live = true;
       (async () => {
         const v = await getDayPnl(days, sym);
@@ -6280,11 +6129,11 @@ ${ref}`;
         live = false;
       };
     }, [days.join(","), sym]);
-    useEffect10(() => {
+    useEffect11(() => {
       const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
       if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
     }, [selDay]);
-    const money5 = (n) => `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n) >= 1e3 ? (Math.abs(n) / 1e3).toFixed(1) + "k" : Math.abs(n).toFixed(0)}`;
+    const money6 = (n) => `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n) >= 1e3 ? (Math.abs(n) / 1e3).toFixed(1) + "k" : Math.abs(n).toFixed(0)}`;
     const today = todayISO();
     return /* @__PURE__ */ React.createElement("div", { className: "vg-daystrip", ref: stripRef }, days.map((iso) => {
       const snap = byDay[iso];
@@ -6307,12 +6156,12 @@ ${ref}`;
         },
         /* @__PURE__ */ React.createElement("span", { className: "vg-daystrip-wd" }, iso === today ? "Today" : wd),
         /* @__PURE__ */ React.createElement("span", { className: "vg-daystrip-date" }, MONTHS[Number(m) - 1].slice(0, 3), " ", Number(dd)),
-        traded ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-pnl", p.realized >= 0 ? "vg-up" : "vg-down") }, money5(p.realized)) : /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-dot", tone || "empty") })
+        traded ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-pnl", p.realized >= 0 ? "vg-up" : "vg-down") }, money6(p.realized)) : /* @__PURE__ */ React.createElement("span", { className: cls("vg-daystrip-dot", tone || "empty") })
       );
     }));
   }
   function MonthJump({ view, setView, byDay, selDay, onSelect }) {
-    const [open, setOpen] = useState14(false);
+    const [open, setOpen] = useState15(false);
     return /* @__PURE__ */ React.createElement("div", { className: "vg-monthjump" }, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -6384,17 +6233,17 @@ ${ref}`;
     })), /* @__PURE__ */ React.createElement("div", { className: "vg-cal-legend" }, /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot good" }), " forecast held"), /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot warn" }), " mixed"), /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot bad" }), " missed"), /* @__PURE__ */ React.createElement("span", { className: "lg" }, /* @__PURE__ */ React.createElement("span", { className: "vg-cal-dot none" }), " not scored")));
   }
   function DayDetail({ s, busy, onDelete, onSaveEntry, onAttach }) {
-    const [entry, setEntry] = useState14(s.entry || {});
-    const [thoughts, setThoughts] = useState14(() => {
+    const [entry, setEntry] = useState15(s.entry || {});
+    const [thoughts, setThoughts] = useState15(() => {
       try {
         return JSON.parse((s.entry || {}).trades || "{}");
       } catch (e) {
         return {};
       }
     });
-    const [drag, setDrag] = useState14(false);
+    const [drag, setDrag] = useState15(false);
     const fileRef = useRef5(null);
-    useEffect10(() => {
+    useEffect11(() => {
       setEntry(s.entry || {});
       try {
         setThoughts(JSON.parse((s.entry || {}).trades || "{}"));
@@ -6545,15 +6394,15 @@ ${ref}`;
     expired_settled: "EXPIRED ITM",
     expired_unpriced: "EXPIRED"
   };
-  var money4 = (n) => n == null ? "\u2014" : `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
+  var money5 = (n) => n == null ? "\u2014" : `${n >= 0 ? "+" : "\u2212"}$${Math.abs(n).toLocaleString(void 0, { maximumFractionDigits: 0 })}`;
   var fmtLvl = (v) => v == null ? "\u2014" : Number(v).toFixed(v >= 100 ? 0 : 2);
   function TradesPanel({ snap, thoughts, onThought }) {
-    const [data, setData] = useState14(null);
-    const [busy, setBusy] = useState14(false);
-    const [open, setOpen] = useState14(null);
-    const [batch, setBatch] = useState14(null);
-    const [tk, setTk] = useState14("all");
-    const [daySyn, setDaySyn] = useState14(null);
+    const [data, setData] = useState15(null);
+    const [busy, setBusy] = useState15(false);
+    const [open, setOpen] = useState15(null);
+    const [batch, setBatch] = useState15(null);
+    const [tk, setTk] = useState15("all");
+    const [daySyn, setDaySyn] = useState15(null);
     const day = String(snap.created_at || "").slice(0, 10);
     const load = async () => {
       setBusy(true);
@@ -6622,8 +6471,8 @@ ${ref}`;
         setDaySyn({ error: String(e && e.message || e) });
       }
     };
-    const [synHist, setSynHist] = useState14([]);
-    const [synPick, setSynPick] = useState14(null);
+    const [synHist, setSynHist] = useState15([]);
+    const [synPick, setSynPick] = useState15(null);
     const loadDayReviews = async () => {
       try {
         const r = await getDayReviews(day);
@@ -6631,12 +6480,12 @@ ${ref}`;
       } catch (e) {
       }
     };
-    useEffect10(() => {
+    useEffect11(() => {
       setSynPick(null);
       setDaySyn(null);
       loadDayReviews();
     }, [day]);
-    useEffect10(() => {
+    useEffect11(() => {
       setData(null);
       setOpen(null);
       setTk("all");
@@ -6699,7 +6548,7 @@ ${ref}`;
         },
         synHist.map((h, i) => /* @__PURE__ */ React.createElement("option", { key: h.id, value: h.id }, String(h.generated_at || "").slice(11, 16), i === 0 ? " (latest)" : ""))
       ), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: "var(--vg-text-xs)" } }, "saved ", String(stored.generated_at || "").slice(0, 16).replace("T", " ")))), live ? daySyn.error ? /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, daySyn.error) : daySyn.data || daySyn.text ? /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: daySyn.data, text: daySyn.text })) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 6 } }, "Reading the day\u2026") : /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(MiraRender, { data: parseMira(stored.narrative), text: stored.narrative })));
-    })(), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: false, day: s.created_at ? String(s.created_at).slice(0, 10) : void 0 }), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 14 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money4(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money4(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money4(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money4(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.win_rate != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "win rate ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.win_rate * 100), "%")), s.profit_factor != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "profit factor", " ", /* @__PURE__ */ React.createElement("b", { className: s.profit_factor >= 1 ? "vg-up" : "vg-down" }, s.profit_factor.toFixed(2))), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, rows.map(({ t, i }) => {
+    })(), /* @__PURE__ */ React.createElement(ToneCompareCard, { marketOpen: false, day: s.created_at ? String(s.created_at).slice(0, 10) : void 0 }), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 20, margin: "10px 0", flexWrap: "wrap", fontSize: 14 } }, /* @__PURE__ */ React.createElement("span", null, "P&L ", /* @__PURE__ */ React.createElement("b", { className: s.realized >= 0 ? "vg-up" : "vg-down" }, money5(s.realized))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "fills ", money5(s.realized_from_fills)), s.expired > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "expiry ", money5(s.realized_from_expiry), " \xB7 ", s.expired_worthless, " worthless ", /* @__PURE__ */ React.createElement("b", { className: "vg-down" }, money5(s.expired_loss))), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, s.winners, "W / ", s.losers, "L"), s.win_rate != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "win rate ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.win_rate * 100), "%")), s.profit_factor != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "profit factor", " ", /* @__PURE__ */ React.createElement("b", { className: s.profit_factor >= 1 ? "vg-up" : "vg-down" }, s.profit_factor.toFixed(2))), s.settle_price && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "SPX settled ", fmtLvl(s.settle_price)), s.level_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "entered at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.level_discipline * 100), "%")), s.exit_discipline != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "exited at level ", /* @__PURE__ */ React.createElement("b", null, Math.round(s.exit_discipline * 100), "%")), s.level_to_level > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, /* @__PURE__ */ React.createElement("b", null, s.level_to_level), " level-to-level")), /* @__PURE__ */ React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } }, rows.map(({ t, i }) => {
       const key = `${t.account || ""}|${t.opened_at || i}|${t.label}`;
       return /* @__PURE__ */ React.createElement(
         TradeCard,
@@ -6736,20 +6585,20 @@ ${ref}`;
       status: "new",
       delta: null
     }));
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-ja-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 13 } }, h.trades, " trades \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: h.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(h.net_pnl)), " \xB7 rubric v", h.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, recs.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 12 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 12 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), (h.patterns || []).length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, h.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, " \xB7 ", (p.cites || []).length, " trades"))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "SWOT & read"), h.swot ? /* @__PURE__ */ React.createElement(SwotRender, { swot: h.swot }) : /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, h.narrative || "(no narrative saved)"));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-ja-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 13 } }, h.trades, " trades \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: h.net_pnl >= 0 ? "vg-up" : "vg-down" }, money5(h.net_pnl)), " \xB7 rubric v", h.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, recs.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null ? /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 12 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status) : /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 12 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), (h.patterns || []).length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, h.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, " \xB7 ", (p.cites || []).length, " trades"))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "SWOT & read"), h.swot ? /* @__PURE__ */ React.createElement(SwotRender, { swot: h.swot }) : /* @__PURE__ */ React.createElement("div", { className: "vg-dna-read", style: { marginTop: 8 } }, h.narrative || "(no narrative saved)"));
   }
   function JournalAnalysisPanel({ sym }) {
-    const [win, setWin] = useState14(() => {
+    const [win, setWin] = useState15(() => {
       const to = todayISO();
       const from = new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
       return { from, to, period: "weekly" };
     });
-    const [bundle, setBundle] = useState14(null);
-    const [read, setRead] = useState14(null);
-    const [saved, setSaved] = useState14(false);
-    const [hist, setHist] = useState14(null);
+    const [bundle, setBundle] = useState15(null);
+    const [read, setRead] = useState15(null);
+    const [saved, setSaved] = useState15(false);
+    const [hist, setHist] = useState15(null);
     const abortRef = useRef5(null);
-    const [openId, setOpenId] = useState14(null);
+    const [openId, setOpenId] = useState15(null);
     const toggleStored = (h) => setOpenId((cur) => cur === h.id ? null : h.id);
     const loadHist = async () => {
       const h = await getJournalAnalyses(sym);
@@ -6757,7 +6606,7 @@ ${ref}`;
       setHist(list);
       return list;
     };
-    useEffect10(() => {
+    useEffect11(() => {
       setBundle(null);
       setRead(null);
       setSaved(false);
@@ -6817,7 +6666,7 @@ ${ref}`;
         });
       }
     };
-    useEffect10(() => () => {
+    useEffect11(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const b = bundle;
@@ -6845,7 +6694,7 @@ ${ref}`;
       from: new Date(Date.now() - back * 864e5).toISOString().slice(0, 10),
       to: todayISO(),
       period: back === 0 ? "daily" : back === 6 ? "weekly" : "monthly"
-    }) }, lab)))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn vg-btn-primary", disabled: busy || streaming, onClick: generate }, busy || streaming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing\u2026") : "Generate analysis")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 13 } }, "Scores the window against a rubric, aggregates every recorded trade review into a SWOT, and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days \u2192 Analyze today).")), b && read && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard \xB7 ", b.window_from, " \u2192 ", b.window_to), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 13 } }, b.trades, " trades", b.analyzed != null ? ` \xB7 ${b.analyzed} reviewed` : "", " \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: b.net_pnl >= 0 ? "vg-up" : "vg-down" }, money4(b.net_pnl)), b.overall && b.overall.win_rate != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 win rate ", /* @__PURE__ */ React.createElement("b", null, Math.round(b.overall.win_rate * 100), "%")), b.overall && b.overall.profit_factor != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 PF ", /* @__PURE__ */ React.createElement("b", { className: b.overall.profit_factor >= 1 ? "vg-up" : "vg-down" }, b.overall.profit_factor.toFixed(2))), " ", "\xB7 rubric v", b.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, b.recommendations.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 12 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status), r.delta == null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 12 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, b.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, " \xB7 ", p.cites.length, " trades"))))))), read && (read.text != null || read.error || read.loading) && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "SWOT & read ", saved && /* @__PURE__ */ React.createElement("span", { className: "vg-up", style: { fontSize: 12 } }, "\u2713 saved")), read.mode === "prose" && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 }, title: "the model's output wasn't structured JSON \u2014 showing the prose read" }, "prose fallback")), read.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Aggregating your reviews and scoring the window\u2026"), read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error), read.text != null && read.mode == null && !read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Mira is writing the desk review\u2026"), (read.data || read.text) && /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })), hist && hist.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Analyses \xB7 click a row to open \xB7 knowledge compounds"), /* @__PURE__ */ React.createElement("div", { className: "vg-ja-list", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-ja-hrow vg-ja-head vg-note" }, /* @__PURE__ */ React.createElement("span", { className: "c-win" }, "window"), /* @__PURE__ */ React.createElement("span", { className: "c-tag" }, "tag"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "entry"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "exit"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "risk"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "plan"), /* @__PURE__ */ React.createElement("span", { className: "c-net" }, "net")), hist.map((h) => {
+    }) }, lab)))), /* @__PURE__ */ React.createElement("button", { className: "vg-btn vg-btn-primary", disabled: busy || streaming, onClick: generate }, busy || streaming ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Analyzing\u2026") : "Generate analysis")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, fontSize: 13 } }, "Scores the window against a rubric, aggregates every recorded trade review into a SWOT, and builds on the last analysis so your self-knowledge compounds. Analyze trades first (Days \u2192 Analyze today).")), b && read && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "Scorecard \xB7 ", b.window_from, " \u2192 ", b.window_to), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 13 } }, b.trades, " trades", b.analyzed != null ? ` \xB7 ${b.analyzed} reviewed` : "", " \xB7 net ", /* @__PURE__ */ React.createElement("b", { className: b.net_pnl >= 0 ? "vg-up" : "vg-down" }, money5(b.net_pnl)), b.overall && b.overall.win_rate != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 win rate ", /* @__PURE__ */ React.createElement("b", null, Math.round(b.overall.win_rate * 100), "%")), b.overall && b.overall.profit_factor != null && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 PF ", /* @__PURE__ */ React.createElement("b", { className: b.overall.profit_factor >= 1 ? "vg-up" : "vg-down" }, b.overall.profit_factor.toFixed(2))), " ", "\xB7 rubric v", b.rubric_version)), /* @__PURE__ */ React.createElement("div", { className: "vg-scores" }, b.recommendations.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.dimension, className: "vg-score" }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.label), /* @__PURE__ */ React.createElement("span", { className: "vg-row", style: { gap: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("b", { className: cls("vg-score-n", `vg-${SCORE_TONE(r.score)}`) }, r.score), r.delta != null && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", REC_TONE[r.status]), style: { fontSize: 12 } }, r.delta > 0 ? "\u25B2" : r.delta < 0 ? "\u25BC" : "\u2014", Math.abs(r.delta), " \xB7 ", r.status), r.delta == null && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain", style: { fontSize: 12 } }, "baseline"))), /* @__PURE__ */ React.createElement("div", { className: "vg-score-track" }, /* @__PURE__ */ React.createElement("div", { className: cls("vg-score-fill", `bg-${SCORE_TONE(r.score)}`), style: { width: `${r.score}%` } }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Recurring patterns"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, b.patterns.map((p, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", { style: { width: 26, textAlign: "right", color: "var(--vg-down)", fontWeight: 700 } }, p.count, "\xD7"), /* @__PURE__ */ React.createElement("td", null, p.pattern, /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, " \xB7 ", p.cites.length, " trades"))))))), read && (read.text != null || read.error || read.loading) && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { margin: 0 } }, "SWOT & read ", saved && /* @__PURE__ */ React.createElement("span", { className: "vg-up", style: { fontSize: 12 } }, "\u2713 saved")), read.mode === "prose" && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 }, title: "the model's output wasn't structured JSON \u2014 showing the prose read" }, "prose fallback")), read.loading && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, "Aggregating your reviews and scoring the window\u2026"), read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8, color: "var(--vg-down)" } }, read.error), read.text != null && read.mode == null && !read.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("span", { className: "vg-spin", "aria-hidden": "true" }, "\u27F3"), " Mira is writing the desk review\u2026"), (read.data || read.text) && /* @__PURE__ */ React.createElement(MiraRender, { data: read.data, text: read.text })), hist && hist.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Analyses \xB7 click a row to open \xB7 knowledge compounds"), /* @__PURE__ */ React.createElement("div", { className: "vg-ja-list", style: { marginTop: 6 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-ja-hrow vg-ja-head vg-note" }, /* @__PURE__ */ React.createElement("span", { className: "c-win" }, "window"), /* @__PURE__ */ React.createElement("span", { className: "c-tag" }, "tag"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "entry"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "exit"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "risk"), /* @__PURE__ */ React.createElement("span", { className: "c-sc" }, "plan"), /* @__PURE__ */ React.createElement("span", { className: "c-net" }, "net")), hist.map((h) => {
       const s = h.scores || {};
       const isOpen = openId === h.id;
       return /* @__PURE__ */ React.createElement("div", { key: h.id, className: "vg-ja-item" }, /* @__PURE__ */ React.createElement(
@@ -6861,7 +6710,7 @@ ${ref}`;
         /* @__PURE__ */ React.createElement("span", { className: cls("c-sc", `vg-${SCORE_TONE(s.exit_discipline || 0)}`) }, s.exit_discipline ?? "\u2014"),
         /* @__PURE__ */ React.createElement("span", { className: cls("c-sc", `vg-${SCORE_TONE(s.risk_sizing || 0)}`) }, s.risk_sizing ?? "\u2014"),
         /* @__PURE__ */ React.createElement("span", { className: cls("c-sc", `vg-${SCORE_TONE(s.plan_adherence || 0)}`) }, s.plan_adherence ?? "\u2014"),
-        /* @__PURE__ */ React.createElement("span", { className: cls("c-net", h.net_pnl >= 0 ? "vg-up" : "vg-down") }, money4(h.net_pnl))
+        /* @__PURE__ */ React.createElement("span", { className: cls("c-net", h.net_pnl >= 0 ? "vg-up" : "vg-down") }, money5(h.net_pnl))
       ), isOpen && /* @__PURE__ */ React.createElement(AnalysisDetail, { h }));
     }))));
   }
@@ -6932,7 +6781,7 @@ ${ref}`;
       },
       t.exit_correlation.at_level ? "\u2713 " : "",
       fmtLvl(exitNearest.level)
-    )), t.status === "open" ? /* @__PURE__ */ React.createElement("span", { className: "vg-trade-pnl vg-note", title: "open position \u2014 no realized P&L yet" }, "open") : /* @__PURE__ */ React.createElement("span", { className: cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down") }, money4(t.realized)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", STATUS_TONE[t.status] || "plain") }, STATUS_LABEL[t.status] || t.status), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-caret" }, expanded ? "\u25BE" : "\u25B8")), expanded && /* @__PURE__ */ React.createElement("div", { className: "vg-trade-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-grid" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The order"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "strategy"), /* @__PURE__ */ React.createElement("td", null, t.strategy)), t.legs.map((l, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, l.side), /* @__PURE__ */ React.createElement("td", null, l.qty, " \xD7 ", (l.symbol || "").replace(/^\S+\s\S+\s/, ""), " @ ", l.price))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "opened"), /* @__PURE__ */ React.createElement("td", null, t.opened_et ? `${t.opened_et} ET` : "\u2014")), t.closed_at && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "closed"), /* @__PURE__ */ React.createElement("td", null, t.closed_et ? `${t.closed_et} ET` : "\u2014")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "cost"), /* @__PURE__ */ React.createElement("td", null, money4(t.cost))), t.proceeds ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "proceeds"), /* @__PURE__ */ React.createElement("td", null, money4(t.proceeds))) : null, t.settlement != null && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "settlement"), /* @__PURE__ */ React.createElement("td", null, money4(t.settlement), " @ SPX ", fmtLvl(t.settle_price))), t.status === "open" ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "status")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "open"), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\xB7 ", money4(t.cost_basis), " in, no realized P&L yet"))) : /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "realized")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", { className: t.realized >= 0 ? "vg-up" : "vg-down" }, money4(t.realized)))))), /* @__PURE__ */ React.createElement(FillLadder, { fills: t.fills, scale: t.scale })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The arc"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, margin: "2px 0 10px", fontVariantNumeric: "tabular-nums" } }, "in ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_entry)), nearest3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", corr.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(nearest3.level)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { margin: "0 6px" } }, "\u2192"), "out ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_exit)), exitNearest && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", exitCorr.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(exitNearest.level)), t.spot_at_entry != null && t.spot_at_exit != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \xB7 ", t.spot_at_exit - t.spot_at_entry >= 0 ? "+" : "", (t.spot_at_exit - t.spot_at_entry).toFixed(1), "pt ", t.ticker || "SPX", String(t.status).startsWith("expired") ? " (settlement)" : "")), /* @__PURE__ */ React.createElement(CorrTable, { title: `Entry \xB7 ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_entry)}`, corr, openSpace: "entry was in open space" }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    )), t.status === "open" ? /* @__PURE__ */ React.createElement("span", { className: "vg-trade-pnl vg-note", title: "open position \u2014 no realized P&L yet" }, "open") : /* @__PURE__ */ React.createElement("span", { className: cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down") }, money5(t.realized)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", STATUS_TONE[t.status] || "plain") }, STATUS_LABEL[t.status] || t.status), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-caret" }, expanded ? "\u25BE" : "\u25B8")), expanded && /* @__PURE__ */ React.createElement("div", { className: "vg-trade-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-grid" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The order"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "strategy"), /* @__PURE__ */ React.createElement("td", null, t.strategy)), t.legs.map((l, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, l.side), /* @__PURE__ */ React.createElement("td", null, l.qty, " \xD7 ", (l.symbol || "").replace(/^\S+\s\S+\s/, ""), " @ ", l.price))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "opened"), /* @__PURE__ */ React.createElement("td", null, t.opened_et ? `${t.opened_et} ET` : "\u2014")), t.closed_at && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "closed"), /* @__PURE__ */ React.createElement("td", null, t.closed_et ? `${t.closed_et} ET` : "\u2014")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "cost"), /* @__PURE__ */ React.createElement("td", null, money5(t.cost))), t.proceeds ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "proceeds"), /* @__PURE__ */ React.createElement("td", null, money5(t.proceeds))) : null, t.settlement != null && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "settlement"), /* @__PURE__ */ React.createElement("td", null, money5(t.settlement), " @ SPX ", fmtLvl(t.settle_price))), t.status === "open" ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "status")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "open"), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\xB7 ", money5(t.cost_basis), " in, no realized P&L yet"))) : /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "realized")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", { className: t.realized >= 0 ? "vg-up" : "vg-down" }, money5(t.realized)))))), /* @__PURE__ */ React.createElement(FillLadder, { fills: t.fills, scale: t.scale })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The arc"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, margin: "2px 0 10px", fontVariantNumeric: "tabular-nums" } }, "in ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_entry)), nearest3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", corr.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(nearest3.level)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { margin: "0 6px" } }, "\u2192"), "out ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_exit)), exitNearest && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", exitCorr.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(exitNearest.level)), t.spot_at_entry != null && t.spot_at_exit != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \xB7 ", t.spot_at_exit - t.spot_at_entry >= 0 ? "+" : "", (t.spot_at_exit - t.spot_at_entry).toFixed(1), "pt ", t.ticker || "SPX", String(t.status).startsWith("expired") ? " (settlement)" : "")), /* @__PURE__ */ React.createElement(CorrTable, { title: `Entry \xB7 ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_entry)}`, corr, openSpace: "entry was in open space" }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
       CorrTable,
       {
         title: `Exit \xB7 ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_exit)}${String(t.status).startsWith("expired") ? " (settled)" : ""}`,
@@ -7011,7 +6860,7 @@ ${ref}`;
     return { status: "empty" };
   }
   function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, structTag, label }) {
-    const [state, setState] = useState14(null);
+    const [state, setState] = useState15(null);
     const abortRef = useRef5(null);
     const readRef = useRef5(null);
     const busy = state === "loading" || state === "streaming";
@@ -7047,7 +6896,7 @@ ${ref}`;
       setState({ text, dna: res.dna, saved: !!text.trim() });
       setTimeout(() => readRef.current && readRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
     };
-    useEffect10(() => {
+    useEffect11(() => {
       let live = true;
       (async () => {
         const res = await getTradeDna(day, tradeIndex, underlying);
@@ -7182,7 +7031,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12 } }, title), corr && corr.nearby && corr.nearby.length ? /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, corr.nearby.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i, className: c.level === nearest3.level ? "vg-hl" : "" }, /* @__PURE__ */ React.createElement("td", null, fmtLvl(c.level)), /* @__PURE__ */ React.createElement("td", null, c.role, " ", (c.kinds || []).length ? `\xB7 ${c.kinds.join(" + ")}` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " [", c.source, "]")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, c.distance > 0 ? "+" : "", c.distance, "pt"))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 13, margin: "2px 0" } }, "No forecast level within range \u2014 ", openSpace, "."));
   }
   function FillLadder({ fills, scale }) {
-    const [open, setOpen] = useState14(false);
+    const [open, setOpen] = useState15(false);
     if (!scale || !fills || fills.length <= 2) return null;
     const svg = (n) => n == null ? "\u2014" : `$${Number(n).toFixed(2)}`;
     return /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12 } }, "The ladder \u2014 ", scale.peak_contracts, "\xD7 peak"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 13, margin: "2px 0 4px" } }, scale.entries, " ", scale.entries === 1 ? "entry" : "entries", " @ avg ", svg(scale.avg_entry), " \u2192 ", scale.exits, " ", scale.exits === 1 ? "exit" : "exits", " @ avg ", svg(scale.avg_exit), scale.add_behavior ? /* @__PURE__ */ React.createElement("span", null, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, scale.add_behavior)) : null, scale.exit_style ? /* @__PURE__ */ React.createElement("span", null, " \xB7 ", scale.exit_style) : null), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setOpen((v) => !v) }, open ? "\u25BE hide fills" : `\u25B8 show all ${fills.length} fills`), open && /* @__PURE__ */ React.createElement("table", { className: "vg-mini", style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", { colSpan: 5, className: "vg-note", style: { fontSize: 12, paddingBottom: 2 } }, "times in ET (market hours)")), fills.map((r, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, r.at_et || (r.at || "").slice(11, 16)), /* @__PURE__ */ React.createElement("td", { className: r.side === "buy" ? "vg-up" : "vg-down" }, r.side), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, r.qty, "\xD7"), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, svg(r.price)), /* @__PURE__ */ React.createElement("td", { className: "vg-note", style: { textAlign: "right" } }, "\u2192 ", r.running, " held"))))));
@@ -7390,14 +7239,16 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState15, useMemo: useMemo6, useEffect: useEffect11, useRef: useRef6, useCallback: useCallback5 } = React;
+  var { useState: useState16, useMemo: useMemo6, useEffect: useEffect12, useRef: useRef6, useCallback: useCallback5 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem2 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
     { group: "Desk", items: [
       // Home: one route, three faces (brief / cockpit / debrief) picked by the
       // market clock — the landing surface. Faces render the existing screens.
-      // Today folded INTO Home (the Cockpit face IS TodayView); #/today still
+      // Today RETIRED (W2 of the Astryx migration): its unique surfaces
+      // (signals/execute, bot record, nightly health) moved into CockpitView's
+      // ops block; #/today redirects to the Home cockpit face below.
       // resolves as a drilldown for old links.
       { id: "home", label: "Home", icon: "home" },
       { id: "playbook", label: "Daily plan", icon: "plan" },
@@ -7418,7 +7269,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       { id: "strategies", label: "Strategies", icon: "strategies" }
     ] }
   ];
-  var DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper", "today", "futures"];
+  var DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper", "futures"];
   var ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
   function clockFace() {
     try {
@@ -7461,12 +7312,13 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const parse = () => {
       const h = window.location.hash.replace(/^#\/?/, "");
       const [r, ...rest] = h.split("/");
+      if (r === "today") return { route: "home", param: "cockpit" };
       const route = ROUTES.includes(r) ? r : defaultRoute();
       const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
       return { route, param };
     };
-    const [state, setState] = useState15(parse);
-    useEffect11(() => {
+    const [state, setState] = useState16(parse);
+    useEffect12(() => {
       const onHash = () => setState(parse());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
@@ -7479,10 +7331,10 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return [state.route, go, state.param];
   }
   function CommandPalette({ open, onClose, go }) {
-    const [q, setQ] = useState15("");
-    const [sel, setSel] = useState15(0);
+    const [q, setQ] = useState16("");
+    const [sel, setSel] = useState16(0);
     const inputRef = useRef6(null);
-    useEffect11(() => {
+    useEffect12(() => {
       if (open) {
         setQ("");
         setSel(0);
@@ -7553,17 +7405,17 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     )), !items.length && /* @__PURE__ */ React.createElement("div", { className: "vg-pal-empty" }, "no match"))));
   }
   function App() {
-    const [settings, setSettings] = useState15(loadSettings);
-    const [accountId, setAccountId] = useState15(settings.defaultAccount);
-    const [symbol, setSymbol] = useState15("SPY");
+    const [settings, setSettings] = useState16(loadSettings);
+    const [accountId, setAccountId] = useState16(settings.defaultAccount);
+    const [symbol, setSymbol] = useState16("SPY");
     const [route, go, routeParam] = useHashRoute();
-    const [notifs, setNotifs] = useState15([]);
-    const [notifOpen, setNotifOpen] = useState15(false);
-    const [chatOpen, setChatOpen] = useState15(false);
-    const [settingsOpen, setSettingsOpen] = useState15(false);
-    const [leftOpen, setLeftOpen] = useState15(() => window.innerWidth >= 860);
-    const [rightOpen, setRightOpen] = useState15(() => window.innerWidth >= 1100);
-    const [focus, setFocus] = useState15(false);
+    const [notifs, setNotifs] = useState16([]);
+    const [notifOpen, setNotifOpen] = useState16(false);
+    const [chatOpen, setChatOpen] = useState16(false);
+    const [settingsOpen, setSettingsOpen] = useState16(false);
+    const [leftOpen, setLeftOpen] = useState16(() => window.innerWidth >= 860);
+    const [rightOpen, setRightOpen] = useState16(() => window.innerWidth >= 1100);
+    const [focus, setFocus] = useState16(false);
     const focusPrev = useRef6({ left: true, right: true });
     const enterFocus = useCallback5(() => {
       focusPrev.current = { left: leftOpen, right: rightOpen };
@@ -7579,7 +7431,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const toggleFocus = useCallback5(() => {
       focus ? exitFocus() : enterFocus();
     }, [focus, enterFocus, exitFocus]);
-    useEffect11(() => {
+    useEffect12(() => {
       const onKey = (e) => {
         const el = e.target;
         const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -7595,8 +7447,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       window.addEventListener("keydown", onKey);
       return () => window.removeEventListener("keydown", onKey);
     }, [toggleFocus, exitFocus, focus]);
-    const [palOpen, setPalOpen] = useState15(false);
-    useEffect11(() => {
+    const [palOpen, setPalOpen] = useState16(false);
+    useEffect12(() => {
       const onKey = (e) => {
         if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
           e.preventDefault();
@@ -7608,11 +7460,11 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     }, []);
     const RIGHT_MIN = 300;
     const rightMax = () => Math.min(1100, Math.round(window.innerWidth * 0.5));
-    const [rightWidth, setRightWidth] = useState15(() => {
+    const [rightWidth, setRightWidth] = useState16(() => {
       const saved = Number(localStorage.getItem("vantage.rightWidth"));
       return saved >= RIGHT_MIN ? Math.min(saved, rightMax()) : 360;
     });
-    const [resizing, setResizing] = useState15(false);
+    const [resizing, setResizing] = useState16(false);
     const startResize = (e) => {
       e.preventDefault();
       setResizing(true);
@@ -7638,10 +7490,10 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     };
     const rightWidthRef = useRef6(rightWidth);
     rightWidthRef.current = rightWidth;
-    const [refreshNonce, setRefreshNonce] = useState15(0);
-    const [refreshing, setRefreshing] = useState15({});
-    const [refreshNote, setRefreshNote] = useState15(null);
-    useEffect11(() => {
+    const [refreshNonce, setRefreshNonce] = useState16(0);
+    const [refreshing, setRefreshing] = useState16({});
+    const [refreshNote, setRefreshNote] = useState16(null);
+    useEffect12(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
       const mqLeft = window.matchMedia("(max-width: 859px)");
@@ -7730,26 +7582,26 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     };
     const viewProps = { accountId, setAccountId, symbol, setSymbol, settings, tlh: tlh2, go, setNotifOpen, refreshNonce };
     const dashProps = { scopeAccounts, scopeOutage, refreshing, refreshNote, onRefreshAccount, onRefreshAll };
-    const [replayOn, setReplayOn] = useState15(false);
-    const [replayRunId, setReplayRunId] = useState15(null);
-    const [activeCallId, setActiveCallId] = useState15(null);
-    const [forecastNowSignal, setForecastNowSignal] = useState15(0);
-    const [forecastSavedNonce, setForecastSavedNonce] = useState15(0);
+    const [replayOn, setReplayOn] = useState16(false);
+    const [replayRunId, setReplayRunId] = useState16(null);
+    const [activeCallId, setActiveCallId] = useState16(null);
+    const [forecastNowSignal, setForecastNowSignal] = useState16(0);
+    const [forecastSavedNonce, setForecastSavedNonce] = useState16(0);
     const showReplayPanel = route === "ic" && replayOn;
     const homeFace = route === "home" ? HOME_FACES.some((f) => f.key === routeParam) ? routeParam : clockFace() : null;
     const showCockpitPanel = homeFace === "cockpit";
     const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
-    useEffect11(() => {
+    useEffect12(() => {
       if (icSymbol) setSymbol(icSymbol);
     }, [icSymbol]);
-    useEffect11(() => {
+    useEffect12(() => {
       if (route !== "ic") {
         setReplayOn(false);
         setReplayRunId(null);
         setActiveCallId(null);
       }
     }, [route]);
-    useEffect11(() => {
+    useEffect12(() => {
       setReplayRunId(null);
       setActiveCallId(null);
     }, [icSymbol]);
@@ -7828,7 +7680,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         onFace: (f) => go("home", f),
         renderFace: (face) => face === "cockpit" ? /* @__PURE__ */ React.createElement(CockpitView, { refreshNonce }) : face === "debrief" ? /* @__PURE__ */ React.createElement(JournalView, { refreshNonce }) : /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs })
       }
-    ), route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "today" && /* @__PURE__ */ React.createElement(TodayView, { refreshNonce }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
+    ), route === "dashboard" && /* @__PURE__ */ React.createElement(DashboardView, { ...viewProps, ...dashProps, notifs }), route === "holdings" && /* @__PURE__ */ React.createElement(HoldingsView, { ...viewProps }), route === "activity" && /* @__PURE__ */ React.createElement(ActivityView, { ...viewProps }), route === "tax" && /* @__PURE__ */ React.createElement(TaxView, { ...viewProps }), route === "recs" && /* @__PURE__ */ React.createElement(RecsView, { ...viewProps }), route === "markets" && /* @__PURE__ */ React.createElement(MarketsView, { ...viewProps }), route === "options" && /* @__PURE__ */ React.createElement(OptionsView, { accountId, setSymbol, go }), route === "playbook" && /* @__PURE__ */ React.createElement(PlaybookView, { refreshNonce }), route === "scanner" && /* @__PURE__ */ React.createElement(ScannerView, { onOpenSymbol: (sym) => {
       setSymbol(sym);
       go("ic", sym);
     } }), route === "strategies" && /* @__PURE__ */ React.createElement(
@@ -7998,8 +7850,8 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     );
   }
   function LiveStatusDots({ settings }) {
-    const [st, setSt] = useState15({ backend: null, mira: null });
-    useEffect11(() => {
+    const [st, setSt] = useState16({ backend: null, mira: null });
+    useEffect12(() => {
       let alive = true;
       health().then((h) => {
         if (alive) setSt((s) => ({ ...s, backend: h }));
@@ -8263,11 +8115,11 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return optionMatchKeyFrom(strike, exp, cp === "C" ? "call" : "put");
   }
   function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
-    const [expanded, setExpanded] = useState15({});
-    const [sortKey, setSortKey] = useState15("value");
-    const [recFilter, setRecFilter] = useState15("all");
-    const [kindFilter, setKindFilter] = useState15("all");
-    const [query, setQuery] = useState15("");
+    const [expanded, setExpanded] = useState16({});
+    const [sortKey, setSortKey] = useState16("value");
+    const [recFilter, setRecFilter] = useState16("all");
+    const [kindFilter, setKindFilter] = useState16("all");
+    const [query, setQuery] = useState16("");
     const pos = useLive(() => positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
     const byUnderlying = useMemo6(() => {
@@ -8391,14 +8243,14 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     };
   }
   function ActivityView({ accountId, settings, refreshNonce }) {
-    const [kind, setKind] = useState15("all");
-    const [shown, setShown] = useState15(ACTIVITY_PAGE);
+    const [kind, setKind] = useState16("all");
+    const [shown, setShown] = useState16(ACTIVITY_PAGE);
     const rows = useLive(
       () => getHistory(accountId).then(mapHistory),
       null,
       [accountId, settings, refreshNonce]
     ).data;
-    useEffect11(() => {
+    useEffect12(() => {
       setShown(ACTIVITY_PAGE);
     }, [accountId, kind]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -8435,7 +8287,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-pf-card", style: { marginBottom: 16 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-pf-head" }, /* @__PURE__ */ React.createElement("span", { className: "vg-pf-title" }, "Realized gains \xB7 ", g.year), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", g.total_gain >= 0 ? "good" : "bad") }, signUsd(g.total_gain))), /* @__PURE__ */ React.createElement("div", { className: "vg-pf-stats" }, /* @__PURE__ */ React.createElement(StatTile, { label: "Short-term", value: signUsd(st.gain), deltaDir: dirCls(st.gain), note: `${st.n || 0} lots \xB7 taxed as income` }), /* @__PURE__ */ React.createElement(StatTile, { label: "Long-term", value: signUsd(lt.gain), deltaDir: dirCls(lt.gain), note: `${lt.n || 0} lots \xB7 held >1yr` }), /* @__PURE__ */ React.createElement(StatTile, { label: "Est. tax owed", value: usd(g.estimated_tax), note: `${Math.round((g.st_rate || 0) * 100)}% ST / ${Math.round((g.lt_rate || 0) * 100)}% LT` })), cu.proceeds > 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-pf-note" }, usd(cu.proceeds), " of sells have no imported buy history \u2014 cost basis unknown, gain not computed (", (cu.rows || []).map((r) => r.symbol).slice(0, 6).join(", "), ")."));
   }
   function TaxView({ settings, tlh: tlh2, accountId }) {
-    const [washFaqOpen, setWashFaqOpen] = useState15(false);
+    const [washFaqOpen, setWashFaqOpen] = useState16(false);
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Tax Center \u2014 realized gains & loss harvesting"), /* @__PURE__ */ React.createElement(RealizedGainsCard, { accountId }), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Every lot marked to last close \xB7 wash-sale window checked across ", /* @__PURE__ */ React.createElement("b", null, "all linked accounts"), " \xB7 threshold ", usd(settings.thresholdUsd), " or ", settings.thresholdPct, "% \xB7 decision-support only, no orders placed"), /* @__PURE__ */ React.createElement("div", { className: "vg-card vg-tablewrap", style: { padding: "8px 12px" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Lot"), /* @__PURE__ */ React.createElement("th", null, "Account"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Unrealized"), /* @__PURE__ */ React.createElement("th", null, "Status"), /* @__PURE__ */ React.createElement("th", null, "Action"))), /* @__PURE__ */ React.createElement("tbody", null, tlh2.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, c.lot.symbol), " \xB7 ", c.lot.shares, " sh @ ", usd(c.lot.costPerShare, 2), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "bought ", fmtDate(c.lot.date))), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("span", { className: "vg-chip" }, c.acct.short)), /* @__PURE__ */ React.createElement("td", { className: "num down" }, signUsd(c.unrl), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "(", signPct(-c.lossPct), ")")), /* @__PURE__ */ React.createElement("td", null, c.status === "clear" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u2713 Clear to harvest"), c.status === "blocked" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "\u2715 Wash-sale blocked"), c.status === "below" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "Below threshold"), c.status === "na" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge plain" }, "N/A \u2014 tax-advantaged"), c.status === "blocked" && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { maxWidth: 320, marginTop: 4 } }, c.wash.reason, ". Clears ", c.wash.clearsOn === "auto-buy paused" ? "once the auto-buy is paused" : c.wash.clearsOn, ".")), /* @__PURE__ */ React.createElement("td", null, c.status === "clear" && (c.replacement ? /* @__PURE__ */ React.createElement("span", null, "Sell \u2192 buy ", /* @__PURE__ */ React.createElement("b", null, c.replacement), " ", /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "different index, near-identical exposure")) : /* @__PURE__ */ React.createElement("span", null, "Sell, wait 31 days to rebuy", /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "no like-exposure partner for single stock"))), c.status === "blocked" && c.wash.futureRisk && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Pause ", c.wash.futureRisk.symbol, " auto-buy to open a window"), (c.status === "below" || c.status === "na") && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Monitor"))))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement(
       FAQItem2,
       {
@@ -8502,7 +8354,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return `${name}: ${tf.trend.direction} (${tf.trend.structure})`;
   }
   function RecRow2({ d, onJump }) {
-    const [open, setOpen] = useState15(false);
+    const [open, setOpen] = useState16(false);
     const conv = CONVICTION_CHIP[d.conviction.label] || CONVICTION_CHIP.neutral;
     const rec = REC_CHIP[d.recommendation] || { cls: "plain", text: d.recommendation };
     const ev = d.evidence || {};
@@ -8525,7 +8377,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Recommendations"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Persisted decision journal", data && data.asOf ? ` \xB7 as of ${data.asOf}` : "", " \xB7 actionable first \xB7 educational only, not advice"), sorted.length === 0 ? /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "No analysis available"), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "The decision journal is empty or the backend is unreachable. Run the nightly analysis (", /* @__PURE__ */ React.createElement("code", null, "python -m vantage_server.analyze"), ") and confirm the backend URL in Settings.")) : /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8, padding: 0, overflowX: "auto" } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table", style: { width: "100%", borderCollapse: "collapse" } }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", { style: { textAlign: "left", fontSize: 13, color: "var(--color-grey)" } }, /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Symbol"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Conviction"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Recommendation"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px" } }, "Detail"), /* @__PURE__ */ React.createElement("th", { style: { padding: "10px 14px", textAlign: "right" } }))), /* @__PURE__ */ React.createElement("tbody", null, sorted.map((d) => /* @__PURE__ */ React.createElement(RecRow2, { key: d.symbol, d, onJump: jump }))))), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 2 } }, "Options income"), /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "Executable covered-call ideas on your book \u2014 see Options Intelligence.")), /* @__PURE__ */ React.createElement("button", { className: "vg-linkbtn", onClick: () => go("options") }, "Open Options Intel \u2192"))));
   }
   function MarketsView({ setSymbol, go, settings }) {
-    const [signalsTab, setSignalsTab] = useState15("active");
+    const [signalsTab, setSignalsTab] = useState16("active");
     const signals = useLive(() => getSignals().then(mapSignals), [], [settings], { blankOnOutage: true }).data;
     const isPastSignal = (s) => s.status === "hit-target" || s.status === "stopped";
     return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "Pattern signals"), /* @__PURE__ */ React.createElement("p", { className: "vg-sub" }, "Backend-graded technical signals \xB7 statuses computed from live quotes, never authored \xB7 educational only"), /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "AI pattern signals"), /* @__PURE__ */ React.createElement("div", { className: "vg-pills" }, /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", signalsTab === "active" && "sel"), onClick: () => setSignalsTab("active") }, "Active (", signals.filter((s) => !isPastSignal(s)).length, ")"), /* @__PURE__ */ React.createElement("button", { className: cls("vg-pill", signalsTab === "past" && "sel"), onClick: () => setSignalsTab("past") }, "Past (", signals.filter(isPastSignal).length, ")"))), /* @__PURE__ */ React.createElement("div", { className: "vg-tablewrap", style: { marginTop: 10 } }, /* @__PURE__ */ React.createElement("table", { className: "vg-table" }, /* @__PURE__ */ React.createElement("thead", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("th", null, "Ticker"), /* @__PURE__ */ React.createElement("th", null, "Pattern"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Entry"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Target"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Stop"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Move"), /* @__PURE__ */ React.createElement("th", { className: "num" }, "Conf"), /* @__PURE__ */ React.createElement("th", null, "Status"))), /* @__PURE__ */ React.createElement("tbody", null, signals.filter((s) => signalsTab === "active" ? !isPastSignal(s) : isPastSignal(s)).map((s) => /* @__PURE__ */ React.createElement("tr", { key: s.id }, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, s.sym), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, s.time)), /* @__PURE__ */ React.createElement("td", null, s.pattern), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.entry.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.target.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.stop.toFixed(2)), /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(s.movePct || 0)) }, s.movePct != null ? signPct(s.movePct, 1) : "\u2014"), /* @__PURE__ */ React.createElement("td", { className: "num" }, s.conf != null ? `${s.conf}%` : "\u2014"), /* @__PURE__ */ React.createElement("td", null, s.status === "active" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge good" }, "\u25CF Active"), s.status === "hit-target" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info" }, "\u2713 Hit target"), s.status === "stopped" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge bad" }, "\u2715 Stopped"), s.status === "unquoted" && /* @__PURE__ */ React.createElement(
@@ -8567,17 +8419,17 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function ChatPanel({ settings, onClose, docked }) {
     const useMira = settings.aiBackend === "mira";
-    const [msgs, setMsgs] = useState15([
+    const [msgs, setMsgs] = useState16([
       { who: "ai", text: "Hi \u2014 I'm Vantage AI. I can see across all 4 of your linked accounts. Ask me about harvesting, wash sales, overlap, or your allocation." }
     ]);
-    const [draft, setDraft] = useState15("");
-    const [busy, setBusy] = useState15(false);
+    const [draft, setDraft] = useState16("");
+    const [busy, setBusy] = useState16(false);
     const bodyRef = useRef6(null);
     const abortRef = useRef6(null);
-    useEffect11(() => {
+    useEffect12(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect11(() => () => {
+    useEffect12(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -8643,13 +8495,13 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function AccountsSettings() {
     const live_ = live_exports;
-    const [rows, setRows] = useState15(null);
-    const [busy, setBusy] = useState15("");
-    const [err, setErr] = useState15("");
-    const [adding, setAdding] = useState15(false);
-    const [editId, setEditId] = useState15(null);
+    const [rows, setRows] = useState16(null);
+    const [busy, setBusy] = useState16("");
+    const [err, setErr] = useState16("");
+    const [adding, setAdding] = useState16(false);
+    const [editId, setEditId] = useState16(null);
     const blank = { id: "", name: "", currency: "USD", jurisdiction: "US", taxable: true, broker: "" };
-    const [form, setForm] = useState15(blank);
+    const [form, setForm] = useState16(blank);
     const load = async () => {
       try {
         const p = await live_.accounts();
@@ -8658,7 +8510,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         setRows([]);
       }
     };
-    useEffect11(() => {
+    useEffect12(() => {
       load();
     }, []);
     const startAdd = () => {
@@ -8854,7 +8706,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     ), " Taxable account"), err && /* @__PURE__ */ React.createElement("div", { className: "vg-neg", style: { fontSize: 13, marginBottom: 8 } }, err), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { justifyContent: "flex-end", gap: 8 } }, /* @__PURE__ */ React.createElement(Button, { variant: "outline", onClick: () => setAdding(false) }, "Cancel"), /* @__PURE__ */ React.createElement(Button, { variant: "primary", disabled: busy === "save", onClick: save }, busy === "save" ? "Saving\u2026" : editId ? "Save changes" : "Create account"))), err && !adding && /* @__PURE__ */ React.createElement("div", { className: "vg-neg", style: { fontSize: 13, marginTop: 8 } }, err));
   }
   function SettingsModal({ settings, accounts: accounts2 = [], onSave, onClose }) {
-    const [draft, setDraft] = useState15(settings);
+    const [draft, setDraft] = useState16(settings);
     return /* @__PURE__ */ React.createElement(Modal, { title: "Settings", open: true, onClose }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Accounts"), /* @__PURE__ */ React.createElement(AccountsSettings, null), /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginTop: 16 } }, "Preferences"), /* @__PURE__ */ React.createElement(
       FormField,
       {

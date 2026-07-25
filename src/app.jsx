@@ -21,7 +21,6 @@ import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
 import { StrategiesView } from "./strategies_view.jsx";
 import { ScannerSpreadBook } from "./paper.jsx";
-import { TodayView } from "./today.jsx";
 import { FuturesView } from "./futures.jsx";
 import { JournalView } from "./journal.jsx";
 import { TradeAnalyticsView } from "./trades.jsx";
@@ -43,7 +42,9 @@ const NAV = [
   { group: "Desk", items: [
     // Home: one route, three faces (brief / cockpit / debrief) picked by the
     // market clock — the landing surface. Faces render the existing screens.
-    // Today folded INTO Home (the Cockpit face IS TodayView); #/today still
+    // Today RETIRED (W2 of the Astryx migration): its unique surfaces
+    // (signals/execute, bot record, nightly health) moved into CockpitView's
+    // ops block; #/today redirects to the Home cockpit face below.
     // resolves as a drilldown for old links.
     { id: "home", label: "Home", icon: "home" },
     { id: "playbook", label: "Daily plan", icon: "plan" },
@@ -73,7 +74,7 @@ const NAV = [
 //   markets  — live pattern signals, reached from Market read links
 // `paper` is a reachable drilldown route → the Strategies Track-record tab. (The
 // signalbot/exits tabs + views were retired in the pipeline-only refactor.)
-const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper", "today", "futures"];
+const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper", "futures"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 // The market clock decides which FACE of Home the operator needs: pre-market →
@@ -132,6 +133,8 @@ function useHashRoute() {
   const parse = () => {
     const h = window.location.hash.replace(/^#\/?/, "");
     const [r, ...rest] = h.split("/");
+    // retired routes redirect to their surviving canon (old links keep working)
+    if (r === "today") return { route: "home", param: "cockpit" };
     const route = ROUTES.includes(r) ? r : defaultRoute();
     const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
     return { route, param };
@@ -511,7 +514,6 @@ function App() {
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "markets" && <MarketsView {...viewProps} />}
           {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
-          {route === "today" && <TodayView refreshNonce={refreshNonce} />}
           {route === "playbook" && <PlaybookView refreshNonce={refreshNonce} />}
           {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
           {route === "strategies" && (

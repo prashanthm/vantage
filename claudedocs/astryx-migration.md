@@ -23,10 +23,16 @@ PARITY GAP (deliberate, no redirect yet): ml/trade_stats condition buckets
 (legacy Strategies/paper) are linked, not ported. Port before redirecting
 those routes.
 
-## W2 — Cockpit promotion · TODO
-Delete TodayView (fold bot-status tile), redirect #/today; retire
-cockpit-astryx/ (the /next/ cockpit supersedes it); legacy Home cockpit face
-points at /next/#/cockpit or embeds remaining chart+briefing pieces.
+## W2 — kill the zombie cockpits · DONE (this commit)
+TodayView DELETED (593 lines). Its unique surfaces survived the page:
+ToneCompareCard -> src/tone_card.jsx (cockpit + journal import it);
+SignalsCard/SignalRow/StrategyCard/MachineCard -> src/ops_cards.jsx,
+rendered by CockpitView's new OpsBlock (signals -> TicketModal execute path
+preserved, edge guard intact). #/today redirects to #/home/cockpit in the
+hash parser. cockpit-astryx/ DELETED — /cockpit/ 301s to /next/#/cockpit
+(nginx); Dockerfile no longer ships it. Browser-verified: redirect lands on
+the cockpit face, OpsBlock shows the armed SPY signal, /cockpit 301,
+legacy shell healthy. Two of three cockpits are gone; /next/ is the third.
 
 ## W3 — Book · TODO   ## W4 — Scanner + Daily plan · TODO
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO

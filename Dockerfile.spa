@@ -21,12 +21,6 @@ COPY vendor     /usr/share/nginx/html/vendor
 # back to the system stack.)
 COPY fonts      /usr/share/nginx/html/fonts
 
-# Standalone Astryx cockpit (cockpit-astryx/, bundled by its own build.sh)
-# served at /cockpit/. Only the built artifacts ship — not src/node_modules.
-COPY cockpit-astryx/index.html /usr/share/nginx/html/cockpit/index.html
-COPY cockpit-astryx/app.js     /usr/share/nginx/html/cockpit/app.js
-COPY cockpit-astryx/app.css    /usr/share/nginx/html/cockpit/app.css
-
 # The Astryx APP SHELL (app-astryx/) — the strangler migration target, served
 # at /next/. Grows wave by wave until it replaces the buildless shell.
 COPY app-astryx/index.html /usr/share/nginx/html/next/index.html
