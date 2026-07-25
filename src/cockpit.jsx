@@ -756,7 +756,6 @@ export function CockpitView({ refreshNonce }) {
                 {chartMode === "hidden" ? "show chart" : "hide chart"}</button>
             </>
           )}
-          <a className="vg-note" href="/next/#/cockpit" title="the Astryx shell — the migration target">Astryx shell ↗</a>
           {d && d.day_pnl != null && (
             <span className="vg-note">day <b className={d.day_pnl >= 0 ? "vg-up" : "vg-down"}>{money(d.day_pnl)}</b></span>
           )}

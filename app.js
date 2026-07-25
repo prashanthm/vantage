@@ -1603,7 +1603,7 @@ ${ref}`;
   }
 
   // src/playbook.jsx
-  var { useMemo, useState: useState3 } = React;
+  var { useMemo, useState: useState3, useEffect: useEffect3 } = React;
   var fmtP = (v) => v == null ? "\u2014" : Math.abs(v - Math.round(v)) < 0.05 ? String(Math.round(v)) : v.toFixed(1);
   function levelTone(kind) {
     const k = (kind || "").toLowerCase();
@@ -1618,6 +1618,28 @@ ${ref}`;
     const [pine, setPine] = useState3(null);
     const [busy, setBusy] = useState3(false);
     const [ticket, setTicket] = useState3(null);
+    const [alerts, setAlerts] = useState3([]);
+    const backendUrl = () => (JSON.parse(localStorage.getItem("vantage-settings") || "{}").backendUrl || "http://127.0.0.1:8641").replace(/\/+$/, "");
+    const loadAlerts = () => fetch(`${backendUrl()}/api/alerts`).then((r) => r.json()).then((r) => setAlerts(r && r.alerts || [])).catch(() => {
+    });
+    useEffect3(() => {
+      loadAlerts();
+    }, []);
+    const armAlert = async (price, note) => {
+      await fetch(`${backendUrl()}/api/alerts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ symbol: sym, price, note })
+      }).catch(() => {
+      });
+      loadAlerts();
+    };
+    const dropAlert = async (id) => {
+      await fetch(`${backendUrl()}/api/alerts/${id}`, { method: "DELETE" }).catch(() => {
+      });
+      loadAlerts();
+    };
+    const alertAt = (price) => alerts.find((a) => a.symbol === sym && !a.fired_at && Math.abs(a.price - price) < 0.01);
     const [didRecompute, setDidRecompute] = useState3(false);
     const pb = useLive(
       () => getPlaybook(void 0, { refresh: didRecompute, symbol: sym }),
@@ -1688,7 +1710,33 @@ ${ref}`;
         onClick: () => setTicket({ level: z.price, kind: (z.kinds || []).join(" + "), role: z.role })
       },
       "ticket"
-    ))))), p && p.setups && p.setups.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Conditional setups"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, marginTop: 8 } }, p.setups.map((su, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-setup" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-trigger" }, "IF ", su.trigger), su.bias && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginBottom: 2 } }, su.bias), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, lineHeight: 1.5 } }, su.structure))))), p && p.levelLadder && p.levelLadder.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "vg-card", open: true }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Level ladder (", p.levelLadder.length, ")"), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, p.levelLadder.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", levelTone(r.kind)), style: { minWidth: 62, textAlign: "right" } }, fmtP(r.price)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.kind), r.source && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 12 } }, r.source), /* @__PURE__ */ React.createElement(
+    ))))), p && p.setups && p.setups.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Conditional setups"), /* @__PURE__ */ React.createElement("div", { style: { display: "grid", gap: 10, marginTop: 8 } }, p.setups.map((su, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-setup" }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-trigger" }, "IF ", su.trigger), su.bias && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginBottom: 2 } }, su.bias), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, lineHeight: 1.5 } }, su.structure))))), p && p.levelLadder && p.levelLadder.length > 0 && /* @__PURE__ */ React.createElement("details", { className: "vg-card", open: true }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer" } }, "Level ladder (", p.levelLadder.length, ")", alerts.filter((a) => !a.fired_at).length > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \xB7 ", alerts.filter((a) => !a.fired_at).length, " alert", alerts.filter((a) => !a.fired_at).length === 1 ? "" : "s", " armed")), alerts.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, flexWrap: "wrap", margin: "8px 0 0" } }, alerts.filter((a) => !a.fired_at).map((a) => /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        key: a.id,
+        className: "vg-badge warn",
+        style: { cursor: "pointer", border: "none" },
+        title: "click to disarm",
+        onClick: () => dropAlert(a.id)
+      },
+      "\u{1F514} ",
+      a.symbol,
+      " ",
+      a.price,
+      " \u2715"
+    )), alerts.filter((a) => a.fired_at).slice(-3).map((a) => /* @__PURE__ */ React.createElement("span", { key: a.id, className: "vg-badge plain" }, "fired ", a.symbol, " ", a.price, " @ ", String(a.fired_at).slice(11, 16), "Z"))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, p.levelLadder.map((r, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", levelTone(r.kind)), style: { minWidth: 62, textAlign: "right" } }, fmtP(r.price)), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 14 } }, r.kind), r.source && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 12 } }, r.source), /* @__PURE__ */ React.createElement(
+      "button",
+      {
+        className: "vg-linkbtn",
+        style: { fontSize: 12 },
+        title: alertAt(r.price) ? "alert armed \u2014 click to disarm" : "Telegram me when price crosses this level",
+        onClick: () => {
+          const a = alertAt(r.price);
+          a ? dropAlert(a.id) : armAlert(r.price, r.kind);
+        }
+      },
+      alertAt(r.price) ? "\u{1F514} armed" : "\u{1F514}"
+    ), /* @__PURE__ */ React.createElement(
       "button",
       {
         className: "vg-linkbtn",
@@ -2498,7 +2546,7 @@ ${ref}`;
   }
 
   // src/chart_core.jsx
-  var { useState: useState4, useRef, useEffect: useEffect3, useCallback } = React;
+  var { useState: useState4, useRef, useEffect: useEffect4, useCallback } = React;
   var TOOLS = [
     { key: "cursor", label: "\u2316", title: "Cursor / pan", pts: 0 },
     { key: "hline", label: "\u2500", title: "Horizontal line", pts: 1 },
@@ -2658,7 +2706,7 @@ ${ref}`;
       [symbol, forecastNonce]
     );
     const forecastData = fcQ.data && fcQ.data.available ? fcQ.data.forecast : null;
-    useEffect3(() => {
+    useEffect4(() => {
       if (!forecastNonce) return;
       setActiveLayers((prev) => {
         if (prev.has("forecast")) return prev;
@@ -2772,10 +2820,10 @@ ${ref}`;
       }
     }, [symbol]);
     commitDrawingRef.current = commitDrawing;
-    useEffect3(() => {
+    useEffect4(() => {
       if (!activeLayers.has("levels")) setSelectedLevel(null);
     }, [activeLayers]);
-    useEffect3(() => {
+    useEffect4(() => {
       setSelectedLevel(null);
     }, [symbol]);
     const clearDrawings = useCallback(async () => {
@@ -2857,7 +2905,7 @@ ${ref}`;
       setSelectedLevel(lv.price);
     }, [layerData, candles]);
     levelClickRef.current = frameToLevel;
-    useEffect3(() => {
+    useEffect4(() => {
       const el = elRef.current;
       if (!el || !hasLW()) return void 0;
       const LW = window.LightweightCharts;
@@ -2954,7 +3002,7 @@ ${ref}`;
         chartRef.current = candleRef.current = null;
       };
     }, [seriesType]);
-    useEffect3(() => {
+    useEffect4(() => {
       const candle = candleRef.current, chart = chartRef.current;
       if (!candle || !candles.length) return;
       candle.setData(seriesType === "line" ? candles.map((c) => ({ time: c.time, value: c.close })) : candles);
@@ -2969,7 +3017,7 @@ ${ref}`;
         });
       }
     }, [candles, symbol, tf, seriesType, chartEpoch]);
-    useEffect3(() => {
+    useEffect4(() => {
       if (!overlays || !chartRef.current || !candleRef.current || !candles.length) return void 0;
       return overlays({
         chart: chartRef.current,
@@ -2978,7 +3026,7 @@ ${ref}`;
         candles
       });
     }, [overlays, candles, chartEpoch]);
-    useEffect3(() => {
+    useEffect4(() => {
       const chart = chartRef.current;
       if (!chart) return void 0;
       const th = chartTheme();
@@ -3086,7 +3134,7 @@ ${ref}`;
       }
       return void 0;
     }, [candles, active, tf, chartEpoch]);
-    useEffect3(() => {
+    useEffect4(() => {
       let alive = true;
       pendingRef.current = [];
       setPendingN(0);
@@ -3102,7 +3150,7 @@ ${ref}`;
         alive = false;
       };
     }, [symbol]);
-    useEffect3(() => {
+    useEffect4(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const drawn = drawnRef.current;
@@ -3124,7 +3172,7 @@ ${ref}`;
       }
       return void 0;
     }, [drawings, candles, chartEpoch]);
-    useEffect3(() => {
+    useEffect4(() => {
       const chart = chartRef.current, candle = candleRef.current;
       if (!chart || !candle) return void 0;
       const handles = layerHandlesRef.current;
@@ -3162,7 +3210,7 @@ ${ref}`;
       }
       return void 0;
     }, [activeLayers, layerData, forecastData, replayData, replayShown, positionData, dayCallsData, selectedLevel, candles, chartEpoch]);
-    useEffect3(() => {
+    useEffect4(() => {
       const chart = chartRef.current;
       const src = replayShown && replayData || callsOn && dayCallsData || null;
       if (!chart || !src || !candles.length) return;
@@ -3495,7 +3543,7 @@ ${ref}`;
   }
 
   // src/cockpit.jsx
-  var { useState: useState5, useEffect: useEffect4 } = React;
+  var { useState: useState5, useEffect: useEffect5 } = React;
   var backend = () => (JSON.parse(localStorage.getItem("vantage-settings") || "{}").backendUrl || "http://127.0.0.1:8641").replace(/\/+$/, "");
   var getFrames = (day) => getJson(
     `${backend()}/api/cockpit/frames${day ? `?day=${encodeURIComponent(day)}` : ""}`,
@@ -3807,7 +3855,7 @@ ${ref}`;
   }
   function CockpitPanel({ refreshNonce }) {
     const [tick, setTick] = useState5(0);
-    useEffect4(() => {
+    useEffect5(() => {
       const t = setInterval(() => {
         const m = etMinNow();
         if (m >= 540 && m <= 965) setTick((n) => n + 1);
@@ -3905,7 +3953,7 @@ ${ref}`;
     const [day, setDay] = useState5(todayET());
     const isToday = day === todayET();
     const [tick, setTick] = useState5(0);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!isToday) return void 0;
       const t = setInterval(() => {
         const m = etMinNow();
@@ -3935,7 +3983,7 @@ ${ref}`;
         title: "Collapse/show the chart \u2014 the log and the right pane carry the same story"
       },
       chartMode === "hidden" ? "show chart" : "hide chart"
-    )), /* @__PURE__ */ React.createElement("a", { className: "vg-note", href: "/next/#/cockpit", title: "the Astryx shell \u2014 the migration target" }, "Astryx shell \u2197"), d && d.day_pnl != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "day ", /* @__PURE__ */ React.createElement("b", { className: d.day_pnl >= 0 ? "vg-up" : "vg-down" }, money4(d.day_pnl))), /* @__PURE__ */ React.createElement(
+    )), d && d.day_pnl != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "day ", /* @__PURE__ */ React.createElement("b", { className: d.day_pnl >= 0 ? "vg-up" : "vg-down" }, money4(d.day_pnl))), /* @__PURE__ */ React.createElement(
       "input",
       {
         type: "date",
@@ -3986,10 +4034,10 @@ ${ref}`;
       setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
       setSpot(b && b.available && b.scaffold && b.scaffold.regime && b.scaffold.regime.spot || null);
     };
-    useEffect4(() => {
+    useEffect5(() => {
       load();
     }, []);
-    useEffect4(() => {
+    useEffect5(() => {
       if (!status || !status.market_open) return void 0;
       const t = setInterval(load, 6e4);
       return () => clearInterval(t);
@@ -4025,7 +4073,7 @@ ${ref}`;
   }
 
   // src/notebook.jsx
-  var { useState: useState6, useMemo: useMemo3, useEffect: useEffect5 } = React;
+  var { useState: useState6, useMemo: useMemo3, useEffect: useEffect6 } = React;
   var LEG_TONE = {
     DEFEND: "bad",
     CLOSE_LEG: "bad",
@@ -4211,7 +4259,7 @@ ${ref}`;
     const [notes, setNotes] = useState6("");
     const [saving, setSaving] = useState6(false);
     const [note, setNote] = useState6(null);
-    useEffect5(() => {
+    useEffect6(() => {
       setThesis(plan ? plan.thesis || "" : "");
       setTarget(plan && plan.target != null ? String(plan.target) : "");
       setStop(plan && plan.stop != null ? String(plan.stop) : "");
@@ -4382,7 +4430,7 @@ ${ref}`;
     const [busy, setBusy] = useState6(false);
     const bodyRef = React.useRef(null);
     const abortRef = React.useRef(null);
-    useEffect5(() => {
+    useEffect6(() => {
       setMsgs([]);
       setDraft("");
       setBusy(false);
@@ -4391,10 +4439,10 @@ ${ref}`;
         abortRef.current = null;
       }
     }, [sym]);
-    useEffect5(() => {
+    useEffect6(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect5(() => () => {
+    useEffect6(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -4490,7 +4538,7 @@ ${ref}`;
   }
 
   // src/use_stream_turn.js
-  var { useState: useState7, useRef: useRef2, useEffect: useEffect6, useCallback: useCallback2 } = React;
+  var { useState: useState7, useRef: useRef2, useEffect: useEffect7, useCallback: useCallback2 } = React;
   function collectTurn(prompt, thread, { onToken, setAbort } = {}) {
     return new Promise((resolve) => {
       let text = "";
@@ -4520,10 +4568,10 @@ ${ref}`;
     const setAbort = useCallback2((fn) => {
       abortRef.current = fn;
     }, []);
-    useEffect6(() => () => {
+    useEffect7(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
-    useEffect6(() => {
+    useEffect7(() => {
       setState(null);
     }, deps);
     const run = useCallback2((prompt, thread) => {
@@ -4867,7 +4915,7 @@ ${ref}`;
   }
 
   // src/options.jsx
-  var { useState: useState9, useEffect: useEffect7 } = React;
+  var { useState: useState9, useEffect: useEffect8 } = React;
   var { SecurityCard, FAQItem } = window.LookeyDS;
   var STRAT_PAGE = 40;
   var stratLabel = (s) => s.structure || s.name || "strategy";
@@ -4940,7 +4988,7 @@ ${ref}`;
       null,
       [accountId]
     ).data;
-    useEffect7(() => {
+    useEffect8(() => {
       setShown(STRAT_PAGE);
       setOpen({});
     }, [accountId, tab]);
@@ -4957,7 +5005,7 @@ ${ref}`;
   }
 
   // src/scanner.jsx
-  var { useState: useState10, useEffect: useEffect8 } = React;
+  var { useState: useState10, useEffect: useEffect9 } = React;
   var SCANNERS = [
     { id: "ict_htf", label: "A+ ICT hourly setup" },
     { id: "breakout_hold", label: "Breakout hold \u2014 3 closes above a pivot cluster (long)" },
@@ -5065,7 +5113,7 @@ ${ref}`;
     const dataThrough = d && d.data_through;
     const staleHrs = dataThrough ? (Date.now() - new Date(dataThrough).getTime()) / 36e5 : 0;
     const isStaleData = staleHrs > 20;
-    useEffect8(() => {
+    useEffect9(() => {
       if (!running) return void 0;
       const id = setInterval(() => setNonce((n) => n + 1), 3e3);
       return () => clearInterval(id);
@@ -5131,7 +5179,7 @@ ${ref}`;
   }
 
   // src/chart_replay_panel.jsx
-  var { useState: useState11, useEffect: useEffect9, useRef: useRef4, useCallback: useCallback3 } = React;
+  var { useState: useState11, useEffect: useEffect10, useRef: useRef4, useCallback: useCallback3 } = React;
   var REPLAY_SYMBOLS2 = ["SPX", "QQQ", "IWM"];
   function verdictTone2(sc) {
     if (!sc) return "plain";
@@ -5187,13 +5235,13 @@ ${ref}`;
     const fcSigRef = useRef4(null);
     if (forecastSignal && forecastSignal !== fcSigRef.current) forecastModeRef.current = true;
     const runsQ = useLive(() => getReplayRuns(40), null, [nonce]);
-    useEffect9(() => {
+    useEffect10(() => {
       const onFocus = () => setNonce((n) => n + 1);
       window.addEventListener("focus", onFocus);
       return () => window.removeEventListener("focus", onFocus);
     }, []);
     const runs = (runsQ.data && runsQ.data.runs || []).filter((r) => String(r.symbol || "").toUpperCase() === String(symbol || "").toUpperCase());
-    useEffect9(() => {
+    useEffect10(() => {
       if (!runs.length || runId || runningRef.current || genRunRef.current) return;
       if (forecastModeRef.current) return;
       setRunId(runs[0].run_id);
@@ -5218,7 +5266,7 @@ ${ref}`;
     const [gradeOpen, setGradeOpen] = useState11(true);
     const stopRef = useRef4(false);
     const abortRef = useRef4(null);
-    useEffect9(() => () => {
+    useEffect10(() => () => {
       stopRef.current = true;
       if (abortRef.current) abortRef.current();
     }, []);
@@ -5271,7 +5319,7 @@ ${ref}`;
         });
       }).catch((e) => setFc({ error: String(e && e.message || e) }));
     }, [symbol, canForecast]);
-    useEffect9(() => {
+    useEffect10(() => {
       if (!forecastSignal || forecastSignal === fcSigRef.current) return;
       fcSigRef.current = forecastSignal;
       if (!canForecast) return;
@@ -5692,7 +5740,7 @@ ${ref}`;
   }
 
   // src/strategies_view.jsx
-  var { useState: useState13, useCallback: useCallback4, useEffect: useEffect10 } = React;
+  var { useState: useState13, useCallback: useCallback4, useEffect: useEffect11 } = React;
   var pct3 = (n, d = 1) => n == null ? "\u2014" : `${(Number(n) * 100).toFixed(d)}%`;
   var STAGE_TONE = { paper: "plain", eligible: "good", live: "info", paused: "warn" };
   var STAGE_LABEL = { paper: "PAPER", eligible: "ELIGIBLE", live: "LIVE", paused: "PAUSED" };
@@ -5987,7 +6035,7 @@ ${ref}`;
   }
 
   // src/journal.jsx
-  var { useState: useState15, useRef: useRef5, useEffect: useEffect11, useMemo: useMemo4 } = React;
+  var { useState: useState15, useRef: useRef5, useEffect: useEffect12, useMemo: useMemo4 } = React;
   var pct5 = (v) => v == null ? "\u2014" : `${Math.round(100 * v)}%`;
   var VERDICT_TONE = { held: "good", broken: "bad", tested: "warn", untested: "plain" };
   var MONTHS = [
@@ -6041,7 +6089,7 @@ ${ref}`;
     const d = jv.data;
     const reload = () => setNonce((n) => n + 1);
     const ensuredRef = useRef5({});
-    useEffect11(() => {
+    useEffect12(() => {
       if (ensuredRef.current[sym]) return;
       ensuredRef.current[sym] = true;
       (async () => {
@@ -6119,7 +6167,7 @@ ${ref}`;
       }
       return out;
     }, []);
-    useEffect11(() => {
+    useEffect12(() => {
       let live = true;
       (async () => {
         const v = await getDayPnl(days, sym);
@@ -6129,7 +6177,7 @@ ${ref}`;
         live = false;
       };
     }, [days.join(","), sym]);
-    useEffect11(() => {
+    useEffect12(() => {
       const el = stripRef.current && stripRef.current.querySelector(".vg-daystrip-pill.sel");
       if (el) el.scrollIntoView({ inline: "center", block: "nearest" });
     }, [selDay]);
@@ -6243,7 +6291,7 @@ ${ref}`;
     });
     const [drag, setDrag] = useState15(false);
     const fileRef = useRef5(null);
-    useEffect11(() => {
+    useEffect12(() => {
       setEntry(s.entry || {});
       try {
         setThoughts(JSON.parse((s.entry || {}).trades || "{}"));
@@ -6480,12 +6528,12 @@ ${ref}`;
       } catch (e) {
       }
     };
-    useEffect11(() => {
+    useEffect12(() => {
       setSynPick(null);
       setDaySyn(null);
       loadDayReviews();
     }, [day]);
-    useEffect11(() => {
+    useEffect12(() => {
       setData(null);
       setOpen(null);
       setTk("all");
@@ -6606,7 +6654,7 @@ ${ref}`;
       setHist(list);
       return list;
     };
-    useEffect11(() => {
+    useEffect12(() => {
       setBundle(null);
       setRead(null);
       setSaved(false);
@@ -6666,7 +6714,7 @@ ${ref}`;
         });
       }
     };
-    useEffect11(() => () => {
+    useEffect12(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const b = bundle;
@@ -6896,7 +6944,7 @@ ${ref}`;
       setState({ text, dna: res.dna, saved: !!text.trim() });
       setTimeout(() => readRef.current && readRef.current.scrollIntoView({ behavior: "smooth", block: "nearest" }), 60);
     };
-    useEffect11(() => {
+    useEffect12(() => {
       let live = true;
       (async () => {
         const res = await getTradeDna(day, tradeIndex, underlying);
@@ -7239,7 +7287,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
 
   // src/app.jsx
-  var { useState: useState16, useMemo: useMemo6, useEffect: useEffect12, useRef: useRef6, useCallback: useCallback5 } = React;
+  var { useState: useState16, useMemo: useMemo6, useEffect: useEffect13, useRef: useRef6, useCallback: useCallback5 } = React;
   var { Navbar, Button, Modal, FormField, SecurityCard: SecurityCard2, FAQItem: FAQItem2 } = window.LookeyDS;
   var EMPTY_ALLOC = { byClass: { usEquity: 0, intlEquity: 0, bonds: 0, cash: 0 }, total: 0 };
   var NAV = [
@@ -7318,7 +7366,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       return { route, param };
     };
     const [state, setState] = useState16(parse);
-    useEffect12(() => {
+    useEffect13(() => {
       const onHash = () => setState(parse());
       window.addEventListener("hashchange", onHash);
       return () => window.removeEventListener("hashchange", onHash);
@@ -7334,7 +7382,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [q, setQ] = useState16("");
     const [sel, setSel] = useState16(0);
     const inputRef = useRef6(null);
-    useEffect12(() => {
+    useEffect13(() => {
       if (open) {
         setQ("");
         setSel(0);
@@ -7431,7 +7479,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const toggleFocus = useCallback5(() => {
       focus ? exitFocus() : enterFocus();
     }, [focus, enterFocus, exitFocus]);
-    useEffect12(() => {
+    useEffect13(() => {
       const onKey = (e) => {
         const el = e.target;
         const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable);
@@ -7448,7 +7496,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       return () => window.removeEventListener("keydown", onKey);
     }, [toggleFocus, exitFocus, focus]);
     const [palOpen, setPalOpen] = useState16(false);
-    useEffect12(() => {
+    useEffect13(() => {
       const onKey = (e) => {
         if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
           e.preventDefault();
@@ -7493,7 +7541,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [refreshNonce, setRefreshNonce] = useState16(0);
     const [refreshing, setRefreshing] = useState16({});
     const [refreshNote, setRefreshNote] = useState16(null);
-    useEffect12(() => {
+    useEffect13(() => {
       if (!window.matchMedia) return void 0;
       const mqRight = window.matchMedia("(max-width: 1099px)");
       const mqLeft = window.matchMedia("(max-width: 859px)");
@@ -7591,17 +7639,17 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const homeFace = route === "home" ? HOME_FACES.some((f) => f.key === routeParam) ? routeParam : clockFace() : null;
     const showCockpitPanel = homeFace === "cockpit";
     const icSymbol = route === "ic" ? (routeParam || "SPX").toUpperCase() : null;
-    useEffect12(() => {
+    useEffect13(() => {
       if (icSymbol) setSymbol(icSymbol);
     }, [icSymbol]);
-    useEffect12(() => {
+    useEffect13(() => {
       if (route !== "ic") {
         setReplayOn(false);
         setReplayRunId(null);
         setActiveCallId(null);
       }
     }, [route]);
-    useEffect12(() => {
+    useEffect13(() => {
       setReplayRunId(null);
       setActiveCallId(null);
     }, [icSymbol]);
@@ -7851,7 +7899,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
   }
   function LiveStatusDots({ settings }) {
     const [st, setSt] = useState16({ backend: null, mira: null });
-    useEffect12(() => {
+    useEffect13(() => {
       let alive = true;
       health().then((h) => {
         if (alive) setSt((s) => ({ ...s, backend: h }));
@@ -8250,7 +8298,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       null,
       [accountId, settings, refreshNonce]
     ).data;
-    useEffect12(() => {
+    useEffect13(() => {
       setShown(ACTIVITY_PAGE);
     }, [accountId, kind]);
     const acctLabel = accountId === "all" ? "All accounts" : acctOf(accountId).name;
@@ -8426,10 +8474,10 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [busy, setBusy] = useState16(false);
     const bodyRef = useRef6(null);
     const abortRef = useRef6(null);
-    useEffect12(() => {
+    useEffect13(() => {
       if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }, [msgs]);
-    useEffect12(() => () => {
+    useEffect13(() => () => {
       if (abortRef.current) abortRef.current();
     }, []);
     const patchLast = (fn) => setMsgs((m) => m.map((x, i) => i === m.length - 1 ? fn(x) : x));
@@ -8510,7 +8558,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         setRows([]);
       }
     };
-    useEffect12(() => {
+    useEffect13(() => {
       load();
     }, []);
     const startAdd = () => {

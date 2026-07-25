@@ -1,4 +1,25 @@
-# Astryx migration — wave log (branch: feat/astryx-migration)
+# Astryx migration — ABANDONED by operator decision (2026-07-25)
+
+Verdict: after living with it, the operator judged the Astryx shell "isn't
+nicer compared to the version we had". The ORIGINAL astryx-eval
+(2026-07-22: "don't adopt in core — identity conflicts, beta churn") was
+correct; the mid-migration reversal was wrong. Lesson joins the
+density-pass revert: the established Plex/vg-* identity IS the product's
+look — evaluate outside systems for ideas, not for adoption.
+
+What SURVIVED the removal (the IA keeps):
+- W2 deletions: TodayView gone (unique surfaces live on in tone_card.jsx +
+  ops_cards.jsx inside CockpitView); cockpit-astryx gone; #/today →
+  #/home/cockpit; /cockpit/ 301 → /#/home/cockpit.
+- The Plex fonts deploy fix (fonts/ ships in the SPA image).
+- Level-cross alerts: backend (level_alerts.py + /api/alerts + Telegram on
+  the bot heartbeat) + bells PORTED to the legacy Daily-plan ladder.
+- The audit itself (artifact + this file's history) — the duplicate-surface
+  findings still stand as a map for LEGACY-side consolidation if wanted.
+- All research tooling/goals from the period (mira_replay, formula
+  signals, etc. — never Astryx-dependent).
+
+Removed: app-astryx/ entirely, /next/ serving (301 → /), nav pointers.
 
 Plan of record: the IA/layout audit artifact (2026-07-24) — strangler
 migration, /next/ grows until it IS the app. Guardrails: identity is a theme;
