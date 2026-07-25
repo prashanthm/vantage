@@ -10,7 +10,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Link } from "@astryxdesign/core/Link";
-import { Section } from "@astryxdesign/core/Section";
+import { Panel as Section } from "../templates.jsx";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Spinner } from "@astryxdesign/core/Spinner";
@@ -126,7 +126,7 @@ function History({ rows }) {
     && (fOut === "all" || (h.outcome || "open") === fOut));
   return (
     <Section>
-      <VStack gap={2} padding={3} className="vg-dense">
+      <VStack gap={2} padding={2} className="vg-dense">
         <HStack gap={2} align="center" justify="between" wrap="wrap">
           <Text type="label" color="secondary">
             History · {shown.length}{shown.length !== rows.length ? ` of ${rows.length}` : ""} — setups that aged past current
@@ -146,7 +146,7 @@ function History({ rows }) {
             </select>
           </HStack>
         </HStack>
-        <VStack gap={0}>
+        <VStack gap={0} className="vg-divlist">
           {shown.map((h) => {
             const key = `${h.symbol}|${h.as_of}`;
             const expanded = open === key;

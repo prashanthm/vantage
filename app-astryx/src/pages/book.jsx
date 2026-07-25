@@ -8,7 +8,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Link } from "@astryxdesign/core/Link";
-import { Section } from "@astryxdesign/core/Section";
+import { Panel as Section } from "../templates.jsx";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Table, proportional, pixel } from "@astryxdesign/core/Table";
@@ -29,7 +29,7 @@ const pctW = (v) => (v == null ? "—" : `${v.toFixed(1)}%`);
 function Tile({ label, value, tone }) {
   return (
     <Section>
-      <VStack gap={0} padding={3}>
+      <VStack gap={0} padding={2}>
         <Text type="supporting" color="secondary">{label}</Text>
         <Text type="large" weight="semibold"
           color={tone === "good" ? "success" : tone === "bad" ? "error" : "primary"}>{value}</Text>
@@ -43,7 +43,7 @@ function PositionsTab({ rows }) {
   const [open, setOpen] = useState(null);      // symbol whose lots are expanded
   return (
     <Section>
-      <VStack gap={2} padding={3} className="vg-dense">
+      <VStack gap={2} padding={2} className="vg-dense">
         <HStack gap={2} align="center" justify="between">
           <Text type="label" color="secondary">
             Every position, every account · values in each holding&apos;s own currency
@@ -113,7 +113,7 @@ function AnalyzerTab({ snap }) {
         };
         return (
           <Section key={code}>
-            <VStack gap={2} padding={3}>
+            <VStack gap={2} padding={2}>
               <HStack gap={2} align="center" justify="between">
                 <Text type="label" color="secondary">{code} book · {fx(div.total, code)}</Text>
                 <Link href={`/#/portfolio`}>full analyzer (legacy) →</Link>
@@ -146,7 +146,7 @@ function AnalyzerTab({ snap }) {
       </div>
       {(snap.rebalance || []).length > 0 && (
         <Section>
-          <VStack gap={2} padding={3}>
+          <VStack gap={2} padding={2}>
             <Text type="label" color="secondary">Rebalance notes</Text>
             {(snap.rebalance || []).map((r, i) => (
               <Text key={i} type="supporting">{typeof r === "string" ? r : JSON.stringify(r)}</Text>

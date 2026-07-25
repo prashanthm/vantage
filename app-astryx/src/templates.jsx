@@ -26,3 +26,11 @@ export function Ledger({ band, children }) {
 export function Brief({ children }) {
   return <div className="vg-brief">{children}</div>;
 }
+
+// Panel — the visual unit of every page. Astryx's Section is semantic only
+// (no border, no surface): probed live, the only bordered element on a page
+// was a <select>. Data panes need EDGES to be scannable, so pages alias
+// Section -> Panel and get a hairline box for free.
+export function Panel({ children, className }) {
+  return <div className={"vg-panel" + (className ? ` ${className}` : "")}>{children}</div>;
+}

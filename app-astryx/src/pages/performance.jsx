@@ -8,7 +8,7 @@ import { Badge } from "@astryxdesign/core/Badge";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { Link } from "@astryxdesign/core/Link";
-import { Section } from "@astryxdesign/core/Section";
+import { Panel as Section } from "../templates.jsx";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Table, proportional, pixel } from "@astryxdesign/core/Table";
@@ -38,7 +38,7 @@ function lastSessions(n = 14) {
 function Tile({ label, value, tone }) {
   return (
     <Section>
-      <VStack gap={0} padding={3}>
+      <VStack gap={0} padding={2}>
         <Text type="supporting" color="secondary">{label}</Text>
         <Text type="large" weight="semibold"
           color={tone === "good" ? "success" : tone === "bad" ? "error" : "primary"}>{value}</Text>
@@ -66,7 +66,7 @@ function RealTab({ dayPnl, rt, stats }) {
       </HStack>
       <div className="vg-cols wide">
       <Section>
-        <VStack gap={2} padding={3} className="vg-dense">
+        <VStack gap={2} padding={2} className="vg-dense">
           <HStack gap={2} align="center" justify="between">
             <Text type="label" color="secondary">Realized by session — fills synced from the broker</Text>
             <Link href={links.journalDay()}>journal →</Link>
@@ -83,7 +83,7 @@ function RealTab({ dayPnl, rt, stats }) {
       </Section>
       {stats && (stats.notable || []).length + (stats.buckets || []).length > 0 && (
         <Section>
-          <VStack gap={2} padding={3} className="vg-dense">
+          <VStack gap={2} padding={2} className="vg-dense">
             <Text type="label" color="secondary">
               Condition edges &amp; leaks — Bayesian buckets vs a {pct(stats.baseline_win_rate)} baseline
             </Text>
@@ -117,7 +117,7 @@ function RealTab({ dayPnl, rt, stats }) {
       )}
       {summary && (
         <Section>
-          <VStack gap={2} padding={3} className="vg-dense">
+          <VStack gap={2} padding={2} className="vg-dense">
             <Text type="label" color="secondary">
               Swing roundtrips · {summary.count} closed · through {(rt || {}).roundtrips_as_of || "—"}
             </Text>
@@ -156,7 +156,7 @@ function PaperTab({ spreads, reclaim }) {
           tone={rs.profit_factor >= 1 ? "good" : "bad"} />}
       </HStack>
       <Section>
-        <VStack gap={2} padding={3}>
+        <VStack gap={2} padding={2}>
           <HStack gap={2} align="center" justify="between">
             <Text type="label" color="secondary">
               By strategy — which scanner armed the trade · money-at-risk closes only
@@ -195,7 +195,7 @@ function PaperTab({ spreads, reclaim }) {
       <div className="vg-cols wide">
       {manual.length > 0 && (
         <Section>
-          <VStack gap={2} padding={3}>
+          <VStack gap={2} padding={2}>
             <Text type="label" color="secondary">Taken live — manual tags (older scans, no paper twin)</Text>
             {manual.map((m, i) => (
               <HStack key={i} gap={2} align="center" wrap="wrap">
@@ -210,7 +210,7 @@ function PaperTab({ spreads, reclaim }) {
       )}
       {rs && (
         <Section>
-          <VStack gap={2} padding={3}>
+          <VStack gap={2} padding={2}>
             <HStack gap={2} align="center" justify="between">
               <Text type="label" color="secondary">
                 Reclaim book (SPY sim, $5k notional) · {rs.n} closed · WR {pct(rs.win_rate)} · net {money(rs.total_pnl)}

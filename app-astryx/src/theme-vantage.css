@@ -79,3 +79,21 @@
 /* tables read tighter than Astryx's default rhythm — data, not prose */
 .vg-dense table { font-variant-numeric: tabular-nums; }
 .vg-dense td, .vg-dense th { padding-top: 4px; padding-bottom: 4px; }
+
+/* ---- strict separation (startup-tight): every data pane has an edge ---- */
+[data-astryx-theme] { --vg-hairline: color-mix(in srgb, var(--color-border) 85%, transparent); }
+.vg-panel {
+  background: var(--color-background-surface);
+  border: 1px solid var(--vg-hairline);
+  border-radius: 8px;
+  min-width: 0;
+}
+/* hairline row dividers wherever rows stack — a list without rules is a wall */
+.vg-divlist > * + * { border-top: 1px solid var(--vg-hairline); }
+.vg-panel tr + tr > td, .vg-panel [role="row"] + [role="row"] > * {
+  border-top: 1px solid var(--vg-hairline);
+}
+/* tighter global rhythm: 8px between siblings, panels carry their own air */
+.vg-workbench, .vg-ledger { gap: 8px; }
+.vg-cols, .vg-cols.wide { gap: 8px; }
+.vg-brief { gap: 8px; }
