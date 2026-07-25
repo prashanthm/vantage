@@ -52,12 +52,15 @@ def login() -> None:
 
 
 def list_dialogs() -> None:
-    """Print subscribed channels/groups so the operator can pick allow-list names."""
+    """Print subscribed channels/groups so the operator can pick allow-list
+    entries — @username when one exists, otherwise the numeric id (both are
+    valid allow-list values)."""
     with _client() as c:
         for d in c.iter_dialogs():
             if d.is_channel or d.is_group:
                 uname = getattr(d.entity, "username", None)
-                print(f"{'@' + uname if uname else '(no username)':>28}  ·  {d.name}")
+                key = f"@{uname}" if uname else str(d.id)
+                print(f"{key:>28}  ·  {d.name}")
 
 
 def run() -> None:  # pragma: no cover — network daemon
@@ -68,8 +71,10 @@ def run() -> None:  # pragma: no cover — network daemon
         sys.exit("no channels allow-listed yet — add one in the desk "
                  "(Strategies → Paper) or POST /api/telegram/channels, then restart")
     client = _client()
+    # allow-list entries are @usernames or numeric ids ("-100…" for channels)
+    chats = [int(c) if str(c).lstrip("-").isdigit() else c for c in chans]
 
-    @client.on(events.NewMessage(chats=chans))
+    @client.on(events.NewMessage(chats=chats))
     async def _on_msg(event):
         try:
             chat = await event.get_chat()
