@@ -28,10 +28,18 @@ STAGES = ("paper", "eligible", "live", "paused")
 
 def paper_win_rate(store, strategy_id: str) -> tuple[float | None, int]:
     """The live-paper win-rate for a strategy + its sample size, from the paper
-    track record. reclaim's auto signals are the paper trades (source='auto');
-    reuse signal_bot.performance rather than recompute. Returns (rate, n)."""
-    from . import signal_bot
+    track record. Two books, dispatched on the strategy's ``paper_book``:
+      * scanner families → the scanner spread book's by-strategy stats
+        (money-at-risk closes only — $0 no-fills never grade the gate);
+      * reclaim (default) → signal_bot.performance (auto signals ARE the paper
+        trades); reuse it rather than recompute. Returns (rate, n)."""
     try:
+        if getattr(get_strategy(strategy_id), "paper_book", None) == "scanner":
+            from . import paper
+            s = (paper.build_spread_book(store).get("by_strategy") or {}) \
+                .get(strategy_id) or {}
+            return s.get("win_rate"), int(s.get("n") or 0)
+        from . import signal_bot
         perf = signal_bot.performance(store)
         s = perf.get("summary", {})
         return s.get("paper_win_rate"), int(s.get("paper_closed") or 0)
@@ -43,11 +51,16 @@ def backtest_baseline(strategy_id: str, cache_path: str | None = None) -> float 
     """This strategy's frozen backtest baseline win-rate: run the harness on the
     frozen cache with the strategy's champion params, read overall win_rate. The
     'beat the backtest' bar the paper win-rate must clear. Returns None when the
-    frozen cache isn't available (gate can't pass → stays paper, never fabricated)."""
+    frozen cache isn't available (gate can't pass → stays paper, never fabricated).
+    Scanner families carry their baseline as a FROZEN CONSTANT instead (the
+    pre-registered backtest record, provenance in strategy.py docstrings)."""
     from pathlib import Path
 
     from . import backtest
     strat = get_strategy(strategy_id)
+    frozen = getattr(strat, "frozen_baseline_win_rate", None)
+    if frozen is not None:
+        return frozen
     path = cache_path or str(Path(backtest.__file__).parent.parent
                              / "backtest_data" / "bars_frozen.json")
     if not Path(path).exists():

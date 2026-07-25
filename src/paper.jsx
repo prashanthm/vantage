@@ -357,7 +357,7 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow, section }) {
       {showOpen && section === "open" && stats.n > 0 && (
         <p className="vg-note" style={{ margin: "8px 0 0", fontSize: 13 }}>
           realized to date <b className={stats.total_pnl >= 0 ? "vg-up" : "vg-down"}>{usd(stats.total_pnl)}</b>
-          {" "}over {stats.n} closed · unrealized on open spreads needs live marks (pending) ·
+          {" "}over {stats.n} closed · unrealized marks from Alpaca on filled rows ·
           full record on the <a className="vg-linkbtn" href="#/scanner/performance">Performance tab</a>
         </p>
       )}
@@ -443,6 +443,12 @@ export function ScannerSpreadBook({ refreshNonce, alwaysShow, section }) {
                   <span style={{ fontSize: 14 }}>{spreadLabel(r)}</span>
                   {bs && <span className={cls("vg-badge", bs.tone)} style={{ fontSize: 12 }}>{bs.text}</span>}
                   {r.live && <LiveTwin live={r.live} />}
+                  {r.unrealized != null && (
+                    <b className={r.unrealized >= 0 ? "vg-up" : "vg-down"} style={{ fontSize: 13 }}
+                      title={`marked at $${r.mark_value} vs fill`}>
+                      {r.unrealized >= 0 ? "+" : "−"}${Math.abs(r.unrealized).toFixed(0)}
+                    </b>
+                  )}
                   <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>
                     target {px(r.short_strike)} · invalid {px(r.underlying_invalid)}
                   </span>

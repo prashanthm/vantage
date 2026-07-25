@@ -103,11 +103,69 @@ class ReclaimStrategy:
         }
 
 
+class _ScannerFamilyStrategy:
+    """Base for the scanner families (ADR-015 lifecycle entries). Their gate
+    differs from reclaim's in both inputs:
+      * paper win-rate comes from the SCANNER SPREAD BOOK (by-strategy stats,
+        money-at-risk closes only) — flagged via ``paper_book = "scanner"``;
+      * the baseline is a FROZEN CONSTANT from the pre-registered backtest
+        record (claudedocs/goals/*), not a harness re-run — flagged via
+        ``frozen_baseline_win_rate``. Change it only with a new frozen run.
+    Setup quality is gated at scan time (tier A+ arms the paper trade), so the
+    per-ticket edge guard is a pass-through here."""
+
+    def is_worth_taking(self, entry, stop, target, side):
+        return True, "gated at scan time (A+ tier arms the paper trade)"
+
+    def champion_params(self) -> dict:
+        return {}   # baseline is frozen, not re-derived (see class docstring)
+
+
+@(register_strategy if "ict_htf" not in STRATEGIES else (lambda c: c))
+class IctHtfStrategy(_ScannerFamilyStrategy):
+    """A+ ICT hourly confluence stack (sweep → displacement FVG). Baseline
+    0.531 = derived from the frozen record: rr2.0 avg +0.593R over n=149
+    (binary rr outcomes ⇒ WR=(avg+1)/(rr+1)) — ict-concepts-edge log, C13."""
+    strategy_id = "ict_htf"
+    display_name = "A+ ICT hourly"
+    universe = ("Nasdaq-100", "S&P top-100")
+    paper_book = "scanner"
+    frozen_baseline_win_rate = 0.531
+
+
+@(register_strategy if "breakout_hold" not in STRATEGIES else (lambda c: c))
+class BreakoutHoldStrategy(_ScannerFamilyStrategy):
+    """Breakout-hold: 3 consecutive hourly closes above a ≥2-pivot resistance
+    cluster (long-only). Baseline 0.822 = the frozen record n=416 PF 3.61 —
+    scanner-families log, H1 addendum 2026-07-24."""
+    strategy_id = "breakout_hold"
+    display_name = "Breakout hold"
+    universe = ("Nasdaq-100", "S&P top-100")
+    paper_book = "scanner"
+    frozen_baseline_win_rate = 0.822
+
+
+@(register_strategy if "rsi2_mr" not in STRATEGIES else (lambda c: c))
+class Rsi2MrStrategy(_ScannerFamilyStrategy):
+    """RSI(2) dip in uptrend (Connors), time/MA exit, long-only. Baseline
+    0.703 = the frozen record n=532 PF 1.487 halves 1.517/1.463 —
+    scanner-families log, H6 2026-07-24."""
+    strategy_id = "rsi2_mr"
+    display_name = "RSI(2) dip"
+    universe = ("Nasdaq-100", "S&P top-100")
+    paper_book = "scanner"
+    frozen_baseline_win_rate = 0.703
+
+
 def _demo() -> None:
     """assert-based self-check (run: python -m vantage_server.strategy)."""
     from . import reclaim_strategy as rs
 
     assert "reclaim" in STRATEGIES
+    # the three scanner families register with frozen baselines + scanner book
+    for sid, wr in (("ict_htf", 0.531), ("breakout_hold", 0.822), ("rsi2_mr", 0.703)):
+        st = get_strategy(sid)
+        assert st.paper_book == "scanner" and st.frozen_baseline_win_rate == wr
     s = get_strategy("reclaim")
     assert s.strategy_id == "reclaim" and "SPX" in s.universe
 

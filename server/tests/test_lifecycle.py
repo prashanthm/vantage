@@ -110,3 +110,25 @@ def test_real_backtest_baseline_computes_from_frozen_cache():
         pytest.skip("frozen cache not present")
     b = L.backtest_baseline("reclaim", cache)
     assert b is None or (0.0 <= b <= 1.0)
+
+
+def test_scanner_family_gate_sources(store, monkeypatch):
+    """Scanner families gate on the SPREAD BOOK win-rate and a FROZEN baseline
+    constant — never the reclaim signal_bot book or a harness re-run."""
+    from vantage_server import paper as P
+
+    # frozen constants come straight off the strategy class (no cache needed)
+    assert L.backtest_baseline("ict_htf") == 0.531
+    assert L.backtest_baseline("breakout_hold") == 0.822
+    assert L.backtest_baseline("rsi2_mr") == 0.703
+
+    # paper win-rate reads the spread book's by-strategy stats
+    monkeypatch.setattr(P, "build_spread_book", lambda s: {
+        "by_strategy": {"ict_htf": {"win_rate": 0.42, "n": 45}}})
+    assert L.paper_win_rate(store, "ict_htf") == (0.42, 45)
+    # a family with no closes yet → (None, 0), gate stays paper
+    assert L.paper_win_rate(store, "breakout_hold") == (None, 0)
+
+    # end to end: ict_htf paper 0.42 < frozen 0.531 → gate honestly NOT met
+    g = L.evaluate_gate(store, "ict_htf")
+    assert g["passes"] is False and g["baseline_win_rate"] == 0.531

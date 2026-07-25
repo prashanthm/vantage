@@ -987,6 +987,44 @@ def _annotate_live_mirrors(rows: list[dict], reals: list[dict]) -> list[dict]:
     return unmatched
 
 
+def _mark_open_spreads(open_rows: list[dict]) -> None:
+    """Best-effort LIVE MARKS for open Alpaca-paper spreads: value each leg at
+    Alpaca's current_price (from /v2/positions) and set mark_value/unrealized
+    on the row. Silent no-op offline or for unfilled/modeled rows — the UI
+    shows '—' rather than a fabricated mark. ponytail: read-time broker call
+    (one fetch per page load); stamp marks in the reconcile tick instead if
+    page latency ever bites."""
+    rows = [r for r in open_rows
+            if r.get("broker") == "alpaca-paper" and r.get("fill_status") == "filled"]
+    if not rows:
+        return
+    try:
+        from .brokers.alpaca_broker import AlpacaConnection
+        px = {p["symbol"]: p.get("current_price")
+              for p in AlpacaConnection().fetch_positions("")}
+    except Exception:  # noqa: BLE001 — broker offline → no marks, never a crash
+        return
+    from .scanner_exec import _close_legs
+    for r in rows:
+        legs = _close_legs(r) or []
+        if len(legs) != 2:
+            continue
+        contracts = float(r.get("contracts") or 1)
+        val, ok = 0.0, True
+        for leg in legs:
+            p = px.get(leg["symbol"])
+            if p is None:
+                ok = False
+                break
+            # the close SELLS our long leg (asset) and BUYS BACK the short
+            val += (1.0 if leg["side"] == "sell" else -1.0) * float(p) * 100 * contracts
+        if not ok:
+            continue
+        r["mark_value"] = round(val, 2)
+        if r.get("filled_avg") is not None:
+            r["unrealized"] = round(val - float(r["filled_avg"]) * 100 * contracts, 2)
+
+
 def build_spread_book(store: Store) -> dict:
     """The scanner debit-spread track record — its OWN book, never mixed with the
     SPX reclaim record (different P&L basis). Returns open + closed + stats +
@@ -1021,6 +1059,7 @@ def build_spread_book(store: Store) -> dict:
                                "source": "strategy"})
 
     open_rows = [r for r in rows if r.get("status") == "open"]
+    _mark_open_spreads(open_rows)
     closed = [r for r in rows if r.get("status") == "closed"]
     # $0 non-trades (no fill / contract-risk gate) stay VISIBLE in the closed
     # list but never grade the book — only money-at-risk closes do.
