@@ -61,15 +61,31 @@ has real value that chop noise is masking.
 kept: nothing ships yet — E3 placebo control decides what E1/E2 actually
 measured.
 
-## E3 · placebo control — does ANY extra block hurt the chop day?
-prediction (pre-registered BEFORE run): add an information-FREE block
-("REMINDER: regular trading hours are 09:30–16:00 ET; this note carries no
-market information.") — nothing else. If chop lands ≤ 0.50 (like E1/E2),
-the harness/model is sensitive to prompt perturbation itself and all input
-experiments must beat a PLACEBO baseline, not E0; if chop stays ≥ 0.52
-(within noise of 0.538), then E1/E2's chop damage was CONTENT, and
-H-selffeed deserves a v2 rerun with a chop-safe phrasing. Trend/rally
-predicted flat ±0.04 either way.
-experiment: mira_replay.py --extra-file placebo.txt on the fixed days.
-result: PENDING
+## E3 · placebo control — VERDICT + the goal's most valuable finding so far
+per-day: 07-21 0.778 (+0.111!) · 07-23 0.593 (−0.074) · 07-24 0.500
+(−0.038). POOLED 0.625 — exactly E0. Paired per-step vs E0 (after fixing a
+pairing contamination: an old 5-min-grid 07-21 run polluted launch-order
+labels; runs now filtered by launch timestamp):
+  E1 vs E0: +6/−10 (net −4, discordance 0.20)
+  E2 vs E0: +5/−6  (net −1, discordance 0.14)
+  E3 vs E0: +7/−7  (net  0, discordance 0.17)  ← the null signature
+verdict: **NULL CONFIRMED as designed** — and it recalibrates everything:
+a null change flips ~17% of steps (±7 each way, net 0). sd(net) ≈ √14 ≈
+3.7 hits ≈ 0.046 pooled. Therefore:
+- E1 "decisive harm" SOFTENS to "no benefit, harm not established"
+  (net −4 ≈ 1σ). E2 is a clean null. The chop 12/26 twins were noise.
+- The pre-registered +0.05 pooled threshold ≈ 1σ of single-run noise —
+  the protocol as designed was UNDERPOWERED. Detecting +0.05 at ~2σ needs
+  ~160+ steps or replicates.
 
+## PROTOCOL AMENDMENT 1 (logged before use; predicate unchanged)
+- Day set expands to SIX fixed days: original {07-21, 07-23, 07-24} +
+  {07-15, 07-16, 07-17} (E0b baselines the new days once). ~162 steps;
+  null sd(net) ≈ 5.2 → +0.05 pooled ≈ 8 net hits ≈ 1.6σ, and paired-flip
+  judgment at |net| ≥ 11 (~2σ) becomes the confirm bar.
+- Experiments are judged on PAIRED NET FLIPS vs baseline (primary) and
+  pooled rate (secondary); per-day numbers are descriptive only.
+- E1-E3 remain as logged (3-day era); E4+ use the 6-day protocol.
+
+## E0b · baseline extension on the three new days
+prediction: none needed (baseline). result: PENDING
