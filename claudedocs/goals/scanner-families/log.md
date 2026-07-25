@@ -226,3 +226,22 @@ ACCEPTANCE (all four): |IC| ≥ 0.0293 (beat luck-with-20-tries at p95) ·
 |t| ≥ 3 · halves same sign with both |IC_half| ≥ 0.015 · sign matches the
 pre-registered prediction. 18 candidates registered with rationales in
 research/formula_candidates.py (committed before the run).
+
+## Wave 3 results — ALL 18 REJECTED (and the blueprint convicted by its own bar)
+Not one candidate met a single acceptance criterion, let alone all four.
+Fifteen are dead-zero noise (|IC| ≤ 0.01). The three "best" tell the story:
+- near_high  IC −0.0224 (t −2.4): predicted +, came out NEGATIVE
+- lottery_max IC +0.0213 (t +1.9): predicted −, came out POSITIVE
+- lowvol     IC +0.0208 (t +1.9): predicted −, came out POSITIVE
+All three: BELOW the luck-with-20-tries bar (0.0293), sign-FLIPPED vs
+their registered economics, and halves-unstable (second half — the
+runaway 2025-26 leg — carries everything: 0.0035/0.038, 0.0055/0.0371).
+A naive |IC| ≥ 0.02 loop — NVIDIA's own acceptance rule — would have
+"discovered" and shipped all three. Our placebo bar + sign
+pre-registration + halves killed them in one pass.
+verdict: wave 3 CLOSED — 0 confirmed / 18 no-edge. Hourly next-day
+cross-sectional alpha on 60 mega-caps is an efficient desert, as an
+honest test should find. The engine (operator DSL + placebo-calibrated
+court) is now reusable: research/formula_signals.py + _candidates.py.
+Most valuable output: the quantified proof that the blueprint's
+acceptance threshold ships luck.
