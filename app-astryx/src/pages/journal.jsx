@@ -18,7 +18,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Ledger } from "../templates.jsx";
 import { links } from "../links.js";
-import { money as fmtMoney } from "../api.js";
+import { money as fmtMoney, pref, setPref } from "../api.js";
 import { MiraView, SwotView, parseMira } from "../mira.jsx";
 import { collectTurn } from "../stream.js";
 import { THOUGHT_RE, operatorFor, encodeThought, buildAnalystPrompt, analyzeTradeOnce } from "../journal_logic.js";
@@ -819,8 +819,10 @@ function AnalysisPanel({ sym }) {
 
 // ── the page ─────────────────────────────────────────────────────────────────
 export function JournalPage() {
-  const [tab, setTab] = useState("days");
-  const [sym, setSym] = useState("SPX");
+  const [tab, setTabRaw] = useState(() => pref("journal.tab", "days"));
+  const setTab = (v) => { setTabRaw(v); setPref("journal.tab", v); };
+  const [sym, setSymRaw] = useState(() => pref("journal.sym", "SPX"));
+  const setSym = (v) => { setSymRaw(v); setPref("journal.sym", v); };
   const [selDay, setSelDay] = useState(todayISO());
   const [nonce, setNonce] = useState(0);
   const [d, setD] = useState(null);

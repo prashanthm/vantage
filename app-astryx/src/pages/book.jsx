@@ -16,7 +16,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Ledger } from "../templates.jsx";
 import { links } from "../links.js";
-import { backend, getJson } from "../api.js";
+import { backend, getJson, pref, setPref } from "../api.js";
 
 // currency-aware: the book spans USD and INR — a number without its currency
 // is a lie, so every cell formats in the row's own currency.
@@ -47,10 +47,12 @@ const inputStyle = {
 function PositionsTab({ rows }) {
   const [open, setOpen] = useState(null);      // symbol whose lots are expanded
   const [q, setQ] = useState("");
-  const [acct, setAcct] = useState("all");
+  const [acct, setAcctRaw] = useState(() => pref("book.acct", "all"));
+  const setAcct = (v) => { setAcctRaw(v); setPref("book.acct", v); };
   // header-click sorting via the design system's own plugin; we own the state
   // and apply it ourselves so sorting NEVER compares across currencies
-  const [sort, setSort] = useState([{ sortKey: "value", direction: "descending" }]);
+  const [sort, setSortRaw] = useState(() => pref("book.sort", [{ sortKey: "value", direction: "descending" }]));
+  const setSort = (v) => { setSortRaw(v); setPref("book.sort", v); };
   const sortPlugin = useTableSortable({ sort, onSortChange: setSort });
   const accounts = useMemo(
     () => Array.from(new Set(rows.flatMap((r) => r.accounts || []))).sort(), [rows]);
@@ -107,6 +109,7 @@ function BookTable({ code, list, open, setOpen, sortPlugin }) {
             day {signed(day, code)}
           </Text>
         </HStack>
+        <div className="vg-sticky-head">
         <Table data={list.map((r, i) => ({ id: `${code}${i}`, ...r }))} idKey="id"
           density="compact" hasHover plugins={{ sort: sortPlugin }} columns={[
           { key: "symbol", header: "Symbol", width: proportional(1.6), renderCell: (r) => (
@@ -132,22 +135,23 @@ function BookTable({ code, list, open, setOpen, sortPlugin }) {
               ))}
             </VStack>
           )},
-          { key: "shares", header: "Qty", width: pixel(80), sortable: true, renderCell: (r) =>
+          { key: "shares", header: "Qty", width: pixel(80), sortable: true, align: "end", renderCell: (r) =>
             <Text type="body">{r.shares != null ? Number(r.shares).toLocaleString() : "—"}</Text> },
-          { key: "value", header: "Value", width: proportional(1), sortable: true, renderCell: (r) =>
+          { key: "value", header: "Value", width: proportional(1), sortable: true, align: "end", renderCell: (r) =>
             <Text type="body" weight="semibold">{fx(r.value, r.currency)}</Text> },
-          { key: "day_pl", header: "Day", width: proportional(1), sortable: true, renderCell: (r) =>
+          { key: "day_pl", header: "Day", width: proportional(1), sortable: true, align: "end", renderCell: (r) =>
             <Text type="body" color={(r.day_pl || 0) >= 0 ? "success" : "error"}>
               {signed(r.day_pl, r.currency)}</Text> },
-          { key: "unrealized", header: "Unrealized", width: proportional(1), sortable: true, renderCell: (r) =>
+          { key: "unrealized", header: "Unrealized", width: proportional(1), sortable: true, align: "end", renderCell: (r) =>
             <Text type="body" color={(r.unrealized || 0) >= 0 ? "success" : "error"}>
               {signed(r.unrealized, r.currency)}</Text> },
-          { key: "weight", header: "Weight", width: pixel(130), sortable: true, renderCell: (r) =>
-            <HStack gap={1} align="center" style={{ whiteSpace: "nowrap" }}>
+          { key: "weight", header: "Weight", width: pixel(130), sortable: true, align: "end", renderCell: (r) =>
+            <HStack gap={1} align="center" justify="end" style={{ whiteSpace: "nowrap" }}>
               <Text type="body">{pctW(r.weight)}</Text>
               {r.weight != null && r.weight >= 20 && <Badge variant="warning" label="heavy" />}
             </HStack> },
         ]} />
+        </div>
       </VStack>
     </Section>
   );
@@ -217,7 +221,8 @@ function AnalyzerTab({ snap }) {
 }
 
 export function BookPage() {
-  const [tab, setTab] = useState("positions");
+  const [tab, setTabRaw] = useState(() => pref("book.tab", "positions"));
+  const setTab = (v) => { setTabRaw(v); setPref("book.tab", v); };
   const [pos, setPos] = useState(null);
   const [alloc, setAlloc] = useState(null);
   const [snap, setSnap] = useState(null);

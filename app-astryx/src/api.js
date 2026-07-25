@@ -29,3 +29,13 @@ export const ageMin = (iso) => {
   try { return Math.round((Date.now() - new Date(iso).getTime()) / 60000); }
   catch { return null; }
 };
+
+// Per-surface view preferences (filters, tabs, sorts) — the cheap version of
+// "saved views": the page reopens the way the operator left it.
+export const pref = (k, d) => {
+  try { const v = JSON.parse(localStorage.getItem(`vg-next:${k}`)); return v == null ? d : v; }
+  catch (e) { return d; }
+};
+export const setPref = (k, v) => {
+  try { localStorage.setItem(`vg-next:${k}`, JSON.stringify(v)); } catch (e) { /* private mode */ }
+};

@@ -17,7 +17,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Ledger } from "../templates.jsx";
 import { links } from "../links.js";
-import { backend, getJson } from "../api.js";
+import { backend, getJson, pref, setPref } from "../api.js";
 
 const SCANNERS = [
   { id: "ict_htf", label: "ICT hourly" },
@@ -113,9 +113,12 @@ function TierGroup({ label, hits, rationale }) {
 
 function History({ rows }) {
   const [fq, setFq] = useState("");
-  const [fTier, setFTier] = useState("all");
-  const [fDir, setFDir] = useState("all");
-  const [fOut, setFOut] = useState("all");
+  const [fTier, setFTierRaw] = useState(() => pref("scanner.fTier", "all"));
+  const setFTier = (v) => { setFTierRaw(v); setPref("scanner.fTier", v); };
+  const [fDir, setFDirRaw] = useState(() => pref("scanner.fDir", "all"));
+  const setFDir = (v) => { setFDirRaw(v); setPref("scanner.fDir", v); };
+  const [fOut, setFOutRaw] = useState(() => pref("scanner.fOut", "all"));
+  const setFOut = (v) => { setFOutRaw(v); setPref("scanner.fOut", v); };
   const [open, setOpen] = useState(null);
   const tone = (o) => (o === "target" ? "success" : o === "invalidated" ? "error" : "neutral");
   const lbl = (o) => (o === "target" ? "✓ target" : o === "invalidated" ? "✕ invalid" : "· open");
@@ -190,7 +193,8 @@ function History({ rows }) {
 }
 
 export function ScannerPage() {
-  const [scanner, setScanner] = useState("ict_htf");
+  const [scanner, setScannerRaw] = useState(() => pref("scanner.family", "ict_htf"));
+  const setScanner = (v) => { setScannerRaw(v); setPref("scanner.family", v); };
   const [d, setD] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

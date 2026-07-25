@@ -14,9 +14,9 @@ import { VStack } from "@astryxdesign/core/VStack";
 import { Table, proportional, pixel, useTableSortable } from "@astryxdesign/core/Table";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { Ledger } from "../templates.jsx";
+import { Ledger, Spark } from "../templates.jsx";
 import { links } from "../links.js";
-import { backend, getJson, money } from "../api.js";
+import { backend, getJson, money, pref, setPref } from "../api.js";
 
 const pct = (v) => (v == null ? "—" : `${Math.round(v * 100)}%`);
 const pf = (v) => (v == null ? "—" : v.toFixed(2));
@@ -35,13 +35,17 @@ function lastSessions(n = 14) {
   return out;
 }
 
-function Tile({ label, value, tone }) {
+function Tile({ label, value, tone, spark, delta }) {
   return (
     <Section>
       <VStack gap={0} padding={3}>
         <Text type="supporting" color="secondary">{label}</Text>
-        <Text type="large" weight="semibold"
-          color={tone === "good" ? "success" : tone === "bad" ? "error" : "primary"}>{value}</Text>
+        <HStack gap={2} align="center">
+          <Text type="large" weight="semibold"
+            color={tone === "good" ? "success" : tone === "bad" ? "error" : "primary"}>{value}</Text>
+          {spark}
+        </HStack>
+        {delta}
       </VStack>
     </Section>
   );
@@ -71,7 +75,13 @@ function RealTab({ dayPnl, rt, stats }) {
     <VStack gap={3}>
       <HStack gap={2} wrap="wrap">
         <Tile label={`Day trading — last ${rows.length} sessions with fills`}
-          value={money(net)} tone={net >= 0 ? "good" : "bad"} />
+          value={money(net)} tone={net >= 0 ? "good" : "bad"}
+          spark={<Spark values={rows.map((r) => r.realized || 0)} />}
+          delta={rows.length > 0 && (
+            <Text type="supporting" color={(rows[rows.length - 1].realized || 0) >= 0 ? "success" : "error"}>
+              {(rows[rows.length - 1].realized || 0) >= 0 ? "▲" : "▼"} last session {money(rows[rows.length - 1].realized)}
+            </Text>
+          )} />
         {summary && <Tile label="Swing roundtrips — win rate" value={pct(summary.win_rate)} />}
         {summary && <Tile label="Swing roundtrips — profit factor" value={pf(summary.profit_factor)}
           tone={summary.profit_factor >= 1 ? "good" : "bad"} />}
@@ -85,9 +95,9 @@ function RealTab({ dayPnl, rt, stats }) {
           </HStack>
           <Table data={rows} idKey="day" density="compact" columns={[
             { key: "day", header: "Session", width: pixel(110) },
-            { key: "trades", header: "Trades", width: pixel(70), renderCell: (r) =>
+            { key: "trades", header: "Trades", width: pixel(70), align: "end", renderCell: (r) =>
               <Text type="body">{r.trades ?? "—"}</Text> },
-            { key: "realized", header: "Realized", width: proportional(1), renderCell: (r) =>
+            { key: "realized", header: "Realized", width: proportional(1), align: "end", renderCell: (r) =>
               <Text type="body" weight="semibold" color={(r.realized || 0) >= 0 ? "success" : "error"}>
                 {money(r.realized)}</Text> },
           ]} />
@@ -118,7 +128,7 @@ function RealTab({ dayPnl, rt, stats }) {
                 <Text type="body">{b.n}</Text> },
               { key: "win_rate", sortable: true, header: "Win rate", width: pixel(90), renderCell: (b) =>
                 <Text type="body">{pct(b.win_rate)}</Text> },
-              { key: "ci", header: "90% CI", width: proportional(1), renderCell: (b) =>
+              { key: "ci", header: "90% CI", width: proportional(1), align: "end", renderCell: (b) =>
                 <Text type="supporting" color="secondary">{pct(b.ci_low)}–{pct(b.ci_high)}</Text> },
               { key: "total_pnl", sortable: true, header: "P&L", width: proportional(1), renderCell: (b) =>
                 <Text type="body" color={(b.total_pnl || 0) >= 0 ? "success" : "error"}>{money(b.total_pnl)}</Text> },
@@ -178,15 +188,15 @@ function PaperTab({ spreads, reclaim }) {
           <Table data={strat} idKey="name" density="compact" columns={[
             { key: "name", header: "Strategy", width: proportional(1.4), renderCell: (s) =>
               <Badge variant="neutral" label={s.name} /> },
-            { key: "open", header: "Open", width: pixel(60), renderCell: (s) =>
+            { key: "open", header: "Open", width: pixel(60), align: "end", renderCell: (s) =>
               <Text type="body">{s.open || 0}</Text> },
-            { key: "n", header: "Closed", width: pixel(70), renderCell: (s) =>
+            { key: "n", header: "Closed", width: pixel(70), align: "end", renderCell: (s) =>
               <Text type="body">{s.n || 0}</Text> },
-            { key: "win_rate", header: "Win rate", width: pixel(80), renderCell: (s) =>
+            { key: "win_rate", header: "Win rate", width: pixel(80), align: "end", renderCell: (s) =>
               <Text type="body">{s.n ? pct(s.win_rate) : "—"}</Text> },
-            { key: "profit_factor", header: "PF", width: pixel(60), renderCell: (s) =>
+            { key: "profit_factor", header: "PF", width: pixel(60), align: "end", renderCell: (s) =>
               <Text type="body">{s.n ? pf(s.profit_factor) : "—"}</Text> },
-            { key: "total_pnl", header: "Net P&L", width: proportional(1), renderCell: (s) =>
+            { key: "total_pnl", header: "Net P&L", width: proportional(1), align: "end", renderCell: (s) =>
               s.n ? <Text type="body" weight="semibold" color={s.total_pnl >= 0 ? "success" : "error"}>
                 {money(s.total_pnl)}</Text> : <Text type="supporting" color="secondary">—</Text> },
             { key: "live_taken", header: "Taken live", width: proportional(1.2), renderCell: (s) =>
@@ -238,7 +248,8 @@ function PaperTab({ spreads, reclaim }) {
 }
 
 export function PerformancePage() {
-  const [tab, setTab] = useState("real");
+  const [tab, setTabRaw] = useState(() => pref("perf.tab", "real"));
+  const setTab = (v) => { setTabRaw(v); setPref("perf.tab", v); };
   const [dayPnl, setDayPnl] = useState(null);
   const [rt, setRt] = useState(null);
   const [stats, setStats] = useState(null);

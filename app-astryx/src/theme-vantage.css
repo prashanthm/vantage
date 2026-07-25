@@ -62,6 +62,15 @@
 /* wide content scrolls inside its container, never the page */
 .t-focus, .t-ledger { overflow-x: auto; }
 
+/* long tables keep their header in view. Astryx's Table brings its own
+ * scroll wrapper between us and the <table>, so the height cap must land on
+ * THAT element — sticky headers attach to the nearest scrollport. */
+.vg-sticky-head .astryx-table-scroll-wrapper { max-height: 72vh; }
+.vg-sticky-head thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--color-background-surface);
+}
+
 /* the page frame: breathing room between content and the shell's surface
  * edges on every page, once, at the shell level */
 .vg-page { padding: 20px 28px 56px; }

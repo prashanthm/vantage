@@ -117,6 +117,23 @@ plugin owns the indicators;
 Plus keyboard operability: every expandable row (journal trades, scanner
 history, analysis history) now has role=button, tabIndex, Enter/Space.
 
+## Best-practice pass (this commit) — research-backed adoption
+Researched (Pencil&Paper enterprise tables, Smashing real-time dashboards,
+table-design guides) and adopted the four that survived evaluation:
+(1) numeric columns right-aligned via Astryx column align:'end' (Book,
+Performance) — the most-repeated table rule and we violated it;
+(2) view-state persistence (pref/setPref localStorage): Book tab/account/
+sort, Performance tab, Scanner family+filters, Journal tab+underlying —
+the cheap version of saved views;
+(3) sparkline + last-session delta on the Performance day tile (Spark
+component, dependency-free SVG, zero-line dash for +/- series);
+(4) sticky table headers on long tables — the height cap must land on
+Astryx's OWN .astryx-table-scroll-wrapper (sticky attaches to the nearest
+scrollport; a wrapper div outside it silently no-ops).
+Rejected with reasons: column management, pagination, density toggle
+(operator taste), Bloomberg-density. Later: value-change micro-highlight,
+arrow-key row navigation.
+
 Waves remaining: W6 — delete vg-*/buildless shell + flip all legacy
 redirects at parity (incl. the W5 gaps + analyzer actions + tickets).
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO
