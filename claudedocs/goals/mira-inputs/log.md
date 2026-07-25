@@ -174,3 +174,44 @@ REMAINING LEVERS (for E6+): H-chain (real new data; only 3 days covered
 by chain_snaps), H-overnight (ES context, derivable all days), combined
 E5b+stand-down package, and the in-sample caveats all point to needing a
 LIVE A/B for anything that ships.
+
+## Shakeout anatomy (free analyses, pre-E6)
+39/58 invalidations are SHAKEOUTS (target printed after the stop); only
+19/161 forecasts truly wrong-side (14:00 is the exception: 7/12 wrong).
+Wick depth on shakeouts: median needed 3.43× the stated stop (p25 1.78×,
+p75 6.26×); stated stops median 6.4pt vs median adverse journey 23.8pt
+before target. Mira's direction+target are good; her invalidation widths
+are systematically ~4× too tight for the path. E5's 1.75× guard was
+intuition — the tape says falsifiability must be judged vs the TARGET,
+not vs the (fantasy) original width. chain_snaps covers 4/6 days (H-chain
+viable later).
+
+## E6 · H-parity — stop distance clamped to min(zone edge, target distance)
+prediction (pre-registered BEFORE run): issuance-time rule, enforced in
+CODE: invalidation distance = min(distance to the nearest opposing zone's
+far edge, 1.0× target distance) — never TIGHTER than stated, never wider
+than the target claim (R:R ≥ 1 floor = symmetric falsifiability, the
+same guard the reclaim executor uses). Predict: ≥ +10 net miss→hit
+conversions (median MAE 23.8 ≈ plausible target distances). CONFIRMED
+≥ +10 with median stop/target ratio ≤ 1.0 · INCONCLUSIVE +5..+9 ·
+DISPROVEN < +5. Offline, production scorer, deterministic.
+result: 37 rows clamped at median stop/target ratio exactly 1.00 (guard
+passed by construction). Conversions: invalidated→hit 5. NET +5.
+verdict: **INCONCLUSIVE** (bottom of the +5..+9 band). The geometry
+lesson: nearest-reachable targets are 10-15pt, so R:R≥1 stops are still
+far inside the 23.8pt median wick — near targets, falsifiable stops and
+wick immunity cannot coexist on this tape at the 15-min scale. Honest
+stop-side ceiling ≈ +0.03 pooled (E5b/E6 overlap, not additive).
+
+## E7 · H-chain — dealer-flow read from OUR 0DTE chain archive (the one
+## untested REAL data input; 4 covered days = 07-21/22*/23/24, *not in set)
+prediction (pre-registered BEFORE run): per step, the latest at-or-before
+chain snap yields gamma skew (call/put-heavy) + net delta drift since
+open, framed as a BIAS TIEBREAKER only (never override structure — the
+E1 lesson). Mechanism: attacks the 19 wrong-side misses (14:00-heavy);
+flow lean should reduce fighting the crowd. Predict: paired net flips on
+the 3 covered fixed days (07-21/23/24, ~81 steps) ≥ +5 with wrong-side
+verdicts (invalidated-no-target + direction-wrong) shrinking; CONFIRMED
+≥ +7 · INCONCLUSIVE +3..+6 · DISPROVEN < +3 or wrong-sides unchanged.
+Mira-run experiment (~1h, 3 days).
+result: PENDING

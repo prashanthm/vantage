@@ -193,6 +193,8 @@ def main() -> int:
     ap.add_argument("--day", required=True)
     ap.add_argument("--symbol", default="SPX")
     ap.add_argument("--extra-file", default=None)
+    ap.add_argument("--block-map", default=None,
+        help="JSON {day: {'YYYY-MM-DDTHH:MM': text}}; each step gets the latest block at-or-before it")
     ap.add_argument("--experiment", default=None, choices=[None, "h_fresh", "h_selffeed", "h_clock"])
     ap.add_argument("--tag", default="E0")
     ap.add_argument("--step-min", type=int, default=15)
@@ -201,6 +203,10 @@ def main() -> int:
     extra = ""
     if a.extra_file:
         extra = open(a.extra_file).read().strip()
+    block_map = None
+    if a.block_map:
+        block_map = (json.load(open(a.block_map)) or {}).get(a.day) or {}
+        block_keys = sorted(block_map)
 
     plan = post(f"{API}/api/replay/plan",
                 {"day": a.day, "symbol": a.symbol, "step_min": a.step_min})
@@ -241,6 +247,11 @@ def main() -> int:
                 step_extra = (fb + ("\n" + extra if extra else "")) if fb else extra
             elif a.experiment == "h_clock":
                 step_extra = h_clock_block(snap["as_of"]) + ("\n" + extra if extra else "")
+            if block_map is not None:
+                k16 = str(snap["as_of"])[:16]
+                prior = [k for k in block_keys if k <= k16]
+                if prior:
+                    step_extra = block_map[prior[-1]] + ("\n" + step_extra if step_extra else "")
             prompt = build_prompt(a.symbol, ref, step_extra)
             text = mira_turn_collect(prompt, f"replay-{a.tag}-{a.day}-{as_of}")
             data = extract_json(text)
