@@ -118,11 +118,26 @@ def extract_json(text: str):
         return None
 
 
+def h_fresh_block(snap: dict) -> str:
+    """E1 (H-fresh): tell Mira how fresh the levels map is and the rule for
+    stale maps. The freshness fact rides the snapshot's param-gated block."""
+    f = snap.get("freshness") or {}
+    slot = f.get("levels_slot", "unknown")
+    note = f.get("note", "")
+    rule = ("STALENESS RULE: when the levels map was NOT refreshed today "
+            "intraday, GEX-derived anchors (gamma flip, call/put walls, max "
+            "pain) are REFERENCE ONLY — do not place the target exactly on "
+            "them; derive targets from live structure (session high/low, VWAP, "
+            "unswept liquidity) and use the map only to name the neighborhood.")
+    return f"INPUT FRESHNESS: levels_slot={slot} — {note}\n{rule}"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--day", required=True)
     ap.add_argument("--symbol", default="SPX")
     ap.add_argument("--extra-file", default=None)
+    ap.add_argument("--experiment", default=None, choices=[None, "h_fresh"])
     ap.add_argument("--tag", default="E0")
     ap.add_argument("--step-min", type=int, default=15)
     a = ap.parse_args()
@@ -156,12 +171,16 @@ def main() -> int:
         if as_of in existing:
             continue
         try:
+            ba = "&block_ages=1" if a.experiment == "h_fresh" else ""
             snap = get(f"{API}/api/spx/snapshot?symbol={a.symbol}"
-                       f"&day={a.day}&as_of={urllib.parse.quote(as_of)}")
+                       f"&day={a.day}&as_of={urllib.parse.quote(as_of)}{ba}")
             if not snap.get("available"):
                 continue
             ref = f"SPX_SNAPSHOT_REF day={snap['day']} as_of={snap['as_of']} underlying={a.symbol}"
-            prompt = build_prompt(a.symbol, ref, extra)
+            step_extra = extra
+            if a.experiment == "h_fresh":
+                step_extra = h_fresh_block(snap) + ("\n" + extra if extra else "")
+            prompt = build_prompt(a.symbol, ref, step_extra)
             text = mira_turn_collect(prompt, f"replay-{a.tag}-{a.day}-{as_of}")
             data = extract_json(text)
             post(f"{API}/api/spx/forecast", {

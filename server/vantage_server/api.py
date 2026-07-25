@@ -807,7 +807,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),
-                          as_of: str | None = Query(None)):
+                          as_of: str | None = Query(None),
+                          block_ages: int = Query(0)):
         """The chart-centric SNAPSHOT for the forecast-analyst loop (any ticker):
         price + the coach's playbook levels + live technicals (VWAP/RSI/rel-vol/ATR) +
         the ICT structures (unswept liquidity, active order blocks, fresh FVGs,
@@ -821,7 +822,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             bar_sym = "^GSPC" if sym == "SPX" else sym
             d = store.latest_intraday_day(bar_sym, "1m") if getattr(
                 store, "uses_sqlite", False) else None
-        out = _snap.build_snapshot(store, d, symbol=sym, as_of=as_of) if d else None
+        out = _snap.build_snapshot(store, d, symbol=sym, as_of=as_of,
+                                   block_ages=bool(block_ages)) if d else None
         if out is None:
             return envelope(snap, available=False,
                             note="No persisted 1m bars for the session — run the "
