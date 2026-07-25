@@ -91,8 +91,29 @@ def evaluate_gate(store, strategy_id: str, *, min_sample: int = DEFAULT_MIN_SAMP
     else:
         passes = True
         reason = f"paper {rate:.3f} ≥ baseline {baseline:.3f} over {n} trades"
+    # Scanner families: a WR-only gate has a blind spot — the debit spread's
+    # ~1:1 payoff means a book can beat a sub-breakeven baseline WR while
+    # LOSING money (ict_htf's measured baseline 0.378 is exactly that case).
+    # A losing book must never read eligible: PF ≥ 1.0 or the gate blocks.
+    if passes and getattr(get_strategy(strategy_id), "paper_book", None) == "scanner":
+        pf = _scanner_paper_pf(store, strategy_id)
+        if pf is not None and pf < 1.0:
+            passes = False
+            reason = (f"paper {rate:.3f} ≥ baseline {baseline:.3f} BUT profit "
+                      f"factor {pf:.2f} < 1.0 — the book is losing money")
     return {"paper_win_rate": rate, "paper_n": n, "baseline_win_rate": baseline,
             "min_sample": min_sample, "passes": passes, "reason": reason}
+
+
+def _scanner_paper_pf(store, strategy_id: str) -> float | None:
+    """The scanner spread book's profit factor for one strategy (None = no data)."""
+    try:
+        from . import paper
+        s = (paper.build_spread_book(store).get("by_strategy") or {}) \
+            .get(strategy_id) or {}
+        return s.get("profit_factor")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def refresh_stage(store, strategy_id: str, now_iso: str, *,

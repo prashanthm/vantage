@@ -124,13 +124,17 @@ class _ScannerFamilyStrategy:
 @(register_strategy if "ict_htf" not in STRATEGIES else (lambda c: c))
 class IctHtfStrategy(_ScannerFamilyStrategy):
     """A+ ICT hourly confluence stack (sweep → displacement FVG). Baseline
-    0.531 = derived from the frozen record: rr2.0 avg +0.593R over n=149
-    (binary rr outcomes ⇒ WR=(avg+1)/(rr+1)) — ict-concepts-edge log, C13."""
+    0.378 = MEASURED on the frozen tape with the exact spread expression
+    (arm at A+ scan, first-touch zone target vs invalidation, stop-first,
+    245-bar cap): n=2234, halves 0.361/0.396 — scanner-families log,
+    baseline run 2026-07-25 (research/ict_spread_baseline.py). NOTE: at the
+    debit spread's ~1:1 payoff this WR is below breakeven — the lifecycle
+    gate therefore also enforces PF ≥ 1.0 for scanner families."""
     strategy_id = "ict_htf"
     display_name = "A+ ICT hourly"
     universe = ("Nasdaq-100", "S&P top-100")
     paper_book = "scanner"
-    frozen_baseline_win_rate = 0.531
+    frozen_baseline_win_rate = 0.378
 
 
 @(register_strategy if "breakout_hold" not in STRATEGIES else (lambda c: c))
@@ -163,7 +167,7 @@ def _demo() -> None:
 
     assert "reclaim" in STRATEGIES
     # the three scanner families register with frozen baselines + scanner book
-    for sid, wr in (("ict_htf", 0.531), ("breakout_hold", 0.822), ("rsi2_mr", 0.703)):
+    for sid, wr in (("ict_htf", 0.378), ("breakout_hold", 0.822), ("rsi2_mr", 0.703)):
         st = get_strategy(sid)
         assert st.paper_book == "scanner" and st.frozen_baseline_win_rate == wr
     s = get_strategy("reclaim")

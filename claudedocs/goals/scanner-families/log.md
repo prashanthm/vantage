@@ -268,3 +268,26 @@ each other in win-ODDS terms, the measured aggregate WR REPLACES 0.531 as
 the frozen gate baseline (provenance updated in strategy.py). ELSE the
 derived 0.531 stays and this run logs inconclusive. Either way the number
 is frozen after this run — no re-rolls.
+
+execution note: first harness run INVALIDATED by a coding defect, caught by
+an impossible invariant — 0 longs in 2,237 trades (the live scanner surfaces
+longs daily). Cause: harness read setup["direction"]; the detector's key is
+"dir" → every trade defaulted to short and the first-touch sides were
+flipped for real longs. Not a re-roll of the measurement: the defect made
+the first run measure a different (nonsensical) expression. Fixed key,
+rerun below with the same pre-registered rule.
+
+result (fixed harness): n=2234 · WR 0.3782 · halves 0.3608 / 0.3957
+(odds-ratio 1.16 — stable) · 1099 longs / 1135 shorts · span 2023-09 →
+2026-07. Prediction band [0.45, 0.60] MISSED low — the derived 0.531
+overstated the spread expression (C13's tight FVG stop + rr2.0 ≠ the
+zone-target/ladder-stop expression the pipe actually trades).
+verdict: per the pre-committed rule, 0.3782 REPLACES 0.531 as the frozen
+ict_htf gate baseline (strategy.py provenance updated). Frozen — no re-rolls.
+FINDING: at the debit spread's ~1:1 payoff, 0.378 WR is BELOW BREAKEVEN —
+a WR-only gate would mark a losing book eligible (live paper 0.422/PF 0.72
+is exactly that). Gate hardened: scanner families additionally require
+paper PF ≥ 1.0 (lifecycle.evaluate_gate). Conservative-only change.
+follow-up candidate (NOT run, would need pre-registration): per-side split
+of the 2234 — if A+ shorts drag the aggregate the way every other family's
+shorts did, long-only arming is the next experiment.
