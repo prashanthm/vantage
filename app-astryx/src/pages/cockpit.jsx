@@ -17,6 +17,9 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { Workbench } from "../templates.jsx";
 import { links } from "../links.js";
 import { backend, getJson, todayET, etMinNow, money, ageMin } from "../api.js";
+import { collectTurn } from "../stream.js";
+import { MiraView } from "../mira.jsx";
+import { Button } from "@astryxdesign/core/Button";
 
 const V = { good: "success", bad: "error", warn: "warning", plain: "neutral" };
 const DotLine = ({ tone, text }) => (
@@ -248,6 +251,53 @@ function LevelsWatch({ d, rows }) {
   );
 }
 
+// The Chart-Copilot idea, done Vantage's way: one button that hands Mira the
+// CURRENT state — price, standing call, levels watch, checklist flags, open
+// positions — and streams a read. Mira sees YOUR plan, not a bare chart.
+function AskMira({ d, planRows }) {
+  const [state, setState] = useState(null);
+  const run = async () => {
+    const buckets = d.buckets || [];
+    const last = buckets[buckets.length - 1] || {};
+    const call = ((d.frames || []).find((f) => f.call) || {}).call;
+    const openTrades = (d.trades || []).filter((t) => t.realized == null);
+    const sr = (planRows || []).filter((r) => r.role === "support" || r.role === "resistance");
+    const prompt = [
+      "Read the CURRENT intraday state for the operator. Be a concise desk mentor —",
+      "what matters in the next 15 minutes, and what should they NOT do. Use ONLY this data.",
+      `NOW: SPX last ${last.close ?? "?"} · session ${last.session_tone ?? "?"} ${last.session_ret_pct ?? "?"}% · day P&L ${d.day_pnl ?? "?"}.`,
+      `STANDING CALL: ${call ? JSON.stringify(call) : "none yet"}.`,
+      `OPEN POSITIONS: ${openTrades.length ? JSON.stringify(openTrades) : "flat"}.`,
+      `PLAN LEVELS (role = the plan's expectation): ${JSON.stringify(sr.slice(0, 10))}.`,
+      'Respond with ONLY one JSON object: {"headline": str, "sections": [',
+      '{"kind":"keyvals","title":"The next 15 minutes","rows":[{"k":str,"v":str,"tone":"good|bad|warn"}]},',
+      '{"kind":"donext","items":[{"title":str,"detail":str}]}]}. Educational only, not advice.',
+    ].join("\n");
+    setState({ loading: true, text: "" });
+    const { text, data, error } = await collectTurn(prompt, `cockpit-now-${todayET()}`, {
+      onToken: (t) => setState({ loading: true, text: t }),
+    });
+    setState(error && !text ? { error } : { text, data });
+  };
+  return (
+    <Section>
+      <VStack gap={2} padding={3}>
+        <HStack gap={2} align="center" justify="between">
+          <Text type="label" color="secondary">Mira — read the current state</Text>
+          <Button variant="secondary" label={state && state.loading ? "Reading…" : "Ask Mira"}
+            isDisabled={!!(state && state.loading)} onClick={run} />
+        </HStack>
+        {state && state.loading && !state.text && (
+          <HStack gap={2} align="center"><Spinner size="sm" />
+            <Text type="supporting" color="secondary">Reading price · call · levels · positions…</Text></HStack>
+        )}
+        {state && (state.text || state.data) && <MiraView data={state.data} text={state.text} />}
+        {state && state.error && <Banner status="warning" title={state.error} />}
+      </VStack>
+    </Section>
+  );
+}
+
 function Discipline({ d }) {
   if (!d.verdict && !(d.commentary || []).length) return null;
   return (
@@ -400,6 +450,7 @@ export function CockpitPage() {
         focus={<FramesTable d={d} />}
         rail={<VStack gap={3}>
           <Checklist d={d} planRows={planRows} />
+          <AskMira d={d} planRows={planRows} />
           <LevelsWatch d={d} rows={planRows} />
           <Discipline d={d} />
         </VStack>}

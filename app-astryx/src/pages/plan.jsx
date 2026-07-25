@@ -73,6 +73,20 @@ export function PlanPage() {
   const [busy, setBusy] = useState(false);
   const [pine, setPine] = useState(null);      // null | {script} | {error}
   const [copied, setCopied] = useState(false);
+  const [alerts, setAlerts] = useState([]);
+  const loadAlerts = () => getJson(`${backend()}/api/alerts`)
+    .then((r) => setAlerts((r && r.alerts) || [])).catch(() => {});
+  useEffect(() => { loadAlerts(); }, []);
+  const armAlert = async (price, note) => {
+    await postJson(`${backend()}/api/alerts`, { symbol, price, note });
+    loadAlerts();
+  };
+  const dropAlert = async (id) => {
+    await fetch(`${backend()}/api/alerts/${id}`, { method: "DELETE" });
+    loadAlerts();
+  };
+  const alertAt = (price) => alerts.find((a) =>
+    a.symbol === symbol && !a.fired_at && Math.abs(a.price - price) < 0.01);
   const load = () => getJson(`${backend()}/api/spx/playbook?symbol=${symbol}`)
     .then((r) => setD(r && r.available ? r : null))
     .catch(() => setD(null));
@@ -136,6 +150,22 @@ export function PlanPage() {
       }>
       {loading && <HStack gap={2} align="center"><Spinner size="sm" /><Text type="supporting" color="secondary">Loading the plan…</Text></HStack>}
       {!loading && !d && <Banner status="error" title={`No plan for ${symbol} — run the nightly or Refresh plan.`} />}
+      {alerts.length > 0 && (
+        <HStack gap={1} align="center" wrap="wrap">
+          <Text type="supporting" color="secondary">alerts:</Text>
+          {alerts.filter((a) => !a.fired_at).map((a) => (
+            <button key={a.id} style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+              aria-label={`disarm ${a.symbol} ${a.price}`} title="click to disarm"
+              onClick={() => dropAlert(a.id)}>
+              <Badge variant="warning" label={`🔔 ${a.symbol} ${a.price} ✕`} />
+            </button>
+          ))}
+          {alerts.filter((a) => a.fired_at).slice(-3).map((a) => (
+            <Badge key={a.id} variant="neutral"
+              label={`fired ${a.symbol} ${a.price} @ ${String(a.fired_at).slice(11, 16)}Z`} />
+          ))}
+        </HStack>
+      )}
       {pine && (
         <Section>
           <VStack gap={2} padding={3}>
@@ -181,6 +211,19 @@ export function PlanPage() {
                   )},
                   { key: "role", header: "Role", width: pixel(90), renderCell: (r) =>
                     <Badge variant={r.role === "support" ? "success" : "error"} label={r.role} /> },
+                  { key: "bell", header: "", width: pixel(70), renderCell: (r) => {
+                    const armed = alertAt(r.price);
+                    return (
+                      <button style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                        aria-label={armed ? `disarm alert at ${r.price}` : `alert me when ${symbol} crosses ${r.price}`}
+                        title={armed ? "alert armed — click to disarm" : "Telegram me on cross"}
+                        onClick={() => (armed ? dropAlert(armed.id) : armAlert(r.price, r.label || r.role))}>
+                        <Text type="supporting" color={armed ? "primary" : "secondary"}>
+                          {armed ? "🔔 armed" : "🔔"}
+                        </Text>
+                      </button>
+                    );
+                  }},
                   { key: "expect", header: "Expect", width: proportional(2), renderCell: (r) =>
                     <Text type="supporting">{r.expect || "—"}</Text> },
                 ]} />

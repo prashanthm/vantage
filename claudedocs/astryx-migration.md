@@ -134,6 +134,17 @@ Rejected with reasons: column management, pagination, density toggle
 (operator taste), Bloomberg-density. Later: value-change micro-highlight,
 arrow-key row navigation.
 
+## Competitive steal-list (this commit) — from the TradingView/Legend compare
+(1) LEVEL-CROSS ALERTS on our computed ladder: level_alerts.py (meta-kv
+store, side recorded at arm, one-shot fire via send_telegram), ticked by
+the existing 60s reclaim-bot poll — no new loop. CRUD /api/alerts; bells
+on Plan ladder rows + disarmable chips. Unit-tested (arm/fire-once/rearm).
+(2) Arrow-key row navigation on scanner history (roving focus, TradingView
+pattern). (3) "Ask Mira" on the cockpit rail — Chart-Copilot done our way:
+one click hands Mira the CURRENT state (price/call/levels/positions/plan)
+and streams a structured read; verified live. (4) PWA manifest for /next/
+(standalone, start_url /next/). All browser-verified.
+
 Waves remaining: W6 — delete vg-*/buildless shell + flip all legacy
 redirects at parity (incl. the W5 gaps + analyzer actions + tickets).
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO
