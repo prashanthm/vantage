@@ -71,6 +71,25 @@ Still open before redirects flip: portfolio analyzer ACTIONS (Mira call),
 TICKET STAGING (TicketModal — reachable via cockpit OpsBlock + legacy
 plan), account-scope filter on Book.
 
-Waves remaining: W5 Journal (LAST, feature-freeze during) · W6 delete
-vg-*/buildless shell + flip all legacy redirects at parity.
+## W5 — Trading Journal · DONE (this commit)
+The canonical record, ported whole. New shared modules: stream.js
+(streamTurn/collectTurn — same SSE wire), mira.jsx (parseMira ported pure +
+MiraView/SwotView in Astryx), journal_logic.js (THOUGHT_RE / operatorFor /
+encodeThought / buildAnalystPrompt VERBATIM — the Mira contract cannot
+drift), journal_api.js (same endpoints). Page: day strip w/ P&L pills +
+date jump, day head (forecast held/missed), trades panel (summary line,
+Analyze-today batch, day synthesis live+stored+history picker, ticker
+filter), trade cards (order/fill ladder/arc/corr lists/entry+exit level
+tags/structure selector/why box), per-trade analyze with stored read-back
++ FvgAtEntry, forecast-vs-actual, entry form + attachments (file input),
+Analysis tab (window/generate/save + history w/ scorecard/patterns/SWOT).
+Browser-verified on live data: strip, synthesis render, card expansion,
+stored review read-back (7455x8), Analysis history + SWOT. Legacy journal
+UNTOUCHED (feature-freeze held) and still routable.
+GAPS (logged): ToneCompareCard strip not ported (lives in legacy + cockpit
+face); month-calendar popover replaced by a date input; attach is file-
+input only (no paste/drop yet).
+
+Waves remaining: W6 — delete vg-*/buildless shell + flip all legacy
+redirects at parity (incl. the W5 gaps + analyzer actions + tickets).
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO

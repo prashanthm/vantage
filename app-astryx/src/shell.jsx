@@ -20,7 +20,7 @@ export const SURFACES = [
   { group: "Book", id: "dashboard", label: "Dashboard (legacy)", href: `/#/dashboard` },
   { group: "Book", id: "options", label: "Options", href: `/#/options` },
   { group: "Book", id: "tax", label: "Tax", href: `/#/tax` },
-  { group: "Review", id: "journal", label: "Trading Journal", href: links.journalDay() },
+  { group: "Review", id: "journal", label: "Trading Journal", page: true },
   { group: "Review", id: "performance", label: "Performance", page: true },
   { group: "Review", id: "strategies", label: "Strategies", href: `/#/strategies` },
 ];

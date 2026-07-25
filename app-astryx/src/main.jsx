@@ -13,8 +13,9 @@ import { PerformancePage } from "./pages/performance.jsx";
 import { BookPage } from "./pages/book.jsx";
 import { ScannerPage } from "./pages/scanner.jsx";
 import { PlanPage } from "./pages/plan.jsx";
+import { JournalPage } from "./pages/journal.jsx";
 
-const PAGES = { cockpit: CockpitPage, performance: PerformancePage, book: BookPage, scanner: ScannerPage, plan: PlanPage };
+const PAGES = { cockpit: CockpitPage, performance: PerformancePage, book: BookPage, scanner: ScannerPage, plan: PlanPage, journal: JournalPage };
 
 function App() {
   return (
