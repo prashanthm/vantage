@@ -523,11 +523,11 @@ function App() {
             : showDeskRail
               ? <>
                   <DeskRail route={route} refreshNonce={refreshNonce} />
-                  <ChatPanel docked settings={settings} />
+                  <ChatPanel docked settings={settings} scope={{ route, accountId, scopeAccounts }} />
                 </>
             : symbol
               ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
-              : <ChatPanel docked settings={settings} />)}
+              : <ChatPanel docked settings={settings} scope={{ route, accountId, scopeAccounts }} />)}
         </aside>
       </div>
       {/* mobile-only drawer handles (CSS hides them >820px). Each opens its drawer
@@ -558,7 +558,7 @@ function App() {
         <NotifPanel notifs={notifs} setNotifs={setNotifs} settings={settings} saveSettings={saveSettings}
           onClose={() => setNotifOpen(false)} />
       )}
-      {chatOpen && <ChatPanel settings={settings} onClose={() => setChatOpen(false)} />}
+      {chatOpen && <ChatPanel settings={settings} onClose={() => setChatOpen(false)} scope={{ route, accountId, scopeAccounts }} />}
       {settingsOpen && (
         <SettingsModal settings={settings} accounts={scopeAccounts} onSave={(s) => { saveSettings(s); setSettingsOpen(false); }}
           onClose={() => setSettingsOpen(false)} />
@@ -1465,10 +1465,32 @@ function NotifPanel({ notifs, setNotifs, settings, saveSettings, onClose }) {
 
 // Renders either as the classic slide-over (with scrim + close) or docked
 // inside the right studio pane (`docked` — no scrim, no close button).
-function ChatPanel({ settings, onClose, docked }) {
+// A compact, grounded scope line prepended to every chat prompt so Mira knows
+// WHICH account is in view and WHERE the operator is — context the /turn wire
+// can't carry (it takes only {prompt, thread_id}), so it rides inside the
+// prompt. Names the scope; Mira's own tools fetch the numbers.
+function scopeContext(scope) {
+  if (!scope) return "";
+  const { route, accountId, scopeAccounts } = scope;
+  const acct = accountId === "all" || !accountId
+    ? "ALL linked accounts"
+    : ((scopeAccounts || []).find((a) => a.id === accountId)?.name
+       || (scopeAccounts || []).find((a) => a.id === accountId)?.short || accountId);
+  const names = (scopeAccounts || []).map((a) => a.short).filter(Boolean).join(", ");
+  const where = { cockpit: "the Cockpit (today's 0DTE plan + live day)",
+    scanner: "the Strategies page (scanner setups → paper → promotion)",
+    portfolio: "the Portfolio page", holdings: "the Positions page",
+    tax: "the Tax Center", journal: "the Trading Journal",
+    trades: "the Track Record", ic: "the Chart" }[route] || route;
+  return (`[CONTEXT — not the question, just scope: the operator is viewing ${where}, `
+    + `scoped to ${acct}${names ? ` (linked: ${names})` : ""}. `
+    + `Use your vantage.* tools for the actual figures.]\n\n`);
+}
+
+function ChatPanel({ settings, onClose, docked, scope }) {
   const useMira = settings.aiBackend === "mira";
   const [msgs, setMsgs] = useState([
-    { who: "ai", text: "Hi — I'm Vantage AI. I can see across all 4 of your linked accounts. Ask me about harvesting, wash sales, overlap, or your allocation." },
+    { who: "ai", text: "Hi — I'm Vantage AI, grounded in your read-only book. Ask about harvesting, wash sales, overlap, allocation, or a strategy's promotion gate." },
   ]);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1499,7 +1521,9 @@ function ChatPanel({ settings, onClose, docked }) {
     setMsgs((m) => [...m, { who: "me", text }, { who: "ai", text: "", plan: [], pending: true }]);
     setBusy(true);
     let gotText = false;
-    abortRef.current = live.streamTurn(text, live.threadId(), (evt) => {
+    // scope rides inside the prompt (the /turn wire carries no context field);
+    // the user sees only their own text — the preamble is model-facing.
+    abortRef.current = live.streamTurn(scopeContext(scope) + text, live.threadId(), (evt) => {
       if (evt.kind === "plan_step") {
         patchLast((l) => ({ ...l, plan: [...(l.plan || []), evt.phase ? `${evt.step} (${evt.phase})` : String(evt.step)] }));
       } else if (evt.kind === "token") {

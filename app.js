@@ -4383,7 +4383,12 @@ ${ref}`;
       setDraft("");
       setMsgs((m) => [...m, { who: "me", text }, { who: "ai", text: "", plan: [], pending: true, mode: "analyze" }]);
       setBusy(true);
-      const res = await analyzeSymbol(sym, text);
+      const facts = [];
+      if (isHeld && shares) facts.push(`I hold ${Math.round(shares)} shares`);
+      else if (!isHeld) facts.push("not held");
+      if (decision && decision.recommendation) facts.push(`engine rec ${decision.recommendation}`);
+      const q = facts.length ? `${text.trim()} (context: ${facts.join(", ")})` : text.trim();
+      const res = await analyzeSymbol(sym, q);
       setBusy(false);
       if (res && res.synthesis) {
         patchLast((l) => ({
@@ -7841,7 +7846,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
           forecastSignal: forecastNowSignal,
           onForecastSaved: () => setForecastSavedNonce((n) => n + 1)
         }
-      ) : showCockpitPanel ? /* @__PURE__ */ React.createElement(CockpitPanel, { refreshNonce }) : showDeskRail ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(DeskRail, { route, refreshNonce }), /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings })) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings }))
+      ) : showCockpitPanel ? /* @__PURE__ */ React.createElement(CockpitPanel, { refreshNonce }) : showDeskRail ? /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(DeskRail, { route, refreshNonce }), /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings, scope: { route, accountId, scopeAccounts } })) : symbol ? /* @__PURE__ */ React.createElement(NotebookPanel, { symbol, accountId, refreshNonce }) : /* @__PURE__ */ React.createElement(ChatPanel, { docked: true, settings, scope: { route, accountId, scopeAccounts } }))
     )), !focus && /* @__PURE__ */ React.createElement("div", { className: "vg-mob-handles" }, /* @__PURE__ */ React.createElement(
       "button",
       {
@@ -7871,7 +7876,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
         saveSettings,
         onClose: () => setNotifOpen(false)
       }
-    ), chatOpen && /* @__PURE__ */ React.createElement(ChatPanel, { settings, onClose: () => setChatOpen(false) }), settingsOpen && /* @__PURE__ */ React.createElement(
+    ), chatOpen && /* @__PURE__ */ React.createElement(ChatPanel, { settings, onClose: () => setChatOpen(false), scope: { route, accountId, scopeAccounts } }), settingsOpen && /* @__PURE__ */ React.createElement(
       SettingsModal,
       {
         settings,
@@ -8432,10 +8437,29 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       }
     ), m.icon, " ", m.label))))));
   }
-  function ChatPanel({ settings, onClose, docked }) {
+  function scopeContext(scope) {
+    if (!scope) return "";
+    const { route, accountId, scopeAccounts } = scope;
+    const acct = accountId === "all" || !accountId ? "ALL linked accounts" : (scopeAccounts || []).find((a) => a.id === accountId)?.name || (scopeAccounts || []).find((a) => a.id === accountId)?.short || accountId;
+    const names = (scopeAccounts || []).map((a) => a.short).filter(Boolean).join(", ");
+    const where = {
+      cockpit: "the Cockpit (today's 0DTE plan + live day)",
+      scanner: "the Strategies page (scanner setups \u2192 paper \u2192 promotion)",
+      portfolio: "the Portfolio page",
+      holdings: "the Positions page",
+      tax: "the Tax Center",
+      journal: "the Trading Journal",
+      trades: "the Track Record",
+      ic: "the Chart"
+    }[route] || route;
+    return `[CONTEXT \u2014 not the question, just scope: the operator is viewing ${where}, scoped to ${acct}${names ? ` (linked: ${names})` : ""}. Use your vantage.* tools for the actual figures.]
+
+`;
+  }
+  function ChatPanel({ settings, onClose, docked, scope }) {
     const useMira = settings.aiBackend === "mira";
     const [msgs, setMsgs] = useState18([
-      { who: "ai", text: "Hi \u2014 I'm Vantage AI. I can see across all 4 of your linked accounts. Ask me about harvesting, wash sales, overlap, or your allocation." }
+      { who: "ai", text: "Hi \u2014 I'm Vantage AI, grounded in your read-only book. Ask about harvesting, wash sales, overlap, allocation, or a strategy's promotion gate." }
     ]);
     const [draft, setDraft] = useState18("");
     const [busy, setBusy] = useState18(false);
@@ -8461,7 +8485,7 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       setMsgs((m) => [...m, { who: "me", text }, { who: "ai", text: "", plan: [], pending: true }]);
       setBusy(true);
       let gotText = false;
-      abortRef.current = streamTurn(text, threadId(), (evt) => {
+      abortRef.current = streamTurn(scopeContext(scope) + text, threadId(), (evt) => {
         if (evt.kind === "plan_step") {
           patchLast((l) => ({ ...l, plan: [...l.plan || [], evt.phase ? `${evt.step} (${evt.phase})` : String(evt.step)] }));
         } else if (evt.kind === "token") {

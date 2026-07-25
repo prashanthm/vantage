@@ -604,7 +604,16 @@ function AskCard({ sym, price, unrl, isHeld, decision, shares, hasLegs }) {
     setDraft("");
     setMsgs((m) => [...m, { who: "me", text }, { who: "ai", text: "", plan: [], pending: true, mode: "analyze" }]);
     setBusy(true);
-    const res = await live.analyzeSymbol(sym, text);
+    // /analyze re-fetches via its own fan-out, but it doesn't know the operator's
+    // POSITION — fold the notebook's already-known facts into the question so the
+    // synthesis reflects the real holding (the engine rec is the one figure the
+    // fan-out can't derive). Wire-safe: still just {symbol, question}.
+    const facts = [];
+    if (isHeld && shares) facts.push(`I hold ${Math.round(shares)} shares`);
+    else if (!isHeld) facts.push("not held");
+    if (decision && decision.recommendation) facts.push(`engine rec ${decision.recommendation}`);
+    const q = facts.length ? `${text.trim()} (context: ${facts.join(", ")})` : text.trim();
+    const res = await live.analyzeSymbol(sym, q);
     setBusy(false);
     if (res && res.synthesis) {
       patchLast((l) => ({ ...l, text: res.synthesis, pending: false, corr: res.correlationId,
