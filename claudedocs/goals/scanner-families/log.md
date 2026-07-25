@@ -245,3 +245,26 @@ honest test should find. The engine (operator DSL + placebo-calibrated
 court) is now reusable: research/formula_signals.py + _candidates.py.
 Most valuable output: the quantified proof that the blueprint's
 acceptance threshold ships luck.
+
+# Baseline run (2026-07-25, pre-registered BEFORE running) — ict_htf SPREAD-expression WR
+
+Purpose: the ADR-015 gate baseline for ict_htf currently uses 0.531 DERIVED
+from the C13 confluence-stack record (rr2.0 avg +0.593R, n=149, binary
+arithmetic). The live paper expression differs: arm at scan (A+ tier, entry
+= CE at scan close), WIN = underlying touches targets[-1] (the zone / short
+strike) first, LOSS = underlying_invalid first, stop-first on ambiguous
+bars, cap 245 hourly bars (~35 calendar days = the spread's TARGET_DTE);
+unresolved at cap/tape-end excluded (mirrors "money-at-risk closes only").
+This run MEASURES that expression's WR on the frozen tape
+(backtest_data/scanner_univ_hourly.json, 60 names, price-only) using the
+PRODUCTION detector (ict_htf.htf_setup + ict.active_obs, verbatim), swept
+as-of per bar, one trade per (symbol, trigger_i), first appearance with
+bars_ago ≤ 3.
+
+prediction: measured WR in [0.45, 0.60] (the derived 0.531 ± the
+expression mismatch); n ≥ 60.
+pre-committed rule: IF n ≥ 60 AND halves (date split) are within 2× of
+each other in win-ODDS terms, the measured aggregate WR REPLACES 0.531 as
+the frozen gate baseline (provenance updated in strategy.py). ELSE the
+derived 0.531 stays and this run logs inconclusive. Either way the number
+is frozen after this run — no re-rolls.
