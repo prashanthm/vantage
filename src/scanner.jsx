@@ -1,9 +1,14 @@
-// ScannerView — the ICT setup scanner across a universe (top-10 holdings of
-// SPY/QQQ/IWM). Shows a universe status strip (coverage + freshness + refresh) and
-// ranked signal cards (A+ first). The A+ hourly setup is the first scanner type;
-// the selector is ready for more. Click a card → opens that ticker's chart.
+// ScannerView — the ONE strategies surface, laid out as the pipeline:
+//   strategy families → today's scanned setups → the paper record of executing
+//   them → the promotion gate to real money (ADR-015 lifecycle).
+// The old standalone #/strategies page merged in here (IA streamline): its
+// LifecycleBoard renders as the promotion section, the scanner-spread paper
+// book renders as the record section, and the reclaim paper book (playbook
+// tickets) rides along collapsed.
 import { cls, dirCls, LoadBar } from "./util.jsx";
 import { useLive, getScanner, refreshScanner, addScannerTicker, removeScannerTicker } from "./live.js";
+import { ScannerSpreadBook, PaperView } from "./paper.jsx";
+import { LifecycleBoard } from "./strategies_view.jsx";
 
 const { useState, useEffect } = React;
 
@@ -241,9 +246,10 @@ export function ScannerView({ onOpenSymbol }) {
 
       <div className="vg-spread" style={{ marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 19 }}>🔭 Scanner</h2>
+          <h2 style={{ margin: 0, fontSize: 19 }}>Strategies</h2>
           <p className="vg-sub" style={{ margin: "4px 0 0" }}>
-            Backtest-validated ICT hourly setups across the Nasdaq-100 + S&P top-100 (by weight).
+            Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 —
+            executed on paper below, promoted to real money when the gate passes.
           </p>
         </div>
       </div>
@@ -320,8 +326,23 @@ export function ScannerView({ onOpenSymbol }) {
           no data ({d.no_data.length}): {d.no_data.join(", ")} — hourly bars not fetched yet; refresh to seed.
         </p>)}
       <p className="vg-note" style={{ marginTop: 8, fontSize: 12, color: "var(--vg-dim)" }}>
-        Hourly ICT setups (validated timeframe) · a heads-up to drop to a lower timeframe for entry · not advice.
+        Hourly setups (validated timeframe) · a heads-up to drop to a lower timeframe for entry · not advice.
       </p>
+
+      {/* ---- the paper record: what executing these scans actually returned ---- */}
+      <ScannerSpreadBook refreshNonce={0} alwaysShow />
+
+      {/* the reclaim paper book — playbook-ticket fills, the other paper feeder */}
+      <details className="vg-card" style={{ marginTop: 12 }}>
+        <summary className="vg-kicker" style={{ cursor: "pointer" }}>
+          Reclaim paper book (playbook tickets)</summary>
+        <PaperView refreshNonce={0} />
+      </details>
+
+      {/* ---- the promotion gate: paper record vs frozen baseline -> real money ---- */}
+      <div style={{ marginTop: 16 }}>
+        <LifecycleBoard />
+      </div>
     </div>
   );
 }

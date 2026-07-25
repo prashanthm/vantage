@@ -108,7 +108,7 @@ function StrategyPulseBlock({ refreshNonce }) {
     <div className="vg-card" style={{ marginTop: 10 }}>
       <div className="vg-spread">
         <span className="vg-kicker" style={{ marginBottom: 0 }}>Strategy pulse</span>
-        <a className="vg-note" href="#/strategies/paper" style={{ fontSize: 12 }}>book →</a>
+        <a className="vg-note" href="#/scanner" style={{ fontSize: 12 }}>book →</a>
       </div>
       <table className="vg-mini" style={{ marginTop: 6, width: "100%" }}><tbody>
         {Object.entries(bs).map(([name, s]) => (
@@ -131,14 +131,13 @@ function StrategyPulseBlock({ refreshNonce }) {
 }
 
 // route → which blocks lead (all three are cheap; order = relevance).
-// strategies gets NO StrategyPulseBlock — the page's own by-strategy table is
-// the canonical render of the same /api/paper/spreads data (IA law: the rail
-// summarizes what's elsewhere, never what's already on screen).
+// scanner (the merged Strategies page) gets NO StrategyPulseBlock — the page's
+// own by-strategy table is the canonical render of the same /api/paper/spreads
+// data (IA law: the rail summarizes what's elsewhere, never what's on screen).
 const ORDER = {
-  scanner: [StrategyPulseBlock, AlertsBlock, OpenRiskBlock],
+  scanner: [AlertsBlock, OpenRiskBlock],
   journal: [OpenRiskBlock, AlertsBlock, StrategyPulseBlock],
   trades: [OpenRiskBlock, StrategyPulseBlock, AlertsBlock],
-  strategies: [OpenRiskBlock, AlertsBlock],
 };
 
 export function DeskRail({ route, refreshNonce }) {

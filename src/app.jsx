@@ -19,7 +19,6 @@ import { StrategiesSection } from "./options.jsx";
 import { ScannerView } from "./scanner.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
-import { StrategiesView } from "./strategies_view.jsx";
 import { FuturesView } from "./futures.jsx";
 import { JournalView } from "./journal.jsx";
 import { TradeAnalyticsView } from "./trades.jsx";
@@ -43,7 +42,7 @@ const NAV = [
     // Home/faces and the standalone Daily plan RETIRED (IA streamline):
     // #/home*, #/today, #/playbook all redirect here; #/dashboard → portfolio.
     { id: "cockpit", label: "Cockpit", icon: "home" },
-    { id: "scanner", label: "Scanner", icon: "scanner" },
+    { id: "scanner", label: "Strategies", icon: "strategies" },
     // Chart is the chart-first canvas — any instrument, our DNA layers, Mira's read.
     { id: "ic", label: "Chart", icon: "chart" },
   ]},
@@ -55,7 +54,6 @@ const NAV = [
   { group: "Review", items: [
     { id: "journal", label: "Trading Journal", icon: "journal" },
     { id: "trades", label: "Track record", icon: "performance" },
-    { id: "strategies", label: "Strategies", icon: "strategies" },
   ]},
 ];
 // Nav lists the five top-level views. These extra routes stay reachable as
@@ -86,7 +84,7 @@ function useHashRoute() {
     if (r === "today" || r === "home" || r === "playbook") return { route: "cockpit", param: null };
     if (r === "dashboard") return { route: "portfolio", param: null };
     if (r === "options") return { route: "holdings", param: null };
-    if (r === "paper") return { route: "strategies", param: "paper" };
+    if (r === "paper" || r === "strategies") return { route: "scanner", param: null };
     const route = ROUTES.includes(r) ? r : defaultRoute();
     const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
     return { route, param };
@@ -332,7 +330,7 @@ function App() {
   const showReplayPanel = route === "ic" && replayOn;
   // desk/review routes get the context rail (alerts · open risk · strategy
   // pulse) instead of the route-blind ticker Notebook.
-  const showDeskRail = ["scanner", "journal", "trades", "strategies"].includes(route);
+  const showDeskRail = ["scanner", "journal", "trades"].includes(route);
   // Cockpit: the right pane becomes the cockpit's instrument panel (NOW state /
   // a clicked frame's briefing) — same lifted-state pattern as Replay.
   const showCockpitPanel = route === "cockpit";
@@ -454,9 +452,6 @@ function App() {
           {route === "tax" && <TaxView {...viewProps} />}
           {route === "recs" && <RecsView {...viewProps} />}
           {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
-          {route === "strategies" && (
-            <StrategiesView tab={routeParam} refreshNonce={refreshNonce}
-              onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
           {route === "journal" && (
             <JournalView refreshNonce={refreshNonce}
               tab={routeParam === "analysis" ? "analysis" : "days"}

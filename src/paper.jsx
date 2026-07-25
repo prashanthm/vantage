@@ -136,7 +136,7 @@ export function PaperView({ refreshNonce }) {
   const stats = (d && d.stats) || {};
 
   return (
-    <div className="vg-pane-body vg-playbook">
+    <div className="vg-playbook">
       <div className="vg-pb-head">
         <div>
           <h2 style={{ margin: 0, fontSize: 19 }}>Paper trading <span className="vg-note" style={{ fontSize: 13, fontWeight: 400 }}>· no money</span></h2>
@@ -277,7 +277,6 @@ export function PaperView({ refreshNonce }) {
 
       {/* the scanner debit-spread book — its OWN record, never mixed with the
           SPX reclaim win-rate above (different P&L basis). */}
-      <ScannerSpreadBook refreshNonce={refreshNonce} />
 
       <div className="vg-pb-caveats">
         <div>SPY is a proxy for SPX; P&L is on SPY shares. A simulation for learning + strategy validation.</div>

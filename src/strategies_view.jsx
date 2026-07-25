@@ -1,4 +1,5 @@
-// StrategiesView — the ADR-015 strategy lifecycle surface. One card per registered
+// LifecycleBoard — the ADR-015 strategy lifecycle board, rendered as the
+// promotion section of the merged Strategies (scanner) page. One card per registered
 // strategy showing its STAGE (paper → eligible → live → paused), the promotion gate
 // (live-paper win-rate vs the frozen backtest baseline), its caps, and the operator
 // controls (promote / pause / resume). A global banner shows whether autonomous live
@@ -13,7 +14,6 @@ import {
   useLive, getLifecycle, promoteStrategy, pauseStrategy, resumeStrategy,
   lifecycleTick, getStrategyAudit,
 } from "./live.js";
-import { PaperView } from "./paper.jsx";
 
 const { useState, useCallback, useEffect } = React;
 
@@ -161,7 +161,7 @@ function StrategyCard({ s, armed, onChange }) {
     </div>);
 }
 
-function LifecycleTab() {
+export function LifecycleBoard() {
   const [nonce, setNonce] = useState(0);
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
   const q = useLive(() => getLifecycle(), null, [nonce]);
@@ -178,7 +178,7 @@ function LifecycleTab() {
   return (
     <div className="vg-sl">
       <div className="vg-sl-topbar">
-        <h2 className="vg-sl-h2">Strategies</h2>
+        <h2 className="vg-sl-h2" style={{ fontSize: 16 }}>Promotion pipeline</h2>
         <span className="vg-note">Paper → gate → promote → autonomous · one lifecycle</span>
         <button className="vg-btn sm vg-btn-primary" style={{ marginLeft: "auto" }} onClick={runTick} disabled={ticking}>
           {ticking ? "Running…" : "Run driver pass (dry-run)"}
@@ -206,35 +206,5 @@ function LifecycleTab() {
             <StrategyCard key={s.strategy_id} s={s} armed={!!gates.armed} onChange={refresh} />
           ))}
         </div>)}
-    </div>);
-}
-
-// The Strategies surface is the ONE pipeline: strategy → triggers paper trade →
-// track paper performance → promote to live. Two tabs only — Lifecycle (the stage
-// machine + promote gate) and Track record (paper performance). The legacy Signal
-// Bot (reclaim Telegram bot) and Live book (Robinhood managed-exits monitor) tabs
-// were retired — they belonged to the pre-Alpaca reclaim/Robinhood path and don't
-// serve this flow. Their backends still run (signal_bot / execution_monitor loops)
-// but are no longer surfaced here. Legacy #signalbot/#exits anchors fall back to
-// lifecycle.
-const SL_TABS = [
-  { key: "lifecycle", label: "Lifecycle" },
-  { key: "paper", label: "Track record" },
-];
-
-export function StrategiesView({ tab, onTab, refreshNonce }) {
-  const active = SL_TABS.some((t) => t.key === tab) ? tab : "lifecycle";
-  // keep the URL honest when a tab is picked (so it's shareable / back-button-able).
-  const pick = (k) => { if (onTab) onTab(k); };
-  return (
-    <div className="vg-sl-shell">
-      <div className="vg-subtabs">
-        {SL_TABS.map((t) => (
-          <button key={t.key} className={cls("vg-subtab", active === t.key && "vg-subtab-on")}
-            onClick={() => pick(t.key)}>{t.label}</button>
-        ))}
-      </div>
-      {active === "lifecycle" && <LifecycleTab />}
-      {active === "paper" && <PaperView refreshNonce={refreshNonce} />}
     </div>);
 }
