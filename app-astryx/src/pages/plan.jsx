@@ -71,6 +71,8 @@ export function PlanPage() {
   const [d, setD] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [pine, setPine] = useState(null);      // null | {script} | {error}
+  const [copied, setCopied] = useState(false);
   const load = () => getJson(`${backend()}/api/spx/playbook?symbol=${symbol}`)
     .then((r) => setD(r && r.available ? r : null))
     .catch(() => setD(null));
@@ -118,6 +120,15 @@ export function PlanPage() {
               </SegmentedControl>
               <Button label={busy ? "Refreshing…" : "Refresh plan"} variant="primary"
                 isDisabled={busy} onClick={recompute} />
+              <Button label={pine ? "Hide Pine" : "Export to Pine"} variant="secondary"
+                onClick={async () => {
+                  if (pine) { setPine(null); return; }
+                  try {
+                    const r = await getJson(`${backend()}/api/spx/playbook/pine?symbol=${symbol}`);
+                    setPine(r && r.available !== false && r.script ? { script: r.script }
+                      : { error: "no script for today — refresh the plan first" });
+                  } catch (e) { setPine({ error: String(e && e.message || e) }); }
+                }} />
             </HStack>
           </HStack>
           {reg.gamma_text && <Banner status={amplify ? "warning" : "info"} title={reg.gamma_text} />}
@@ -125,6 +136,24 @@ export function PlanPage() {
       }>
       {loading && <HStack gap={2} align="center"><Spinner size="sm" /><Text type="supporting" color="secondary">Loading the plan…</Text></HStack>}
       {!loading && !d && <Banner status="error" title={`No plan for ${symbol} — run the nightly or Refresh plan.`} />}
+      {pine && (
+        <Section>
+          <VStack gap={2} padding={3}>
+            <HStack gap={2} align="center" justify="between">
+              <Text type="label" color="secondary">TradingView Pine — today&apos;s levels as an indicator</Text>
+              <Button label={copied ? "Copied ✓" : "Copy"} variant="secondary" onClick={() => {
+                navigator.clipboard.writeText(pine.script || "").then(() => {
+                  setCopied(true); setTimeout(() => setCopied(false), 1500);
+                });
+              }} />
+            </HStack>
+            {pine.error
+              ? <Banner status="warning" title={pine.error} />
+              : <pre style={{ margin: 0, maxHeight: 320, overflow: "auto", fontSize: 12,
+                  fontFamily: "var(--font-family-mono)", whiteSpace: "pre-wrap" }}>{pine.script}</pre>}
+          </VStack>
+        </Section>
+      )}
       {d && (
         <>
           {setups.length > 0 && (

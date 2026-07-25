@@ -40,6 +40,7 @@ function Tile({ label, value, tone }) {
 
 function PositionsTab({ rows }) {
   const sorted = rows.slice().sort((a, b) => (b.value || 0) - (a.value || 0));
+  const [open, setOpen] = useState(null);      // symbol whose lots are expanded
   return (
     <Section>
       <VStack gap={2} padding={3} className="vg-dense">
@@ -50,10 +51,27 @@ function PositionsTab({ rows }) {
           <Link href={links.positions()}>lots &amp; tax detail (legacy) →</Link>
         </HStack>
         <Table data={sorted.map((r, i) => ({ id: i, ...r }))} idKey="id" density="compact" hasHover columns={[
-          { key: "symbol", header: "Symbol", width: proportional(1.4), renderCell: (r) => (
+          { key: "symbol", header: "Symbol", width: proportional(1.6), renderCell: (r) => (
             <VStack gap={0}>
-              <Link href={links.chart(r.symbol)}>{r.symbol}</Link>
+              <HStack gap={1} align="center">
+                <Link href={links.chart(r.symbol)}>{r.symbol}</Link>
+                {(r.lots || []).length > 0 && (
+                  <span style={{ cursor: "pointer" }} role="button" tabIndex={0}
+                    aria-label={`toggle ${r.symbol} lots`}
+                    onClick={() => setOpen(open === r.symbol ? null : r.symbol)}
+                    onKeyDown={(e) => e.key === "Enter" && setOpen(open === r.symbol ? null : r.symbol)}>
+                    <Text type="supporting" color="secondary">
+                      {open === r.symbol ? "▾" : "▸"} {(r.lots || []).length} lot{(r.lots || []).length === 1 ? "" : "s"}
+                    </Text>
+                  </span>
+                )}
+              </HStack>
               <Text type="supporting" color="secondary">{(r.accounts || []).join(" · ")}</Text>
+              {open === r.symbol && (r.lots || []).map((l, i) => (
+                <Text key={i} type="supporting" color="secondary">
+                  {l.account} · {l.date || "?"} · {Number(l.shares).toLocaleString()} @ {fx(l.cost_per_share, r.currency)}
+                </Text>
+              ))}
             </VStack>
           )},
           { key: "shares", header: "Qty", width: pixel(80), renderCell: (r) =>

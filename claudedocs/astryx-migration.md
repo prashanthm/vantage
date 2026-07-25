@@ -63,6 +63,14 @@ the two trigger scenarios side by side, the computed level ladder
 (chart-linked, dense) beside market context + caveats. PARITY GAP before
 #/playbook redirect: pine export + ticket staging (legacy-linked).
 
+## Parity pass (this commit)
+Closed: trade_stats condition edges/leaks -> Performance Real tab (notable
+badges + bucket table w/ CI); per-position LOTS expansion -> Book Positions
+(click 'N lots'); Pine export -> Plan (fetch + mono block + copy).
+Still open before redirects flip: portfolio analyzer ACTIONS (Mira call),
+TICKET STAGING (TicketModal — reachable via cockpit OpsBlock + legacy
+plan), account-scope filter on Book.
+
 Waves remaining: W5 Journal (LAST, feature-freeze during) · W6 delete
 vg-*/buildless shell + flip all legacy redirects at parity.
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO

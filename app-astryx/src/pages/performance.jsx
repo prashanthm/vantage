@@ -48,7 +48,7 @@ function Tile({ label, value, tone }) {
 }
 
 // ---------------------------------------------------------------- Real tab
-function RealTab({ dayPnl, rt }) {
+function RealTab({ dayPnl, rt, stats }) {
   const days = lastSessions();
   const rows = days.map((day) => ({ day, ...((dayPnl || {})[day] || {}) }))
     .filter((r) => r.has_fills);
@@ -81,6 +81,40 @@ function RealTab({ dayPnl, rt }) {
           ]} />
         </VStack>
       </Section>
+      {stats && (stats.notable || []).length + (stats.buckets || []).length > 0 && (
+        <Section>
+          <VStack gap={2} padding={3} className="vg-dense">
+            <Text type="label" color="secondary">
+              Condition edges &amp; leaks — Bayesian buckets vs a {pct(stats.baseline_win_rate)} baseline
+            </Text>
+            {(stats.notable || []).map((b, i) => (
+              <HStack key={i} gap={2} align="center" wrap="wrap">
+                <Badge variant={b.kind === "edge" ? "success" : "error"}
+                  label={`${b.kind === "edge" ? "▲ edge" : "▼ leak"} · ${b.dimension}=${b.value}`} />
+                <Text type="supporting">
+                  {pct(b.win_rate)} over {b.n} trades ({money(b.total_pnl)})
+                  {b.significant ? " · significant" : " · thin sample"}
+                </Text>
+              </HStack>
+            ))}
+            <Table data={(stats.buckets || []).filter((b) => b.dimension !== "__baseline__")
+                .slice().sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 12)
+                .map((b, i) => ({ id: i, ...b }))}
+              idKey="id" density="compact" columns={[
+              { key: "dimension", header: "Condition", width: proportional(1.6), renderCell: (b) =>
+                <Text type="body">{b.dimension} = {String(b.value)}</Text> },
+              { key: "n", header: "n", width: pixel(50), renderCell: (b) =>
+                <Text type="body">{b.n}</Text> },
+              { key: "win_rate", header: "Win rate", width: pixel(90), renderCell: (b) =>
+                <Text type="body">{pct(b.win_rate)}</Text> },
+              { key: "ci", header: "90% CI", width: proportional(1), renderCell: (b) =>
+                <Text type="supporting" color="secondary">{pct(b.ci_low)}–{pct(b.ci_high)}</Text> },
+              { key: "total_pnl", header: "P&L", width: proportional(1), renderCell: (b) =>
+                <Text type="body" color={(b.total_pnl || 0) >= 0 ? "success" : "error"}>{money(b.total_pnl)}</Text> },
+            ]} />
+          </VStack>
+        </Section>
+      )}
       {summary && (
         <Section>
           <VStack gap={2} padding={3} className="vg-dense">
@@ -195,6 +229,7 @@ export function PerformancePage() {
   const [tab, setTab] = useState("real");
   const [dayPnl, setDayPnl] = useState(null);
   const [rt, setRt] = useState(null);
+  const [stats, setStats] = useState(null);
   const [spreads, setSpreads] = useState(null);
   const [reclaim, setReclaim] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -204,12 +239,14 @@ export function PerformancePage() {
     Promise.allSettled([
       getJson(`${backend()}/api/journal/day-pnl?days=${encodeURIComponent(days)}`),
       getJson(`${backend()}/api/ml/roundtrips`),
+      getJson(`${backend()}/api/ml/trade_stats`),
       getJson(`${backend()}/api/paper/spreads`),
       getJson(`${backend()}/api/paper`),
-    ]).then(([a, b, c, d]) => {
+    ]).then(([a, b, e, c, d]) => {
       if (dead) return;
       if (a.status === "fulfilled") setDayPnl(a.value.pnl || null);
       if (b.status === "fulfilled") setRt(b.value);
+      if (e.status === "fulfilled") setStats(e.value);
       if (c.status === "fulfilled") setSpreads(c.value);
       if (d.status === "fulfilled") setReclaim(d.value);
       setLoading(false);
@@ -235,7 +272,7 @@ export function PerformancePage() {
       {loading
         ? <HStack gap={2} align="center"><Spinner size="sm" /><Text type="supporting" color="secondary">Loading the record…</Text></HStack>
         : tab === "real"
-          ? <RealTab dayPnl={dayPnl} rt={rt} />
+          ? <RealTab dayPnl={dayPnl} rt={rt} stats={stats} />
           : <PaperTab spreads={spreads} reclaim={reclaim} />}
     </Ledger>
   );
