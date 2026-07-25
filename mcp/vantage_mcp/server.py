@@ -888,6 +888,64 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
         return envelope("replay_forecasts", snap, available=True, bundle=bundle,
                         prompt=_rf.build_grade_prompt(bundle))
 
+    @mcp.tool(
+        name="vantage.desk_state",
+        annotations=_READ_ONLY,
+        description=(
+            "The DESK STATE — the strategy pipeline at a glance: per-strategy "
+            "lifecycle stage + promotion gate (paper WR vs frozen baseline, "
+            "PF floor, the gate's own reason string), the scanner paper book "
+            "by strategy (WR/PF/net, taken-live), current A+/B setup counts, "
+            "the telegram-channel paper records, armed level alerts, and open "
+            "paper risk. Answers operational questions like 'which strategy "
+            "is closest to promotion?' or 'how is channel X's record?'. "
+            "Read-only roll-up; each number's canonical surface is the desk."
+        ),
+    )
+    def desk_state() -> dict:
+        from vantage_server import level_alerts as _la
+        from vantage_server import lifecycle as _lc
+        from vantage_server import telegram_signals as _tg
+        from vantage_server.paper import build_spread_book
+        from vantage_server.strategy import STRATEGIES
+        snap = snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope("desk_state", snap, available=False,
+                            note="desk state needs the SQLite backend")
+        gates = []
+        for sid in sorted(STRATEGIES):
+            try:
+                g = _lc.evaluate_gate(store, sid)          # pure — no writes
+                row = _lc._row(store, sid)                 # noqa: SLF001 — read-only default row
+                gates.append({"strategy": sid, "stage": row.get("stage"),
+                              "paper_win_rate": g.get("paper_win_rate"),
+                              "paper_n": g.get("paper_n"),
+                              "baseline_win_rate": g.get("baseline_win_rate"),
+                              "passes": g.get("passes"), "reason": g.get("reason")})
+            except Exception:  # noqa: BLE001 — one strategy never blanks the read
+                gates.append({"strategy": sid, "error": "gate unavailable"})
+        book = build_spread_book(store)
+        scans = {}
+        for fam in ("ict_htf", "breakout_hold", "rsi2_mr"):
+            row = store.load_scanner_result(fam) or {}
+            hits = (row.get("result") or {}).get("hits") or row.get("hits") or []
+            scans[fam] = {"a_plus": sum(1 for h in hits if h.get("tier") == "A+"),
+                          "b": sum(1 for h in hits if h.get("tier") != "A+"),
+                          "ran_at": row.get("ran_at")}
+        tg_book = _tg.build_book(store)
+        return envelope(
+            "desk_state", snap, available=True,
+            lifecycle=gates,
+            spread_book={"by_strategy": book.get("by_strategy"),
+                         "open_n": len(book.get("open") or []),
+                         "stats": book.get("stats")},
+            scans=scans,
+            telegram={"channels": _tg.channels(store),
+                      "by_channel": tg_book.get("by_channel"),
+                      "open_n": len(tg_book.get("open") or [])},
+            alerts=[a for a in _la.list_alerts(store) if not a.get("fired_at")],
+        )
+
     return mcp
 
 

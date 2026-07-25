@@ -921,3 +921,14 @@ def test_earnings_tool_serves_opex_without_earnings_cache(mcp, monkeypatch):
     assert payload["no_data"] is False
     kinds = [e["kind"] for e in payload["earnings"]["catalyst_path"]["events"]]
     assert "opex" in kinds or "triple_witching" in kinds
+
+
+def test_desk_state_honest_without_sqlite(mcp):
+    """desk_state needs the SQLite backend; on the JSON fixture dataset it
+    answers available=False with a note, never an error."""
+    async def interact(client):
+        return await client.call_tool("vantage.desk_state", {})
+
+    payload = tool_payload(run_with_client(mcp, interact))
+    assert payload["available"] is False
+    assert "SQLite" in payload["note"]
