@@ -9,8 +9,9 @@ import "@astryxdesign/theme-neutral/theme.css";
 import "./theme-vantage.css";
 import { Shell } from "./shell.jsx";
 import { CockpitPage } from "./pages/cockpit.jsx";
+import { PerformancePage } from "./pages/performance.jsx";
 
-const PAGES = { cockpit: CockpitPage };
+const PAGES = { cockpit: CockpitPage, performance: PerformancePage };
 
 function App() {
   return (
