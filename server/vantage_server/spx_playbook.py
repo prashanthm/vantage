@@ -939,6 +939,8 @@ def build_playbook(today: _dt.date | None = None, store: Any = None,
         "intermarket": mc.get("intermarket") if mc.get("available") else None,
         "market_bullets": mc.get("bullets") if mc.get("available") else None,
     }
+    from .market_context import validated_edges as _ve
+    regime["validated_edges"] = _ve(regime) or None
     spot = regime.get("spot")
 
     # cross-session memory: record this session's levels, then read durable ones

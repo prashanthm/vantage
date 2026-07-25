@@ -218,6 +218,25 @@ def market_context(*, data_dir: str | None = None, live_macro: bool = True) -> d
     }
 
 
+def validated_edges(regime: dict) -> list[str]:
+    """The market-context-native goal's two CONFIRMED next-day edges, as plan
+    callouts. One source of truth — the forecast snapshot AND the playbook
+    both render these. Range/vol edges + one direction lean; never targets
+    (targets stay with the level book)."""
+    edges = []
+    if regime.get("vix_term_stance") == "backwardation" or (
+            regime.get("vix_contango") is not None and regime["vix_contango"] < 0):
+        edges.append("VIX term structure INVERTED (backwardation) — validated: "
+                     "days like this run ~2.4× the usual range. Expect wider "
+                     "swings; widen expected ranges and invalidations.")
+    bp = regime.get("breadth_pct_above_50ma")
+    if bp is not None and bp < 40:
+        edges.append(f"Breadth NARROW ({bp}% of sectors above their 50-day) — "
+                     "validated: next day runs ~1.7× range and closes UP 2 times "
+                     "in 3 (washed-tape bounce lean). Context, not a target.")
+    return edges
+
+
 def _demo() -> None:
     """Self-check: breadth math + term-structure stance are correct without any
     network. Uses synthetic bars so it runs offline."""

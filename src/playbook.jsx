@@ -151,6 +151,12 @@ export function PlanHalf({ refreshNonce }) {
         </div>
       )}
 
+      {/* backtested context edges (market-context-native goal) — the plan
+          ACTS on them as displayed expectations, same idiom as the catalyst */}
+      {(reg.validated_edges || []).map((e, i) => (
+        <div key={i} className="vg-pb-catalyst">⚡ {e}</div>
+      ))}
+
       {/* ---- the plain-English narrative ---- */}
       <div className="vg-card">
         <div className="vg-kicker">Today's read</div>

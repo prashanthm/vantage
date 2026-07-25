@@ -268,17 +268,9 @@ def _market_context_block(scaf: dict) -> dict:
     r = (scaf or {}).get("regime") or {}
     if r.get("vix") is None and not r.get("market_bullets"):
         return {}
-    edges = []
-    if r.get("vix_term_stance") == "backwardation" or (
-            r.get("vix_contango") is not None and r["vix_contango"] < 0):
-        edges.append("VIX term structure INVERTED (backwardation) — validated: "
-                     "days like this run ~2.4× the usual range. Expect wider "
-                     "swings; widen expected ranges and invalidations.")
+    from .market_context import validated_edges as _ve
+    edges = _ve(r)
     bp = r.get("breadth_pct_above_50ma")
-    if bp is not None and bp < 40:
-        edges.append(f"Breadth NARROW ({bp}% of sectors above their 50-day) — "
-                     "validated: next day runs ~1.7× range and closes UP 2 times "
-                     "in 3 (washed-tape bounce lean). Context, not a target.")
     return {"market_context": {
         "vix": r.get("vix"), "vix_band": r.get("vix_band"),
         "vix_term": r.get("vix_term_stance"),
