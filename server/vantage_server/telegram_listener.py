@@ -64,21 +64,44 @@ def list_dialogs() -> None:
 
 
 def run() -> None:  # pragma: no cover — network daemon
+    import datetime as _dt
+    import time
+
     from telethon import events
     store = Store(None)
-    chans = tg.channels(store)
-    if not chans:
-        sys.exit("no channels allow-listed yet — add one in the desk "
-                 "(Strategies → Paper) or POST /api/telegram/channels, then restart")
     client = _client()
-    # allow-list entries are @usernames or numeric ids ("-100…" for channels)
-    chats = [int(c) if str(c).lstrip("-").isdigit() else c for c in chans]
 
-    @client.on(events.NewMessage(chats=chats))
+    async def _publish_dialogs():
+        """Publish the account's channel list to the store so the desk's
+        config screen can list-and-toggle without its own Telethon client."""
+        rows = []
+        async for d in client.iter_dialogs():
+            if d.is_channel or d.is_group:
+                uname = getattr(d.entity, "username", None)
+                rows.append({"key": f"@{uname}" if uname else str(d.id),
+                             "name": d.name,
+                             "at": _dt.datetime.now(_dt.timezone.utc).isoformat()})
+        tg.save_dialogs(store, rows)
+        log.info("published %d dialogs to the store", len(rows))
+
+    # allow-list is re-read (cached 30s) per message — desk toggles take
+    # effect WITHOUT restarting this daemon.
+    _allow = {"at": 0.0, "list": []}
+
+    def _allowed(chat_id, username):
+        if time.time() - _allow["at"] > 30:
+            _allow["list"] = tg.channels(store)
+            _allow["at"] = time.time()
+        return tg.is_allowed(chat_id, username, _allow["list"])
+
+    @client.on(events.NewMessage())
     async def _on_msg(event):
         try:
             chat = await event.get_chat()
-            name = getattr(chat, "username", None) or getattr(chat, "title", "?")
+            uname = getattr(chat, "username", None)
+            if not _allowed(event.chat_id, uname):
+                return
+            name = uname or getattr(chat, "title", "?")
             res = tg.ingest_message(store, str(name), int(event.id),
                                     event.raw_text or "",
                                     event.date.isoformat() if event.date else None)
@@ -87,8 +110,10 @@ def run() -> None:  # pragma: no cover — network daemon
             log.exception("telegram ingest failed")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
-    log.info("listening on %d channel(s): %s", len(chans), ", ".join(chans))
     with client:
+        client.loop.run_until_complete(_publish_dialogs())
+        log.info("listening · allow-list (%d): %s — toggle on the desk, no restart needed",
+                 len(tg.channels(store)), ", ".join(tg.channels(store)) or "(empty)")
         client.run_until_disconnected()
 
 

@@ -5253,11 +5253,8 @@ ${ref}`;
     const [entry, setEntry] = useState13("");
     const q = useLive(() => getJson(`${backend3()}/api/telegram`), null, [refreshNonce, nonce]);
     const d = q.data && q.data.available ? q.data : null;
-    const add = async (e) => {
-      e.preventDefault();
-      const name = entry.trim();
-      if (!name) return;
-      setEntry("");
+    const [filter, setFilter] = useState13("");
+    const addName = async (name) => {
       await fetch(`${backend3()}/api/telegram/channels`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -5265,6 +5262,13 @@ ${ref}`;
       }).catch(() => {
       });
       setNonce((n) => n + 1);
+    };
+    const add = async (e) => {
+      e.preventDefault();
+      const name = entry.trim();
+      if (!name) return;
+      setEntry("");
+      addName(name);
     };
     const drop = async (name) => {
       await fetch(
@@ -5274,22 +5278,49 @@ ${ref}`;
       });
       setNonce((n) => n + 1);
     };
+    const dialogs = d && d.dialogs || [];
+    const allowSet = new Set((d && d.channels || []).map(String));
+    const nameOf = (key) => (dialogs.find((g) => g.key === key || g.key === `@${key}`) || {}).name;
     const inbox = d && d.inbox || [];
     const book = d && d.book || {};
     const open = book.open || [];
     const byChannel = book.by_channel || {};
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Telegram signals"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "your subscribed channels \u2192 inbox \u2192 auto paper trades \xB7 channel = strategy", d && !d.session && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, "no session"), " \u2014 run the one-time login (listener docstring)"))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" } }, (d && d.channels || []).map((c) => /* @__PURE__ */ React.createElement("span", { key: c, className: "vg-scan-chip" }, "@", c, /* @__PURE__ */ React.createElement("button", { className: "vg-scan-chip-x", title: "remove", onClick: () => drop(c) }, "\u2715"))), /* @__PURE__ */ React.createElement("form", { style: { display: "inline-flex", gap: 6 }, onSubmit: add }, /* @__PURE__ */ React.createElement(
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-spread", style: { alignItems: "baseline" } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { marginBottom: 0 } }, "Telegram signals"), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "your subscribed channels \u2192 inbox \u2192 auto paper trades \xB7 channel = strategy", d && !d.session && /* @__PURE__ */ React.createElement(React.Fragment, null, " \xB7 ", /* @__PURE__ */ React.createElement("b", null, "no session"), " \u2014 run the one-time login (listener docstring)"))), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" } }, (d && d.channels || []).map((c) => /* @__PURE__ */ React.createElement("span", { key: c, className: "vg-scan-chip" }, /^-?\d+$/.test(c) ? nameOf(c) || c : `@${c}`, /* @__PURE__ */ React.createElement("button", { className: "vg-scan-chip-x", title: "remove from allow-list", onClick: () => drop(c) }, "\u2715"))), (d && d.channels || []).length === 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 13 } }, "No channels whitelisted yet.")), /* @__PURE__ */ React.createElement("details", { style: { marginTop: 8 }, open: (d && d.channels || []).length === 0 }, /* @__PURE__ */ React.createElement("summary", { className: "vg-kicker", style: { cursor: "pointer", fontSize: 12 } }, "Configure channels", dialogs.length ? ` \xB7 ${dialogs.length} subscribed` : ""), dialogs.length === 0 && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0", fontSize: 13 } }, "No channel list yet \u2014 start the listener once (", /* @__PURE__ */ React.createElement("code", null, "docker compose --profile telegram up -d"), ") and it publishes your subscriptions here."), dialogs.length > 0 && /* @__PURE__ */ React.createElement(React.Fragment, null, /* @__PURE__ */ React.createElement(
+      "input",
+      {
+        className: "vg-fc-syminput",
+        value: filter,
+        spellCheck: false,
+        onChange: (e) => setFilter(e.target.value),
+        placeholder: "filter\u2026",
+        "aria-label": "filter channels",
+        style: { width: 160, margin: "8px 0 2px" }
+      }
+    ), /* @__PURE__ */ React.createElement("div", { style: { maxHeight: 260, overflowY: "auto" } }, dialogs.filter((g) => !filter || g.name.toLowerCase().includes(filter.toLowerCase()) || g.key.toLowerCase().includes(filter.toLowerCase())).map((g) => {
+      const key = g.key.replace(/^@/, "");
+      const on = allowSet.has(key);
+      return /* @__PURE__ */ React.createElement("div", { key: g.key, className: "vg-row", style: { gap: 8, marginTop: 6, alignItems: "baseline" } }, /* @__PURE__ */ React.createElement(
+        "button",
+        {
+          className: cls("vg-btn-sm", on && "vg-btn-primary"),
+          style: { minWidth: 92 },
+          title: on ? "remove from allow-list" : "whitelist \u2014 messages start flowing within 30s",
+          onClick: () => on ? drop(key) : addName(g.key)
+        },
+        on ? "\u2713 listening" : "whitelist"
+      ), /* @__PURE__ */ React.createElement("span", { style: { fontSize: 13, fontWeight: on ? 600 : 400 } }, g.name), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { marginLeft: "auto", fontSize: 12 } }, g.key));
+    })), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8, alignItems: "center" } }, /* @__PURE__ */ React.createElement("form", { style: { display: "inline-flex", gap: 6 }, onSubmit: add }, /* @__PURE__ */ React.createElement(
       "input",
       {
         className: "vg-fc-syminput",
         value: entry,
         spellCheck: false,
         onChange: (e) => setEntry(e.target.value),
-        placeholder: "add @channel",
-        "aria-label": "allow-list a telegram channel",
-        style: { width: 140 }
+        placeholder: "add @channel or id",
+        "aria-label": "allow-list a telegram channel manually",
+        style: { width: 150 }
       }
-    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "\uFF0B add")), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "restart the listener after edits")), open.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 10 } }, open.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
+    ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", type: "submit" }, "\uFF0B add")), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontSize: 12 } }, "toggles apply live (\u226430s) \u2014 no restart")))), open.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder", style: { marginTop: 10 } }, open.map((r) => /* @__PURE__ */ React.createElement("div", { key: r.id, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
       "span",
       {
         className: cls("vg-badge", r.side === "long" ? "good" : "bad"),

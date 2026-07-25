@@ -23,6 +23,7 @@ from .store import Store
 
 INBOX_KEY = "telegram_inbox"        # meta kv: capped list of recent messages
 CHANNELS_KEY = "telegram_channels"  # meta kv: operator allow-list
+DIALOGS_KEY = "telegram_dialogs"    # meta kv: the account's channel list (listener-published)
 INBOX_CAP = 200
 NOTIONAL_USD = 1000.0               # fixed sim size per signal (shares book)
 BOOK = "telegram"
@@ -88,6 +89,23 @@ def remove_channel(store: Store, name: str) -> list[str]:
 
 def inbox(store: Store, limit: int = 50) -> list[dict]:
     return _load_list(store, INBOX_KEY)[-limit:][::-1]   # newest first
+
+
+def dialogs(store: Store) -> list[dict]:
+    """The account's subscribed channels/groups, as last published by the
+    listener: [{key, name, at}] where key = '@username' or the numeric id."""
+    return _load_list(store, DIALOGS_KEY)
+
+
+def save_dialogs(store: Store, rows: list[dict]) -> None:
+    store.set_meta(DIALOGS_KEY, json.dumps(rows))
+
+
+def is_allowed(chat_id, username, allow: list[str]) -> bool:
+    """Does a message's chat match the allow-list? Entries are usernames
+    (stored without '@') or numeric-id strings."""
+    ids = {str(a) for a in allow}
+    return str(chat_id) in ids or (username or "") in ids
 
 
 # ── ingest: one message → inbox (+ maybe a paper trade) ─────────────────────

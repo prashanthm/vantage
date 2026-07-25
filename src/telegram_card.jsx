@@ -21,21 +21,28 @@ export function TelegramSignalsCard({ refreshNonce }) {
   const [entry, setEntry] = useState("");
   const q = useLive(() => getJson(`${backend()}/api/telegram`), null, [refreshNonce, nonce]);
   const d = q.data && q.data.available ? q.data : null;
+  const [filter, setFilter] = useState("");
+  const addName = async (name) => {
+    await fetch(`${backend()}/api/telegram/channels`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: name }) }).catch(() => {});
+    setNonce((n) => n + 1);
+  };
   const add = async (e) => {
     e.preventDefault();
     const name = entry.trim();
     if (!name) return;
     setEntry("");
-    await fetch(`${backend()}/api/telegram/channels`, { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ channel: name }) }).catch(() => {});
-    setNonce((n) => n + 1);
+    addName(name);
   };
   const drop = async (name) => {
     await fetch(`${backend()}/api/telegram/channels/${encodeURIComponent(name)}`,
       { method: "DELETE" }).catch(() => {});
     setNonce((n) => n + 1);
   };
+  const dialogs = (d && d.dialogs) || [];
+  const allowSet = new Set(((d && d.channels) || []).map(String));
+  const nameOf = (key) => (dialogs.find((g) => g.key === key || g.key === `@${key}`) || {}).name;
   const inbox = (d && d.inbox) || [];
   const book = (d && d.book) || {};
   const open = book.open || [];
@@ -50,21 +57,71 @@ export function TelegramSignalsCard({ refreshNonce }) {
         </span>
       </div>
 
-      {/* allow-list */}
+      {/* allow-list: the active channels as chips… */}
       <div className="vg-row" style={{ gap: 6, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
         {((d && d.channels) || []).map((c) => (
-          <span key={c} className="vg-scan-chip">@{c}
-            <button className="vg-scan-chip-x" title="remove" onClick={() => drop(c)}>✕</button>
+          <span key={c} className="vg-scan-chip">{/^-?\d+$/.test(c) ? (nameOf(c) || c) : `@${c}`}
+            <button className="vg-scan-chip-x" title="remove from allow-list" onClick={() => drop(c)}>✕</button>
           </span>
         ))}
-        <form style={{ display: "inline-flex", gap: 6 }} onSubmit={add}>
-          <input className="vg-fc-syminput" value={entry} spellCheck={false}
-            onChange={(e) => setEntry(e.target.value)} placeholder="add @channel"
-            aria-label="allow-list a telegram channel" style={{ width: 140 }} />
-          <button className="vg-btn-sm" type="submit">＋ add</button>
-        </form>
-        <span className="vg-note" style={{ fontSize: 12 }}>restart the listener after edits</span>
+        {((d && d.channels) || []).length === 0 && (
+          <span className="vg-note" style={{ fontSize: 13 }}>No channels whitelisted yet.</span>
+        )}
       </div>
+
+      {/* …and the CONFIG SCREEN: every channel the account subscribes to,
+          published by the listener — toggle to whitelist. Live: the daemon
+          re-reads the list within 30s, no restart. */}
+      <details style={{ marginTop: 8 }} open={((d && d.channels) || []).length === 0}>
+        <summary className="vg-kicker" style={{ cursor: "pointer", fontSize: 12 }}>
+          Configure channels{dialogs.length ? ` · ${dialogs.length} subscribed` : ""}</summary>
+        {dialogs.length === 0 && (
+          <p className="vg-note" style={{ margin: "6px 0 0", fontSize: 13 }}>
+            No channel list yet — start the listener once
+            (<code>docker compose --profile telegram up -d</code>) and it publishes
+            your subscriptions here.
+          </p>
+        )}
+        {dialogs.length > 0 && (
+          <>
+            <input className="vg-fc-syminput" value={filter} spellCheck={false}
+              onChange={(e) => setFilter(e.target.value)} placeholder="filter…"
+              aria-label="filter channels" style={{ width: 160, margin: "8px 0 2px" }} />
+            <div style={{ maxHeight: 260, overflowY: "auto" }}>
+              {dialogs
+                .filter((g) => !filter || g.name.toLowerCase().includes(filter.toLowerCase())
+                  || g.key.toLowerCase().includes(filter.toLowerCase()))
+                .map((g) => {
+                  const key = g.key.replace(/^@/, "");
+                  const on = allowSet.has(key);
+                  return (
+                    <div key={g.key} className="vg-row" style={{ gap: 8, marginTop: 6, alignItems: "baseline" }}>
+                      <button className={cls("vg-btn-sm", on && "vg-btn-primary")}
+                        style={{ minWidth: 92 }}
+                        title={on ? "remove from allow-list" : "whitelist — messages start flowing within 30s"}
+                        onClick={() => (on ? drop(key) : addName(g.key))}>
+                        {on ? "✓ listening" : "whitelist"}
+                      </button>
+                      <span style={{ fontSize: 13, fontWeight: on ? 600 : 400 }}>{g.name}</span>
+                      <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>{g.key}</span>
+                    </div>
+                  );
+                })}
+            </div>
+            <div className="vg-row" style={{ gap: 6, marginTop: 8, alignItems: "center" }}>
+              <form style={{ display: "inline-flex", gap: 6 }} onSubmit={add}>
+                <input className="vg-fc-syminput" value={entry} spellCheck={false}
+                  onChange={(e) => setEntry(e.target.value)} placeholder="add @channel or id"
+                  aria-label="allow-list a telegram channel manually" style={{ width: 150 }} />
+                <button className="vg-btn-sm" type="submit">＋ add</button>
+              </form>
+              <span className="vg-note" style={{ fontSize: 12 }}>
+                toggles apply live (≤30s) — no restart
+              </span>
+            </div>
+          </>
+        )}
+      </details>
 
       {/* open sim trades */}
       {open.length > 0 && (

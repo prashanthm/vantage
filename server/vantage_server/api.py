@@ -1464,13 +1464,13 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             return envelope(snap, available=False, note="telegram signals need the SQLite backend")
         return envelope(snap, available=True,
                         session=(resolve_data_dir(None) / "telegram.session").exists(),
-                        channels=_tg.channels(store), inbox=_tg.inbox(store),
-                        book=_tg.build_book(store))
+                        channels=_tg.channels(store), dialogs=_tg.dialogs(store),
+                        inbox=_tg.inbox(store), book=_tg.build_book(store))
 
     @app.post("/api/telegram/channels")
     def telegram_channel_add(body: dict = Body(default={})):
-        """Allow-list a channel (@username or title). The daemon reads the
-        list at startup — restart it after edits. Store-only write."""
+        """Allow-list a channel (@username or numeric id). The daemon
+        re-reads the list within 30s — no restart needed. Store-only write."""
         from . import telegram_signals as _tg
         snap = state.snapshot()
         if not getattr(store, "uses_sqlite", False):
