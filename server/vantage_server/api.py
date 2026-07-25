@@ -1467,6 +1467,16 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         channels=_tg.channels(store), dialogs=_tg.dialogs(store),
                         inbox=_tg.inbox(store), book=_tg.build_book(store))
 
+    @app.get("/api/spx/forecast/calibration")
+    def forecast_calibration(symbol: str = Query("SPX")):
+        """The analyst's scored record bucketed by gamma regime x time-of-day
+        (live forecasts only — replay experiments excluded). Read-only."""
+        from . import forecast_calibration as _fc
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="calibration needs the SQLite backend")
+        return envelope(snap, **_fc.calibration(store, symbol.upper()))
+
     @app.post("/api/telegram/channels")
     def telegram_channel_add(body: dict = Body(default={})):
         """Allow-list a channel (@username or numeric id). The daemon

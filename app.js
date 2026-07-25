@@ -3695,6 +3695,16 @@ ${ref}`;
     if (!donext || !(donext.items || []).length) return null;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-card", style: { marginTop: 12 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Carried from yesterday", /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { fontWeight: 400 } }, " \xB7 ", y, " debrief")), /* @__PURE__ */ React.createElement("ol", { style: { margin: "2px 0 0", paddingLeft: 16, fontSize: "var(--vg-text-sm)" } }, donext.items.slice(0, 3).map((it, i) => /* @__PURE__ */ React.createElement("li", { key: i, style: { marginTop: 4 } }, /* @__PURE__ */ React.createElement("b", null, it.title || it.point), it.detail && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \u2014 ", String(it.detail).slice(0, 140))))));
   }
+  function CalibrationNote({ gamma }) {
+    const q = useLive(() => getJson(`${backend2()}/api/spx/forecast/calibration`), null, []);
+    const d = q.data && q.data.available ? q.data : null;
+    if (!d || !gamma) return null;
+    const m = etMinNow();
+    const hour = m < 630 ? "open" : m < 840 ? "midday" : "late";
+    const c = (d.conditions || []).find((x) => x.gamma === gamma && x.hour === hour);
+    if (!c || c.hit_rate == null) return null;
+    return /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0", fontSize: 12 } }, "analyst record in ", gamma, " gamma \xB7 ", hour, ": ", /* @__PURE__ */ React.createElement("b", null, Math.round(c.hit_rate * 100), "%"), " hits", c.invalidated_rate != null ? ` \xB7 ${Math.round(c.invalidated_rate * 100)}% invalidated` : "", " ", "over ", c.n, " scored calls \u2014 weigh the call against the caller");
+  }
   function MiraCallBlock({ row, title }) {
     if (!row || !row.forecast_text) return null;
     const parsed = parseMira(row.forecast_text);
@@ -3824,7 +3834,12 @@ ${ref}`;
     const pq = useLive(() => getJson(`${backend2()}/api/spx/playbook?symbol=SPX`, { timeoutMs: 3e4 }), null, [refreshNonce]);
     const planRows = ((pq.data && pq.data.available && pq.data.scaffold || {}).table || {}).rows || [];
     const preOpen = etMinNow() < 570;
-    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(CarriedRulesCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), d && !preOpen && /* @__PURE__ */ React.createElement(ChecklistCard, { d, planRows }), /* @__PURE__ */ React.createElement(AlertsBlock, { refreshNonce }), d && /* @__PURE__ */ React.createElement(LevelsWatch, { d, rows: planRows }), d && /* @__PURE__ */ React.createElement(DisciplineCard, { d }), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, q.loading ? "Reading the day\u2026" : "Cockpit needs the SQLite backend."));
+    return /* @__PURE__ */ React.createElement("div", { className: "vg-pane-body" }, preOpen && /* @__PURE__ */ React.createElement(CarriedRulesCard, null), d && !preOpen && /* @__PURE__ */ React.createElement(NowCard, { d, isToday: true }), !preOpen && /* @__PURE__ */ React.createElement(
+      CalibrationNote,
+      {
+        gamma: ((pq.data && pq.data.available && pq.data.scaffold || {}).regime || {}).gamma
+      }
+    ), d && !preOpen && /* @__PURE__ */ React.createElement(ChecklistCard, { d, planRows }), /* @__PURE__ */ React.createElement(AlertsBlock, { refreshNonce }), d && /* @__PURE__ */ React.createElement(LevelsWatch, { d, rows: planRows }), d && /* @__PURE__ */ React.createElement(DisciplineCard, { d }), !d && /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { marginTop: 12 } }, q.loading ? "Reading the day\u2026" : "Cockpit needs the SQLite backend."));
   }
   function FrameTr({ f, selected, onSelect }) {
     const c = f.call, m = f.market;

@@ -248,6 +248,27 @@ function CarriedRulesCard() {
   );
 }
 
+// The analyst's own scored record for THIS condition (gamma regime x hour
+// bucket) — the calibration prior, displayed next to the standing call so the
+// operator weighs the call against the caller's record. Code-computed
+// (forecast_calibration.py); live forecasts only.
+function CalibrationNote({ gamma }) {
+  const q = useLive(() => getJson(`${backend()}/api/spx/forecast/calibration`), null, []);
+  const d = q.data && q.data.available ? q.data : null;
+  if (!d || !gamma) return null;
+  const m = etMinNow();
+  const hour = m < 630 ? "open" : m < 840 ? "midday" : "late";
+  const c = (d.conditions || []).find((x) => x.gamma === gamma && x.hour === hour);
+  if (!c || c.hit_rate == null) return null;
+  return (
+    <p className="vg-note" style={{ margin: "6px 0 0", fontSize: 12 }}>
+      analyst record in {gamma} gamma · {hour}: <b>{Math.round(c.hit_rate * 100)}%</b> hits
+      {c.invalidated_rate != null ? ` · ${Math.round(c.invalidated_rate * 100)}% invalidated` : ""}
+      {" "}over {c.n} scored calls — weigh the call against the caller
+    </p>
+  );
+}
+
 // Mira's forecast, verbatim — the full synthesis behind a call, not a summary.
 // `row` is a stored forecast row (forecast_text is Mira's own JSON sections).
 function MiraCallBlock({ row, title }) {
@@ -520,6 +541,8 @@ export function CockpitPanel({ refreshNonce }) {
     <div className="vg-pane-body">
       {preOpen && <CarriedRulesCard />}
       {d && !preOpen && <NowCard d={d} isToday />}
+      {!preOpen && <CalibrationNote
+        gamma={(((pq.data && pq.data.available && pq.data.scaffold) || {}).regime || {}).gamma} />}
       {d && !preOpen && <ChecklistCard d={d} planRows={planRows} />}
       <AlertsBlock refreshNonce={refreshNonce} />
       {d && <LevelsWatch d={d} rows={planRows} />}
