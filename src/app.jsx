@@ -11,6 +11,7 @@ import {
 } from "./util.jsx";
 import { Icon } from "./icons.jsx";
 import { CockpitView, CockpitPanel } from "./cockpit.jsx";
+import { DeskRail } from "./desk_rail.jsx";
 import { MiraRender } from "./mira-render.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { PortfolioView } from "./portfolio_view.jsx";
@@ -383,6 +384,9 @@ function App() {
   const [forecastSavedNonce, setForecastSavedNonce] = useState(0);
   // the Replay panel takes over the right pane on the chart route when active.
   const showReplayPanel = route === "ic" && replayOn;
+  // desk/review routes get the context rail (alerts · open risk · strategy
+  // pulse) instead of the route-blind ticker Notebook.
+  const showDeskRail = ["playbook", "scanner", "journal", "trades", "strategies", "paper"].includes(route);
   // Cockpit: the right pane becomes the cockpit's instrument panel (NOW state /
   // a clicked frame's briefing) — same lifted-state pattern as Replay.
   const homeFace = route === "home"
@@ -571,7 +575,7 @@ function App() {
             {rightOpen && (
               <span className="vg-kicker" style={{ marginBottom: 0 }}>
                 {showReplayPanel ? "⟲ Replay" : showCockpitPanel ? "Cockpit"
-                  : symbol ? "Notebook" : "Vantage AI"}
+                  : showDeskRail ? "Desk" : symbol ? "Notebook" : "Vantage AI"}
               </span>
             )}
             {rightOpen && showReplayPanel && (
@@ -589,6 +593,11 @@ function App() {
                 onForecastSaved={() => setForecastSavedNonce((n) => n + 1)} />
             : showCockpitPanel
               ? <CockpitPanel refreshNonce={refreshNonce} />
+            : showDeskRail
+              ? <>
+                  <DeskRail route={route} refreshNonce={refreshNonce} />
+                  <ChatPanel docked settings={settings} />
+                </>
             : symbol
               ? <NotebookPanel symbol={symbol} accountId={accountId} refreshNonce={refreshNonce} />
               : <ChatPanel docked settings={settings} />)}
