@@ -132,12 +132,48 @@ def h_fresh_block(snap: dict) -> str:
     return f"INPUT FRESHNESS: levels_slot={slot} — {note}\n{rule}"
 
 
+def h_selffeed_block(rid: str, step_as_of: str) -> str:
+    """E2 (H-selffeed): the last 3 SCORED verdicts of THIS day's earlier
+    forecasts — look-ahead safe: only forecasts made >= 60 sim-minutes before
+    this step (their scoring window has fully elapsed in replay time)."""
+    import datetime as _dt
+    try:
+        post(f"{API}/api/replay/{urllib.parse.quote(rid)}/score", {})
+        g = get(f"{API}/api/replay/{urllib.parse.quote(rid)}")
+    except Exception:
+        return ""
+    cutoff = _dt.datetime.fromisoformat(step_as_of) - _dt.timedelta(minutes=60)
+    rows = []
+    for f in g.get("forecasts") or []:
+        try:
+            ts = _dt.datetime.fromisoformat(str(f.get("as_of")))
+        except ValueError:
+            continue
+        if ts > cutoff:
+            continue
+        v = ((f.get("score") or {}).get("verdict")
+             or (f.get("forecast") or {}).get("score_verdict") or f.get("score_verdict"))
+        if not v:
+            continue
+        head = str(((f.get("forecast") or {}).get("headline")) or "")[:80]
+        rows.append((ts, f"{str(f.get('as_of'))[11:16]} \"{head}\" -> {v}"))
+    rows.sort()
+    if not rows:
+        return ""
+    feed = "; ".join(r[1] for r in rows[-3:])
+    return ("YOUR SCORED TRACK TODAY (oldest->newest, code-graded): " + feed + "\n"
+            "SELF-CORRECTION RULE: if your last two same-direction calls were "
+            "invalidated, do not repeat that bias unless you can cite what CHANGED "
+            "in this snapshot; if recent calls hit, keep the same target discipline "
+            "(nearest reachable level) — do not get more ambitious.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--day", required=True)
     ap.add_argument("--symbol", default="SPX")
     ap.add_argument("--extra-file", default=None)
-    ap.add_argument("--experiment", default=None, choices=[None, "h_fresh"])
+    ap.add_argument("--experiment", default=None, choices=[None, "h_fresh", "h_selffeed"])
     ap.add_argument("--tag", default="E0")
     ap.add_argument("--step-min", type=int, default=15)
     a = ap.parse_args()
@@ -180,6 +216,9 @@ def main() -> int:
             step_extra = extra
             if a.experiment == "h_fresh":
                 step_extra = h_fresh_block(snap) + ("\n" + extra if extra else "")
+            elif a.experiment == "h_selffeed":
+                fb = h_selffeed_block(rid, snap["as_of"])
+                step_extra = (fb + ("\n" + extra if extra else "")) if fb else extra
             prompt = build_prompt(a.symbol, ref, step_extra)
             text = mira_turn_collect(prompt, f"replay-{a.tag}-{a.day}-{as_of}")
             data = extract_json(text)

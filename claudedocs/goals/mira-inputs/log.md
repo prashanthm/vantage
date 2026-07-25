@@ -38,3 +38,16 @@ distrust-the-map RULE does not.
 kept: NOTHING ships. Backlog variant H-fresh-v2 (conditional: rule fires
 only when price sits > 25pt from the nearest GEX anchor) — lower priority.
 
+
+## E2 · H-selffeed — Mira sees her own scored track for the day
+prediction (pre-registered BEFORE run): per step, feed the last 3 code-
+graded verdicts of forecasts made ≥60 sim-minutes earlier (look-ahead
+safe) + a self-correction rule (two same-direction invalidations ⇒ don't
+repeat the bias without citing what changed; hits ⇒ keep target
+discipline, don't get ambitious). Mechanism: repeated wrong-side calls
+after regime shifts are the known leak; E1 taught us NOT to loosen target
+anchoring, so the rule explicitly preserves it. Predict: pooled ≥ +0.03
+(≥ 0.655); chop day +0.05 or better (repeats hurt most there); trend days
+flat ±0.04. DISPROVEN if pooled lift < +0.01 or any day regresses > 0.10.
+experiment: mira_replay.py --experiment h_selffeed on the fixed days.
+result: PENDING
