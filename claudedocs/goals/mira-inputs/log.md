@@ -88,4 +88,24 @@ a null change flips ~17% of steps (±7 each way, net 0). sd(net) ≈ √14 ≈
 - E1-E3 remain as logged (3-day era); E4+ use the 6-day protocol.
 
 ## E0b · baseline extension on the three new days
-prediction: none needed (baseline). result: PENDING
+prediction: none needed (baseline). result: 07-15: 0.481 (13/27) · 07-16: 0.593 (16/27) · 07-17: running
+
+## Six-day baseline (E0+E0b) + miss anatomy
+pooled 0.602 (97/161). Verdicts: hit 97 · invalidated 58 · direction-
+correct 5 · inconclusive 1 — **91% of misses are invalidations** (wrong
+side or shaken out), NOT unreached targets. Miss rate by hour: 09-11h
+0.29-0.33 → 12h 0.46 → 14h 0.54 → 15h 0.41. The afternoon invalidates 2×
+the morning — the forecast twin of the validated midday-entry trap.
+
+## E4 · H-clock — own failure base rates by hour + afternoon stop rule
+prediction (pre-registered BEFORE run): time-context block gives the hour,
+the coarse base rates (morning ~3/10 invalidated, 12:00-15:00 ~5/10), and
+the rule: KEEP target discipline; place afternoon invalidation beyond the
+far edge of the nearest opposing zone; prefer stand-down over a tight
+stop. Predict: paired net flips vs the 6-day baseline ≥ +8, concentrated
+in 12:00-15:45 steps; pooled ≥ +0.04. ANTI-GAMING GUARD: hits per TOTAL
+step (not per scored) must also rise — stand-downs that merely shrink the
+denominator do NOT count. DISPROVEN if |net| < 5 or the guard fails.
+DISCLOSURE: the base rates are measured on these same six days (partially
+in-sample); a confirm here ships only to a live A/B, not straight to prod.
+result: PENDING

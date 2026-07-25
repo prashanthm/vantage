@@ -168,12 +168,32 @@ def h_selffeed_block(rid: str, step_as_of: str) -> str:
             "(nearest reachable level) — do not get more ambitious.")
 
 
+def h_clock_block(step_as_of: str) -> str:
+    """E4 (H-clock): the forecaster's OWN failure base rates by hour + an
+    afternoon invalidation rule. Rates are coarse (direction-only) from the
+    six-day baseline — noted in the log as partially in-sample."""
+    hh = int(step_as_of[11:13])
+    when = ("MORNING (09:30-11:59 ET)" if hh < 12
+            else "AFTERNOON (12:00-15:59 ET)")
+    return (
+        f"TIME CONTEXT: it is {step_as_of[11:16]} ET — {when}.\n"
+        "YOUR MEASURED FAILURE PATTERN (from your own scored record): morning "
+        "forecasts get invalidated ~3 in 10; forecasts issued 12:00-15:00 get "
+        "invalidated ~5 in 10 — the afternoon stops you out twice as often.\n"
+        "AFTERNOON RULE: keep the nearest-reachable target discipline "
+        "unchanged, but place the invalidation BEYOND the far edge of the "
+        "nearest opposing zone (not a tight fixed offset) — afternoon chop "
+        "wicks through tight stops before the target prints. If no opposing "
+        "zone sits within reach, a neutral stand-down is better than a tight "
+        "stop.")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--day", required=True)
     ap.add_argument("--symbol", default="SPX")
     ap.add_argument("--extra-file", default=None)
-    ap.add_argument("--experiment", default=None, choices=[None, "h_fresh", "h_selffeed"])
+    ap.add_argument("--experiment", default=None, choices=[None, "h_fresh", "h_selffeed", "h_clock"])
     ap.add_argument("--tag", default="E0")
     ap.add_argument("--step-min", type=int, default=15)
     a = ap.parse_args()
@@ -219,6 +239,8 @@ def main() -> int:
             elif a.experiment == "h_selffeed":
                 fb = h_selffeed_block(rid, snap["as_of"])
                 step_extra = (fb + ("\n" + extra if extra else "")) if fb else extra
+            elif a.experiment == "h_clock":
+                step_extra = h_clock_block(snap["as_of"]) + ("\n" + extra if extra else "")
             prompt = build_prompt(a.symbol, ref, step_extra)
             text = mira_turn_collect(prompt, f"replay-{a.tag}-{a.day}-{as_of}")
             data = extract_json(text)
