@@ -61,3 +61,15 @@
 
 /* wide content scrolls inside its container, never the page */
 .t-focus, .t-ledger { overflow-x: auto; }
+
+/* ---- space discipline (operator rule: use the width) -------------------
+ * A trading desk runs wide screens; a single 700px column on 2400px is
+ * wasted glass. Parallel content sits side by side via vg-cols (auto-fit:
+ * collapses to one column on narrow screens with zero media queries).
+ * Pages choose the min column width by modifier. */
+.vg-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 10px; align-items: start; }
+.vg-cols.wide { grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); }
+.vg-workbench, .vg-ledger { gap: 10px; }
+/* tables read tighter than Astryx's default rhythm — data, not prose */
+.vg-dense table { font-variant-numeric: tabular-nums; }
+.vg-dense td, .vg-dense th { padding-top: 4px; padding-bottom: 4px; }

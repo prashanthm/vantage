@@ -42,7 +42,7 @@ function PositionsTab({ rows }) {
   const sorted = rows.slice().sort((a, b) => (b.value || 0) - (a.value || 0));
   return (
     <Section>
-      <VStack gap={2} padding={3}>
+      <VStack gap={2} padding={3} className="vg-dense">
         <HStack gap={2} align="center" justify="between">
           <Text type="label" color="secondary">
             Every position, every account · values in each holding&apos;s own currency
@@ -82,6 +82,7 @@ function AnalyzerTab({ snap }) {
   const cur = snap.by_currency || {};
   return (
     <VStack gap={3}>
+      <div className="vg-cols wide">
       {Object.entries(cur).map(([code, c]) => {
         const div = c.diversification || {};
         const sectors = Object.entries(div.by_sector || {}).sort((a, b) => b[1] - a[1]).slice(0, 6);
@@ -124,6 +125,7 @@ function AnalyzerTab({ snap }) {
           </Section>
         );
       })}
+      </div>
       {(snap.rebalance || []).length > 0 && (
         <Section>
           <VStack gap={2} padding={3}>

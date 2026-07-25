@@ -64,8 +64,9 @@ function RealTab({ dayPnl, rt }) {
         {summary && <Tile label="Swing roundtrips — profit factor" value={pf(summary.profit_factor)}
           tone={summary.profit_factor >= 1 ? "good" : "bad"} />}
       </HStack>
+      <div className="vg-cols wide">
       <Section>
-        <VStack gap={2} padding={3}>
+        <VStack gap={2} padding={3} className="vg-dense">
           <HStack gap={2} align="center" justify="between">
             <Text type="label" color="secondary">Realized by session — fills synced from the broker</Text>
             <Link href={links.journalDay()}>journal →</Link>
@@ -82,7 +83,7 @@ function RealTab({ dayPnl, rt }) {
       </Section>
       {summary && (
         <Section>
-          <VStack gap={2} padding={3}>
+          <VStack gap={2} padding={3} className="vg-dense">
             <Text type="label" color="secondary">
               Swing roundtrips · {summary.count} closed · through {(rt || {}).roundtrips_as_of || "—"}
             </Text>
@@ -98,6 +99,7 @@ function RealTab({ dayPnl, rt }) {
           </VStack>
         </Section>
       )}
+      </div>
     </VStack>
   );
 }
@@ -156,6 +158,7 @@ function PaperTab({ spreads, reclaim }) {
           </Text>
         </VStack>
       </Section>
+      <div className="vg-cols wide">
       {manual.length > 0 && (
         <Section>
           <VStack gap={2} padding={3}>
@@ -183,6 +186,7 @@ function PaperTab({ spreads, reclaim }) {
           </VStack>
         </Section>
       )}
+      </div>
     </VStack>
   );
 }

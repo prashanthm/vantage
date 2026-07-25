@@ -8,7 +8,10 @@ never blends; Journal migrates last; lightweight-charts stays.
 ## W0 — foundations · DONE (41c8a9e)
 AppShell + SideNav (Desk/Book/Review) + cmd-K palette + hash router at
 /next/. theme-vantage.css: Plex + 12px floor over theme-neutral tokens.
-Templates: Workbench / Ledger / Brief (pages never set margins). links.js =
+Templates: Workbench / Ledger / Brief (pages never set margins).
+SPACE RULE (operator, 2026-07-24): use the width — parallel content sits
+side by side via .vg-cols/.vg-cols.wide (auto-fit, no media queries); data
+tables get .vg-dense. A single narrow column on a wide desk is a defect. links.js =
 the link contract (canonical href builders; flip in place as pages migrate).
 Cockpit ported onto Workbench (identity gate PASSED — verified in browser).
 Deploy fix: fonts/ was never in the SPA image (all Plex 404'd silently).
