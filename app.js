@@ -318,6 +318,7 @@
     scoreReplay: () => scoreReplay,
     scoreSpxForecast: () => scoreSpxForecast,
     settlePaper: () => settlePaper,
+    streamClaudeForecast: () => streamClaudeForecast,
     streamTurn: () => streamTurn,
     symbolThreadId: () => symbolThreadId,
     syncAccount: () => syncAccount,
@@ -911,7 +912,7 @@
     if (typeof data !== "object" || data === null) data = { text: String(data) };
     return { ...data, kind: kind || "message" };
   }
-  function streamTurn(prompt, thread, onEvent) {
+  function streamSse(url, body, onEvent, who) {
     const ctrl = new AbortController();
     let terminal = false;
     const emit = (evt) => {
@@ -925,18 +926,18 @@
     (async () => {
       let res;
       try {
-        res = await fetch(`${miraBase()}/turn`, {
+        res = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, thread_id: thread }),
+          body: JSON.stringify(body || {}),
           signal: ctrl.signal
         });
       } catch (e) {
-        emit({ kind: "error", code: "unreachable", message: "Mira is not reachable" });
+        emit({ kind: "error", code: "unreachable", message: `${who} is not reachable` });
         return;
       }
       if (!res.ok || !res.body) {
-        emit({ kind: "error", code: "unreachable", message: `Mira answered ${res.status}` });
+        emit({ kind: "error", code: "unreachable", message: `${who} answered ${res.status}` });
         return;
       }
       const reader = res.body.getReader();
@@ -963,6 +964,17 @@
       terminal = true;
       ctrl.abort();
     };
+  }
+  function streamTurn(prompt, thread, onEvent) {
+    return streamSse(`${miraBase()}/turn`, { prompt, thread_id: thread }, onEvent, "Mira");
+  }
+  function streamClaudeForecast({ symbol, day, asOf, snapshot }, onEvent) {
+    return streamSse(
+      `${backendBase()}/api/spx/forecast/claude`,
+      { symbol, day, as_of: asOf, snapshot },
+      onEvent,
+      "Claude"
+    );
   }
   async function analyzeSymbol(symbol, question) {
     const base = miraBase();
@@ -4642,13 +4654,13 @@ ${ref}`;
 
   // src/use_stream_turn.js
   var { useState: useState6, useRef: useRef2, useEffect: useEffect5, useCallback: useCallback2 } = React;
-  function collectTurn(prompt, thread, { onToken, setAbort } = {}) {
+  function collectStream(start, { onToken, setAbort } = {}) {
     return new Promise((resolve) => {
       let text = "";
-      const abort = streamTurn(prompt, thread, (evt) => {
+      const abort = start((evt) => {
         if (evt.kind === "error") {
           if (setAbort) setAbort(null);
-          resolve({ text, data: text ? parseMira(text) : null, error: evt.message || evt.text || "Mira error" });
+          resolve({ text, data: text ? parseMira(text) : null, error: evt.message || evt.text || "AI error" });
           return;
         }
         if ((evt.kind === "token" || evt.kind === "delta" || evt.kind === "message") && evt.text) {
@@ -4663,6 +4675,21 @@ ${ref}`;
         }
       });
       if (setAbort) setAbort(abort);
+    });
+  }
+  function collectTurn(prompt, thread, opts = {}) {
+    return collectStream((onEvent) => streamTurn(prompt, thread, onEvent), opts);
+  }
+  function collectForecast(symbol, snapshot, opts = {}) {
+    const day = snapshot && snapshot.day;
+    const asOf = snapshot && snapshot.as_of;
+    return collectStream(
+      (onEvent) => streamClaudeForecast({ symbol, day, asOf, snapshot }, onEvent),
+      opts
+    ).then((r) => {
+      if (!r.error || r.text) return { ...r, provider: "claude" };
+      const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
+      return collectTurn(buildForecastPrompt(symbol, ref), `forecast-${symbol}-${asOf}`, opts).then((m) => ({ ...m, provider: "mira" }));
     });
   }
   function useStreamTurn(deps = []) {
@@ -5393,9 +5420,7 @@ ${ref}`;
             setFc({ error: `No snapshot for ${symbol} \u2014 try again during market hours.` });
             return;
           }
-          const ref = `SPX_SNAPSHOT_REF day=${snapshot.day} as_of=${snapshot.as_of} underlying=${symbol}`;
-          const prompt = buildForecastPrompt(symbol, ref);
-          return collectTurn(prompt, `forecast-${symbol}-${snapshot.as_of}`, {
+          return collectForecast(symbol, snapshot, {
             onToken: (text) => setFc({ loading: true, text }),
             setAbort: (fn) => {
               abortRef.current = fn;
@@ -5437,9 +5462,7 @@ ${ref}`;
           resolve(false);
           return;
         }
-        const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
-        const prompt = buildForecastPrompt(symbol, ref);
-        collectTurn(prompt, `replay-${symbol}-${day}-${asOf}`, {
+        collectForecast(symbol, snapshot, {
           setAbort: (fn) => {
             abortRef.current = fn;
           }
@@ -5559,7 +5582,7 @@ ${ref}`;
         className: "vg-btn-sm on",
         style: { marginLeft: "auto" },
         onClick: forecastNow,
-        title: `Forecast ${symbol} from now \u2014 calls Mira`
+        title: `Forecast ${symbol} from now \u2014 calls Claude (Mira fallback)`
       },
       "\u{1F52E} Forecast now"
     )), fc && fc.loading && !fc.text && /* @__PURE__ */ React.createElement(LoadBar, null), fc && fc.error && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gennote" }, fc.error), fc && fc.text && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-fcread" }, /* @__PURE__ */ React.createElement(MiraRender, { data: fc.data, text: fc.text })), priors.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-priors" }, /* @__PURE__ */ React.createElement("div", { className: "vg-note vg-rp-priorlbl" }, "Prior forecasts"), priors.map((f) => /* @__PURE__ */ React.createElement(
@@ -5588,7 +5611,7 @@ ${ref}`;
         className: "vg-rp-step",
         value: stepMin,
         onChange: (e) => setStepMin(Number(e.target.value)),
-        title: "Forecast interval \u2014 5m is ~78 Mira calls for a full session (slow + costly); coarser steps are cheaper"
+        title: "Forecast interval \u2014 5m is ~78 Claude calls for a full session (slow + costly); coarser steps are cheaper"
       },
       /* @__PURE__ */ React.createElement("option", { value: 5 }, "5m"),
       /* @__PURE__ */ React.createElement("option", { value: 15 }, "15m"),
@@ -5599,7 +5622,7 @@ ${ref}`;
       {
         className: "vg-btn-sm on",
         onClick: generate,
-        title: `Forecast ${symbol} across ${genDay} \u2014 calls Mira per step`
+        title: `Forecast ${symbol} across ${genDay} \u2014 calls Claude per step (Mira fallback)`
       },
       "Generate"
     ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: () => setShowGen(false) }, "cancel")), genBusy && /* @__PURE__ */ React.createElement("div", { className: "vg-rp-genprog" }, /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, gen.status === "planning" ? "planning\u2026" : `forecasting ${gen.done}/${gen.total}${gen.at ? ` \xB7 ${gen.at}` : ""}`), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: stopGen }, "Stop")), note && /* @__PURE__ */ React.createElement("p", { className: "vg-note vg-rp-gennote" }, note));

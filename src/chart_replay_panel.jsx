@@ -10,11 +10,11 @@
 // (getReplayRuns / getReplayRun / scoreSpxForecast). Generating a NEW run (which
 // calls Mira per step) is intentionally NOT here.
 import { cls, LoadBar } from "./util.jsx";
-import { useLive, getReplayRuns, getReplayRun, scoreSpxForecast, buildForecastPrompt,
+import { useLive, getReplayRuns, getReplayRun, scoreSpxForecast,
   planReplay, getSpxSnapshot, saveSpxForecast, scoreReplay, calibrateReplay,
   getSpxForecasts, refreshSpx } from "./live.js";
 import { MiraRender } from "./mira-render.jsx";
-import { collectTurn } from "./use_stream_turn.js";
+import { collectTurn, collectForecast } from "./use_stream_turn.js";
 
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -106,8 +106,8 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
   const hits = scored.filter((f) => verdictTone(f.score) === "good").length;
   const hitRate = scored.length ? Math.round((hits / scored.length) * 100) : null;
 
-  // ── GENERATE a new run (calls Mira per step) ────────────────────────────────
-  // Serial: plan → for each interval, stream one Mira forecast, save it, bump the
+  // ── GENERATE a new run (calls Claude per step; Mira fallback) ───────────────
+  // Serial: plan → for each interval, stream one Claude forecast, save it, bump the
   // run refetch so the new call streams into the list + its marker onto the chart
   // (no page reload — React re-renders the panel). Then score with code. A Stop +
   // resume (skips already-saved steps). Grade is a separate Mira turn (narrative).
@@ -144,9 +144,8 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
       return getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
         const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
         if (!snapshot) { setFc({ error: `No snapshot for ${symbol} — try again during market hours.` }); return; }
-        const ref = `SPX_SNAPSHOT_REF day=${snapshot.day} as_of=${snapshot.as_of} underlying=${symbol}`;
-        const prompt = buildForecastPrompt(symbol, ref);
-        return collectTurn(prompt, `forecast-${symbol}-${snapshot.as_of}`, {
+        // Claude generates the forecast (backend-enriched prompt); Mira is the fallback.
+        return collectForecast(symbol, snapshot, {
           onToken: (text) => setFc({ loading: true, text }),
           setAbort: (fn) => { abortRef.current = fn; },
         }).then(({ text, data, error }) => {
@@ -179,9 +178,8 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
     getSpxSnapshot(day, asOf, symbol).then((snapEnv) => {
       const snapshot = snapEnv && snapEnv.available ? snapEnv : null;
       if (!snapshot) { resolve(false); return; }
-      const ref = `SPX_SNAPSHOT_REF day=${day} as_of=${asOf} underlying=${symbol}`;
-      const prompt = buildForecastPrompt(symbol, ref);
-      collectTurn(prompt, `replay-${symbol}-${day}-${asOf}`, {
+      // Claude generates each step's forecast (backend-enriched prompt); Mira fallback.
+      collectForecast(symbol, snapshot, {
         setAbort: (fn) => { abortRef.current = fn; },
       }).then(({ text, data, error }) => {
         if (error && !text) { resolve(false); return; }
@@ -273,7 +271,7 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
         {(fc && fc.loading)
           ? <span className="vg-note" style={{ marginLeft: "auto" }}>forecasting…</span>
           : <button className="vg-btn-sm on" style={{ marginLeft: "auto" }}
-              onClick={forecastNow} title={`Forecast ${symbol} from now — calls Mira`}>
+              onClick={forecastNow} title={`Forecast ${symbol} from now — calls Claude (Mira fallback)`}>
               🔮 Forecast now
             </button>}
       </div>
@@ -300,14 +298,14 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
             max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setGenDay(e.target.value)} />
           <select className="vg-rp-step" value={stepMin} onChange={(e) => setStepMin(Number(e.target.value))}
-            title="Forecast interval — 5m is ~78 Mira calls for a full session (slow + costly); coarser steps are cheaper">
+            title="Forecast interval — 5m is ~78 Claude calls for a full session (slow + costly); coarser steps are cheaper">
             <option value={5}>5m</option>
             <option value={15}>15m</option>
             <option value={30}>30m</option>
             <option value={60}>1h</option>
           </select>
           <button className="vg-btn-sm on" onClick={generate}
-            title={`Forecast ${symbol} across ${genDay} — calls Mira per step`}>Generate</button>
+            title={`Forecast ${symbol} across ${genDay} — calls Claude per step (Mira fallback)`}>Generate</button>
           <button className="vg-btn-sm" onClick={() => setShowGen(false)}>cancel</button>
         </div>)}
       {genBusy && (

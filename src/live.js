@@ -767,10 +767,12 @@ function parseSseFrame(frame) {
   return { ...data, kind: kind || "message" };
 }
 
-// POST {miraUrl}/turn and stream the SSE response incrementally.
+// POST url + JSON body and stream the SSE response incrementally — the shared
+// engine behind Mira's /turn and the backend's Claude forecast stream (both
+// speak the same wire shape: token/done/error frames with a JSON payload).
 // Calls onEvent({kind, ...data}) per frame; guarantees exactly one terminal
 // event (done or error) unless aborted. Returns an abort function.
-export function streamTurn(prompt, thread, onEvent) {
+function streamSse(url, body, onEvent, who) {
   const ctrl = new AbortController();
   let terminal = false;
   const emit = (evt) => {
@@ -782,18 +784,18 @@ export function streamTurn(prompt, thread, onEvent) {
   (async () => {
     let res;
     try {
-      res = await fetch(`${miraBase()}/turn`, {
+      res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt, thread_id: thread }),
+        body: JSON.stringify(body || {}),
         signal: ctrl.signal,
       });
     } catch (e) {
-      emit({ kind: "error", code: "unreachable", message: "Mira is not reachable" });
+      emit({ kind: "error", code: "unreachable", message: `${who} is not reachable` });
       return;
     }
     if (!res.ok || !res.body) {
-      emit({ kind: "error", code: "unreachable", message: `Mira answered ${res.status}` });
+      emit({ kind: "error", code: "unreachable", message: `${who} answered ${res.status}` });
       return;
     }
     const reader = res.body.getReader();
@@ -818,6 +820,23 @@ export function streamTurn(prompt, thread, onEvent) {
   })();
 
   return () => { terminal = true; ctrl.abort(); };
+}
+
+// POST {miraUrl}/turn and stream the SSE response incrementally.
+export function streamTurn(prompt, thread, onEvent) {
+  return streamSse(`${miraBase()}/turn`, { prompt, thread_id: thread }, onEvent, "Mira");
+}
+
+// POST the backend's Claude forecast endpoint and stream the reply — the Mira
+// replacement for the forecast analyst. The backend builds the ENRICHED prompt
+// (snapshot inlined + DISCIPLINE rules + output contract) and calls the
+// Anthropic API server-side, so the key never reaches the browser. Passing the
+// snapshot the SPA already fetched guarantees the forecast is generated from
+// exactly the snapshot that gets persisted alongside it. Answers 503 (→ one
+// error event) when Claude is not configured, so callers can fall back to Mira.
+export function streamClaudeForecast({ symbol, day, asOf, snapshot }, onEvent) {
+  return streamSse(`${backendBase()}/api/spx/forecast/claude`,
+    { symbol, day, as_of: asOf, snapshot }, onEvent, "Claude");
 }
 
 // POST {miraUrl}/analyze — the multi-facet analysis graph. Fans the ticker

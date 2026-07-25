@@ -17,6 +17,11 @@ dev = [
     "pytest>=8",
     "httpx>=0.27",
 ]
+# Claude forecast analyst (claude_forecast.py) — the Mira replacement for the
+# AI forecast. Imported lazily; also needs ANTHROPIC_API_KEY in the env.
+claude = [
+    "anthropic>=0.40",
+]
 # Robinhood read-only position sync (brokers/robinhood.py). Imported lazily.
 robinhood = [
     "mcp>=1.9",

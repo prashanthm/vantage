@@ -27,7 +27,7 @@ from dataclasses import dataclass
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from . import analyze
 from . import bars_view
@@ -2201,6 +2201,47 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             f"signal.\n{ref}")
         return envelope(snap, available=True, prompt=prompt, day=day,
                         as_of=as_of, symbol=sym, snapshot=built)
+
+    @app.post("/api/spx/forecast/claude")
+    def spx_forecast_claude(body: dict = Body(default={})):
+        """Stream a Claude-generated forecast (the Mira replacement for the
+        forecast analyst). Body: {symbol?, day?, as_of?, snapshot?} — when the
+        SPA already holds the snapshot it sends it so the forecast is generated
+        from exactly the snapshot that gets persisted; otherwise it is built
+        here. Emits SSE frames in Mira's /turn wire shape (token/done/error).
+        Outbound LLM call only — writes nothing, no broker/order path
+        (ADR-010 holds); the ANTHROPIC_API_KEY stays server-side. Returns 503
+        when Claude is not configured so the SPA can fall back to Mira."""
+        from . import claude_forecast as _cf
+        sym = (body.get("symbol") or "SPX").upper()
+        ok, note = _cf.available()
+        if not ok:
+            snap = state.snapshot()
+            return JSONResponse(status_code=503, content=to_jsonable(
+                envelope(snap, available=False, note=note)))
+        snapshot = body.get("snapshot")
+        if not isinstance(snapshot, dict) or not snapshot:
+            from . import spx_snapshot as _ss
+            import datetime as _dt4
+            day = body.get("day") or _dt4.datetime.now(_dt4.timezone.utc).astimezone(
+                _dt4.timezone(_dt4.timedelta(hours=-4))).date().isoformat()
+            try:
+                snapshot = _ss.build_snapshot(store, day, sym,
+                                              as_of=body.get("as_of"))
+            except Exception as e:  # noqa: BLE001
+                snapshot = None
+                snap_err = str(e)
+            else:
+                snap_err = "no bars stored for that day"
+            if not snapshot:
+                snap = state.snapshot()
+                return JSONResponse(status_code=503, content=to_jsonable(
+                    envelope(snap, available=False,
+                             note=f"snapshot failed: {snap_err}")))
+        return StreamingResponse(
+            _cf.stream_forecast_sse(sym, snapshot),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/cockpit/frames")
     def cockpit_frames(day: str = Query(None), symbol: str = Query("SPX")):

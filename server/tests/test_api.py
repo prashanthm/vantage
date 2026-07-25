@@ -494,6 +494,9 @@ ALLOWED_WRITE_ROUTES = {
     "/api/paper/open",
     "/api/paper/settle",
     "/api/paper/close",
+    # Manually tag a real broker spread with its strategy — store-only write
+    # (ADR-010 holds). Was missing from this allowlist when the route shipped.
+    "/api/paper/live-tag",
     # Chart-snapshot journal — saves an image + forecast + score to our own store/
     # disk. Journal/analysis only; no broker or order path (ADR-010 holds).
     "/api/journal/upload",
@@ -509,6 +512,10 @@ ALLOWED_WRITE_ROUTES = {
     # forecast-analyst forecasts — persist a 'what will price do' read + score it later.
     # Writes only our own SQLite; no broker/order path (ADR-010 holds).
     "/api/spx/forecast",
+    # Claude forecast stream — one outbound Anthropic API call (the Mira
+    # replacement for the AI forecast); writes nothing, no broker/order path
+    # (ADR-010 holds). POST because the snapshot travels in the body.
+    "/api/spx/forecast/claude",
     "/api/spx/forecast/{fid}/score",
     # On-demand playbook-level compute + 1m seed for the forecast screen. Writes
     # only our own store (scaffold + bars); no broker/order path (ADR-010 holds).

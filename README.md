@@ -135,6 +135,14 @@ the fallback**:
   Setting it to Off restores the pure canned demo. Market Intel also renders
   Mira's `GET /insights?domain=advisor` report in place of the fixture AI-picks
   panel when available.
+- **Claude forecast**: the AI forecast ("what will price do?" — Forecast now +
+  Replay generate) streams from `POST /api/spx/forecast/claude` — the backend
+  builds an ENRICHED prompt (the deterministic snapshot inlined + the hardened
+  DISCIPLINE rules + a machine-readable output contract) and streams a Claude
+  reply via the Anthropic API (`ANTHROPIC_API_KEY` server-side, model
+  `VANTAGE_CLAUDE_MODEL`, default `claude-opus-5`). When Claude is not
+  configured/reachable the SPA falls back to Mira's `forecast_analyst`, so the
+  button keeps working either way.
 - **Status dots** in the sidebar footer show `data live/demo` (backend health,
   with quote source/as-of in the tooltip) and `AI live/demo/off` (Mira health).
 - **Settings** gains the two URLs (`Backend URL` → `http://127.0.0.1:8641`,

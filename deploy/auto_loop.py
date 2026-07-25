@@ -4,15 +4,18 @@
 Runs from intraday-refresh.sh every 5 minutes (09:30–16:45 ET window). Two jobs:
 
   1. AUTO-FORECAST: if the latest stored SPX forecast is older than ~14 min,
-     fetch the canonical hardened prompt from the backend, stream Mira, save
-     the forecast — so the cockpit's "next 15 minutes" call is always current.
+     stream a Claude forecast from the backend's enriched-prompt endpoint
+     (falling back to Mira when Claude is unconfigured), save the forecast —
+     so the cockpit's "next 15 minutes" call is always current.
   2. AUTO-ANALYZE: any trade that closed today without a desk review gets one
      (DNA → Mira trade_analyst → stored), max 2 per tick so a busy day drains
      gradually without hammering Mira.
 
 Doctrine: the BACKEND stays Mira-free — this script (like nightly-docker.sh)
-owns the LLM calls and posts results to store-only endpoints. Everything it
-saves is the same shape the SPA saves, so the UI can't tell the difference.
+owns the Mira calls and posts results to store-only endpoints. (The Claude
+forecast is the one exception by design: the backend owns that outbound call so
+the ANTHROPIC_API_KEY lives in exactly one place.) Everything this script saves
+is the same shape the SPA saves, so the UI can't tell the difference.
 """
 from __future__ import annotations
 
@@ -42,11 +45,8 @@ def post(url: str, body: dict, timeout: float = 120):
         return json.loads(r.read().decode())
 
 
-def mira_turn(prompt: str, thread: str, timeout: float = 240) -> str:
-    """POST /turn and concatenate the SSE token stream into the final text."""
-    req = urllib.request.Request(
-        f"{MIRA}/turn", data=json.dumps({"prompt": prompt, "thread_id": thread}).encode(),
-        headers={"Content-Type": "application/json"})
+def _sse_text(req: urllib.request.Request, timeout: float) -> str:
+    """Stream an SSE response and concatenate the token frames into text."""
     final = ""
     with urllib.request.urlopen(req, timeout=timeout) as r:
         ev = None
@@ -62,6 +62,28 @@ def mira_turn(prompt: str, thread: str, timeout: float = 240) -> str:
                 except ValueError:
                     pass
     return final
+
+
+def mira_turn(prompt: str, thread: str, timeout: float = 240) -> str:
+    """POST /turn and concatenate the SSE token stream into the final text."""
+    req = urllib.request.Request(
+        f"{MIRA}/turn", data=json.dumps({"prompt": prompt, "thread_id": thread}).encode(),
+        headers={"Content-Type": "application/json"})
+    return _sse_text(req, timeout)
+
+
+def claude_forecast(snapshot: dict, symbol: str = "SPX", timeout: float = 240) -> str:
+    """Stream the backend's Claude forecast (enriched prompt, key server-side).
+    Returns "" when Claude is unconfigured/unreachable (503 → caller falls back
+    to Mira's forecast_analyst)."""
+    req = urllib.request.Request(
+        f"{API}/api/spx/forecast/claude",
+        data=json.dumps({"symbol": symbol, "snapshot": snapshot}).encode(),
+        headers={"Content-Type": "application/json"})
+    try:
+        return _sse_text(req, timeout)
+    except OSError:
+        return ""
 
 
 def extract_json(text: str):
@@ -110,9 +132,12 @@ def auto_forecast() -> str:
     p = get(f"{API}/api/spx/forecast-prompt?symbol=SPX", timeout=180)
     if not p.get("available"):
         return f"forecast-prompt unavailable: {p.get('note')}"
-    text = mira_turn(p["prompt"], f"forecast-SPX-{p['as_of']}")
+    # Claude first (backend enriched prompt); Mira's forecast_analyst fallback.
+    text = claude_forecast(p.get("snapshot") or {})
     if not text.strip():
-        return "mira returned empty forecast"
+        text = mira_turn(p["prompt"], f"forecast-SPX-{p['as_of']}")
+    if not text.strip():
+        return "empty forecast from both claude and mira"
     post(f"{API}/api/spx/forecast", {
         "day": p["day"], "as_of": p["as_of"], "symbol": "SPX",
         "snapshot": p.get("snapshot") or {}, "forecast": extract_json(text),

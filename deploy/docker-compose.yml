@@ -79,6 +79,10 @@ services:
       # for a promoted strategy to place REAL orders — DEFAULT UNSET = dry-run.
       VANTAGE_LIVE_OK: "${VANTAGE_LIVE_OK:-}"
       VANTAGE_AUTONOMOUS_OK: "${VANTAGE_AUTONOMOUS_OK:-}"
+      # Claude forecast analyst (POST /api/spx/forecast/claude) — the Mira
+      # replacement for the AI forecast. Unset = 503, SPA falls back to Mira.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      VANTAGE_CLAUDE_MODEL: "${VANTAGE_CLAUDE_MODEL:-}"
       VANTAGE_KILL_SWITCH_FILE: /data/AUTONOMOUS_KILL
       # Where the spx_playbook job reads Sentinel's artifacts (the mount above).
       SENTINEL_LOGS_DIR: /sentinel/logs
