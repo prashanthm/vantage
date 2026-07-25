@@ -16,12 +16,22 @@ COPY manifest.webmanifest /usr/share/nginx/html/manifest.webmanifest
 COPY icon.svg   /usr/share/nginx/html/icon.svg
 COPY ds         /usr/share/nginx/html/ds
 COPY vendor     /usr/share/nginx/html/vendor
+# Self-hosted IBM Plex — referenced by app.css AND the Astryx shell's theme.
+# (Was missing entirely: the deployed SPA 404'd every font and silently fell
+# back to the system stack.)
+COPY fonts      /usr/share/nginx/html/fonts
 
 # Standalone Astryx cockpit (cockpit-astryx/, bundled by its own build.sh)
 # served at /cockpit/. Only the built artifacts ship — not src/node_modules.
 COPY cockpit-astryx/index.html /usr/share/nginx/html/cockpit/index.html
 COPY cockpit-astryx/app.js     /usr/share/nginx/html/cockpit/app.js
 COPY cockpit-astryx/app.css    /usr/share/nginx/html/cockpit/app.css
+
+# The Astryx APP SHELL (app-astryx/) — the strangler migration target, served
+# at /next/. Grows wave by wave until it replaces the buildless shell.
+COPY app-astryx/index.html /usr/share/nginx/html/next/index.html
+COPY app-astryx/app.js     /usr/share/nginx/html/next/app.js
+COPY app-astryx/app.css    /usr/share/nginx/html/next/app.css
 
 COPY deploy/nginx.conf /etc/nginx/nginx.conf
 

@@ -1,0 +1,11 @@
+{
+  "name": "app-astryx",
+  "private": true,
+  "description": "Vantage on Astryx — the strangler shell served at /next/, grown wave by wave until it IS the app",
+  "dependencies": {
+    "@astryxdesign/core": "0.1.7",
+    "@astryxdesign/theme-neutral": "0.1.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
