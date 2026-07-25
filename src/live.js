@@ -683,56 +683,6 @@ export const miraHealth = () => getJson(`${miraBase()}/health`);
 export const getExplanation = (correlationId) =>
   getJson(`${miraBase()}/explain?correlation_id=${encodeURIComponent(correlationId)}`);
 
-// GET /insights?domain=advisor -> report or null (404 unknown domain,
-// 503 unconfigured, network failure — all null).
-export const getInsights = () => getJson(`${miraBase()}/insights?domain=advisor`);
-
-// Normalize the Mira advisor report for display. This is the ONE live fetch
-// that used to bind straight into JSX — each observation's `evidence` is a
-// RAW JSON STRING of the tool result (e.g. the whole wash table), which dumped
-// as `{"as_of":...}` on screen. We keep the human `detail`, pull just the
-// provenance SOURCE out of evidence as a citation, drop the raw blob, and
-// surface `suggestions` (previously not rendered). Everything is coerced to a
-// display string so an object can never render as `[object Object]`.
-const _asText = (v) => {
-  if (v == null) return "";
-  if (typeof v === "string") return v;
-  if (Array.isArray(v)) return v.map(_asText).filter(Boolean).join(" · ");
-  return String(v);
-};
-const _sourceOf = (evidence) => {
-  // evidence is usually a JSON string of the raw tool result; surface only its
-  // provenance source (the citation), never the payload.
-  if (!evidence) return "";
-  let ev = evidence;
-  if (typeof ev === "string") {
-    try { ev = JSON.parse(ev); } catch { return ev.length > 80 ? "" : ev; }
-  }
-  const prov = ev && ev.provenance;
-  if (prov && prov.source_id) {
-    const id = String(prov.source_id).split("#")[1] || prov.source_id;
-    return `source: ${id}`;
-  }
-  return "";
-};
-export function mapInsights(payload) {
-  if (!payload || typeof payload !== "object") return null;
-  const r = payload.report || payload; // tolerate an envelope
-  return {
-    summary: _asText(r.summary),
-    confidence: _asText(r.confidence),
-    observations: Array.isArray(r.observations)
-      ? r.observations.map((o) => ({
-          topic: _asText(o.topic),
-          detail: _asText(o.detail),
-          source: _sourceOf(o.evidence),
-        }))
-      : [],
-    suggestions: Array.isArray(r.suggestions) ? r.suggestions.map(_asText).filter(Boolean) : [],
-    caveats: _asText(r.caveats),
-  };
-}
-
 // One stable thread id per page load.
 let _threadId = null;
 export function threadId() {

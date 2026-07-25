@@ -759,12 +759,7 @@ function DashboardView({
   const alloc = allocLive.data;
   const dashLoading = posLive.loading || allocLive.loading;   // any primary account fetch in flight
 
-  // Q1 — market today: live index band + Mira's market read (both may be null → fallbacks).
-  const band = useLive(() => live.quotes().then(live.mapMarketBand), null, [settings, refreshNonce]).data;
-  const miraOn = settings.aiBackend === "mira";
-  const report = useLive(() => (miraOn ? live.getInsights().then(live.mapInsights) : null), null, [settings]).data;
-
-  // Q4 — actions: the live decision journal drives the queue.
+  // Actions — the live decision journal drives the queue.
   const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
   const decisions = (analysis && analysis.decisions) || [];
 
@@ -793,70 +788,8 @@ function DashboardView({
         </div>
       </div>
 
-      {/* ---------- Q1 · How is the market doing today? ---------- */}
-      <div className="vg-card" style={{ marginTop: 14 }}>
-        <div className="vg-spread">
-          <div className="vg-kicker" style={{ marginBottom: 0 }}>Market today</div>
-          {band && (
-            <span className="vg-note">
-              {band.source === "fixture" ? "demo feed" : band.source}{band.stale ? " · stale" : ""}
-              {band.asOf ? ` · ${band.asOf}` : ""}
-            </span>
-          )}
-        </div>
-        {band ? (
-          <>
-            <div className="vg-marketband" style={{ marginTop: 12 }}>
-              {band.indexes.map((ix) => (
-                <div className="vg-idx" key={ix.sym}>
-                  <div className="vg-idx-name">{ix.label}</div>
-                  <div className="vg-idx-price">{ix.price != null ? ix.price.toFixed(2) : "—"}</div>
-                  <div className={cls("vg-idx-pct", dirCls(ix.dayPct))}>{signPct(ix.dayPct)}</div>
-                </div>
-              ))}
-            </div>
-            <p className="vg-note" style={{ marginTop: 10 }}>{band.regime}.</p>
-          </>
-        ) : (
-          <p className="vg-note" style={{ marginTop: 12 }}>
-            Market data unavailable — start the backend to see live index levels.
-          </p>
-        )}
-        {report && (
-          <div style={{ marginTop: 14, borderTop: "1px solid var(--color-border, #e5e7eb)", paddingTop: 12 }}>
-            <div className="vg-spread">
-              <div className="vg-kicker" style={{ marginBottom: 0 }}>Mira advisor read</div>
-              <span className="vg-row">
-                <span className="vg-badge good">● live</span>
-                {report.confidence && <span className="vg-note">confidence {report.confidence}</span>}
-              </span>
-            </div>
-            {report.summary && <p style={{ fontSize: 14, lineHeight: 1.55, margin: "10px 0" }}>{report.summary}</p>}
-            {report.observations.length > 0 && (
-              <div className="vg-advisor-reads">
-                {report.observations.map((o, i) => (
-                  <div key={i} className="vg-advisor-read">
-                    <div className="vg-advisor-topic">{o.topic}</div>
-                    <div className="vg-advisor-detail">
-                      {o.detail}
-                      {o.source && <span className="vg-advisor-src">{o.source}</span>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            {report.suggestions.length > 0 && (
-              <ul className="vg-suggestions" style={{ marginTop: 10 }}>
-                {report.suggestions.map((s, i) => <li key={i}>{s}</li>)}
-              </ul>
-            )}
-            {report.caveats && <p className="vg-note" style={{ marginTop: 8 }}>{report.caveats}</p>}
-          </div>
-        )}
-      </div>
-
-      {/* ---------- Q2 · How is my portfolio doing today? ---------- */}
-      <div className="vg-kicker" style={{ margin: "20px 2px 6px" }}>Portfolio today</div>
+      {/* ---------- How is my portfolio doing today? ---------- */}
+      <div className="vg-kicker" style={{ margin: "14px 2px 6px" }}>Portfolio today</div>
       <div className="vg-stats">
         <StatTile label="Total value" value={isMixed ? moneyByCcy(byCurrency) : usd(totalValue)} />
         <StatTile label="Day P/L" value={isMixed ? Object.keys(dayPlByCcy).sort().map((c)=>signMoney(dayPlByCcy[c],c)).join(" · ") : signUsd(dayPl)} deltaDir={dirCls(dayPl)}
@@ -867,35 +800,7 @@ function DashboardView({
           note={`≈ ${usd(estBenefit)} est. benefit at ${settings.taxRate}%`} />
       </div>
 
-      <div className="vg-card" style={{ marginTop: 14 }}>
-        <div className="vg-spread">
-          <strong style={{ fontSize: 14 }}>Allocation by asset class</strong>
-          <span className="vg-note">target 70 / 10 / 15 / 5</span>
-        </div>
-        <div className="vg-allocbar" style={{ marginTop: 12 }} role="img" aria-label="Asset allocation">
-          {Object.entries(ASSET_CLASSES).map(([k, m]) => {
-            const pct = totalValue ? (alloc.byClass[k] / totalValue) * 100 : 0;
-            return pct > 0 && <span key={k} style={{ width: `${pct}%`, background: m.color }} title={`${m.label} ${pct.toFixed(1)}%`} />;
-          })}
-        </div>
-        <div className="vg-legend">
-          {Object.entries(ASSET_CLASSES).map(([k, m]) => {
-            const pct = totalValue ? (alloc.byClass[k] / totalValue) * 100 : 0;
-            const drift = pct - ALLOCATION_TARGETS[k];
-            return (
-              <span key={k}>
-                <span className="sw" style={{ background: m.color }} />
-                {m.label} <span className="num">{pct.toFixed(1)}%</span>{" "}
-                {accountId === "all" && Math.abs(drift) >= 3 && (
-                  <span className={cls("vg-badge", drift > 0 ? "warn" : "info")}>{signPct(drift, 1)} vs target</span>
-                )}
-              </span>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ---------- Q3 · How are my accounts doing today? ---------- */}
+      {/* ---------- How are my accounts doing today? ---------- */}
       <div className="vg-spread" style={{ margin: "20px 2px 6px" }}>
         <div className="vg-kicker" style={{ marginBottom: 0 }}>Accounts today</div>
         <button className={cls("vg-refresh", refreshing.all && "spinning")} title="Refresh all accounts"
@@ -938,7 +843,7 @@ function DashboardView({
         </p>
       )}
 
-      {/* ---------- Q4 · Are there any actions I need to take? ---------- */}
+      {/* ---------- Are there any actions I need to take? ---------- */}
       <div className="vg-spread" style={{ margin: "20px 2px 6px" }}>
         <div className="vg-kicker" style={{ marginBottom: 0 }}>Actions{actions.length ? ` (${actions.length})` : ""}</div>
         <button className="vg-linkbtn" onClick={() => go("recs")}>All recommendations →</button>
