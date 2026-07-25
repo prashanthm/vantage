@@ -291,3 +291,17 @@ paper PF ≥ 1.0 (lifecycle.evaluate_gate). Conservative-only change.
 follow-up candidate (NOT run, would need pre-registration): per-side split
 of the 2234 — if A+ shorts drag the aggregate the way every other family's
 shorts did, long-only arming is the next experiment.
+
+## H11 A+ ict_htf shorts drag the spread expression (pre-registered BEFORE run)
+Context: every family validated on this tape is long-only (breakout_hold by
+construction, rsi2_mr by construction, reclaim/role-flip long-only PF 3.60);
+the ict_htf pipe is the only one arming shorts. Split the SAME 2,234-trade
+baseline run by side (descriptive split of the frozen measurement — same
+harness, per-side stats added to output).
+prediction: short WR < long WR by ≥ 5pp; long-only WR ≥ 0.40; long-only
+halves stable (odds ratio < 2).
+pre-committed decision rule: IF (long WR − short WR ≥ 5pp) AND long n ≥ 300
+AND long halves within 2× odds → SHIP long-only arming for ict_htf spreads
+(shorts stay visible on the Scan tab, never auto-armed to paper) AND the
+ict_htf gate baseline becomes the long-only WR. ELSE keep both-side arming
+and the 0.3782 baseline. Frozen after this run.

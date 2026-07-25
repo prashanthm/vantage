@@ -84,12 +84,25 @@ def main():
     wra = sum(r["win"] for r in a) / max(len(a), 1)
     wrb = sum(r["win"] for r in bb) / max(len(bb), 1)
     odds = lambda w: w / max(1e-9, 1 - w)  # noqa: E731
+
+    def side_stats(side):
+        rows = [r for r in all_trades if r["dir"] == side]
+        if not rows:
+            return {"n": 0}
+        w = sum(r["win"] for r in rows) / len(rows)
+        h = len(rows) // 2
+        wa = sum(r["win"] for r in rows[:h]) / max(h, 1)
+        wb = sum(r["win"] for r in rows[h:]) / max(len(rows) - h, 1)
+        return {"n": len(rows), "wr": round(w, 4),
+                "half_a": round(wa, 4), "half_b": round(wb, 4),
+                "odds_ratio": round(max(odds(wa), odds(wb)) / max(1e-9, min(odds(wa), odds(wb))), 2)}
+
     print(json.dumps({
         "n": n, "wr": round(wr, 4),
         "half_a": {"n": len(a), "wr": round(wra, 4)},
         "half_b": {"n": len(bb), "wr": round(wrb, 4)},
         "odds_ratio": round(max(odds(wra), odds(wrb)) / max(1e-9, min(odds(wra), odds(wrb))), 2),
-        "longs": sum(1 for r in all_trades if r["dir"] > 0),
+        "long": side_stats(1), "short": side_stats(-1),
         "span": [all_trades[0]["arm_ts"], all_trades[-1]["arm_ts"]],
     }, indent=1))
 
