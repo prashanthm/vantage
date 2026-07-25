@@ -10,8 +10,9 @@ import "./theme-vantage.css";
 import { Shell } from "./shell.jsx";
 import { CockpitPage } from "./pages/cockpit.jsx";
 import { PerformancePage } from "./pages/performance.jsx";
+import { BookPage } from "./pages/book.jsx";
 
-const PAGES = { cockpit: CockpitPage, performance: PerformancePage };
+const PAGES = { cockpit: CockpitPage, performance: PerformancePage, book: BookPage };
 
 function App() {
   return (

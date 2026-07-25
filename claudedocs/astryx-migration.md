@@ -34,5 +34,15 @@ hash parser. cockpit-astryx/ DELETED — /cockpit/ 301s to /next/#/cockpit
 the cockpit face, OpsBlock shows the armed SPY signal, /cockpit 301,
 legacy shell healthy. Two of three cockpits are gone; /next/ is the third.
 
-## W3 — Book · TODO   ## W4 — Scanner + Daily plan · TODO
+## W3 — Book · DONE (this commit)
+In-shell Book page (Ledger template): Positions tab = THE canon holdings
+table (all accounts, currency-correct per row, weight flags, chart links
+per the contract); Analyzer tab = per-currency roll-up (sector
+concentration chips + winners/losers from portfolio/snapshot). Band: total
+(USD base) + USD-book day move + Real-style segmented control. Verified in
+browser both tabs. PARITY GAP before redirecting #/holdings + #/portfolio:
+lots/tax detail, account filter, and the analyzer's action recommendations
+stay legacy (linked from the page).
+
+## W4 — Scanner + Daily plan · TODO
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO
