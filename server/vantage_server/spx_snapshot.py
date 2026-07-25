@@ -400,6 +400,34 @@ def _first_price(v):
     return float(m.group(0)) if m else None
 
 
+def apply_stop_parity(plot: dict, price: float) -> dict:
+    """E8 (mira-inputs): the E6 parity rule as a production post-processor —
+    the invalidation DISTANCE is floored at 1.0× the target distance (R:R ≥ 1
+    symmetric falsifiability), never tighter than stated. Zone-edge term
+    dropped: E6 measured it never binding. Mutates+returns plot; stashes the
+    stated level in invalidation_stated when a clamp happens. Pure — the A/B
+    arming and env gate live in the save path."""
+    try:
+        inv = float(plot["invalidation"])
+        tgt = float(plot["target"])
+        b = str(plot.get("bias") or "").lower()
+        up = any(k in b for k in ("up", "bull", "long"))
+        down = any(k in b for k in ("down", "bear", "short"))
+        if not (up or down):
+            return plot
+        tgt_dist = (tgt - price) if up else (price - tgt)
+        stated_dist = (price - inv) if up else (inv - price)
+        if tgt_dist <= 0 or stated_dist <= 0 or stated_dist >= tgt_dist:
+            return plot
+        new_inv = round(price - tgt_dist, 2) if up else round(price + tgt_dist, 2)
+        plot["invalidation_stated"] = inv
+        plot["invalidation"] = new_inv
+        plot["parity_applied"] = True
+    except (KeyError, TypeError, ValueError):
+        pass
+    return plot
+
+
 def score_forecast(store, forecast_row: dict) -> dict | None:
     """Grade a persisted forecast against the elapsed price AFTER its as_of.
 

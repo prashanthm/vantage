@@ -922,6 +922,24 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                         f"invalidation {inv} — setup never validly existed")
         except (TypeError, ValueError, AttributeError):
             pass                                    # malformed forecast → store as-is
+        # E8 stop-parity LIVE A/B (mira-inputs goal, pre-registered): env-gated,
+        # LIVE forecasts only (replay runs untouched). Arm = as_of 15-min bucket
+        # parity: even → TREATED (E6 rule applied), odd → CONTROL. plot carries
+        # the arm + the stated level so the measurement split is exact.
+        try:
+            if (os.environ.get("VANTAGE_STOP_PARITY_AB") == "1"
+                    and not body.get("run_id")
+                    and isinstance(fc, dict) and isinstance(fc.get("plot"), dict)
+                    and not fc["plot"].get("born_invalid")):
+                as_of = str(body.get("as_of") or sc.get("as_of") or "")
+                hh, mm = int(as_of[11:13]), int(as_of[14:16])
+                treated = ((hh * 60 + mm) // 15) % 2 == 0
+                fc["plot"]["parity_ab"] = "treated" if treated else "control"
+                if treated:
+                    from .spx_snapshot import apply_stop_parity
+                    apply_stop_parity(fc["plot"], float(sc.get("price")))
+        except (TypeError, ValueError, IndexError):
+            pass                                    # arming must never block a save
         fid = store.save_spx_forecast(
             symbol=(body.get("symbol") or "SPX").upper(),
             day=body.get("day") or sc.get("day"),

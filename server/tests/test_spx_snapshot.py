@@ -114,3 +114,19 @@ def test_load_intraday_bars_since(tmp_path):
     assert len(both["ts"]) == 120                # both sessions concatenated
     assert len(only17["ts"]) == 60               # from-day onward only
     assert store.load_intraday_bars_since("^GSPC", "2030-01-01", "1m") is None
+
+
+def test_apply_stop_parity_floors_at_target_distance():
+    """E8: a stop TIGHTER than the target distance widens to R:R=1 (stated
+    level preserved); already-parity or wider stops are untouched."""
+    from vantage_server.spx_snapshot import apply_stop_parity
+    # up-bias, target 12pt away, stated stop 5pt → clamps to 12pt below
+    p = apply_stop_parity({"bias": "up", "target": 7412.0, "invalidation": 7395.0}, 7400.0)
+    assert p["invalidation"] == 7388.0 and p["invalidation_stated"] == 7395.0
+    assert p["parity_applied"] is True
+    # down-bias already at parity → untouched
+    q = apply_stop_parity({"bias": "down", "target": 7390.0, "invalidation": 7412.0}, 7400.0)
+    assert q["invalidation"] == 7412.0 and "parity_applied" not in q
+    # no bias → untouched
+    r = apply_stop_parity({"bias": "range", "target": 7410.0, "invalidation": 7395.0}, 7400.0)
+    assert r["invalidation"] == 7395.0

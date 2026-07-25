@@ -77,6 +77,9 @@ services:
       ALPACA_PAPER: "${ALPACA_PAPER:-1}"
       # Autonomous live gate (ADR-015). BOTH must be 1 (and the kill switch clear)
       # for a promoted strategy to place REAL orders — DEFAULT UNSET = dry-run.
+      # E8 stop-parity live A/B (mira-inputs goal) — ON while the experiment
+      # accrues its ~10-session sample; arms are stamped on each forecast.
+      VANTAGE_STOP_PARITY_AB: "${VANTAGE_STOP_PARITY_AB:-1}"
       VANTAGE_LIVE_OK: "${VANTAGE_LIVE_OK:-}"
       VANTAGE_AUTONOMOUS_OK: "${VANTAGE_AUTONOMOUS_OK:-}"
       VANTAGE_KILL_SWITCH_FILE: /data/AUTONOMOUS_KILL
