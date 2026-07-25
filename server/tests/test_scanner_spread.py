@@ -130,7 +130,7 @@ def test_arm_gates_contract_risk(tmp_path, monkeypatch):
     monkeypatch.setattr(scanner_spread, "snap_to_chain",
                         lambda *a, **k: {"expiry": "2026-09-18", "long_strike": 540.0,
                                          "short_strike": 590.0, "debit": 25.0})
-    assert scanner.arm_scanner_spreads(store, {"hits": [_hit()]}) == 0
+    assert scanner.arm_scanner_spreads(store, {"hits": [_hit()], "scanner": "breakout_hold"}) == 0
     assert store.load_paper_trades(status="open", book="scanner-spread") == []
     closed = store.load_paper_trades(status="closed", book="scanner-spread")
     assert len(closed) == 1 and closed[0]["exit_reason"] == "contract_risk"
@@ -149,8 +149,8 @@ def test_arm_dedupes_same_strikes_across_rescans(tmp_path, monkeypatch):
     monkeypatch.setattr(scanner_spread, "snap_to_chain",
                         lambda *a, **k: {"expiry": "2026-09-18", "long_strike": 540.0,
                                          "short_strike": 590.0, "debit": 8.0})
-    n1 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T15:30:00-04:00")]})
-    n2 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T16:30:00-04:00")]})
+    n1 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T15:30:00-04:00")], "scanner": "breakout_hold"})
+    n2 = scanner.arm_scanner_spreads(store, {"hits": [_hit("2026-07-17T16:30:00-04:00")], "scanner": "breakout_hold"})
     assert n1 == 1 and n2 == 0
     assert len(store.load_paper_trades(status="open", book="scanner-spread")) == 1
 

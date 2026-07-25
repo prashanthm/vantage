@@ -270,7 +270,9 @@ export function ScannerView({ onOpenSymbol, tab, onTab }) {
             </div>
           </div>
           <p className="vg-sub" style={{ margin: "4px 0 0" }}>
-            {active === "scan" && "Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 · long A+ setups auto-open a paper spread (shorts are display-only — H11)."}
+            {active === "scan" && (scanner === "ict_htf"
+              ? "ICT hourly setups are DISPLAY-ONLY — no expression showed positive EV on the frozen tape (expression-economics goal); nothing auto-arms."
+              : "Backtest-validated setups scanned across the Nasdaq-100 + S&P top-100 · long A+ setups auto-open a paper spread (shorts are display-only — H11).")}
             {active === "paper" && "Open paper positions from the scans — the live sample the promotion gate judges."}
             {active === "performance" && "The record per strategy, and the gate to real money."}
           </p>

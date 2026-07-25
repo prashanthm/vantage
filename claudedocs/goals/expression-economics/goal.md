@@ -22,4 +22,4 @@ to that expression. Fail-all = ict_htf auto-arming OFF (display-only).
 (extended to record per-trade rr + alternative races). Frozen tape only.
 
 **Constraints:** paper pipe only (ADR-010); the detector is untouched —
-this goal changes only the trade expression. Status: ACTIVE 2026-07-25.
+this goal changes only the trade expression. Status: ACHIEVED 2026-07-25 — fail-all executed (auto-arming OFF).

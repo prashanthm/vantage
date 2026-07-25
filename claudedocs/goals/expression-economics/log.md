@@ -48,3 +48,19 @@ decision if CONFIRMED: pipe expression → resting SHARES entry at CE with
 stop/target exits via Alpaca paper equity orders (submit_paper_equity
 exists); spread arming off. If DISPROVEN too → fail-all clause: ict_htf
 auto-arming OFF (display-only), per the goal contract.
+
+## H3 VERDICT — DISPROVEN (run 2026-07-25)
+fill-rate 0.744 (in the predicted 0.4–0.7+ band, n=696 filled) but mean
+R on filled trades **−0.0948**, halves −0.074 / −0.116 — both negative,
+nowhere near the +0.20 bar. The C13 confluence edge (SPX hourly, +0.59R)
+does NOT port to the 60-name universe at this expression either.
+
+## GOAL CLOSED — fail-all clause executed
+3 experiments spent (H1/H2/H3), all DISPROVEN. Per the contract:
+**ict_htf auto-arming OFF** (scanner.py stand-down; Scan tab labels the
+family display-only). The detector remains a heads-up surface; the paper
+book's historical record stands. Re-arming requires a NEW pre-registered
+expression clearing EV > +0.10/unit risk on the frozen tape.
+Most valuable disproof: the edge was never in the signal-at-scan-time —
+every tested translation (chase, parity race, CE retest) is flat-to-
+negative on the universe tape. Status: **ACHIEVED (stand-down decision)**.

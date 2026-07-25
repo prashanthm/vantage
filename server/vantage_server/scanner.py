@@ -695,6 +695,14 @@ def arm_scanner_spreads(store, scan_result: dict) -> int:
         # but never arm a paper spread — same posture as every other family.
         if hit.get("dir") != "long":
             continue
+        # ict_htf STAND-DOWN (expression-economics goal, 2026-07-25): all three
+        # pre-registered expressions failed on the frozen tape — spread-at-zone
+        # EV −0.14/$ (H11 WR × 1:1 payoff), shares-at-scan-close +0.09R (below
+        # bar, half-B 0.04), resting-CE-entry −0.09R (H3, both halves negative).
+        # The detector stays on the Scan tab as a heads-up; nothing arms until
+        # a pre-registered expression shows positive EV.
+        if _strat == "ict_htf":
+            continue
         spread = _sp.spread_from_hit(hit, price_chain=True)
         if spread is None or spread["setup_key"] in known:
             continue
