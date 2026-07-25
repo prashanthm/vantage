@@ -9,7 +9,7 @@ import { cls, SymbolSwitcher } from "./util.jsx";
 import { Term, GlossaryCard } from "./glossary.jsx";
 import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket, getOdteRead, getChart } from "./live.js";
 
-const { useMemo, useState } = React;
+const { useMemo, useState, useEffect } = React;
 
 const fmtP = (v) => (v == null ? "—" : (Math.abs(v - Math.round(v)) < 0.05
   ? String(Math.round(v)) : v.toFixed(1)));
@@ -30,6 +30,25 @@ export function PlaybookView({ refreshNonce }) {
   const [pine, setPine] = useState(null);   // {loading|script|error} for the export modal
   const [busy, setBusy] = useState(false);  // recompute in flight
   const [ticket, setTicket] = useState(null); // {level, kind, role} → staging modal
+  // level-cross alerts (Telegram via the signal bot's 60s heartbeat)
+  const [alerts, setAlerts] = useState([]);
+  const backendUrl = () => (JSON.parse(localStorage.getItem("vantage-settings") || "{}").backendUrl
+    || "http://127.0.0.1:8641").replace(/\/+$/, "");
+  const loadAlerts = () => fetch(`${backendUrl()}/api/alerts`).then((r) => r.json())
+    .then((r) => setAlerts((r && r.alerts) || [])).catch(() => {});
+  useEffect(() => { loadAlerts(); }, []);
+  const armAlert = async (price, note) => {
+    await fetch(`${backendUrl()}/api/alerts`, { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: sym, price, note }) }).catch(() => {});
+    loadAlerts();
+  };
+  const dropAlert = async (id) => {
+    await fetch(`${backendUrl()}/api/alerts/${id}`, { method: "DELETE" }).catch(() => {});
+    loadAlerts();
+  };
+  const alertAt = (price) => alerts.find((a) =>
+    a.symbol === sym && !a.fired_at && Math.abs(a.price - price) < 0.01);
 
   // After a recompute we must re-pull with refresh=true so Mira busts its cached
   // (stale) narrative + scaffold and picks up the freshly-recomputed GEX.
@@ -235,7 +254,22 @@ export function PlaybookView({ refreshNonce }) {
         <details className="vg-card" open>
           <summary className="vg-kicker" style={{ cursor: "pointer" }}>
             Level ladder ({p.levelLadder.length})
+            {alerts.filter((a) => !a.fired_at).length > 0 &&
+              <span className="vg-note" style={{ fontWeight: 400 }}> · {alerts.filter((a) => !a.fired_at).length} alert{alerts.filter((a) => !a.fired_at).length === 1 ? "" : "s"} armed</span>}
           </summary>
+          {alerts.length > 0 && (
+            <div className="vg-row" style={{ gap: 6, flexWrap: "wrap", margin: "8px 0 0" }}>
+              {alerts.filter((a) => !a.fired_at).map((a) => (
+                <button key={a.id} className="vg-badge warn" style={{ cursor: "pointer", border: "none" }}
+                  title="click to disarm" onClick={() => dropAlert(a.id)}>
+                  🔔 {a.symbol} {a.price} ✕
+                </button>
+              ))}
+              {alerts.filter((a) => a.fired_at).slice(-3).map((a) => (
+                <span key={a.id} className="vg-badge plain">fired {a.symbol} {a.price} @ {String(a.fired_at).slice(11, 16)}Z</span>
+              ))}
+            </div>
+          )}
           <div className="vg-pb-ladder">
             {p.levelLadder.map((r, i) => (
               <div key={i} className="vg-pb-lvl">
@@ -244,6 +278,11 @@ export function PlaybookView({ refreshNonce }) {
                 </span>
                 <span style={{ fontSize: 14 }}>{r.kind}</span>
                 {r.source && <span className="vg-note" style={{ marginLeft: "auto", fontSize: 12 }}>{r.source}</span>}
+                <button className="vg-linkbtn" style={{ fontSize: 12 }}
+                  title={alertAt(r.price) ? "alert armed — click to disarm" : "Telegram me when price crosses this level"}
+                  onClick={() => { const a = alertAt(r.price); a ? dropAlert(a.id) : armAlert(r.price, r.kind); }}>
+                  {alertAt(r.price) ? "🔔 armed" : "🔔"}
+                </button>
                 <button className="vg-linkbtn" style={{ fontSize: 12, marginLeft: r.source ? 0 : "auto" }}
                   onClick={() => setTicket({ level: r.price, kind: r.kind, role: levelTone(r.kind) === "good" ? "support" : levelTone(r.kind) === "bad" ? "resistance" : null })}>
                   ticket

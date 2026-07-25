@@ -807,7 +807,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
     @app.get("/api/spx/snapshot")
     def spx_snapshot_view(day: str | None = Query(None),
                           symbol: str = Query("SPX"),
-                          as_of: str | None = Query(None)):
+                          as_of: str | None = Query(None),
+                          block_ages: int = Query(0)):
         """The chart-centric SNAPSHOT for the forecast-analyst loop (any ticker):
         price + the coach's playbook levels + live technicals (VWAP/RSI/rel-vol/ATR) +
         the ICT structures (unswept liquidity, active order blocks, fresh FVGs,
@@ -821,7 +822,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             bar_sym = "^GSPC" if sym == "SPX" else sym
             d = store.latest_intraday_day(bar_sym, "1m") if getattr(
                 store, "uses_sqlite", False) else None
-        out = _snap.build_snapshot(store, d, symbol=sym, as_of=as_of) if d else None
+        out = _snap.build_snapshot(store, d, symbol=sym, as_of=as_of,
+                                   block_ages=bool(block_ages)) if d else None
         if out is None:
             return envelope(snap, available=False,
                             note="No persisted 1m bars for the session — run the "
@@ -1414,6 +1416,42 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note="signal bot needs the SQLite backend")
         return envelope(snap, available=True, **signal_bot.performance(store))
 
+    @app.get("/api/alerts")
+    def alerts_list():
+        """Armed + fired level-cross alerts (operator-set, on OUR computed
+        levels). Read-only."""
+        from . import level_alerts as _la
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="alerts need the SQLite backend")
+        return envelope(snap, available=True, alerts=_la.list_alerts(store))
+
+    @app.post("/api/alerts")
+    def alerts_add(body: dict = Body(default={})):
+        """Arm a level-cross alert: {symbol, price, note?}. Fires ONCE via
+        Telegram when the last 1m print crosses to the other side. Store-only
+        write + outbound notification (ADR-010)."""
+        from . import level_alerts as _la
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="alerts need the SQLite backend")
+        try:
+            sym = str(body["symbol"]).upper()
+            price = float(body["price"])
+        except (KeyError, TypeError, ValueError):
+            return envelope(snap, available=False, note="need symbol + price")
+        return envelope(snap, available=True,
+                        alert=_la.add_alert(store, sym, price, str(body.get("note") or "")))
+
+    @app.delete("/api/alerts/{alert_id}")
+    def alerts_remove(alert_id: str):
+        """Disarm one alert by id. Store-only write."""
+        from . import level_alerts as _la
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="alerts need the SQLite backend")
+        return envelope(snap, available=True, removed=_la.remove_alert(store, alert_id))
+
     @app.post("/api/reclaim-bot/poll")
     def reclaim_bot_poll():
         """ONE signal-bot pass: arm today's reclaim tickets as auto paper
@@ -1427,7 +1465,13 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             return envelope(snap, available=False,
                             note="signal bot needs the SQLite backend")
         events = signal_bot.poll(store)
-        return envelope(snap, available=True, events=events,
+        # level-cross alerts ride the same 60s RTH heartbeat — no new loop
+        from . import level_alerts as _la
+        try:
+            fired = _la.tick(store)
+        except Exception:  # noqa: BLE001 — alerts must never break the bot pass
+            fired = []
+        return envelope(snap, available=True, events=events, alerts_fired=fired,
                         telegram=signal_bot.telegram_configured(store))
 
     @app.get("/api/exits")

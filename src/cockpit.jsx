@@ -12,8 +12,10 @@
 // Everything renders deterministically from stored data (ADR-008); Mira text
 // appears only where Mira already spoke (the stored trade analyses).
 import { cls } from "./util.jsx";
-import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getCoachPine, getDayReviews } from "./live.js";
-import { ToneCompareCard } from "./today.jsx";
+import { useLive, getJson, getTradeAnalyses, getSpxForecasts, getOdteRead, recomputePlaybook, getCoachPine, getDayReviews, getBotStatus, getBotPerformance, getNightlyStatus, getPlaybook } from "./live.js";
+import { ToneCompareCard } from "./tone_card.jsx";
+import { SignalsCard, StrategyCard, MachineCard } from "./ops_cards.jsx";
+import { TicketModal } from "./playbook.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { MiraRender, parseMira } from "./mira-render.jsx";
 
@@ -754,7 +756,6 @@ export function CockpitView({ refreshNonce }) {
                 {chartMode === "hidden" ? "show chart" : "hide chart"}</button>
             </>
           )}
-          <a className="vg-note" href="/cockpit/" title="the same cockpit, rendered in the Astryx design system">Astryx cockpit ↗</a>
           {d && d.day_pnl != null && (
             <span className="vg-note">day <b className={d.day_pnl >= 0 ? "vg-up" : "vg-down"}>{money(d.day_pnl)}</b></span>
           )}
@@ -814,6 +815,55 @@ export function CockpitView({ refreshNonce }) {
           </div>
         )}
       </div>
+
+      {/* ops block (from the retired TodayView, W2): the live signal → execute
+          path, the bot's own record, and nightly-run health — surfaces that
+          existed nowhere else. Today-only; historical days show the day's story
+          above, not the machine room. */}
+      {isToday && <OpsBlock />}
     </div>
+  );
+}
+
+function OpsBlock() {
+  const [status, setStatus] = useState(null);
+  const [perf, setPerf] = useState(null);
+  const [nightly, setNightly] = useState(null);
+  const [spot, setSpot] = useState(null);
+  const [ticket, setTicket] = useState(null);
+  const load = async () => {
+    const [s, p, n, b] = await Promise.all([
+      getBotStatus(), getBotPerformance(), getNightlyStatus(1), getPlaybook(null),
+    ]);
+    setStatus(s && s.available !== false ? s : null);
+    setPerf(p && p.available !== false ? p : null);
+    setNightly(n && n.available && n.runs && n.runs.length ? n.runs[0] : null);
+    setSpot((b && b.available && b.scaffold && b.scaffold.regime && b.scaffold.regime.spot) || null);
+  };
+  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    if (!status || !status.market_open) return undefined;
+    const t = setInterval(load, 60000);
+    return () => clearInterval(t);
+  }, [status && status.market_open]);
+  if (!status) return null;
+  return (
+    <>
+      <SignalsCard live={status.live_signals || []} armed={status.armed || []} spot={spot}
+        onExecute={(t) => setTicket({
+          sym: t.symbol, spot,
+          seed: { level: t.spy_level, entry: t.spy_entry,
+                  role: t.side === "long" ? "support" : "resistance" },
+          signalId: t.id,
+        })} />
+      <div className="vg-stats" style={{ marginTop: 14, gridTemplateColumns: "1fr 1fr" }}>
+        <StrategyCard perf={perf} />
+        <MachineCard run={nightly} />
+      </div>
+      {ticket && (
+        <TicketModal sym={ticket.sym} spot={ticket.spot} seed={ticket.seed}
+          signalPaperId={ticket.signalId} onClose={() => setTicket(null)} />
+      )}
+    </>
   );
 }

@@ -96,7 +96,7 @@ def _vwap_rsi(op, hi, lo, cl, vol, upto):
 
 
 def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = None,
-                   history_days: int = 10) -> dict | None:
+                   history_days: int = 10, block_ages: bool = False) -> dict | None:
     """The snapshot dict for (day, symbol) up to ``as_of`` (ISO time; default the
     last stored bar). Loads the last ``history_days`` stored sessions as ONE
     continuous series so the chart shows multi-day history and the ICT engine
@@ -135,9 +135,17 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
     # freshest first: today's INTRADAY recompute (15-min GEX/levels loop or the
     # cockpit button — stored under '{sym}:intraday' so the overnight plan of
     # record survives), then the overnight plan, then the prior evening's.
-    row = (store.load_spx_playbook(day, symbol=f"{symbol}:intraday")
-           or store.load_spx_playbook(day, symbol=symbol)
-           or store.load_spx_playbook_before(day, symbol=symbol))
+    row_intraday = store.load_spx_playbook(day, symbol=f"{symbol}:intraday")
+    row_overnight = store.load_spx_playbook(day, symbol=symbol)
+    row = row_intraday or row_overnight or store.load_spx_playbook_before(day, symbol=symbol)
+    # which SLOT feeds the levels — the freshness fact Mira was blind to (the
+    # stale-anchoring failure of 2026-07-23): an intraday-refreshed map is a
+    # live read; the overnight plan predates the open; a prior-day plan is
+    # yesterday's market. mira-inputs goal H-fresh; emitted only when asked so
+    # the live prompt is untouched until the experiment confirms.
+    _levels_slot = ("intraday" if row_intraday
+                    else "overnight" if row_overnight
+                    else "prior-day" if row else "none")
     scaf = (row or {}).get("scaffold") or {}
     lvl_entries = _rp.gex_level_entries(scaf)     # (price, label) high→low
     # join each level's zone band (touch-spread lo/hi) back in by price — the
@@ -154,6 +162,18 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
             lv["lo"], lv["hi"] = b
         levels.append(lv)
     lvl_prices = [x["price"] for x in levels]
+    _freshness = {
+        "levels_slot": _levels_slot,
+        "levels_generated_for": scaf.get("generated_for"),
+        "note": {
+            "intraday": "levels map REFRESHED today from the live chain",
+            "overnight": "levels map is the OVERNIGHT plan — computed before "
+                         "today's open from last night's open interest",
+            "prior-day": "levels map is a PRIOR day's plan — treat every GEX "
+                         "anchor as reference only",
+            "none": "no levels map stored",
+        }[_levels_slot],
+    } if block_ages else None
 
     # VWAP/RSI/rel-vol/ATR are the current SESSION's tape (from si..ei)
     s_op, s_hi, s_lo, s_cl, s_vol = op[si:], hi[si:], lo[si:], cl[si:], vol[si:]
@@ -186,7 +206,9 @@ def build_snapshot(store, day: str, symbol: str = "SPX", as_of: str | None = Non
     # the chart shows the whole loaded history up to as_of
     bars_5m = _resample_5m(ts, op, hi, lo, cl, vol, ei)
 
+    out_extra = {"freshness": _freshness} if block_ages and _freshness else {}
     return {
+        **out_extra,
         "symbol": symbol, "day": day, "as_of": ts[ei], "bar": ei + 1,
         "price": round(price, 2),
         "history_days": len(day_bounds) or 1,

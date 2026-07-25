@@ -210,3 +210,38 @@ path, no edge added. SHIPPED to breakout_hold cards: rungs 50%@1R
 (stop->BE) / 25%@2R / 25%@zone, final rung PINNED at the validated zone so
 the spread short strike (targets[-1]) is byte-identical. Degenerate cases:
 zone<=1R single full exit; zone<=2R two rungs 50/50.
+
+# Wave 3 (2026-07-25) — formula-DSL discovery (NVIDIA-blueprint engine, our court)
+
+## Pre-registration (BEFORE any candidate IC was computed)
+Frozen tape: scanner_univ_hourly.json (60 names, hourly, price-only,
+through 07-23; survivorship caveat as ever). Metric: mean Spearman IC of
+signal vs 7-bar (~1 day) forward return, NON-overlapping windows,
+cross-sections with ≥30 names, ~700 windows.
+PLACEBO BAR (computed first, from 200 random matched-complexity formulas):
+null |IC| p50 0.0075 · p95 0.0122; best-of-20-random p50 0.0129 ·
+p95 0.0293. (NVIDIA's own accept bar |IC|≥0.02 sits BELOW the max-of-20
+null median-to-p95 band — their loop ships luck. Quantified.)
+ACCEPTANCE (all four): |IC| ≥ 0.0293 (beat luck-with-20-tries at p95) ·
+|t| ≥ 3 · halves same sign with both |IC_half| ≥ 0.015 · sign matches the
+pre-registered prediction. 18 candidates registered with rationales in
+research/formula_candidates.py (committed before the run).
+
+## Wave 3 results — ALL 18 REJECTED (and the blueprint convicted by its own bar)
+Not one candidate met a single acceptance criterion, let alone all four.
+Fifteen are dead-zero noise (|IC| ≤ 0.01). The three "best" tell the story:
+- near_high  IC −0.0224 (t −2.4): predicted +, came out NEGATIVE
+- lottery_max IC +0.0213 (t +1.9): predicted −, came out POSITIVE
+- lowvol     IC +0.0208 (t +1.9): predicted −, came out POSITIVE
+All three: BELOW the luck-with-20-tries bar (0.0293), sign-FLIPPED vs
+their registered economics, and halves-unstable (second half — the
+runaway 2025-26 leg — carries everything: 0.0035/0.038, 0.0055/0.0371).
+A naive |IC| ≥ 0.02 loop — NVIDIA's own acceptance rule — would have
+"discovered" and shipped all three. Our placebo bar + sign
+pre-registration + halves killed them in one pass.
+verdict: wave 3 CLOSED — 0 confirmed / 18 no-edge. Hourly next-day
+cross-sectional alpha on 60 mega-caps is an efficient desert, as an
+honest test should find. The engine (operator DSL + placebo-calibrated
+court) is now reusable: research/formula_signals.py + _candidates.py.
+Most valuable output: the quantified proof that the blueprint's
+acceptance threshold ships luck.

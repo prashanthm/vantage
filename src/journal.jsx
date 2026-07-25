@@ -10,7 +10,7 @@
 // (ADR-010).
 import { cls, SymbolSwitcher, LoadBar } from "./util.jsx";
 import { MiraRender, SwotRender, parseMira } from "./mira-render.jsx";
-import { ToneCompareCard } from "./today.jsx";
+import { ToneCompareCard } from "./tone_card.jsx";
 import { collectTurn } from "./use_stream_turn.js";
 import {
   useLive, getJournal, uploadJournal, deleteJournal,

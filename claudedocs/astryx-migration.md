@@ -1,0 +1,171 @@
+# Astryx migration — ABANDONED by operator decision (2026-07-25)
+
+Verdict: after living with it, the operator judged the Astryx shell "isn't
+nicer compared to the version we had". The ORIGINAL astryx-eval
+(2026-07-22: "don't adopt in core — identity conflicts, beta churn") was
+correct; the mid-migration reversal was wrong. Lesson joins the
+density-pass revert: the established Plex/vg-* identity IS the product's
+look — evaluate outside systems for ideas, not for adoption.
+
+What SURVIVED the removal (the IA keeps):
+- W2 deletions: TodayView gone (unique surfaces live on in tone_card.jsx +
+  ops_cards.jsx inside CockpitView); cockpit-astryx gone; #/today →
+  #/home/cockpit; /cockpit/ 301 → /#/home/cockpit.
+- The Plex fonts deploy fix (fonts/ ships in the SPA image).
+- Level-cross alerts: backend (level_alerts.py + /api/alerts + Telegram on
+  the bot heartbeat) + bells PORTED to the legacy Daily-plan ladder.
+- The audit itself (artifact + this file's history) — the duplicate-surface
+  findings still stand as a map for LEGACY-side consolidation if wanted.
+- All research tooling/goals from the period (mira_replay, formula
+  signals, etc. — never Astryx-dependent).
+
+Removed: app-astryx/ entirely, /next/ serving (301 → /), nav pointers.
+
+Plan of record: the IA/layout audit artifact (2026-07-24) — strangler
+migration, /next/ grows until it IS the app. Guardrails: identity is a theme;
+every wave ships working; old route redirects only at parity; real vs paper
+never blends; Journal migrates last; lightweight-charts stays.
+
+## W0 — foundations · DONE (41c8a9e)
+AppShell + SideNav (Desk/Book/Review) + cmd-K palette + hash router at
+/next/. theme-vantage.css: Plex + 12px floor over theme-neutral tokens.
+Templates: Workbench / Ledger / Brief (pages never set margins).
+SPACE RULE (operator, 2026-07-24): use the width — parallel content sits
+side by side via .vg-cols/.vg-cols.wide (auto-fit, no media queries); data
+tables get .vg-dense. A single narrow column on a wide desk is a defect. links.js =
+the link contract (canonical href builders; flip in place as pages migrate).
+Cockpit ported onto Workbench (identity gate PASSED — verified in browser).
+Deploy fix: fonts/ was never in the SPA image (all Plex 404'd silently).
+
+## W1 — Performance · DONE (this commit)
+New in-shell page: Real | Paper segmented tabs.
+Real: last-14-session day P&L (journal/day-pnl) + swing roundtrips
+(ml/roundtrips). Paper: by-strategy (incl. Taken-live bridge + manual tags)
++ scanner/reclaim book stats. Verified in browser, both tabs, live data.
+PARITY GAP (deliberate, no redirect yet): ml/trade_stats condition buckets
+(legacy #/trades) and full open/closed paper position lists + equity curves
+(legacy Strategies/paper) are linked, not ported. Port before redirecting
+those routes.
+
+## W2 — kill the zombie cockpits · DONE (this commit)
+TodayView DELETED (593 lines). Its unique surfaces survived the page:
+ToneCompareCard -> src/tone_card.jsx (cockpit + journal import it);
+SignalsCard/SignalRow/StrategyCard/MachineCard -> src/ops_cards.jsx,
+rendered by CockpitView's new OpsBlock (signals -> TicketModal execute path
+preserved, edge guard intact). #/today redirects to #/home/cockpit in the
+hash parser. cockpit-astryx/ DELETED — /cockpit/ 301s to /next/#/cockpit
+(nginx); Dockerfile no longer ships it. Browser-verified: redirect lands on
+the cockpit face, OpsBlock shows the armed SPY signal, /cockpit 301,
+legacy shell healthy. Two of three cockpits are gone; /next/ is the third.
+
+## W3 — Book · DONE (this commit)
+In-shell Book page (Ledger template): Positions tab = THE canon holdings
+table (all accounts, currency-correct per row, weight flags, chart links
+per the contract); Analyzer tab = per-currency roll-up (sector
+concentration chips + winners/losers from portfolio/snapshot). Band: total
+(USD base) + USD-book day move + Real-style segmented control. Verified in
+browser both tabs. PARITY GAP before redirecting #/holdings + #/portfolio:
+lots/tax detail, account filter, and the analyzer's action recommendations
+stay legacy (linked from the page).
+
+## W4a — Scanner · DONE (this commit)
+In-shell Scanner (Ledger template): strategy SegmentedControl (3 families),
+coverage/freshness line, background refresh with 5s polling, watch-ticker
+add/remove chips, A+/B tier groups (full exit-ladder rungs on cards),
+history with ticker/tier/side/outcome filters + expandable rows. Every
+symbol chart-linked. vg-cols grid = 4 cards across on a wide desk.
+Verified: ict_htf + rsi2_mr live data, strategy switch, filters render.
+Nav flipped to page; legacy #/scanner stays routable (redirect at W6).
+
+## W4b — Daily plan · DONE (this commit)
+In-shell plan page: regime banner (CALM/AMPLIFY plain narrative), symbol
+segmented control (SPX/QQQ/IWM), spot/VIX/gamma tiles, Refresh-plan POST,
+the two trigger scenarios side by side, the computed level ladder
+(chart-linked, dense) beside market context + caveats. PARITY GAP before
+#/playbook redirect: pine export + ticket staging (legacy-linked).
+
+## Parity pass (this commit)
+Closed: trade_stats condition edges/leaks -> Performance Real tab (notable
+badges + bucket table w/ CI); per-position LOTS expansion -> Book Positions
+(click 'N lots'); Pine export -> Plan (fetch + mono block + copy).
+Still open before redirects flip: portfolio analyzer ACTIONS (Mira call),
+TICKET STAGING (TicketModal — reachable via cockpit OpsBlock + legacy
+plan), account-scope filter on Book.
+
+## W5 — Trading Journal · DONE (this commit)
+The canonical record, ported whole. New shared modules: stream.js
+(streamTurn/collectTurn — same SSE wire), mira.jsx (parseMira ported pure +
+MiraView/SwotView in Astryx), journal_logic.js (THOUGHT_RE / operatorFor /
+encodeThought / buildAnalystPrompt VERBATIM — the Mira contract cannot
+drift), journal_api.js (same endpoints). Page: day strip w/ P&L pills +
+date jump, day head (forecast held/missed), trades panel (summary line,
+Analyze-today batch, day synthesis live+stored+history picker, ticker
+filter), trade cards (order/fill ladder/arc/corr lists/entry+exit level
+tags/structure selector/why box), per-trade analyze with stored read-back
++ FvgAtEntry, forecast-vs-actual, entry form + attachments (file input),
+Analysis tab (window/generate/save + history w/ scorecard/patterns/SWOT).
+Browser-verified on live data: strip, synthesis render, card expansion,
+stored review read-back (7455x8), Analysis history + SWOT. Legacy journal
+UNTOUCHED (feature-freeze held) and still routable.
+GAPS (logged): ToneCompareCard strip not ported (lives in legacy + cockpit
+face); month-calendar popover replaced by a date input; attach is file-
+input only (no paste/drop yet).
+
+## UX pass (post-W5, this commit) — heuristic evaluation + fixes
+Findings fixed: (1) desk cap 1560px — full-bleed tables separated related
+numbers by half a screen; (2) header controls now within reach of their
+title; (3) .vg-click hover affordance on every expandable row; (4) journal
+delete is TWO-STEP (error prevention on the canonical record); (5) unsaved
+trade notes surface a "Save notes ●" button at the trades header the
+moment they dirty — no more silent loss at the bottom-of-page form; (6)
+watch-chip remove is a real button (keyboard-reachable); (7) day-pill
+selection uses tint not border-width (no jitter); (8) every legacy nav
+exit marked ↗ + nav footer explains it; (9) cmd-K hint in the nav footer;
+(10) P&L tone through the Text component (dark-safe). Follow-up caught in
+verification: Weight column wrap at the new cap — widened + nowrap.
+
+## Interaction-pattern pass (this commit)
+Operator asked "are you using cards/grouping/filter/sort properly" —
+honest answer was NO on three counts, fixed:
+(1) Book sorted nominal value ACROSS currencies (₹1.5M above $124k) —
+now grouped into currency BOOKS (USD first) with per-book subtotals +
+day P&L, sort applies within a book only;
+(2) zero sortable columns despite Astryx shipping useTableSortable —
+header-click sort now on Book (qty/value/day/unrealized/weight) and
+Performance (roundtrips closed/P&L, buckets n/WR/P&L); we own sort state,
+plugin owns the indicators;
+(3) Book had no filter at 69 rows — ticker search + account select added.
+Plus keyboard operability: every expandable row (journal trades, scanner
+history, analysis history) now has role=button, tabIndex, Enter/Space.
+
+## Best-practice pass (this commit) — research-backed adoption
+Researched (Pencil&Paper enterprise tables, Smashing real-time dashboards,
+table-design guides) and adopted the four that survived evaluation:
+(1) numeric columns right-aligned via Astryx column align:'end' (Book,
+Performance) — the most-repeated table rule and we violated it;
+(2) view-state persistence (pref/setPref localStorage): Book tab/account/
+sort, Performance tab, Scanner family+filters, Journal tab+underlying —
+the cheap version of saved views;
+(3) sparkline + last-session delta on the Performance day tile (Spark
+component, dependency-free SVG, zero-line dash for +/- series);
+(4) sticky table headers on long tables — the height cap must land on
+Astryx's OWN .astryx-table-scroll-wrapper (sticky attaches to the nearest
+scrollport; a wrapper div outside it silently no-ops).
+Rejected with reasons: column management, pagination, density toggle
+(operator taste), Bloomberg-density. Later: value-change micro-highlight,
+arrow-key row navigation.
+
+## Competitive steal-list (this commit) — from the TradingView/Legend compare
+(1) LEVEL-CROSS ALERTS on our computed ladder: level_alerts.py (meta-kv
+store, side recorded at arm, one-shot fire via send_telegram), ticked by
+the existing 60s reclaim-bot poll — no new loop. CRUD /api/alerts; bells
+on Plan ladder rows + disarmable chips. Unit-tested (arm/fire-once/rearm).
+(2) Arrow-key row navigation on scanner history (roving focus, TradingView
+pattern). (3) "Ask Mira" on the cockpit rail — Chart-Copilot done our way:
+one click hands Mira the CURRENT state (price/call/levels/positions/plan)
+and streams a structured read; verified live. (4) PWA manifest for /next/
+(standalone, start_url /next/). All browser-verified.
+
+Waves remaining: W6 — delete vg-*/buildless shell + flip all legacy
+redirects at parity (incl. the W5 gaps + analyzer actions + tickets).
+## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO
