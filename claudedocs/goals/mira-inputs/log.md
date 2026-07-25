@@ -25,4 +25,16 @@ pinned to pre-open anchors price had migrated away from. Predict: chop day
 ±0.04 (their anchors mostly held); pooled ≥ +0.03 (≥ 0.655). DISPROVEN if
 pooled lift < +0.01 or any day regresses > 0.10.
 experiment: mira_replay.py --experiment h_fresh on the three fixed days.
-result: PENDING
+result: 07-21: 0.630 (−0.037) · 07-23: 0.630 (−0.037) · 07-24: 0.462
+(−0.076!) — pooled 0.575 vs E0 0.625 = **−0.050**.
+verdict: **DISPROVEN** — decisively. The predicted mechanism inverted: the
+day that was supposed to benefit most regressed most. Read: told to treat
+GEX anchors as reference-only and derive targets from "live structure",
+Mira picked MORE ambitious / less magnetic targets — the anchors were
+doing real work even stale (rhymes with the forecast-accuracy goal, where
+nearest-reachable-target discipline was the big win; loosening target
+anchoring is anti-discipline). Freshness INFO may still help; a blanket
+distrust-the-map RULE does not.
+kept: NOTHING ships. Backlog variant H-fresh-v2 (conditional: rule fires
+only when price sits > 25pt from the nearest GEX anchor) — lower priority.
+
