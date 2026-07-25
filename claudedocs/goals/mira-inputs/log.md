@@ -108,4 +108,69 @@ step (not per scored) must also rise — stand-downs that merely shrink the
 denominator do NOT count. DISPROVEN if |net| < 5 or the guard fails.
 DISCLOSURE: the base rates are measured on these same six days (partially
 in-sample); a confirm here ships only to a live A/B, not straight to prod.
+result: 07-15: 0.481 (flat) · 07-16: 0.556 (−1) · 07-17: 0.667 (flat) · 07-21: 0.741 (+2) · 07-23: 0.704 (+1 vs 0.667) · chop day left
+
+## E4 · H-clock — VERDICT
+paired vs 6-day baseline: +15/−13 = net +2 (bar was ≥ +8, disproven < +5);
+afternoon-only +12/−10 = net +2; guard passed trivially (0.599→0.611).
+verdict: **DISPROVEN**. Meta-pattern after E1/E2/E4: prompt-side nudges
+(rules, context blocks, self-feedback) do not move scored outcomes beyond
+noise — the model's behavior is dominated by the snapshot + core prompt.
+Stop asking; start enforcing in code.
+
+## E5 · H-clamp — deterministic invalidation clamp (OFFLINE counterfactual)
+prediction (pre-registered BEFORE run): post-process each baseline
+forecast: if bias is up/down and the invalidation sits TIGHTER than the
+far edge of the nearest opposing zone (from the row's own stored
+snapshot levels), clamp it to that edge. Re-score with the PRODUCTION
+scorer. Zero Mira calls — exact, noise-free counterfactual.
+Mechanism: 58/64 baseline misses are invalidations; afternoon wicks
+through tight stops before targets print. Clamping is monotone (can only
+convert misses), so the bars are on MAGNITUDE and HONESTY, not direction:
+- CONFIRMED if ≥ +8 net conversions (invalidated → hit target) pooled,
+- FALSIFIABILITY GUARDS: clamp bounded to the FIRST opposing zone only;
+  report median stop-distance before/after — if median distance grows
+  > 1.75×, the clamp is judged unfalsifiable-gaming and DISPROVEN
+  regardless of conversions; conversions to "direction correct" count as
+  neutral (still a miss).
+- If confirmed: ships as a forecast POST-PROCESSOR (code, not prompt) +
+  live A/B; forecast invalidation is a thesis boundary, not a trade stop —
+  trade stops remain the coach's separate concern.
 result: PENDING
+
+## E5 · H-clamp — VERDICT
++16 invalidated→hit conversions (bar ≥ +8 ✓) BUT the falsifiability guard
+FAILED: median clamped stop distance 14.5 → 58.0pt (4.01× vs ≤ 1.75×
+allowed). The nearest fully-opposing zone is often 50-80pt away on this
+tape — the clamp converted by being unfalsifiable, not smart.
+verdict: **DISPROVEN per guard** (as pre-registered). Signal preserved:
+the shakeout mechanism is real — un-stopped forecasts do print targets.
+
+## E5b · H-clamp-bounded — widen at most 1.5×, never past the zone edge
+prediction (pre-registered BEFORE run): new_invalidation = widen the
+original stop TOWARD the nearest opposing zone's far edge, capped at
+1.5× the original |invalidation − price| (guard satisfied by
+construction). Predict net conversions ≥ +8 retained of E5's +16 (the
+wick-throughs cluster just beyond tight stops, not 4× away). CONFIRMED
+≥ +8 · INCONCLUSIVE +4..+7 · DISPROVEN < +4. Offline, production scorer.
+result: clamped 71 rows at exactly 1.50× median width. Conversions:
+invalidated→hit 4, invalidated→direction-wrong 1. NET +4.
+verdict: **INCONCLUSIVE** per the pre-registered band (+4..+7). Being an
+offline deterministic counterfactual there is NO sampling noise — the +4
+(≈ +0.025 pooled) is real but small and in-sample. Most of E5's +16 lived
+between 1.5× and 4× width: the wicks blow through honest stops too.
+kept: candidate only — worth re-testing as part of a combined ship
+package + live A/B, not alone.
+
+## Interim scoreboard (6 of 12 experiments spent)
+E1 H-fresh: no benefit · E2 H-selffeed: null · E3 placebo: instrument
+calibrated (17% step noise, net 0) · E4 H-clock: disproven (net +2) ·
+E5 clamp: disproven by falsifiability guard (+16 at 4× width = gaming) ·
+E5b bounded clamp: inconclusive (+4 real, small).
+THE PATTERN: prompt-side nudges don't move scored outcomes; structural/
+code-side changes show small real effects; the afternoon-invalidation
+miss mode (91% of misses, 2× rate after noon) remains the target.
+REMAINING LEVERS (for E6+): H-chain (real new data; only 3 days covered
+by chain_snaps), H-overnight (ES context, derivable all days), combined
+E5b+stand-down package, and the in-sample caveats all point to needing a
+LIVE A/B for anything that ships.
