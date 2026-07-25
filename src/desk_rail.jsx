@@ -130,13 +130,15 @@ function StrategyPulseBlock({ refreshNonce }) {
   );
 }
 
-// route → which blocks lead (all three are cheap; order = relevance)
+// route → which blocks lead (all three are cheap; order = relevance).
+// strategies gets NO StrategyPulseBlock — the page's own by-strategy table is
+// the canonical render of the same /api/paper/spreads data (IA law: the rail
+// summarizes what's elsewhere, never what's already on screen).
 const ORDER = {
   scanner: [StrategyPulseBlock, AlertsBlock, OpenRiskBlock],
   journal: [OpenRiskBlock, AlertsBlock, StrategyPulseBlock],
   trades: [OpenRiskBlock, StrategyPulseBlock, AlertsBlock],
-  strategies: [StrategyPulseBlock, OpenRiskBlock, AlertsBlock],
-  paper: [StrategyPulseBlock, OpenRiskBlock, AlertsBlock],
+  strategies: [OpenRiskBlock, AlertsBlock],
 };
 
 export function DeskRail({ route, refreshNonce }) {

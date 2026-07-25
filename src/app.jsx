@@ -15,17 +15,16 @@ import { DeskRail } from "./desk_rail.jsx";
 import { MiraRender } from "./mira-render.jsx";
 import { NotebookPanel } from "./notebook.jsx";
 import { PortfolioView } from "./portfolio_view.jsx";
-import { OptionsView } from "./options.jsx";
+import { StrategiesSection } from "./options.jsx";
 import { ScannerView } from "./scanner.jsx";
 import { InstrumentChartCard } from "./chart_core.jsx";
 import { ReplayPanel } from "./chart_replay_panel.jsx";
 import { StrategiesView } from "./strategies_view.jsx";
-import { ScannerSpreadBook } from "./paper.jsx";
 import { FuturesView } from "./futures.jsx";
 import { JournalView } from "./journal.jsx";
 import { TradeAnalyticsView } from "./trades.jsx";
 import * as live from "./live.js";
-import { useLive, mapPositions, mapTlh, mapAllocation, mapSignals, mapHistory, mapAnalysis } from "./live.js";
+import { useLive, mapPositions, mapTlh, mapAllocation, mapHistory, mapAnalysis } from "./live.js";
 
 const { useState, useMemo, useEffect, useRef, useCallback } = React;
 const { Navbar, Button, Modal, FormField, SecurityCard, FAQItem } = window.LookeyDS;
@@ -51,7 +50,6 @@ const NAV = [
   { group: "Book", items: [
     { id: "portfolio", label: "Portfolio", icon: "portfolio" },
     { id: "holdings", label: "Positions", icon: "positions" },
-    { id: "options", label: "Options", icon: "options" },
     { id: "tax", label: "Tax", icon: "tax" },
   ]},
   { group: "Review", items: [
@@ -69,7 +67,7 @@ const NAV = [
 //   markets  — live pattern signals, reached from Market read links
 // `paper` is a reachable drilldown route → the Strategies Track-record tab. (The
 // signalbot/exits tabs + views were retired in the pipeline-only refactor.)
-const DRILLDOWN_ROUTES = ["activity", "recs", "markets", "paper", "futures"];
+const DRILLDOWN_ROUTES = ["activity", "recs", "futures"];
 const ROUTES = [...NAV.flatMap((g) => g.items.map((i) => i.id)), ...DRILLDOWN_ROUTES];
 
 // With no hash, land on the Cockpit — the merged plan + live-day surface.
@@ -87,6 +85,8 @@ function useHashRoute() {
     // retired routes redirect to their surviving canon (old links keep working)
     if (r === "today" || r === "home" || r === "playbook") return { route: "cockpit", param: null };
     if (r === "dashboard") return { route: "portfolio", param: null };
+    if (r === "options") return { route: "holdings", param: null };
+    if (r === "paper") return { route: "strategies", param: "paper" };
     const route = ROUTES.includes(r) ? r : defaultRoute();
     const param = rest.length ? decodeURIComponent(rest.join("/")) : null;
     return { route, param };
@@ -332,7 +332,7 @@ function App() {
   const showReplayPanel = route === "ic" && replayOn;
   // desk/review routes get the context rail (alerts · open risk · strategy
   // pulse) instead of the route-blind ticker Notebook.
-  const showDeskRail = ["scanner", "journal", "trades", "strategies", "paper"].includes(route);
+  const showDeskRail = ["scanner", "journal", "trades", "strategies"].includes(route);
   // Cockpit: the right pane becomes the cockpit's instrument panel (NOW state /
   // a clicked frame's briefing) — same lifted-state pattern as Replay.
   const showCockpitPanel = route === "cockpit";
@@ -453,16 +453,9 @@ function App() {
           {route === "activity" && <ActivityView {...viewProps} />}
           {route === "tax" && <TaxView {...viewProps} />}
           {route === "recs" && <RecsView {...viewProps} />}
-          {route === "markets" && <MarketsView {...viewProps} />}
-          {route === "options" && <OptionsView accountId={accountId} setSymbol={setSymbol} go={go} />}
           {route === "scanner" && <ScannerView onOpenSymbol={(sym) => { setSymbol(sym); go("ic", sym); }} />}
           {route === "strategies" && (
             <StrategiesView tab={routeParam} refreshNonce={refreshNonce}
-              onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
-          {/* legacy #paper hash → the Strategies Track-record tab (signalbot/exits
-              tabs were retired; their views are gone). */}
-          {route === "paper" && (
-            <StrategiesView tab={route} refreshNonce={refreshNonce}
               onTab={(k) => go("strategies", k === "lifecycle" ? "" : k)} />)}
           {route === "journal" && (
             <JournalView refreshNonce={refreshNonce}
@@ -471,8 +464,8 @@ function App() {
           {route === "futures" && <FuturesView refreshNonce={refreshNonce} />}
           {route === "trades" && (
             <TradeAnalyticsView {...viewProps} refreshNonce={refreshNonce}
-              tab={routeParam || "day"}
-              onTab={(k) => go("trades", k === "day" ? "" : k)} />)}
+              tab={routeParam || "swings"}
+              onTab={(k) => go("trades", k === "swings" ? "" : k)} />)}
           {route === "ic" && (
             <div className="vg-ic-route">
               <InstrumentChartCard symbol={icSymbol} height="100%"
@@ -608,13 +601,13 @@ function LiveStatusDots({ settings }) {
     <span className="vg-note" style={{ display: "inline-flex", gap: 14, alignItems: "center", whiteSpace: "nowrap" }}>
       <span title={st.backend
         ? `Backend live at ${settings.backendUrl} — quotes: ${st.backend.source}${st.backend.stale ? " (stale)" : ""}, as of ${st.backend.as_of}`
-        : `Backend unreachable at ${settings.backendUrl} — showing demo fixtures`}>
-        <span style={dot(st.backend)} />data {st.backend ? "live" : "demo"}
+        : `Backend unreachable at ${settings.backendUrl} — views show empty states`}>
+        <span style={dot(st.backend)} />data {st.backend ? "live" : "down"}
       </span>
       <span title={aiOff
         ? "AI backend set to Off in Settings — canned demo replies"
         : st.mira ? `Mira reachable at ${settings.miraUrl}` : `Mira unreachable at ${settings.miraUrl} — canned demo replies`}>
-        <span style={dot(!aiOff && st.mira)} />AI {aiOff ? "off" : st.mira ? "live" : "demo"}
+        <span style={dot(!aiOff && st.mira)} />AI {aiOff ? "off" : st.mira ? "live" : "down"}
       </span>
     </span>
   );
@@ -819,6 +812,9 @@ function optionMatchKey(sym) {
 
 function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
   const [expanded, setExpanded] = useState({});   // keyed by underlying group id
+  // "underlying" = the classic grouped table; "structure" = option strategies
+  // rolled up by geometry (the old Options page's one live block).
+  const [view, setView] = useState("underlying");
   const [sortKey, setSortKey] = useState("value");
   const [recFilter, setRecFilter] = useState("all");
   const [kindFilter, setKindFilter] = useState("all"); // all | equity | option | losers
@@ -899,11 +895,23 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
 
   return (
     <div>
-      <h2 style={{ margin: 0, fontSize: 19 }}>Holdings</h2>
+      <div className="vg-spread" style={{ alignItems: "baseline", flexWrap: "wrap", gap: 10 }}>
+        <h2 style={{ margin: 0, fontSize: 19 }}>Holdings</h2>
+        <div className="vg-row" style={{ gap: 4 }}>
+          <button className={cls("vg-seg-btn", view === "underlying" && "on")}
+            onClick={() => setView("underlying")}>By underlying</button>
+          <button className={cls("vg-seg-btn", view === "structure" && "on")}
+            onClick={() => setView("structure")}>By structure</button>
+        </div>
+      </div>
       <p className="vg-sub">
-        {acctLabel} · {groups.length} ticker{groups.length === 1 ? "" : "s"}{analysis ? ` · ${actionable} actionable` : ""} · grouped by symbol · click to expand
+        {view === "structure"
+          ? `${acctLabel} · option strategies grouped by geometry · marks live`
+          : `${acctLabel} · ${groups.length} ticker${groups.length === 1 ? "" : "s"}${analysis ? ` · ${actionable} actionable` : ""} · grouped by symbol · click to expand`}
       </p>
 
+      {view === "structure" && <StrategiesSection accountId={accountId} />}
+      {view === "underlying" && <>
       <div className="vg-spread" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
         <div className="vg-pills">
           {[["all", "All"], ["equity", "Has equity"], ["option", "Has options"], ["losers", "Losers"]].map(([k, l]) => (
@@ -1007,9 +1015,7 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
           </tbody>
         </table>
       </div>
-      {/* paper trades live here too — always visible on the Positions page, whether
-          or not a scanner setup has fired. Open positions + closed track record. */}
-      <ScannerSpreadBook refreshNonce={refreshNonce} alwaysShow />
+      </>}
     </div>
   );
 }
@@ -1393,89 +1399,6 @@ function RecsView({ settings, setSymbol, go }) {
         </div>
       )}
 
-      <div className="vg-card" style={{ marginTop: 14 }}>
-        <div className="vg-spread">
-          <div>
-            <div className="vg-kicker" style={{ marginBottom: 2 }}>Options income</div>
-            <span className="vg-note">Executable covered-call ideas on your book — see Options Intelligence.</span>
-          </div>
-          <button className="vg-linkbtn" onClick={() => go("options")}>Open Options Intel →</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ================= Market Intel (drill-down: live pattern signals) =========
- * Off the top-level nav — reached from the Dashboard market read. The advisor
- * read and the market band live on the Dashboard now; the fixture heatmap,
- * fixture per-symbol meters, and "AI picks" are cut. What remains is the one
- * genuinely live, book-relevant surface: backend-graded pattern signals. */
-function MarketsView({ setSymbol, go, settings }) {
-  const [signalsTab, setSignalsTab] = useState("active");
-  // Signals: backend-graded when live (statuses computed from quotes, never
-  // authored), fixture rows otherwise. "Past" = resolved (hit target / stopped);
-  // everything else — active and unquoted — stays on the Active tab.
-  const signals = useLive(() => live.getSignals().then(mapSignals), [], [settings], { blankOnOutage: true }).data;
-  const isPastSignal = (s) => s.status === "hit-target" || s.status === "stopped";
-  return (
-    <div>
-      <h2 style={{ margin: 0, fontSize: 19 }}>Pattern signals</h2>
-      <p className="vg-sub">
-        Backend-graded technical signals · statuses computed from live quotes, never authored · educational only
-      </p>
-
-      <div className="vg-card" style={{ marginTop: 8 }}>
-        <div className="vg-spread">
-          <div className="vg-kicker" style={{ marginBottom: 0 }}>AI pattern signals</div>
-          <div className="vg-pills">
-            <button className={cls("vg-pill", signalsTab === "active" && "sel")} onClick={() => setSignalsTab("active")}>
-              Active ({signals.filter((s) => !isPastSignal(s)).length})
-            </button>
-            <button className={cls("vg-pill", signalsTab === "past" && "sel")} onClick={() => setSignalsTab("past")}>
-              Past ({signals.filter(isPastSignal).length})
-            </button>
-          </div>
-        </div>
-        <div className="vg-tablewrap" style={{ marginTop: 10 }}>
-          <table className="vg-table">
-            <thead>
-              <tr>
-                <th>Ticker</th><th>Pattern</th><th className="num">Entry</th><th className="num">Target</th>
-                <th className="num">Stop</th><th className="num">Move</th><th className="num">Conf</th><th>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {signals.filter((s) => (signalsTab === "active" ? !isPastSignal(s) : isPastSignal(s))).map((s) => (
-                <tr key={s.id}>
-                  <td><b>{s.sym}</b><div className="vg-note">{s.time}</div></td>
-                  <td>{s.pattern}</td>
-                  <td className="num">{s.entry.toFixed(2)}</td>
-                  <td className="num">{s.target.toFixed(2)}</td>
-                  <td className="num">{s.stop.toFixed(2)}</td>
-                  <td className={cls("num", dirCls(s.movePct || 0))}>{s.movePct != null ? signPct(s.movePct, 1) : "—"}</td>
-                  <td className="num">{s.conf != null ? `${s.conf}%` : "—"}</td>
-                  <td>
-                    {s.status === "active" && <span className="vg-badge good">● Active</span>}
-                    {s.status === "hit-target" && <span className="vg-badge info">✓ Hit target</span>}
-                    {s.status === "stopped" && <span className="vg-badge bad">✕ Stopped</span>}
-                    {s.status === "unquoted" && (
-                      <span className="vg-badge plain"
-                        title="no quote for this symbol — statuses are computed, never authored">◌ Unquoted</span>
-                    )}
-                    {s.grade && (
-                      <span className="vg-chip" style={{ marginLeft: 6 }}
-                        title={s.pnlPct != null ? `progress grade ${s.grade} · P/L ${signPct(s.pnlPct, 1)}` : `progress grade ${s.grade}`}>
-                        {s.grade}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </div>
   );
 }

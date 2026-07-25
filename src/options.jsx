@@ -1,9 +1,10 @@
-// Options Intelligence view — strategy roll-up, IV context, income ideas, flow.
+// Option strategies roll-up (grouped legs, by structure/ticker) — rendered as
+// the "By structure" view of Positions since the IA streamline killed the
+// standalone Options page (its other blocks were static prose).
 import { cls, usd, signUsd } from "./util.jsx";
 import { useLive, getStrategies, mapStrategies, mapByTicker } from "./live.js";
 
 const { useState, useEffect } = React;
-const { SecurityCard, FAQItem } = window.LookeyDS;
 
 /* ---------------- strategy roll-up helpers ---------------- */
 const STRAT_PAGE = 40;
@@ -206,7 +207,7 @@ function ClosedStrategyRow({ s, expanded, onToggle }) {
   );
 }
 
-function StrategiesSection({ accountId }) {
+export function StrategiesSection({ accountId }) {
   const [tab, setTab] = useState("open"); // "open" | "history" | "ticker"
   const [shown, setShown] = useState(STRAT_PAGE);
   const [open, setOpen] = useState({}); // expanded row keys
@@ -329,43 +330,6 @@ function StrategiesSection({ accountId }) {
           )}
         </>
       )}
-    </div>
-  );
-}
-
-export function OptionsView({ accountId = "all" }) {
-  const [faq, setFaq] = useState(false);
-  return (
-    <div>
-      <h2 style={{ margin: 0, fontSize: 19 }}>Options</h2>
-      <p className="vg-sub">
-        Your live option strategies — open positions and closed spreads, rolled up by structure and ticker · educational only
-      </p>
-
-      <StrategiesSection accountId={accountId} />
-
-      {/* Covered-call income ideas come from the live decision journal
-          (HOLD_AND_SELL_CALL), surfaced in the Dashboard Action Queue — not a
-          mock premium table. The fixture IV tiles, income ideas, and unusual
-          flow were removed as decorative demo data. */}
-      <div className="vg-grid2" style={{ margin: "20px 0" }}>
-        <SecurityCard accent="teal" title="Covered-call ideas live in your Actions">
-          The nightly engine flags HOLD &amp; SELL CALL against real lots, with a suggested strike, credit, and basis
-          reduction. Those appear in the Dashboard Action Queue — cross-checked against your Tax Center for wash risk.
-        </SecurityCard>
-        <SecurityCard accent="orange" title="Approval levels differ per account">
-          Roth allows covered calls and CSPs at most brokers; 401(k)s rarely allow options at all. The engine only
-          suggests calls on lots in accounts where they're actually executable.
-        </SecurityCard>
-      </div>
-
-      <div className="vg-card">
-        <FAQItem question="How are covered-call ideas generated?" open={faq} onToggle={() => setFaq(!faq)}>
-          The nightly analysis looks for lots of 100+ shares held at a loss or near breakeven, targets a strike above
-          cost basis at the next monthly expiry, estimates the credit, and only recommends the call when it isn't
-          wash-blocked. Results are persisted to the decision journal — educational only, not advice.
-        </FAQItem>
-      </div>
     </div>
   );
 }

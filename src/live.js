@@ -3,9 +3,9 @@
 // Talks to the Vantage backend (REST, :8641) and Mira (AI, :8080) with plain
 // fetch + ReadableStream — no dependencies, no EventSource. Every function is
 // progressive-enhancement-safe: it returns null (never throws) on any failure,
-// so the SPA's fixture data remains the default experience when either service
-// is down. Mappers convert API payloads (snake_case, enveloped) into the exact
-// shapes the views already consume from src/util.jsx / src/data.js.
+// so views degrade to honest empty states when either service is down (the
+// demo fixtures are gone). Mappers convert API payloads (snake_case, enveloped)
+// into the exact shapes the views consume.
 import { loadSettings } from "./util.jsx";
 
 /* ---------------- low-level fetch ---------------- */
@@ -19,7 +19,7 @@ export async function getJson(url, { timeoutMs = 2500 } = {}) {
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
-    return null; // unreachable, aborted, or bad JSON — callers fall back to fixtures
+    return null; // unreachable, aborted, or bad JSON — callers render empty states
   } finally {
     clearTimeout(timer);
   }
@@ -139,7 +139,6 @@ export const tlh = ({ thresholdUsd, thresholdPct } = {}) => {
   return getJson(`${backendBase()}/api/tax/tlh${qs ? `?${qs}` : ""}`);
 };
 export const quotes = () => getJson(`${backendBase()}/api/quotes`);
-export const getSignals = () => getJson(`${backendBase()}/api/signals`);
 // GET /api/history[?account=..][&limit=N] -> payload or null. "all" means
 // unscoped (no account param). 404 (endpoint not deployed yet), non-200 and
 // network failures all resolve to null via getJson.
@@ -259,7 +258,7 @@ export function mapPositions(payload) {
   if (!payload || !Array.isArray(payload.positions)) return null;
   return payload.positions.map((p) => {
     // Per-share current price from the aggregate (value/shares) so each lot can
-    // show a real market value without a fixture quote table.
+    // show a real market value without a client-side quote table.
     const perShare = p.shares ? p.value / p.shares : null;
     return {
       symbol: p.symbol,
@@ -270,7 +269,7 @@ export function mapPositions(payload) {
       dayPl: p.day_pl,
       weight: p.weight,
       currency: p.currency || "USD",
-      accounts: p.accounts, // array; views spread it like the fixture Set
+      accounts: p.accounts, // array of account ids
       lots: (p.lots || []).map((l) => ({ ...mapLot(l), price: perShare })),
       overlap: p.overlap || null,
     };
@@ -322,8 +321,8 @@ export function mapAllocation(payload) {
 // doing today" question. Picks the broad-market proxies actually in the feed
 // (equities + growth/small-cap) and a one-line regime read from their average
 // day change. Returns null when the payload is empty/unavailable so the band
-// falls back to the fixture ticker. `asOf`/`source`/`stale` ride along so the
-// Dashboard can label a stale or fixture feed honestly.
+// hides. `asOf`/`source`/`stale` ride along so the strip can label a stale
+// feed honestly.
 const _BAND_SYMS = [
   { sym: "SPY", label: "S&P 500" },
   { sym: "QQQ", label: "Nasdaq 100" },
@@ -349,37 +348,6 @@ export function mapMarketBand(payload) {
   return { indexes, avg, regime, asOf: payload.as_of, source: payload.source, stale: !!payload.stale };
 }
 
-// /api/signals -> the data.js SIGNALS row shape the signals view consumes.
-// Backend statuses (computed from quotes, never authored) map onto the
-// fixture vocabulary: hit_target -> "hit-target", stopped -> "stopped",
-// open -> "active"; "unquoted" (no quote for the symbol) passes through and
-// gets a neutral badge in the view. pnl_pct / progress_grade ride along as
-// extra fields (null when unquoted).
-const SIGNAL_STATUS = { hit_target: "hit-target", stopped: "stopped", open: "active", unquoted: "unquoted" };
-export function mapSignals(payload) {
-  if (!payload || !Array.isArray(payload.signals)) return null;
-  return payload.signals.map((g) => ({
-    id: g.signal.id,
-    sym: g.signal.sym,
-    pattern: g.signal.pattern,
-    entry: g.signal.entry,
-    target: g.signal.target,
-    stop: g.signal.stop,
-    movePct: g.signal.move_pct,
-    conf: g.signal.conf,
-    time: g.signal.created_at,
-    status: SIGNAL_STATUS[g.status] || g.status,
-    // live-only extras
-    price: g.price,
-    pnlPct: g.pnl_pct,
-    grade: g.progress_grade,
-  }));
-}
-
-// /api/history -> the row shape the Activity view consumes. Backend order
-// (newest first) is preserved as-is — no client-side re-sort. History has NO
-// fixture fallback: null (malformed payload / endpoint unavailable) or an
-// empty array both land on the view's "no activity imported" empty state.
 export function mapHistory(payload) {
   if (!payload || !Array.isArray(payload.history)) return null;
   return payload.history.map((h) => ({
@@ -1395,10 +1363,10 @@ export function mapAnalyze(payload) {
 
 /* ---------------- React glue ---------------- */
 
-// Progressive enhancement: state starts as `fallback` (fixtures); the fetcher
+// Progressive enhancement: state starts as `fallback` (the caller's empty shape); the fetcher
 // fires on mount and whenever `deps` change; live data swaps in only when the
 // fetch produced a non-null payload. Views never see an error state.
-// Live data with a demo fixture fallback. The fixture is shown until live data
+// Live data with a static fallback shape. The fallback is shown until live data
 // resolves (so a normal load never flashes empty). But once this hook has
 // succeeded at least once, a later NULL result is a real outage — the fallback
 // then blanks (returns [] / null) so the outage surfaces as an empty state
