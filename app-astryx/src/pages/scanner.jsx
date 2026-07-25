@@ -152,7 +152,9 @@ function History({ rows }) {
             const expanded = open === key;
             return (
               <VStack key={key} gap={0}>
-                <HStack gap={2} align="center" wrap="wrap" className="vg-click"
+                <HStack gap={2} align="center" wrap="wrap" className="vg-click" role="button" tabIndex={0}
+                  aria-expanded={expanded}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpen(expanded ? null : key); } }}
                   onClick={() => setOpen(expanded ? null : key)}>
                   <Link href={links.chart(h.symbol)}>{h.symbol}</Link>
                   <Badge variant={h.dir === "long" ? "success" : "error"} label={`${h.tier} ${h.dir === "long" ? "LONG" : "SHORT"}`} />

@@ -103,6 +103,20 @@ exit marked ↗ + nav footer explains it; (9) cmd-K hint in the nav footer;
 (10) P&L tone through the Text component (dark-safe). Follow-up caught in
 verification: Weight column wrap at the new cap — widened + nowrap.
 
+## Interaction-pattern pass (this commit)
+Operator asked "are you using cards/grouping/filter/sort properly" —
+honest answer was NO on three counts, fixed:
+(1) Book sorted nominal value ACROSS currencies (₹1.5M above $124k) —
+now grouped into currency BOOKS (USD first) with per-book subtotals +
+day P&L, sort applies within a book only;
+(2) zero sortable columns despite Astryx shipping useTableSortable —
+header-click sort now on Book (qty/value/day/unrealized/weight) and
+Performance (roundtrips closed/P&L, buckets n/WR/P&L); we own sort state,
+plugin owns the indicators;
+(3) Book had no filter at 69 rows — ticker search + account select added.
+Plus keyboard operability: every expandable row (journal trades, scanner
+history, analysis history) now has role=button, tabIndex, Enter/Space.
+
 Waves remaining: W6 — delete vg-*/buildless shell + flip all legacy
 redirects at parity (incl. the W5 gaps + analyzer actions + tickets).
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO

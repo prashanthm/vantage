@@ -256,7 +256,9 @@ function TradeCard({ t, tradeIndex, day, expanded, onToggle, thought, onThought,
   return (
     <Section>
       <VStack gap={0} padding={2}>
-        <HStack gap={2} align="center" wrap="wrap" className="vg-click" onClick={onToggle}>
+        <HStack gap={2} align="center" wrap="wrap" className="vg-click" onClick={onToggle} role="button" tabIndex={0}
+          aria-expanded={expanded}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); } }}>
           <Text type="body" weight="semibold" color={long ? "success" : "error"}>{t.label}</Text>
           {t.account_label && <Badge variant="neutral" label={t.account_label} />}
           <Text type="supporting" color="secondary">{t.ticker || "SPX"} {fmtLvl(t.spot_at_entry)}</Text>
@@ -794,7 +796,9 @@ function AnalysisPanel({ sym }) {
       {(hist || []).map((h) => (
         <Section key={h.id}>
           <VStack gap={1} padding={2}>
-            <HStack gap={2} align="center" wrap="wrap" className="vg-click"
+            <HStack gap={2} align="center" wrap="wrap" className="vg-click" role="button" tabIndex={0}
+              aria-expanded={openId === h.id}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setOpenId(openId === h.id ? null : h.id); } }}
               onClick={() => setOpenId(openId === h.id ? null : h.id)}>
               <Badge variant="neutral" label={h.period || "run"} />
               <Text type="body" weight="semibold">{h.window_from} → {h.window_to}</Text>

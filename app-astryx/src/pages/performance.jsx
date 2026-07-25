@@ -11,7 +11,7 @@ import { Link } from "@astryxdesign/core/Link";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Table, proportional, pixel } from "@astryxdesign/core/Table";
+import { Table, proportional, pixel, useTableSortable } from "@astryxdesign/core/Table";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Ledger } from "../templates.jsx";
@@ -49,12 +49,24 @@ function Tile({ label, value, tone }) {
 
 // ---------------------------------------------------------------- Real tab
 function RealTab({ dayPnl, rt, stats }) {
+  const [tripSort, setTripSort] = useState([{ sortKey: "close_date", direction: "descending" }]);
+  const tripPlugin = useTableSortable({ sort: tripSort, onSortChange: setTripSort });
+  const [bktSort, setBktSort] = useState([{ sortKey: "n", direction: "descending" }]);
+  const bktPlugin = useTableSortable({ sort: bktSort, onSortChange: setBktSort });
+  const applySort = (list, sortState) => {
+    const s0 = sortState[0];
+    if (!s0) return list;
+    const dir = s0.direction === "ascending" ? 1 : -1;
+    return list.slice().sort((a, b) =>
+      dir * (((a[s0.sortKey] ?? 0) < (b[s0.sortKey] ?? 0)) ? -1
+        : ((a[s0.sortKey] ?? 0) > (b[s0.sortKey] ?? 0)) ? 1 : 0));
+  };
   const days = lastSessions();
   const rows = days.map((day) => ({ day, ...((dayPnl || {})[day] || {}) }))
     .filter((r) => r.has_fills);
   const net = rows.reduce((s, r) => s + (r.realized || 0), 0);
   const summary = (rt && rt.summary) || null;
-  const trips = ((rt && rt.roundtrips) || []).slice().reverse().slice(0, 30);
+  const trips = applySort((rt && rt.roundtrips) || [], tripSort).slice(0, 30);
   return (
     <VStack gap={3}>
       <HStack gap={2} wrap="wrap">
@@ -97,19 +109,18 @@ function RealTab({ dayPnl, rt, stats }) {
                 </Text>
               </HStack>
             ))}
-            <Table data={(stats.buckets || []).filter((b) => b.dimension !== "__baseline__")
-                .slice().sort((a, b) => (b.n || 0) - (a.n || 0)).slice(0, 12)
-                .map((b, i) => ({ id: i, ...b }))}
-              idKey="id" density="compact" columns={[
+            <Table data={applySort((stats.buckets || []).filter((b) => b.dimension !== "__baseline__"), bktSort)
+                .slice(0, 12).map((b, i) => ({ id: i, ...b }))}
+              idKey="id" density="compact" plugins={{ sort: bktPlugin }} columns={[
               { key: "dimension", header: "Condition", width: proportional(1.6), renderCell: (b) =>
                 <Text type="body">{b.dimension} = {String(b.value)}</Text> },
-              { key: "n", header: "n", width: pixel(50), renderCell: (b) =>
+              { key: "n", sortable: true, header: "n", width: pixel(50), renderCell: (b) =>
                 <Text type="body">{b.n}</Text> },
-              { key: "win_rate", header: "Win rate", width: pixel(90), renderCell: (b) =>
+              { key: "win_rate", sortable: true, header: "Win rate", width: pixel(90), renderCell: (b) =>
                 <Text type="body">{pct(b.win_rate)}</Text> },
               { key: "ci", header: "90% CI", width: proportional(1), renderCell: (b) =>
                 <Text type="supporting" color="secondary">{pct(b.ci_low)}–{pct(b.ci_high)}</Text> },
-              { key: "total_pnl", header: "P&L", width: proportional(1), renderCell: (b) =>
+              { key: "total_pnl", sortable: true, header: "P&L", width: proportional(1), renderCell: (b) =>
                 <Text type="body" color={(b.total_pnl || 0) >= 0 ? "success" : "error"}>{money(b.total_pnl)}</Text> },
             ]} />
           </VStack>
@@ -121,12 +132,13 @@ function RealTab({ dayPnl, rt, stats }) {
             <Text type="label" color="secondary">
               Swing roundtrips · {summary.count} closed · through {(rt || {}).roundtrips_as_of || "—"}
             </Text>
-            <Table data={trips.map((t, i) => ({ id: i, ...t }))} idKey="id" density="compact" columns={[
-              { key: "close_date", header: "Closed", width: pixel(100) },
+            <Table data={trips.map((t, i) => ({ id: i, ...t }))} idKey="id" density="compact"
+              plugins={{ sort: tripPlugin }} columns={[
+              { key: "close_date", sortable: true, header: "Closed", width: pixel(100) },
               { key: "symbol", header: "Symbol", width: pixel(90), renderCell: (t) =>
                 <Link href={links.chart(t.symbol || "SPX")}>{t.symbol || "—"}</Link> },
               { key: "kind", header: "Kind", width: pixel(90) },
-              { key: "realized_pnl", header: "P&L", width: proportional(1), renderCell: (t) =>
+              { key: "realized_pnl", sortable: true, header: "P&L", width: proportional(1), renderCell: (t) =>
                 <Text type="body" weight="semibold" color={(t.realized_pnl || 0) >= 0 ? "success" : "error"}>
                   {money(t.realized_pnl)}</Text> },
             ]} />

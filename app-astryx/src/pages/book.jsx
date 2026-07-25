@@ -3,7 +3,7 @@
 // their consolidation target: Positions = the canon table, Analyzer = the
 // currency-correct roll-up. The legacy Dashboard keeps its actions queue
 // until its own wave — linked, not re-rendered.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
@@ -11,7 +11,7 @@ import { Link } from "@astryxdesign/core/Link";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Table, proportional, pixel } from "@astryxdesign/core/Table";
+import { Table, proportional, pixel, useTableSortable } from "@astryxdesign/core/Table";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Ledger } from "../templates.jsx";
@@ -38,19 +38,77 @@ function Tile({ label, value, tone }) {
   );
 }
 
+const inputStyle = {
+  font: "inherit", padding: "5px 9px", borderRadius: 8,
+  border: "1px solid var(--color-border)",
+  background: "var(--color-background-surface)", color: "var(--color-text-primary)",
+};
+
 function PositionsTab({ rows }) {
-  const sorted = rows.slice().sort((a, b) => (b.value || 0) - (a.value || 0));
   const [open, setOpen] = useState(null);      // symbol whose lots are expanded
+  const [q, setQ] = useState("");
+  const [acct, setAcct] = useState("all");
+  // header-click sorting via the design system's own plugin; we own the state
+  // and apply it ourselves so sorting NEVER compares across currencies
+  const [sort, setSort] = useState([{ sortKey: "value", direction: "descending" }]);
+  const sortPlugin = useTableSortable({ sort, onSortChange: setSort });
+  const accounts = useMemo(
+    () => Array.from(new Set(rows.flatMap((r) => r.accounts || []))).sort(), [rows]);
+  const shown = rows.filter((r) =>
+    (!q || String(r.symbol || "").toUpperCase().includes(q.toUpperCase()))
+    && (acct === "all" || (r.accounts || []).includes(acct)));
+  // group by CURRENCY BOOK — a nominal-value sort across ₹ and $ is a lie
+  const books = useMemo(() => {
+    const m = {};
+    for (const r of shown) (m[r.currency || "USD"] = m[r.currency || "USD"] || []).push(r);
+    const s0 = sort[0] || { sortKey: "value", direction: "descending" };
+    const dir = s0.direction === "ascending" ? 1 : -1;
+    for (const code of Object.keys(m))
+      m[code].sort((a, b) => dir * (((a[s0.sortKey] ?? 0) < (b[s0.sortKey] ?? 0)) ? -1
+        : ((a[s0.sortKey] ?? 0) > (b[s0.sortKey] ?? 0)) ? 1 : 0));
+    return Object.entries(m).sort(([a], [b]) => (a === "USD" ? -1 : b === "USD" ? 1 : a < b ? -1 : 1));
+  }, [shown, sort]);
+  return (
+    <VStack gap={3}>
+      <HStack gap={2} align="center" justify="between" wrap="wrap">
+        <HStack gap={1} align="center" wrap="wrap">
+          <input style={inputStyle} value={q} placeholder="ticker…" aria-label="Filter by ticker"
+            onChange={(e) => setQ(e.target.value)} />
+          <select style={inputStyle} value={acct} onChange={(e) => setAcct(e.target.value)}
+            aria-label="Filter by account">
+            <option value="all">all accounts</option>
+            {accounts.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <Text type="supporting" color="secondary">
+            {shown.length}{shown.length !== rows.length ? ` of ${rows.length}` : ""} positions · click a column to sort (within each book)
+          </Text>
+        </HStack>
+        <Link href={links.positions()}>lots &amp; tax detail (legacy) →</Link>
+      </HStack>
+      {books.map(([code, list]) => (
+        <BookTable key={code} code={code} list={list} open={open} setOpen={setOpen}
+          sortPlugin={sortPlugin} />
+      ))}
+      {!books.length && <Text type="supporting" color="secondary">No positions match.</Text>}
+    </VStack>
+  );
+}
+
+function BookTable({ code, list, open, setOpen, sortPlugin }) {
+  const total = list.reduce((s, r) => s + (r.value || 0), 0);
+  const day = list.reduce((s, r) => s + (r.day_pl || 0), 0);
   return (
     <Section>
       <VStack gap={2} padding={3} className="vg-dense">
-        <HStack gap={2} align="center" justify="between">
-          <Text type="label" color="secondary">
-            Every position, every account · values in each holding&apos;s own currency
+        <HStack gap={2} align="baseline" wrap="wrap">
+          <Text type="label">{code} book</Text>
+          <Text type="supporting" color="secondary">{list.length} positions · {fx(total, code)}</Text>
+          <Text type="supporting" weight="semibold" color={day >= 0 ? "success" : "error"}>
+            day {signed(day, code)}
           </Text>
-          <Link href={links.positions()}>lots &amp; tax detail (legacy) →</Link>
         </HStack>
-        <Table data={sorted.map((r, i) => ({ id: i, ...r }))} idKey="id" density="compact" hasHover columns={[
+        <Table data={list.map((r, i) => ({ id: `${code}${i}`, ...r }))} idKey="id"
+          density="compact" hasHover plugins={{ sort: sortPlugin }} columns={[
           { key: "symbol", header: "Symbol", width: proportional(1.6), renderCell: (r) => (
             <VStack gap={0}>
               <HStack gap={1} align="center">
@@ -74,17 +132,17 @@ function PositionsTab({ rows }) {
               ))}
             </VStack>
           )},
-          { key: "shares", header: "Qty", width: pixel(80), renderCell: (r) =>
+          { key: "shares", header: "Qty", width: pixel(80), sortable: true, renderCell: (r) =>
             <Text type="body">{r.shares != null ? Number(r.shares).toLocaleString() : "—"}</Text> },
-          { key: "value", header: "Value", width: proportional(1), renderCell: (r) =>
+          { key: "value", header: "Value", width: proportional(1), sortable: true, renderCell: (r) =>
             <Text type="body" weight="semibold">{fx(r.value, r.currency)}</Text> },
-          { key: "day_pl", header: "Day", width: proportional(1), renderCell: (r) =>
+          { key: "day_pl", header: "Day", width: proportional(1), sortable: true, renderCell: (r) =>
             <Text type="body" color={(r.day_pl || 0) >= 0 ? "success" : "error"}>
               {signed(r.day_pl, r.currency)}</Text> },
-          { key: "unrealized", header: "Unrealized", width: proportional(1), renderCell: (r) =>
+          { key: "unrealized", header: "Unrealized", width: proportional(1), sortable: true, renderCell: (r) =>
             <Text type="body" color={(r.unrealized || 0) >= 0 ? "success" : "error"}>
               {signed(r.unrealized, r.currency)}</Text> },
-          { key: "weight", header: "Weight", width: pixel(130), renderCell: (r) =>
+          { key: "weight", header: "Weight", width: pixel(130), sortable: true, renderCell: (r) =>
             <HStack gap={1} align="center" style={{ whiteSpace: "nowrap" }}>
               <Text type="body">{pctW(r.weight)}</Text>
               {r.weight != null && r.weight >= 20 && <Badge variant="warning" label="heavy" />}
