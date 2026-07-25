@@ -92,7 +92,7 @@ function DayStrip({ byDay, selDay, onSelect }) {
           <button key={iso} onClick={() => onSelect(iso)}
             style={{ ...inputStyle, width: "auto", cursor: "pointer", textAlign: "center",
               borderColor: sel ? "var(--color-text-primary)" : "var(--color-border)",
-              borderWidth: sel ? 2 : 1 }}>
+              background: sel ? "color-mix(in srgb, currentColor 8%, transparent)" : "var(--color-background-surface)" }}>
             <Text type="supporting" color="secondary">{iso === today ? "Today" : iso.slice(5)}</Text>
             {traded
               ? <Text type="supporting" weight="semibold"
@@ -256,7 +256,7 @@ function TradeCard({ t, tradeIndex, day, expanded, onToggle, thought, onThought,
   return (
     <Section>
       <VStack gap={0} padding={2}>
-        <HStack gap={2} align="center" wrap="wrap" style={{ cursor: "pointer" }} onClick={onToggle}>
+        <HStack gap={2} align="center" wrap="wrap" className="vg-click" onClick={onToggle}>
           <Text type="body" weight="semibold" color={long ? "success" : "error"}>{t.label}</Text>
           {t.account_label && <Badge variant="neutral" label={t.account_label} />}
           <Text type="supporting" color="secondary">{t.ticker || "SPX"} {fmtLvl(t.spot_at_entry)}</Text>
@@ -372,7 +372,7 @@ function TradeCard({ t, tradeIndex, day, expanded, onToggle, thought, onThought,
 }
 
 // ── the day's trades panel ───────────────────────────────────────────────────
-function TradesPanel({ snap, thoughts, onThought }) {
+function TradesPanel({ snap, thoughts, onThought, notesDirty, onSaveNotes, saving }) {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(null);
@@ -480,6 +480,10 @@ function TradesPanel({ snap, thoughts, onThought }) {
               {tickers.map((x) => <option key={x} value={x}>{x}</option>)}
             </select>
           )}
+          {notesDirty && (
+            <Button variant="primary" label={saving ? "Saving…" : "Save notes ●"} isDisabled={!!saving}
+              onClick={onSaveNotes} />
+          )}
           <Button variant="primary" isDisabled={busy || (batch && batch.running) || (daySyn && daySyn.loading)}
             onClick={analyzeToday}
             label={batch && batch.running ? `Analyzing ${batch.done}/${batch.total}…`
@@ -516,7 +520,10 @@ function TradesPanel({ snap, thoughts, onThought }) {
       )}
 
       <HStack gap={3} wrap="wrap">
-        <Text type="supporting">P&amp;L <b style={{ color: s.realized >= 0 ? "var(--color-text-success, inherit)" : "var(--color-text-error, inherit)" }}>{money(s.realized)}</b></Text>
+        <HStack gap={1} align="baseline">
+          <Text type="supporting">P&amp;L</Text>
+          <Text type="supporting" weight="semibold" color={s.realized >= 0 ? "success" : "error"}>{money(s.realized)}</Text>
+        </HStack>
         <Text type="supporting" color="secondary">fills {money(s.realized_from_fills)}</Text>
         {s.expired > 0 && <Text type="supporting" color="secondary">expiry {money(s.realized_from_expiry)} · {s.expired_worthless} worthless {money(s.expired_loss)}</Text>}
         <Text type="supporting" color="secondary">{s.winners}W / {s.losers}L{s.win_rate != null ? ` · win rate ${Math.round(s.win_rate * 100)}%` : ""}</Text>
@@ -547,6 +554,7 @@ function TradesPanel({ snap, thoughts, onThought }) {
 // ── one day ──────────────────────────────────────────────────────────────────
 function DayDetail({ s, onDelete, onSaveEntry, onAttach, saving }) {
   const [entry, setEntry] = useState(s.entry || {});
+  const [confirmDel, setConfirmDel] = useState(false);
   const [thoughts, setThoughts] = useState(() => {
     try { return JSON.parse((s.entry || {}).trades || "{}"); } catch (e) { return {}; }
   });
@@ -563,6 +571,14 @@ function DayDetail({ s, onDelete, onSaveEntry, onAttach, saving }) {
     if (Object.keys(kept).length) clean.trades = JSON.stringify(kept);
     await onSaveEntry(s.id, clean);
   };
+  // unsaved trade notes must be VISIBLE where they were edited, not only at
+  // the form at the bottom — silent loss on navigation is the failure mode
+  const notesDirty = useMemo(() => {
+    const kept = Object.fromEntries(Object.entries(thoughts).filter(([, v]) => (v || "").trim()));
+    let persisted = {};
+    try { persisted = JSON.parse((s.entry || {}).trades || "{}"); } catch (e) { /* empty */ }
+    return JSON.stringify(kept) !== JSON.stringify(persisted);
+  }, [thoughts, s.entry]);
 
   const sc = s.scorecard;
   const f = s.forecast || {};
@@ -578,10 +594,17 @@ function DayDetail({ s, onDelete, onSaveEntry, onAttach, saving }) {
             {sc && sc.regime ? ` · ${sc.regime.correct ? "forecast held ✓" : "forecast missed ✗"}` : ""}
           </Text>
         </VStack>
-        <Button variant="secondary" label="delete" onClick={() => onDelete(s.id)} />
+        {confirmDel
+          ? <HStack gap={1} align="center">
+              <Text type="supporting" color="error">delete this day&apos;s entry?</Text>
+              <Button variant="primary" label="yes, delete" onClick={() => onDelete(s.id)} />
+              <Button variant="secondary" label="keep" onClick={() => setConfirmDel(false)} />
+            </HStack>
+          : <Button variant="secondary" label="delete" onClick={() => setConfirmDel(true)} />}
       </HStack>
 
-      <TradesPanel snap={s} thoughts={thoughts} onThought={setThought} />
+      <TradesPanel snap={s} thoughts={thoughts} onThought={setThought}
+        notesDirty={notesDirty} onSaveNotes={save} saving={saving} />
 
       <Section>
         <VStack gap={2} padding={3}>
@@ -771,7 +794,7 @@ function AnalysisPanel({ sym }) {
       {(hist || []).map((h) => (
         <Section key={h.id}>
           <VStack gap={1} padding={2}>
-            <HStack gap={2} align="center" wrap="wrap" style={{ cursor: "pointer" }}
+            <HStack gap={2} align="center" wrap="wrap" className="vg-click"
               onClick={() => setOpenId(openId === h.id ? null : h.id)}>
               <Badge variant="neutral" label={h.period || "run"} />
               <Text type="body" weight="semibold">{h.window_from} → {h.window_to}</Text>

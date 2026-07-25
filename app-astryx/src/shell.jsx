@@ -15,14 +15,14 @@ export const SURFACES = [
   { group: "Desk", id: "cockpit", label: "Cockpit", page: true },
   { group: "Desk", id: "plan", label: "Daily plan", page: true },
   { group: "Desk", id: "scanner", label: "Scanner", page: true },
-  { group: "Desk", id: "chart", label: "Chart", href: links.chart("SPX") },
+  { group: "Desk", id: "chart", label: "Chart ↗", href: links.chart("SPX") },
   { group: "Book", id: "book", label: "Book", page: true },
-  { group: "Book", id: "dashboard", label: "Dashboard (legacy)", href: `/#/dashboard` },
-  { group: "Book", id: "options", label: "Options", href: `/#/options` },
-  { group: "Book", id: "tax", label: "Tax", href: `/#/tax` },
+  { group: "Book", id: "dashboard", label: "Dashboard ↗", href: `/#/dashboard` },
+  { group: "Book", id: "options", label: "Options ↗", href: `/#/options` },
+  { group: "Book", id: "tax", label: "Tax ↗", href: `/#/tax` },
   { group: "Review", id: "journal", label: "Trading Journal", page: true },
   { group: "Review", id: "performance", label: "Performance", page: true },
-  { group: "Review", id: "strategies", label: "Strategies", href: `/#/strategies` },
+  { group: "Review", id: "strategies", label: "Strategies ↗", href: `/#/strategies` },
 ];
 
 function useHashPage(fallback = "cockpit") {
@@ -77,7 +77,8 @@ export function Shell({ children }) {
       <AppShell
         variant="elevated"
         sideNav={
-          <SideNav header={<SideNavHeading heading="Vantage" headingHref="/next/" />}>
+          <SideNav header={<SideNavHeading heading="Vantage" headingHref="/next/" />}
+            footer={<Text type="supporting" color="secondary">⌘K — jump anywhere · ↗ opens the old shell</Text>}>
             {groups.map((g) => (
               <SideNavSection key={g} heading={g}>
                 {SURFACES.filter((s) => s.group === g).map((s) => (

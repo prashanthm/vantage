@@ -152,8 +152,7 @@ function History({ rows }) {
             const expanded = open === key;
             return (
               <VStack key={key} gap={0}>
-                <HStack gap={2} align="center" wrap="wrap"
-                  style={{ cursor: "pointer", padding: "3px 0" }}
+                <HStack gap={2} align="center" wrap="wrap" className="vg-click"
                   onClick={() => setOpen(expanded ? null : key)}>
                   <Link href={links.chart(h.symbol)}>{h.symbol}</Link>
                   <Badge variant={h.dir === "long" ? "success" : "error"} label={`${h.tier} ${h.dir === "long" ? "LONG" : "SHORT"}`} />
@@ -267,8 +266,11 @@ export function ScannerPage() {
             <HStack gap={1} align="center" wrap="wrap">
               <Text type="supporting" color="secondary">watch:</Text>
               {manual.map((t) => (
-                <Badge key={t} variant="neutral" label={`${t} ✕`}
-                  onClick={() => editWatch({ remove: t })} />
+                <button key={t} onClick={() => editWatch({ remove: t })}
+                  aria-label={`remove ${t} from the watch list`}
+                  style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}>
+                  <Badge variant="neutral" label={`${t} ✕`} />
+                </button>
               ))}
               <input style={inputStyle} value={watch} placeholder="add ticker" aria-label="Add watch ticker"
                 onChange={(e) => setWatch(e.target.value.toUpperCase())}

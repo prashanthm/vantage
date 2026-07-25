@@ -90,6 +90,19 @@ GAPS (logged): ToneCompareCard strip not ported (lives in legacy + cockpit
 face); month-calendar popover replaced by a date input; attach is file-
 input only (no paste/drop yet).
 
+## UX pass (post-W5, this commit) — heuristic evaluation + fixes
+Findings fixed: (1) desk cap 1560px — full-bleed tables separated related
+numbers by half a screen; (2) header controls now within reach of their
+title; (3) .vg-click hover affordance on every expandable row; (4) journal
+delete is TWO-STEP (error prevention on the canonical record); (5) unsaved
+trade notes surface a "Save notes ●" button at the trades header the
+moment they dirty — no more silent loss at the bottom-of-page form; (6)
+watch-chip remove is a real button (keyboard-reachable); (7) day-pill
+selection uses tint not border-width (no jitter); (8) every legacy nav
+exit marked ↗ + nav footer explains it; (9) cmd-K hint in the nav footer;
+(10) P&L tone through the Text component (dark-safe). Follow-up caught in
+verification: Weight column wrap at the new cap — widened + nowrap.
+
 Waves remaining: W6 — delete vg-*/buildless shell + flip all legacy
 redirects at parity (incl. the W5 gaps + analyzer actions + tickets).
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO

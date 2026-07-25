@@ -84,8 +84,8 @@ function PositionsTab({ rows }) {
           { key: "unrealized", header: "Unrealized", width: proportional(1), renderCell: (r) =>
             <Text type="body" color={(r.unrealized || 0) >= 0 ? "success" : "error"}>
               {signed(r.unrealized, r.currency)}</Text> },
-          { key: "weight", header: "Weight", width: pixel(80), renderCell: (r) =>
-            <HStack gap={1} align="center">
+          { key: "weight", header: "Weight", width: pixel(130), renderCell: (r) =>
+            <HStack gap={1} align="center" style={{ whiteSpace: "nowrap" }}>
               <Text type="body">{pctW(r.weight)}</Text>
               {r.weight != null && r.weight >= 20 && <Badge variant="warning" label="heavy" />}
             </HStack> },
