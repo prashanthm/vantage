@@ -118,6 +118,81 @@ def _census(rows: list[dict]) -> list[dict]:
     return out
 
 
+
+# ── the MEASURED leak census (code, credible intervals) ─────────────────────
+# The prose pattern census above counts what MIRA wrote; this one measures the
+# TRADES themselves — win-rate per condition with a Beta-Binomial 90% credible
+# interval vs the window baseline (the Swings-tab engine, ml/buckets.py,
+# pointed at the 0DTE day book). A bucket is a LEAK/EDGE only when its
+# interval clearly separates from baseline; small-n buckets report n and stay
+# unmarked (never read noise as signal).
+def _hour_bucket(et: str | None) -> str | None:
+    hm = (et or "")[:5]
+    if not hm or ":" not in hm:
+        return None
+    h, m = hm.split(":")
+    mins = int(h) * 60 + int(m)
+    if mins < 630:
+        return "open (9:30-10:30)"
+    if mins < 840:
+        return "midday (10:30-14:00)"
+    return "late (14:00+)"
+
+
+def leak_census(closed: list[dict]) -> dict:
+    """Bucketed win-rates over the window's CLOSED day trades. Returns
+    {baseline: {...}, buckets: [{name, n, wins, win_rate, ci_low, ci_high,
+    verdict}]}; verdict = 'leak' | 'edge' | None (interval vs baseline)."""
+    from .ml.buckets import beta_binomial
+    decided = [t for t in closed if (t.get("realized") or 0) != 0]
+    if len(decided) < 6:
+        return {"baseline": {"n": len(decided)}, "buckets": [],
+                "note": "too few decided trades for a census"}
+    wins_all = sum(1 for t in decided if t["realized"] > 0)
+    base_rate = wins_all / len(decided)
+    costs = sorted(float(t.get("cost") or 0) for t in decided if t.get("cost"))
+    med_cost = costs[len(costs) // 2] if costs else 0.0
+
+    def _after_loss(i, t):
+        prev = [p for p in decided[:i]
+                if p.get("closed_at") and t.get("opened_at")
+                and str(p["closed_at"]) <= str(t["opened_at"])
+                and str(p.get("closed_at", ""))[:10] == str(t.get("opened_at", ""))[:10]]
+        return bool(prev) and prev[-1]["realized"] < 0
+
+    conds = {
+        "entry at open (9:30-10:30)": lambda i, t: _hour_bucket(t.get("opened_et")) == "open (9:30-10:30)",
+        "entry midday (10:30-14:00)": lambda i, t: _hour_bucket(t.get("opened_et")) == "midday (10:30-14:00)",
+        "entry late (14:00+)": lambda i, t: _hour_bucket(t.get("opened_et")) == "late (14:00+)",
+        "entered AT a plan level": lambda i, t: bool(t.get("correlation")),
+        "entered OFF the levels": lambda i, t: not t.get("correlation"),
+        "first trade after a loss": _after_loss,
+        "scaled in (added contracts)": lambda i, t: bool(t.get("scale")),
+        "size at/above window median": lambda i, t: float(t.get("cost") or 0) >= med_cost,
+    }
+    buckets = []
+    for name, fn in conds.items():
+        rows = [t for i, t in enumerate(decided) if fn(i, t)]
+        if not rows:
+            continue
+        wins = sum(1 for t in rows if t["realized"] > 0)
+        bb = beta_binomial(wins, len(rows) - wins)
+        verdict = None
+        if len(rows) >= 5:
+            if bb["ci_high"] < base_rate:
+                verdict = "leak"
+            elif bb["ci_low"] > base_rate:
+                verdict = "edge"
+        buckets.append({"name": name, "n": len(rows), "wins": wins,
+                        "win_rate": round(wins / len(rows), 3),
+                        "ci_low": bb["ci_low"], "ci_high": bb["ci_high"],
+                        "net": round(sum(t["realized"] for t in rows), 2),
+                        "verdict": verdict})
+    buckets.sort(key=lambda b: (b["verdict"] is None, b["win_rate"]))
+    return {"baseline": {"n": len(decided), "win_rate": round(base_rate, 3)},
+            "buckets": buckets}
+
+
 # ── recommendation tracking ─────────────────────────────────────────────────
 # Each dimension carries a standing recommendation; its STATUS comes from the
 # score delta vs the prior analysis. This is how "is the advice working?" shows.
@@ -179,6 +254,7 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
     # show) — same deterministic formulas as summarize(), just pooled.
     net = 0.0
     n_trades = 0
+    all_closed: list[dict] = []
     tot_win = tot_loss = 0            # winner/loser COUNTS across the window
     gross_win = gross_loss = 0.0     # winner/loser DOLLARS across the window
     per_day = []
@@ -190,6 +266,7 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
         closed = [t for t in sess.get("trades", []) if t.get("realized") is not None]
         if not closed and not sess.get("trades"):
             continue
+        all_closed.extend(closed)
         day_net = round(sum(t["realized"] for t in closed), 2)
         s = sess.get("summary", {})
         net += day_net
@@ -227,6 +304,7 @@ def gather(store, window_from: str, window_to: str, underlying: str = "SPX") -> 
         "rubric_version": RUBRIC_VERSION,
         "trades": n_trades, "analyzed": len(rows), "net_pnl": round(net, 2),
         "overall": overall,   # windowed win rate + profit factor (deterministic)
+        "leak_census": leak_census(sorted(all_closed, key=lambda t: str(t.get("opened_at") or ""))),
         "scores": scores,
         "rubric": {dim: {"label": s["label"], "about": s["about"]} for dim, s in RUBRIC.items()},
         "patterns": _census(rows),
@@ -291,6 +369,11 @@ def build_prompt(bundle: dict) -> str:
         f"\nRUBRIC SCORES (already computed — do NOT restate the numbers, read them): "
         f"{json.dumps(b['scores'])}. Dimensions: {json.dumps(b['rubric'])}.\n"
         f"\nPATTERN CENSUS (mistake -> flag count + the trades that evidence it): {json.dumps(b['patterns'])}.\n"
+        f"\nMEASURED LEAK CENSUS (code-computed win-rates per condition, Beta-Binomial 90% credible "
+        f"intervals vs the window baseline — verdict 'leak'/'edge' ONLY where the interval clearly "
+        f"separates): {json.dumps(b.get('leak_census'))}. Ground every weakness/strength claim about "
+        "WHEN or HOW the operator trades in THIS census — cite its numbers; do not invent patterns "
+        "the census does not show, and treat verdict=null buckets as inconclusive.\n"
         f"\nPER-DAY DISCIPLINE: {json.dumps(b['per_day'])}.\n"
         f"\nDEALER-GAMMA REGIMES per day (SPX chain vs SPY proxy; gamma_divergence=true "
         f"means the two books DISAGREED — flag any pattern between divergent days and "
