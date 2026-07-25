@@ -62,6 +62,11 @@
 /* wide content scrolls inside its container, never the page */
 .t-focus, .t-ledger { overflow-x: auto; }
 
+/* the page frame: breathing room between content and the shell's surface
+ * edges on every page, once, at the shell level */
+.vg-page { padding: 20px 28px 56px; }
+@media (max-width: 700px) { .vg-page { padding: 12px 14px 40px; } }
+
 /* ---- space discipline (operator rule: use the width) -------------------
  * A trading desk runs wide screens; a single 700px column on 2400px is
  * wasted glass. Parallel content sits side by side via vg-cols (auto-fit:

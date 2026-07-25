@@ -93,7 +93,9 @@ export function Shell({ children }) {
             </SideNavSection>
           </SideNav>
         }>
-        {children(page)}
+        {/* the content surface has NO interior padding of its own — without
+            this frame every page's content sits flush against its border */}
+        <div className="vg-page">{children(page)}</div>
       </AppShell>
       <CommandPalette
         isOpen={cmdOpen}
