@@ -14,7 +14,7 @@ import { links } from "./links.js";
 export const SURFACES = [
   { group: "Desk", id: "cockpit", label: "Cockpit", page: true },
   { group: "Desk", id: "plan", label: "Daily plan", href: links.dailyPlan() },
-  { group: "Desk", id: "scanner", label: "Scanner", href: links.scanner() },
+  { group: "Desk", id: "scanner", label: "Scanner", page: true },
   { group: "Desk", id: "chart", label: "Chart", href: links.chart("SPX") },
   { group: "Book", id: "book", label: "Book", page: true },
   { group: "Book", id: "dashboard", label: "Dashboard (legacy)", href: `/#/dashboard` },

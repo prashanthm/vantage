@@ -47,5 +47,16 @@ browser both tabs. PARITY GAP before redirecting #/holdings + #/portfolio:
 lots/tax detail, account filter, and the analyzer's action recommendations
 stay legacy (linked from the page).
 
-## W4 — Scanner + Daily plan · TODO
+## W4a — Scanner · DONE (this commit)
+In-shell Scanner (Ledger template): strategy SegmentedControl (3 families),
+coverage/freshness line, background refresh with 5s polling, watch-ticker
+add/remove chips, A+/B tier groups (full exit-ladder rungs on cards),
+history with ticker/tier/side/outcome filters + expandable rows. Every
+symbol chart-linked. vg-cols grid = 4 cards across on a wide desk.
+Verified: ict_htf + rsi2_mr live data, strategy switch, filters render.
+Nav flipped to page; legacy #/scanner stays routable (redirect at W6).
+
+## W4b — Daily plan · TODO (next)
+Brief template; today's read + ladder + market context; pine export and
+ticket staging stay legacy-linked until ported.
 ## W5 — Journal (last) · TODO   ## W6 — delete vg-*/buildless shell · TODO
