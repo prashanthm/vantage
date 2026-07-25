@@ -9,6 +9,7 @@ import { cls, dirCls, LoadBar } from "./util.jsx";
 import { useLive, getScanner, refreshScanner, addScannerTicker, removeScannerTicker, getSpreadBook } from "./live.js";
 import { ScannerSpreadBook, PaperView } from "./paper.jsx";
 import { LifecycleBoard } from "./strategies_view.jsx";
+import { TelegramSignalsCard } from "./telegram_card.jsx";
 
 const { useState, useEffect } = React;
 
@@ -358,6 +359,7 @@ export function ScannerView({ onOpenSymbol, tab, onTab }) {
 
       {active === "paper" && <>
         <ScannerSpreadBook refreshNonce={nonce} alwaysShow section="open" />
+        <TelegramSignalsCard refreshNonce={nonce} />
         {/* the reclaim paper book — playbook-ticket fills, the other paper feeder */}
         <details className="vg-card" style={{ marginTop: 12 }}>
           <summary className="vg-kicker" style={{ cursor: "pointer" }}>

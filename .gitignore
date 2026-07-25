@@ -11,3 +11,4 @@ deploy/.env
 server/scratch/
 .codegraph/
 cockpit-astryx/node_modules/
+telegram.session*

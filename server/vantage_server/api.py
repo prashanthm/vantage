@@ -1452,6 +1452,43 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             return envelope(snap, available=False, note="alerts need the SQLite backend")
         return envelope(snap, available=True, removed=_la.remove_alert(store, alert_id))
 
+    @app.get("/api/telegram")
+    def telegram_state():
+        """Telegram signal-channel state: allow-list, recent inbox, and the
+        per-channel paper book. Read-only; the listener daemon does the
+        ingesting (telegram_listener.py)."""
+        from . import telegram_signals as _tg
+        from .store import resolve_data_dir
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="telegram signals need the SQLite backend")
+        return envelope(snap, available=True,
+                        session=(resolve_data_dir(None) / "telegram.session").exists(),
+                        channels=_tg.channels(store), inbox=_tg.inbox(store),
+                        book=_tg.build_book(store))
+
+    @app.post("/api/telegram/channels")
+    def telegram_channel_add(body: dict = Body(default={})):
+        """Allow-list a channel (@username or title). The daemon reads the
+        list at startup — restart it after edits. Store-only write."""
+        from . import telegram_signals as _tg
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="telegram signals need the SQLite backend")
+        name = str(body.get("channel") or "").strip()
+        if not name:
+            return envelope(snap, available=False, note="need a channel name")
+        return envelope(snap, available=True, channels=_tg.add_channel(store, name))
+
+    @app.delete("/api/telegram/channels/{name}")
+    def telegram_channel_remove(name: str):
+        """Drop a channel from the allow-list. Store-only write."""
+        from . import telegram_signals as _tg
+        snap = state.snapshot()
+        if not getattr(store, "uses_sqlite", False):
+            return envelope(snap, available=False, note="telegram signals need the SQLite backend")
+        return envelope(snap, available=True, channels=_tg.remove_channel(store, name))
+
     @app.post("/api/reclaim-bot/poll")
     def reclaim_bot_poll():
         """ONE signal-bot pass: arm today's reclaim tickets as auto paper
@@ -1471,7 +1508,14 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             fired = _la.tick(store)
         except Exception:  # noqa: BLE001 — alerts must never break the bot pass
             fired = []
+        # telegram-signal paper trades settle on the same heartbeat
+        from . import telegram_signals as _tg
+        try:
+            tg_closed = _tg.tick(store)
+        except Exception:  # noqa: BLE001
+            tg_closed = []
         return envelope(snap, available=True, events=events, alerts_fired=fired,
+                        telegram_closed=tg_closed,
                         telegram=signal_bot.telegram_configured(store))
 
     @app.get("/api/exits")

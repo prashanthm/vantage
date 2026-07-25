@@ -93,6 +93,23 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  # Telegram user-account listener (opt-in): reads the operator's allow-listed
+  # signal channels and feeds the telegram paper book. Needs the one-time
+  # interactive login first (see telegram_listener.py docstring), so it lives
+  # behind a profile:  docker compose --profile telegram up -d
+  vantage-telegram:
+    image: vantage-backend:local
+    command: ["python", "-m", "vantage_server.telegram_listener"]
+    profiles: ["telegram"]
+    volumes:
+      - vantage-data:/data
+    environment:
+      VANTAGE_DB: /data/vantage.db
+      VANTAGE_DATA_DIR: /data
+      TELEGRAM_API_ID: "${TELEGRAM_API_ID:-}"
+      TELEGRAM_API_HASH: "${TELEGRAM_API_HASH:-}"
+    restart: unless-stopped
+
   vantage-mcp:
     build:
       # Repo root context so both server/ and mcp/ are visible to the build.

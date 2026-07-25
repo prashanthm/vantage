@@ -18,7 +18,7 @@ WORKDIR /app
 # Dependency layer first for build caching: metadata + package, then install.
 COPY pyproject.toml README.md ./
 COPY vantage_server ./vantage_server
-RUN pip install ".[robinhood,zerodha]"
+RUN pip install ".[robinhood,zerodha,telegram]"
 
 # Non-root runtime user; owns /data so the volume is writable (refresh + WAL).
 RUN useradd --create-home --uid 10001 vantage \
