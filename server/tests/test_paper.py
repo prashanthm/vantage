@@ -432,6 +432,9 @@ def test_live_mirror_matching():
     # exact long-strike match (55) wins over the 60 breakout row
     assert ict.get("live") and ict["live"]["label"] == "BKR 55/65 ×2"
     assert "live" not in brk
+    # the matched twin carries the real position's identity (Book provenance)
+    assert ict["live"]["match"] == {"underlying": "BKR", "expiration": "2026-08-21",
+                                    "kind": "C", "strikes": [55.0, 65.0]}
 
 
 def test_live_mirror_unmatched_returned():

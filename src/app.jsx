@@ -822,6 +822,17 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
   // Journal decisions indexed by underlying — the group inherits its underlying's
   // read; each option leg gets its own leg-action from decision.legActions.
   const analysis = useLive(() => live.getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
+  // Provenance: which real option positions were strategy-born (paper twin or
+  // manual tag) — from the spread book's live_links. Underlying-level join.
+  // ponytail: underlying granularity, strike-level match if two spreads on one
+  // name ever diverge in provenance.
+  const linksQ = useLive(() => live.getSpreadBook(), null, [refreshNonce]);
+  const stratByUnd = useMemo(() => {
+    const m = {};
+    for (const l of ((linksQ.data && linksQ.data.live_links) || []))
+      (m[l.underlying] ||= new Set()).add(l.strategy);
+    return m;
+  }, [linksQ.data]);
   const byUnderlying = useMemo(() => {
     const m = {};
     for (const d of (analysis?.decisions || [])) m[underlyingOf(d.symbol)] = d;
@@ -958,6 +969,12 @@ function HoldingsView({ accountId, settings, go, setSymbol, refreshNonce }) {
                       {isOpen ? "▾" : "▸"}</span>
                     <b>{g.key}</b>
                     {nOpts > 0 && <span className="vg-chip" style={{ marginLeft: 6 }} title={`${nOpts} option leg(s)`}>{nOpts} OPT</span>}
+                    {nOpts > 0 && (stratByUnd[g.key]
+                      ? <span className="vg-badge info" style={{ marginLeft: 6 }}
+                          title="this position correlates to a scanner paper trade (or your manual tag)">
+                          STRATEGY · {[...stratByUnd[g.key]].join("+")}</span>
+                      : <span className="vg-badge plain" style={{ marginLeft: 6, opacity: 0.7 }}
+                          title="no scanner paper twin or tag — entered manually">MANUAL</span>)}
                     {g.equity && g.equity.overlap && accountId === "all" && (
                       <span className="vg-badge info" style={{ marginLeft: 6 }} title={`Held as ${g.equity.overlap.symbols.join(", ")}`}>Overlap</span>
                     )}

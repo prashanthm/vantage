@@ -7993,6 +7993,13 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
     const [query, setQuery] = useState17("");
     const pos = useLive(() => positions(accountId).then(mapPositions), [], [accountId, settings, refreshNonce], { blankOnOutage: true }).data;
     const analysis = useLive(() => getAnalysis().then(mapAnalysis), null, [settings, refreshNonce]).data;
+    const linksQ = useLive(() => getSpreadBook(), null, [refreshNonce]);
+    const stratByUnd = useMemo6(() => {
+      const m = {};
+      for (const l of linksQ.data && linksQ.data.live_links || [])
+        (m[l.underlying] ||= /* @__PURE__ */ new Set()).add(l.strategy);
+      return m;
+    }, [linksQ.data]);
     const byUnderlying = useMemo6(() => {
       const m = {};
       for (const d of analysis?.decisions || []) m[underlyingOf(d.symbol)] = d;
@@ -8101,7 +8108,24 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
             }
           },
           isOpen ? "\u25BE" : "\u25B8"
-        ), /* @__PURE__ */ React.createElement("b", null, g.key), nOpts > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-chip", style: { marginLeft: 6 }, title: `${nOpts} option leg(s)` }, nOpts, " OPT"), g.equity && g.equity.overlap && accountId === "all" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { marginLeft: 6 }, title: `Held as ${g.equity.overlap.symbols.join(", ")}` }, "Overlap"), g.equity && g.equity.weight > 7 && /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", style: { marginLeft: 6 } }, "Concentrated"), sleeve && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "sleeve \u2014 value via broker portfolio")),
+        ), /* @__PURE__ */ React.createElement("b", null, g.key), nOpts > 0 && /* @__PURE__ */ React.createElement("span", { className: "vg-chip", style: { marginLeft: 6 }, title: `${nOpts} option leg(s)` }, nOpts, " OPT"), nOpts > 0 && (stratByUnd[g.key] ? /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            className: "vg-badge info",
+            style: { marginLeft: 6 },
+            title: "this position correlates to a scanner paper trade (or your manual tag)"
+          },
+          "STRATEGY \xB7 ",
+          [...stratByUnd[g.key]].join("+")
+        ) : /* @__PURE__ */ React.createElement(
+          "span",
+          {
+            className: "vg-badge plain",
+            style: { marginLeft: 6, opacity: 0.7 },
+            title: "no scanner paper twin or tag \u2014 entered manually"
+          },
+          "MANUAL"
+        )), g.equity && g.equity.overlap && accountId === "all" && /* @__PURE__ */ React.createElement("span", { className: "vg-badge info", style: { marginLeft: 6 }, title: `Held as ${g.equity.overlap.symbols.join(", ")}` }, "Overlap"), g.equity && g.equity.weight > 7 && /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", style: { marginLeft: 6 } }, "Concentrated"), sleeve && /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, "sleeve \u2014 value via broker portfolio")),
         /* @__PURE__ */ React.createElement("td", { className: "num" }, money(g.value, g.currency)),
         /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(g.dayPl)) }, g.dayPl ? signMoney(g.dayPl, g.currency) : "\u2014"),
         /* @__PURE__ */ React.createElement("td", { className: cls("num", dirCls(g.unrl)) }, signMoney(g.unrl, g.currency)),

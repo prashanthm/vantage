@@ -977,6 +977,10 @@ def _annotate_live_mirrors(rows: list[dict], reals: list[dict]) -> list[dict]:
                 "status": real["status"], "opened_at": real["opened_at"],
                 "expiration": real["expiration"],
                 "realized": real["realized"], "cost": real["cost"],
+                # identity of the REAL position, so the Book can badge it
+                "match": {"underlying": real["underlying"],
+                          "expiration": real["expiration"],
+                          "kind": real["kind"], "strikes": real["strikes"]},
             }
         else:
             unmatched.append(real)
@@ -993,6 +997,7 @@ def build_spread_book(store: Store) -> dict:
     # reals with no paper twin can carry an operator-set strategy tag (meta kv)
     unmatched = _annotate_live_mirrors(rows, _real_spread_positions(store))
     live_manual = []
+    live_links = []   # real-position → strategy provenance, for the Book's badge
     for real in unmatched:
         tag = store.get_meta(live_tag_key(real)) if getattr(store, "uses_sqlite", False) else None
         if tag:
@@ -1003,6 +1008,18 @@ def build_spread_book(store: Store) -> dict:
                 "expiration": real["expiration"], "realized": real["realized"],
                 "cost": real["cost"], "strategy": tag, "manual": True,
             })
+            live_links.append({"underlying": real["underlying"],
+                               "expiration": real["expiration"],
+                               "kind": real["kind"], "strikes": real["strikes"],
+                               "strategy": tag, "source": "manual-tag"})
+    # matched twins: the paper row knows which scanner armed it → provenance
+    for r in rows:
+        lv = r.get("live")
+        if lv and lv.get("match"):
+            live_links.append({**lv["match"],
+                               "strategy": r.get("setup") or "ict_htf",
+                               "source": "strategy"})
+
     open_rows = [r for r in rows if r.get("status") == "open"]
     closed = [r for r in rows if r.get("status") == "closed"]
     # $0 non-trades (no fill / contract-risk gate) stay VISIBLE in the closed
@@ -1032,6 +1049,7 @@ def build_spread_book(store: Store) -> dict:
         "stats": paper_stats(real),
         "by_strategy": by_strategy,
         "live_manual": live_manual,
+        "live_links": live_links,
         "equity_curve": equity_curve(real),
     }
 
