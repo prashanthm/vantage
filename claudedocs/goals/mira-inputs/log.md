@@ -298,3 +298,28 @@ clean run exists (the variance finding).
     close this line.
 Single day already seen (07-24, not the verdict): baseline 0.500 vs Mira
 0.385–0.538. Six-day pooled run next.
+
+## E9 VERDICT — CONFIRMED no material edge (deterministic baseline ≈ Mira)
+pooled over the six canonical RTH runs (161 baseline / 160 Mira scored steps):
+  Mira   89/160 = 0.556
+  Claude 83/161 = 0.516
+  delta (claude − mira) = −0.041  →  |delta| < 0.05 → **CONFIRMED no material edge**
+per day (mira vs claude): 07-15 .500/.556 · 07-16 .556/.556 · 07-17 .407/.407
+· 07-21 .667/.519 · 07-23 .667/.556 · 07-24 .538/.500. The baseline matches
+or beats Mira on the CHOP/RANGE days (07-15/16/17) and trails on the two
+strong TREND days (07-21/23) — the LLM's edge, such as it is, shows up only
+when there's a clean directional draw the rules under-commit to.
+Mira run-to-run variance (identical inputs): 07-24 = 0.385/0.462/0.538 across
+three stored runs — a ~15pp swing, so any single Mira run's hit-rate is a
+noisy sample. The deterministic baseline is, by construction, stable.
+INTERPRETATION: on the narrow 15-min target/stop-hit task, an LLM barely
+out-scores a rules-only read of the same snapshot (+0.041, inside noise),
+and is less consistent. This EXTENDS the goal's meta-finding ("prompt-side
+nudges don't move scored outcomes") to "the model itself barely moves them
+either — the signal is in the snapshot, not the reasoning." KEEP Mira (it
+does narrative + tool grounding + A2UI the baseline doesn't), but **stop
+treating 15-min hit-rate as an LLM-quality signal** — it can't distinguish
+the model from arithmetic. Best use of the baseline: a control arm in future
+forecast experiments (the null a prompt/model change must beat), not a
+shipped replacement. Harness: research/claude_vs_mira_forecast.py + the
+six-day pooled driver.
