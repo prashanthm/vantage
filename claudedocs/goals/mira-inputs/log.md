@@ -371,3 +371,25 @@ INVISIBLE on chop — a sharper statement of E9, not a contradiction. Small n
 (3 days, one Mira sample/day, and Mira varies ~15pp run-to-run) — the live
 E10 accrual over ≥10 sessions remains the arbiter; this is a directional
 preview consistent with "LLM helps on trend days only."
+
+## E11 · regime-GATED forecaster (pre-registered BEFORE live accrual)
+E10b: Mira's edge is concentrated on TREND days (neg-gamma, stretched-from-
+VWAP), a tie on chop. Hypothesis: a gate that uses Mira's plot on trend steps
+and the baseline's plot on chop steps beats BOTH standalone arms.
+LIVE-available regime classifier (no hindsight): TREND if gamma=='negative'
+AND |vs_vwap_pt| >= 8 AND rel_volume >= 1.0 ; else CHOP. (neg-gamma =
+amplify-mode = moves run; stretched+volume = a real directional push. The two
+Mira-won days 07-21/07-23 are neg-gamma; the two weak days 07-15/16 are
+positive-gamma.)
+gate forecast: TREND step -> Mira's live plot (run_id NULL, same as_of);
+CHOP step -> baseline_forecast plot. Saved as a THIRD shadow arm
+run_id="gated:<day>", scored by the same scorer. Nothing displayed/retired;
+it's measured against baseline + Mira live.
+prediction: over >=10 live sessions, gated pooled hit-rate >= max(baseline,
+Mira) + 0.03. If the gate doesn't beat the better standalone arm by >=0.03,
+it's overfit to 6 backtest days -> DISPROVEN, drop it.
+decision rule (frozen): gated - max(baseline,mira) >= +0.03 -> the gate is
+real; candidate for the displayed forecaster (operator's call). Else keep all
+three as measurement, gate stays shadow. n<10 sessions = inconclusive, keep
+accruing. Backtest preview on the 3 head-to-head days is a directional check,
+NOT the verdict (same small-n caveat as E10b).
