@@ -323,3 +323,27 @@ the model from arithmetic. Best use of the baseline: a control arm in future
 forecast experiments (the null a prompt/model change must beat), not a
 shipped replacement. Harness: research/claude_vs_mira_forecast.py + the
 six-day pooled driver.
+
+## E10 · LIVE baseline vs Mira (pre-registered BEFORE first live session)
+E9 was backtest (re-scoring stored snapshots). E10 ships the deterministic
+baseline as a LIVE parallel forecaster — same 60s heartbeat, same snapshot,
+saved with run_id="baseline:<day>" alongside Mira's live run_id=NULL forecast.
+NEITHER retires; both accrue and self-score. Operator decision 2026-07-25:
+run the baseline, keep Mira.
+mechanism: baseline_forecast.tick(store) builds the current snapshot
+(spx_snapshot.build_snapshot) at each RTH 15-min boundary, emits the E9 rules
+plot (VWAP/RSI direction, ICT-pool target ≤3×ATR, symmetric R:R=1 stop),
+dedups per (day, 15-min bucket), saves via save_spx_forecast(run_id=
+f"baseline:{day}"). Hooked into /api/reclaim-bot/poll next to level_alerts +
+telegram ticks. Read-only to Mira; ADR-010 (no orders).
+prediction: over ≥10 live RTH sessions (~250 scored steps/arm), pooled
+baseline hit-rate within ±0.05 of Mira's live (run_id NULL) — i.e. E9's
+backtest wash REPRODUCES live. If it does, the deterministic baseline is the
+standing control arm any future forecast change must beat.
+decision rule (frozen): after ≥10 sessions, pooled baseline vs Mira-live.
+  |delta| < 0.05 → E9 confirmed live: baseline is the control arm; 15-min
+    hit-rate stays retired as an LLM-quality signal.
+  baseline − Mira ≥ +0.05 → the cheaper deterministic forecaster is live-
+    better; operator may promote it to the displayed forecast (Mira kept for
+    narrative). Mira − baseline ≥ +0.05 → the LLM earns it live; close the line.
+env gate: VANTAGE_BASELINE_FORECAST=1 (default on; the tick is store-only).
