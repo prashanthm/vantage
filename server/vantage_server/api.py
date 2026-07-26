@@ -2899,7 +2899,34 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         snap = state.snapshot()
         return envelope(snap, symbol=symbol.upper(), journal=store.load_ticker_journal(symbol.upper()))
 
+    _instrument_otel(app)
     return app
+
+
+def _instrument_otel(app) -> None:
+    """Opt-in OpenTelemetry: auto-instrument FastAPI so every request is a
+    server span that reads the inbound W3C traceparent — joining the SPA's
+    distributed trace (SPA → Vantage backend, and separately SPA → Mira, one
+    trace id). Fail-open: a no-op unless OTEL_EXPORTER_OTLP_ENDPOINT is set and
+    the [otel] extra is installed. Same posture as Mira's model/otel.py."""
+    import os
+    if not os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT"):
+        return
+    try:
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        svc = os.environ.get("OTEL_SERVICE_NAME", "vantage-backend")
+        provider = TracerProvider(resource=Resource.create({"service.name": svc}))
+        provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
+        trace.set_tracer_provider(provider)
+        FastAPIInstrumentor.instrument_app(app)
+    except Exception:  # noqa: BLE001 — telemetry must never break app startup
+        import logging
+        logging.getLogger("vantage").info("otel endpoint set but init failed — tracing off")
 
 
 app = create_app()

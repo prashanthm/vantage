@@ -11,11 +11,28 @@ import { loadSettings } from "./util.jsx";
 /* ---------------- low-level fetch ---------------- */
 
 // GET url -> parsed JSON, or null on non-200 / network error / timeout.
+// W3C traceparent for one outbound call — a fresh trace id per fetch, so a SPA
+// call and the backend spans it triggers (Vantage server span, Mira /turn +
+// gen_ai spans) reconstruct as ONE distributed trace in any OTel backend. Sent
+// to BOTH services (they share no trace id otherwise). Format:
+//   00-<32 hex trace>-<16 hex span>-01   (01 = sampled)
+// Hand-rolled (no browser OTel SDK) — Web Crypto random, cheap, dependency-free.
+function traceHeaders() {
+  const rnd = (n) => {
+    const b = new Uint8Array(n);
+    (self.crypto || {}).getRandomValues
+      ? self.crypto.getRandomValues(b)
+      : b.forEach((_, i) => { b[i] = Math.floor(Math.random() * 256); });
+    return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  };
+  return { traceparent: `00-${rnd(16)}-${rnd(8)}-01` };
+}
+
 export async function getJson(url, { timeoutMs = 2500 } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res = await fetch(url, { signal: ctrl.signal, headers: traceHeaders() });
     if (!res.ok) return null;
     return await res.json();
   } catch (e) {
@@ -35,7 +52,7 @@ export async function postJson(url, body = {}, { timeoutMs = 30000 } = {}) {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...traceHeaders() },
       body: JSON.stringify(body || {}),
       signal: ctrl.signal,
     });
@@ -702,7 +719,7 @@ export function streamTurn(prompt, thread, onEvent) {
     try {
       res = await fetch(`${miraBase()}/turn`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...traceHeaders() },
         body: JSON.stringify({ prompt, thread_id: thread }),
         signal: ctrl.signal,
       });
@@ -750,7 +767,7 @@ export async function analyzeSymbol(symbol, question) {
   try {
     const res = await fetch(`${base}/analyze`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...traceHeaders() },
       body: JSON.stringify({ symbol: (symbol || "").toUpperCase(), question: question || undefined }),
       signal: ctrl.signal,
     });
@@ -1141,7 +1158,7 @@ export async function recomputePlaybook(asOf, symbol = "SPX") {
     if (symbol && symbol !== "SPX") body.symbol = symbol;
     const res = await fetch(`${base}/api/spx/playbook/recompute`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...traceHeaders() },
       body: JSON.stringify(body),
       signal: ctrl.signal,
     });
@@ -1205,7 +1222,7 @@ export async function importFutures() {
   const t = setTimeout(() => ctrl.abort(), 60000);
   try {
     const res = await fetch(`${base}/api/futures/import`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", ...traceHeaders() },
       body: JSON.stringify({}), signal: ctrl.signal,
     });
     if (!res.ok) return { available: false };
@@ -1264,7 +1281,7 @@ async function _paperPost(path, body) {
   const t = setTimeout(() => ctrl.abort(), 30000);
   try {
     const res = await fetch(`${base}/api/paper/${path}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", ...traceHeaders() },
       body: JSON.stringify(body || {}), signal: ctrl.signal,
     });
     if (!res.ok) return { available: false };
@@ -1325,7 +1342,7 @@ async function _journalPost(path, body) {
   if (!base) return { available: false };
   try {
     const res = await fetch(`${base}/api/journal/${path}`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
+      method: "POST", headers: { "Content-Type": "application/json", ...traceHeaders() },
       body: JSON.stringify(body || {}),
     });
     return res.ok ? await res.json() : { available: false };

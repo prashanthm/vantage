@@ -58,6 +58,11 @@ services:
       # (quotes_cache_yf.json) persists there instead of a non-existent
       # /app/data-local, otherwise every request re-fetches Yahoo (~13s each).
       VANTAGE_DATA_DIR: /data
+      # OpenTelemetry (observability). Unset = tracing off; set to the host-level
+      # OTLP collector (the mira + vantage stacks share no docker network, so it's
+      # reached via host.docker.internal, matching the MCP cross-stack pattern).
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+      OTEL_SERVICE_NAME: "${OTEL_SERVICE_NAME:-vantage-backend}"
       VANTAGE_QUOTES: "${VANTAGE_QUOTES:-yfinance}"
       ROBINHOOD_TOKEN_FILE: /run/secrets/robinhood/.robinhood_token.json
       # Zerodha (Kite Connect). The app key/secret come from YOUR host env/.env
