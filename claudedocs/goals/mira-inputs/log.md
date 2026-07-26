@@ -393,3 +393,18 @@ real; candidate for the displayed forecaster (operator's call). Else keep all
 three as measurement, gate stays shadow. n<10 sessions = inconclusive, keep
 accruing. Backtest preview on the 3 head-to-head days is a directional check,
 NOT the verdict (same small-n caveat as E10b).
+
+## E11 CORRECTION (before any live accrual) — the gate was BACKWARDS
+The preview exposed a day-aggregation illusion in E10b. STEP-LEVEL (3 days,
+81 steps):
+  TREND steps: baseline 0.658 vs Mira 0.500  → baseline wins the directional runs
+  CHOP  steps: Mira 0.738 vs baseline 0.405   → the LLM wins the range breaks
+So the correct gate is the INVERSE of the pre-registered one:
+  CHOP → Mira's plot ; TREND → baseline's plot.
+Flipped-gate preview: 0.700 pooled (vs Mira 0.625, baseline 0.525) — beats the
+better standalone arm by +0.075 on the 3 days. The E11 decision rule stands
+(gated − max(base,mira) ≥ +0.03 over ≥10 LIVE sessions); only the arm→regime
+mapping is corrected. Small n + Mira run-variance caveat unchanged — the
+0.700 is a directional preview, the live accrual is the verdict. Lesson logged:
+day-level aggregation can invert a step-level truth — always gate on the grain
+you act at.

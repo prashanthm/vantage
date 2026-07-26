@@ -156,3 +156,17 @@ def test_baseline_forecast_rules():
     # stop is symmetric with the target (falsifiable), not a wick-magnet
     assert abs((100.0 - p["invalidation"]) - 4.0) < 0.01
     assert forecast({"technicals": {}}) is None  # no price → no forecast
+
+
+def test_gated_forecast_classifier_and_arm():
+    """E11: regime classifier + CORRECTED arm mapping (chop→Mira, trend→baseline)."""
+    from vantage_server.gated_forecast import classify_regime
+    trend = {"regime": {"gamma": "negative"},
+             "technicals": {"vs_vwap_pt": 14.0, "rel_volume": 1.2}}
+    chop = {"regime": {"gamma": "positive"},
+            "technicals": {"vs_vwap_pt": 2.0, "rel_volume": 1.1}}
+    assert classify_regime(trend) == "trend"
+    assert classify_regime(chop) == "chop"
+    # neg-gamma but not stretched → chop (needs BOTH conditions)
+    assert classify_regime({"regime": {"gamma": "negative"},
+                            "technicals": {"vs_vwap_pt": 3.0, "rel_volume": 1.5}}) == "chop"
