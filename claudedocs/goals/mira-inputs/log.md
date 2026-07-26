@@ -347,3 +347,27 @@ decision rule (frozen): after ≥10 sessions, pooled baseline vs Mira-live.
     better; operator may promote it to the displayed forecast (Mira kept for
     narrative). Mira − baseline ≥ +0.05 → the LLM earns it live; close the line.
 env gate: VANTAGE_BASELINE_FORECAST=1 (default on; the tick is store-only).
+
+## E10b · last-3-days backtest (rebuilt snapshots — validates the LIVE path)
+Requested: backtest the shipped baseline over the last 3 days. Unlike E9 (which
+reused Mira's STORED snapshots), this REBUILDS the snapshot per step from the
+1m bars — i.e. the exact path the live tick runs — then scores with the
+production scorer. Validation: per-day numbers are BYTE-IDENTICAL to E9's
+stored-snapshot run (07-21 .519, 07-23 .556, 07-24 .500 baseline; Mira
+unchanged), confirming the live snapshot path reproduces the stored one — the
+live E10 arm can be trusted.
+last 3 TRADING days with a Mira run = 07-21, 07-23, 07-24 (07-22 had bars but
+NO Mira run — baseline ran it solo at 0.444, a coverage bonus of the
+deterministic arm).
+POOLED (3 head-to-head days): baseline 54/107 = 0.505 · Mira 50/80 = 0.625 ·
+delta −0.120.
+READ: this does NOT overturn E9. It's the SAME per-day results, pooled over a
+DIFFERENT day mix — only the 3 strong/mixed days, dropping the 3 weak chop
+days (07-15/16/17) that dragged Mira's six-day mean. Mira's edge is entirely
+on the two TREND days (07-21/23: .667 vs .52-.56) where the LLM commits to a
+directional draw the mean-reversion rule under-plays. On chop (07-24) they
+tie. So: the LLM's value is real but CONCENTRATED in trending tape and
+INVISIBLE on chop — a sharper statement of E9, not a contradiction. Small n
+(3 days, one Mira sample/day, and Mira varies ~15pp run-to-run) — the live
+E10 accrual over ≥10 sessions remains the arbiter; this is a directional
+preview consistent with "LLM helps on trend days only."
