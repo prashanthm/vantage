@@ -261,3 +261,40 @@ with the production scorer. CONFIRMED if treated hit-rate − control
 ≥ +0.05 (the goal's own bar) AND treated invalidated-rate lower;
 DISPROVEN if ≤ 0; else INCONCLUSIVE and the flag comes out either way.
 env gate: VANTAGE_STOP_PARITY_AB=1 (default off → no behavior change).
+
+## E9 · deterministic-baseline vs Mira, same inputs, same scorer (pre-registered BEFORE the six-day run)
+Question the goal has circled but never answered head-on: does the LLM
+forecaster beat a DETERMINISTIC read of the SAME snapshot? If a rules-only
+baseline matches Mira's hit-rate, the LLM isn't earning its cost/variance on
+this task.
+instrument: server/research/claude_vs_mira_forecast.py (built 2026-07-25).
+Per step, take Mira's stored snapshot verbatim, emit a rules plot (direction
+= RSI-stretch→revert else VWAP-side; target = nearest ICT liquidity pool
+capped 3×ATR; invalidation = SYMMETRIC R:R=1, tightened only to a nearer real
+level — never widened, so it's as falsifiable as Mira's). Grade BOTH with the
+production score_forecast. Canonical 27-step RTH run per day:
+  07-15 …02f395 · 07-16 …f51515 · 07-17 …7915f9 · 07-21 …64afaa ·
+  07-23 …9d0595 · 07-24 …3da462  (all 09:30..15:59, scored).
+Mira is a SAMPLED LLM (varies run-to-run on identical input: 07-24 showed
+0.385/0.462/0.538 across three runs) — so Mira's number here is ONE run's
+sample, a known-noisy comparator. The baseline is deterministic (one value).
+prediction (pre-registered): pooled over the six canonical runs (~161
+scored steps), deterministic baseline hit-rate lands within ±0.05 of Mira's
+pooled — i.e. NO material edge either way; the LLM's value on 15-min
+target/stop calls is not visible at this grain (consistent with the goal's
+"prompt-side nudges don't move scored outcomes" meta-finding, now extended to
+"the model itself barely beats rules here").
+decision rule (frozen): compute pooled hit-rate for baseline vs the six
+canonical Mira runs. Also report Mira's per-day run-to-run spread where >1
+clean run exists (the variance finding).
+  - baseline − Mira ≥ +0.05 pooled → deterministic baseline is AS-GOOD-OR-
+    BETTER: recommend the baseline as the 15-min forecaster (cheaper,
+    deterministic, no LLM variance) — a real product change, operator's call.
+  - |baseline − Mira| < 0.05 → CONFIRMED no-material-edge: the LLM isn't
+    earning its keep on THIS narrow task; document, keep Mira (it does more
+    than target/stop — narrative, tool grounding), stop treating 15-min
+    hit-rate as an LLM-quality signal.
+  - Mira − baseline ≥ +0.05 → the LLM genuinely beats rules here; keep it and
+    close this line.
+Single day already seen (07-24, not the verdict): baseline 0.500 vs Mira
+0.385–0.538. Six-day pooled run next.
