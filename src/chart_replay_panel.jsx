@@ -149,11 +149,11 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
         return collectTurn(prompt, `forecast-${symbol}-${snapshot.as_of}`, {
           onToken: (text) => setFc({ loading: true, text }),
           setAbort: (fn) => { abortRef.current = fn; },
-        }).then(({ text, data, error }) => {
+        }).then(({ text, data, error, corr }) => {
           if (error && !text) { setFc({ error }); return; }
           setFc({ text, data });
           saveSpxForecast({ day: snapshot.day, as_of: snapshot.as_of, symbol, snapshot,
-            forecast: data || null, forecast_text: text })
+            forecast: data || null, forecast_text: text, correlation_id: corr })
             .then(() => { setNonce((n) => n + 1); onForecastSaved && onForecastSaved(); })
             .catch(() => {});
         });
@@ -183,10 +183,10 @@ export function ReplayPanel({ symbol, runId, setRunId, activeCallId, setActiveCa
       const prompt = buildForecastPrompt(symbol, ref);
       collectTurn(prompt, `replay-${symbol}-${day}-${asOf}`, {
         setAbort: (fn) => { abortRef.current = fn; },
-      }).then(({ text, data, error }) => {
+      }).then(({ text, data, error, corr }) => {
         if (error && !text) { resolve(false); return; }
         saveSpxForecast({ day, as_of: asOf, symbol, snapshot, forecast: data || null,
-          forecast_text: text, run_id: rid })
+          forecast_text: text, run_id: rid, correlation_id: corr })
           .then(() => resolve(true)).catch(() => resolve(false));
       });
     }).catch(() => resolve(false));

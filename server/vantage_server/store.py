@@ -1206,7 +1206,8 @@ class Store:
     def save_spx_forecast(self, *, symbol: str, day: str, as_of: str,
                           price_at: float | None, snapshot: dict,
                           forecast: dict | None, forecast_text: str,
-                          run_id: str | None = None) -> int | None:
+                          run_id: str | None = None,
+                          correlation_id: str | None = None) -> int | None:
         """Persist a 'what will price do?' forecast. ``run_id`` groups the
         forecasts of one Replay Forecast run (None = ad-hoc single forecast).
         Returns the row id or None."""
@@ -1216,11 +1217,11 @@ class Store:
         with self._sqlite_txn() as conn:
             cur = conn.execute(
                 "INSERT INTO spx_forecast (symbol, day, as_of, created_at, "
-                "price_at, snapshot, forecast, forecast_text, run_id) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "price_at, snapshot, forecast, forecast_text, run_id, correlation_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (symbol, day, as_of, _d.datetime.now(_d.timezone.utc).isoformat(),
                  price_at, _db.dumps(snapshot), _db.dumps(forecast) if forecast else None,
-                 forecast_text, run_id))
+                 forecast_text, run_id, correlation_id))
             return cur.lastrowid
 
     def _forecast_row(self, row) -> dict:
@@ -1235,6 +1236,7 @@ class Store:
             "scored_at": row["scored_at"],
             "score": _db.loads(row["score"]) if row["score"] else None,
             "run_id": row["run_id"] if "run_id" in keys else None,
+            "correlation_id": row["correlation_id"] if "correlation_id" in keys else None,
         }
 
     def list_spx_forecasts_by_run(self, run_id: str) -> list[dict]:

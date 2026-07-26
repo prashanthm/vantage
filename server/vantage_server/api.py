@@ -948,7 +948,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             snapshot=sc,
             forecast=fc,
             forecast_text=str(body.get("forecast_text") or ""),
-            run_id=body.get("run_id"))   # groups a Replay Forecast run; None = single
+            run_id=body.get("run_id"),   # groups a Replay Forecast run; None = single
+            correlation_id=body.get("correlation_id"))  # the Mira turn that produced it
         born = bool(isinstance(fc, dict) and isinstance(fc.get("plot"), dict)
                     and fc["plot"].get("born_invalid"))
         return envelope(snap, available=True, id=fid, born_invalid=born)

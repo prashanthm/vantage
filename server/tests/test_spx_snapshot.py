@@ -130,3 +130,16 @@ def test_apply_stop_parity_floors_at_target_distance():
     # no bias → untouched
     r = apply_stop_parity({"bias": "range", "target": 7410.0, "invalidation": 7395.0}, 7400.0)
     assert r["invalidation"] == 7395.0
+
+
+def test_forecast_persists_correlation_id(tmp_path):
+    """v28: a forecast row keeps the Mira correlation_id linking it to the turn."""
+    from vantage_server.store import Store, _SqliteBackend
+    s = Store(str(tmp_path))
+    s._backend = _SqliteBackend(tmp_path, tmp_path / "vantage.db")
+    fid = s.save_spx_forecast(symbol="SPX", day="2026-07-25", as_of="2026-07-25T14:00:00Z",
+                              price_at=7412.0, snapshot={"x": 1}, forecast={"bias": "up"},
+                              forecast_text="up into the close", correlation_id="mira-abc-123")
+    assert fid
+    rows = s.list_spx_forecasts_by_run("live:SPX:2026-07-25")
+    assert rows and rows[0]["correlation_id"] == "mira-abc-123"

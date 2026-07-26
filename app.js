@@ -5693,7 +5693,7 @@ ${ref}`;
             setAbort: (fn) => {
               abortRef.current = fn;
             }
-          }).then(({ text, data, error }) => {
+          }).then(({ text, data, error, corr }) => {
             if (error && !text) {
               setFc({ error });
               return;
@@ -5705,7 +5705,8 @@ ${ref}`;
               symbol,
               snapshot,
               forecast: data || null,
-              forecast_text: text
+              forecast_text: text,
+              correlation_id: corr
             }).then(() => {
               setNonce((n) => n + 1);
               onForecastSaved && onForecastSaved();
@@ -5736,7 +5737,7 @@ ${ref}`;
           setAbort: (fn) => {
             abortRef.current = fn;
           }
-        }).then(({ text, data, error }) => {
+        }).then(({ text, data, error, corr }) => {
           if (error && !text) {
             resolve(false);
             return;
@@ -5748,7 +5749,8 @@ ${ref}`;
             snapshot,
             forecast: data || null,
             forecast_text: text,
-            run_id: rid
+            run_id: rid,
+            correlation_id: corr
           }).then(() => resolve(true)).catch(() => resolve(false));
         });
       }).catch(() => resolve(false));

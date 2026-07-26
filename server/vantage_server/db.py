@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 27  # v27: day_review — persisted Analyze-today day syntheses (history per day)
+SCHEMA_VERSION = 28  # v28: correlation_id on spx_forecast — link a Vantage record to its Mira turn
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -138,7 +138,8 @@ CREATE TABLE IF NOT EXISTS spx_forecast (
     forecast_text TEXT,           -- the raw analyst reply (prose fallback)
     scored_at    TEXT,            -- when accuracy was computed (null = unscored)
     score        TEXT,            -- JSON: {hit_target, hit_invalidation, direction_ok, verdict, moved_pt}
-    run_id       TEXT             -- groups the forecasts of one Replay Forecast run (null = ad-hoc single forecast)
+    run_id       TEXT,            -- groups the forecasts of one Replay Forecast run (null = ad-hoc single forecast)
+    correlation_id TEXT            -- the Mira turn that produced this forecast (null = pre-v28 / not captured)
 );
 -- NB: the ix_spx_forecast_run index on run_id is created in
 -- _add_missing_spx_forecast_columns, AFTER the PRAGMA-guarded ALTER — an old
@@ -666,6 +667,7 @@ _JOURNAL_ADDED_COLUMNS = {
 #: has the v19 spx_forecast table (executescript skips existing tables).
 _SPX_FORECAST_ADDED_COLUMNS = {
     "run_id": "TEXT",
+    "correlation_id": "TEXT",   # v28: link to the Mira turn trace
 }
 
 
