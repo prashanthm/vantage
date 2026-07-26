@@ -21,7 +21,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-SCHEMA_VERSION = 28  # v28: correlation_id on spx_forecast — link a Vantage record to its Mira turn
+SCHEMA_VERSION = 29  # v29: correlation_id on the remaining Mira-output tables (journal/trade/day_review/playbook)
 
 #: A ``vantage.db`` in a data-local directory (or an explicit path) selects the
 #: SQLite backend. The fixture dataset (server/data) never carries one, so it
@@ -210,6 +210,7 @@ CREATE TABLE IF NOT EXISTS spx_playbook (
     session   TEXT,               -- the session the playbook is for
     scaffold  TEXT,               -- JSON: the deterministic playbook scaffold
     narrative TEXT,               -- JSON/text: the LLM narrative (filled lazily; may be null)
+    correlation_id TEXT,          -- the Mira turn that produced the narrative
     PRIMARY KEY (date, symbol)
 );
 
@@ -499,6 +500,7 @@ CREATE TABLE IF NOT EXISTS trade_analysis (
     analyzed_at TEXT NOT NULL,       -- when the read was produced
     dna         TEXT NOT NULL,       -- JSON: the frozen DNA snapshot
     analysis    TEXT,                -- Mira's prose read (may be null if unsaved)
+    correlation_id TEXT,             -- the Mira turn that produced the analysis
     UNIQUE (day, trade_key)
 );
 CREATE INDEX IF NOT EXISTS ix_trade_analysis_day ON trade_analysis(day, underlying);
@@ -525,6 +527,7 @@ CREATE TABLE IF NOT EXISTS journal_analysis (
     patterns       TEXT,                -- JSON [{pattern, count, cites[]}]
     recommendations TEXT,               -- JSON [{text, status, evidence}]
     narrative      TEXT,                -- the model's prose synthesis
+    correlation_id TEXT,                -- the Mira turn that produced this analysis
     UNIQUE (period, window_from, window_to, underlying)
 );
 CREATE INDEX IF NOT EXISTS ix_journal_analysis_win ON journal_analysis(window_to, period, underlying);
@@ -643,7 +646,8 @@ CREATE TABLE IF NOT EXISTS day_review (
     generated_at TEXT NOT NULL,
     underlying   TEXT NOT NULL DEFAULT 'SPX',
     narrative    TEXT,                    -- Mira's synthesis (JSON or prose)
-    metrics      TEXT                     -- JSON: net/counts/metrics at generation
+    metrics      TEXT,                    -- JSON: net/counts/metrics at generation
+    correlation_id TEXT                   -- the Mira turn that produced the synthesis
 );
 CREATE INDEX IF NOT EXISTS ix_day_review_day ON day_review(day, generated_at);
 """
@@ -700,6 +704,7 @@ class Database:
             self._add_missing_paper_columns(conn)
             self._add_missing_managed_columns(conn)
             self._add_missing_account_columns(conn)
+            self._add_missing_correlation_columns(conn)
             self._migrate_multi_underlying(conn)
             conn.execute(
                 "INSERT INTO meta(key, value) VALUES('schema_version', ?)\n"
@@ -748,6 +753,17 @@ class Database:
         # index run_id only now that the column is guaranteed to exist
         conn.execute("CREATE INDEX IF NOT EXISTS ix_spx_forecast_run "
                      "ON spx_forecast(run_id, as_of)")
+
+    @staticmethod
+    def _add_missing_correlation_columns(conn: sqlite3.Connection) -> None:
+        """v29: link the remaining Mira-output tables to their Mira turn.
+        Idempotent ALTER per table (executescript adds it on a fresh DB; this
+        catches an existing one). Existing rows keep correlation_id NULL."""
+        for table in ("trade_analysis", "journal_analysis", "day_review", "spx_playbook"):
+            have = {r["name"] for r in conn.execute(
+                f"PRAGMA table_info({table})").fetchall()}
+            if "correlation_id" not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN correlation_id TEXT")
 
     @staticmethod
     def _add_missing_account_columns(conn: sqlite3.Connection) -> None:

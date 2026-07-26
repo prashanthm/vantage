@@ -1928,7 +1928,8 @@ class Store:
     # ── persisted trade analysis (DNA snapshot + Mira's read) ───────────────
 
     def save_day_review(self, *, day: str, underlying: str,
-                        narrative: str, metrics: dict | None) -> int:
+                        narrative: str, metrics: dict | None,
+                        correlation_id: str | None = None) -> int:
         """Persist one Analyze-today day synthesis (append — history per day)."""
         if not self.uses_sqlite:
             raise RuntimeError("save_day_review requires the SQLite backend")
@@ -1937,10 +1938,10 @@ class Store:
         now = _dt.datetime.now(_dt.timezone.utc).astimezone().isoformat()
         with self._sqlite_txn() as conn:
             cur = conn.execute(
-                "INSERT INTO day_review(day, generated_at, underlying, narrative, metrics)"
-                " VALUES(?,?,?,?,?)",
+                "INSERT INTO day_review(day, generated_at, underlying, narrative, metrics, correlation_id)"
+                " VALUES(?,?,?,?,?,?)",
                 (day, now, underlying.upper(), narrative,
-                 _json.dumps(metrics) if metrics else None))
+                 _json.dumps(metrics) if metrics else None, correlation_id))
             return int(cur.lastrowid)
 
     def load_day_reviews(self, day: str) -> list[dict]:
@@ -1997,7 +1998,8 @@ class Store:
 
     def save_trade_analysis(self, *, day: str, trade_key: str, underlying: str,
                             label: str | None, dna: dict,
-                            analysis: str | None) -> int:
+                            analysis: str | None,
+                            correlation_id: str | None = None) -> int:
         """Freeze one trade's DNA snapshot + Mira read. Upsert by (day,
         trade_key): re-analyzing overwrites. Returns the row id."""
         if not self.uses_sqlite:
@@ -2008,14 +2010,14 @@ class Store:
         with self._sqlite_txn() as conn:
             conn.execute(
                 "INSERT INTO trade_analysis"
-                "(day, trade_key, underlying, label, analyzed_at, dna, analysis) "
-                "VALUES(?,?,?,?,?,?,?) "
+                "(day, trade_key, underlying, label, analyzed_at, dna, analysis, correlation_id) "
+                "VALUES(?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(day, trade_key) DO UPDATE SET "
                 "underlying=excluded.underlying, label=excluded.label, "
                 "analyzed_at=excluded.analyzed_at, dna=excluded.dna, "
-                "analysis=excluded.analysis",
+                "analysis=excluded.analysis, correlation_id=excluded.correlation_id",
                 (day, trade_key, underlying, label, now,
-                 _json.dumps(dna), analysis))
+                 _json.dumps(dna), analysis, correlation_id))
             row = conn.execute(
                 "SELECT id FROM trade_analysis WHERE day=? AND trade_key=?",
                 (day, trade_key)).fetchone()
@@ -2076,15 +2078,15 @@ class Store:
                 "INSERT OR REPLACE INTO journal_analysis"
                 "(period, window_from, window_to, underlying, generated_at,"
                 " rubric_version, prior_id, trades, net_pnl, scores, swot,"
-                " patterns, recommendations, narrative) "
-                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " patterns, recommendations, narrative, correlation_id) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (rec["period"], rec["window_from"], rec["window_to"],
                  rec.get("underlying", "SPX"), rec["generated_at"],
                  rec["rubric_version"], rec.get("prior_id"),
                  rec.get("trades"), rec.get("net_pnl"),
                  _db.dumps(rec.get("scores")), _db.dumps(rec.get("swot")),
                  _db.dumps(rec.get("patterns")), _db.dumps(rec.get("recommendations")),
-                 rec.get("narrative")))
+                 rec.get("narrative"), rec.get("correlation_id")))
             row = conn.execute(
                 "SELECT id FROM journal_analysis WHERE period=? AND window_from=? "
                 "AND window_to=? AND underlying=?",

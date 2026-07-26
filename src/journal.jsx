@@ -635,14 +635,14 @@ function TradesPanel({ snap, thoughts, onThought }) {
         setDaySyn({ error: (res && res.note) || "no completed trades to synthesize" });
         return;
       }
-      const { text, data: sdata, error } = await collectTurn(res.prompt, `day-${day}`, {
+      const { text, data: sdata, error, corr } = await collectTurn(res.prompt, `day-${day}`, {
         onToken: (t) => setDaySyn({ loading: true, text: t }),
       });
       if (error && !text) { setDaySyn({ error }); return; }
       setDaySyn({ text, data: sdata });
       if (text.trim()) {
         const b = res.bundle || {};
-        saveDayReview({ day, underlying: "SPX", narrative: text,
+        saveDayReview({ day, underlying: "SPX", narrative: text, correlation_id: corr,
           metrics: { net_pnl: b.net_pnl, counts: b.counts, metrics: b.metrics } })
           .then(() => loadDayReviews()).catch(() => {});
       }
@@ -959,7 +959,7 @@ function JournalAnalysisPanel({ sym }) {
     setRead({ text: "" });
     // Render via the shared generic renderer; a malformed/absent JSON → parseMira
     // returns null and MiraRender shows prose — the operator always gets a result.
-    const { text, data, error } = await collectTurn(res.prompt, `journal-${win.from}-${win.to}`, {
+    const { text, data, error, corr } = await collectTurn(res.prompt, `journal-${win.from}-${win.to}`, {
       onToken: (t) => setRead({ text: t }),
       setAbort: (fn) => { abortRef.current = fn; },
     });
@@ -976,7 +976,7 @@ function JournalAnalysisPanel({ sym }) {
         underlying: sym, rubric_version: b.rubric_version,
         trades: b.trades, net_pnl: b.net_pnl, scores: b.scores,
         patterns: b.patterns, recommendations: b.recommendations,
-        swot: (swotSec && swotSec.swot) || null, narrative: text,
+        swot: (swotSec && swotSec.swot) || null, narrative: text, correlation_id: corr,
       }).then((r) => {
         setSaved(true);
         // the run is now a saved history row — clear the live view and expand
@@ -1391,11 +1391,11 @@ async function analyzeTradeOnce(day, tradeIndex, underlying, operator, { force =
   if (!res || !res.available || !res.dna) return { status: "error", note: (res && res.note) || "no DNA" };
   if (!force && res.stored && (res.stored.analysis || "").trim()) return { status: "skipped" };
   const prompt = buildAnalystPrompt(res.dna, operator || {}, res.playbook_session);
-  const { text, error } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, { onToken: onChunk });
+  const { text, error, corr } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, { onToken: onChunk });
   if (error && !text) return { status: "error", note: error };
   if (text.trim() && res.trade_key) {
     saveTradeAnalysis({ day, trade_key: res.trade_key, underlying,
-      label: res.dna.label, dna: res.dna, analysis: text });
+      label: res.dna.label, dna: res.dna, analysis: text, correlation_id: corr });
     return { status: "saved" };
   }
   return { status: "empty" };
@@ -1431,7 +1431,7 @@ function AnalyzeTrade({ day, tradeIndex, underlying, why, entryTag, exitTag, str
     if (text.trim() && res.trade_key) {
       saveTradeAnalysis({
         day, trade_key: res.trade_key, underlying, label: res.dna.label,
-        dna: res.dna, analysis: text,
+        dna: res.dna, analysis: text, correlation_id: corr,
       });
     }
     setState({ text, dna: res.dna, saved: !!text.trim() });

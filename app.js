@@ -4457,14 +4457,14 @@ ${ref}`;
       }
     ), /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", disabled: busy || !draft.trim(), onClick: () => ask() }, busy ? "\u2026" : "Ask")), /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, "Educational only \u2014 not financial advice.")));
   }
-  function ExplainToggle({ corr }) {
+  function ExplainToggle({ corr: corr2 }) {
     const [open, setOpen] = useState7(false);
     const [rec, setRec] = useState7(void 0);
     const toggle = () => {
       const opening = !open;
       setOpen(opening);
       if (opening && rec === void 0) {
-        getExplanation(corr).then((payload) => {
+        getExplanation(corr2).then((payload) => {
           const r = payload && Array.isArray(payload.records) && payload.records.length ? payload.records[0] : null;
           setRec(r);
         });
@@ -5693,7 +5693,7 @@ ${ref}`;
             setAbort: (fn) => {
               abortRef.current = fn;
             }
-          }).then(({ text, data, error, corr }) => {
+          }).then(({ text, data, error, corr: corr2 }) => {
             if (error && !text) {
               setFc({ error });
               return;
@@ -5706,7 +5706,7 @@ ${ref}`;
               snapshot,
               forecast: data || null,
               forecast_text: text,
-              correlation_id: corr
+              correlation_id: corr2
             }).then(() => {
               setNonce((n) => n + 1);
               onForecastSaved && onForecastSaved();
@@ -5737,7 +5737,7 @@ ${ref}`;
           setAbort: (fn) => {
             abortRef.current = fn;
           }
-        }).then(({ text, data, error, corr }) => {
+        }).then(({ text, data, error, corr: corr2 }) => {
           if (error && !text) {
             resolve(false);
             return;
@@ -5750,7 +5750,7 @@ ${ref}`;
             forecast: data || null,
             forecast_text: text,
             run_id: rid,
-            correlation_id: corr
+            correlation_id: corr2
           }).then(() => resolve(true)).catch(() => resolve(false));
         });
       }).catch(() => resolve(false));
@@ -6583,7 +6583,7 @@ ${ref}`;
           setDaySyn({ error: res && res.note || "no completed trades to synthesize" });
           return;
         }
-        const { text, data: sdata, error } = await collectTurn(res.prompt, `day-${day}`, {
+        const { text, data: sdata, error, corr: corr2 } = await collectTurn(res.prompt, `day-${day}`, {
           onToken: (t) => setDaySyn({ loading: true, text: t })
         });
         if (error && !text) {
@@ -6597,6 +6597,7 @@ ${ref}`;
             day,
             underlying: "SPX",
             narrative: text,
+            correlation_id: corr2,
             metrics: { net_pnl: b.net_pnl, counts: b.counts, metrics: b.metrics }
           }).then(() => loadDayReviews()).catch(() => {
           });
@@ -6757,7 +6758,7 @@ ${ref}`;
       }
       setBundle(res.bundle);
       setRead({ text: "" });
-      const { text, data, error } = await collectTurn(res.prompt, `journal-${win.from}-${win.to}`, {
+      const { text, data, error, corr: corr2 } = await collectTurn(res.prompt, `journal-${win.from}-${win.to}`, {
         onToken: (t) => setRead({ text: t }),
         setAbort: (fn) => {
           abortRef.current = fn;
@@ -6783,7 +6784,8 @@ ${ref}`;
           patterns: b2.patterns,
           recommendations: b2.recommendations,
           swot: swotSec && swotSec.swot || null,
-          narrative: text
+          narrative: text,
+          correlation_id: corr2
         }).then((r) => {
           setSaved(true);
           loadHist().then(() => {
@@ -6852,9 +6854,9 @@ ${ref}`;
   function operatorFor(t, thought) {
     const m = (thought || "").match(THOUGHT_RE) || [];
     const why = (thought || "").replace(THOUGHT_RE, "");
-    const corr = t.correlation, exitCorr = t.exit_correlation;
-    const nearest3 = corr && corr.nearest, exitNearest = exitCorr && exitCorr.nearest;
-    const autoEntry = corr && corr.at_level && nearest3 ? String(nearest3.level) : null;
+    const corr2 = t.correlation, exitCorr = t.exit_correlation;
+    const nearest3 = corr2 && corr2.nearest, exitNearest = exitCorr && exitCorr.nearest;
+    const autoEntry = corr2 && corr2.at_level && nearest3 ? String(nearest3.level) : null;
     const autoExit = exitCorr && exitCorr.at_level && exitNearest ? String(exitNearest.level) : null;
     return {
       why,
@@ -6866,8 +6868,8 @@ ${ref}`;
     };
   }
   function TradeCard({ t, tkey, tradeIndex, day, underlying, expanded, onToggle, thought, onThought, allLevels }) {
-    const corr = t.correlation;
-    const nearest3 = corr && corr.nearest;
+    const corr2 = t.correlation;
+    const nearest3 = corr2 && corr2.nearest;
     const exitCorr = t.exit_correlation;
     const exitNearest = exitCorr && exitCorr.nearest;
     const long = String(t.strategy).includes("call");
@@ -6902,10 +6904,10 @@ ${ref}`;
     )), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-spx" }, t.ticker || "SPX", " ", fmtLvl(t.spot_at_entry)), /* @__PURE__ */ React.createElement("span", null, nearest3 ? /* @__PURE__ */ React.createElement(
       "span",
       {
-        className: cls("vg-badge", corr.at_level ? "good" : "plain"),
+        className: cls("vg-badge", corr2.at_level ? "good" : "plain"),
         title: `entry: ${nearest3.role || ""} ${(nearest3.kinds || []).join(" + ")}`
       },
-      corr.at_level ? "\u2713 " : "",
+      corr2.at_level ? "\u2713 " : "",
       fmtLvl(nearest3.level)
     ) : /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\u2014"), exitNearest && /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { margin: "0 3px" } }, "\u2192"), exitNearest && /* @__PURE__ */ React.createElement(
       "span",
@@ -6915,7 +6917,7 @@ ${ref}`;
       },
       t.exit_correlation.at_level ? "\u2713 " : "",
       fmtLvl(exitNearest.level)
-    )), t.status === "open" ? /* @__PURE__ */ React.createElement("span", { className: "vg-trade-pnl vg-note", title: "open position \u2014 no realized P&L yet" }, "open") : /* @__PURE__ */ React.createElement("span", { className: cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down") }, money6(t.realized)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", STATUS_TONE[t.status] || "plain") }, STATUS_LABEL[t.status] || t.status), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-caret" }, expanded ? "\u25BE" : "\u25B8")), expanded && /* @__PURE__ */ React.createElement("div", { className: "vg-trade-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-grid" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The order"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "strategy"), /* @__PURE__ */ React.createElement("td", null, t.strategy)), t.legs.map((l, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, l.side), /* @__PURE__ */ React.createElement("td", null, l.qty, " \xD7 ", (l.symbol || "").replace(/^\S+\s\S+\s/, ""), " @ ", l.price))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "opened"), /* @__PURE__ */ React.createElement("td", null, t.opened_et ? `${t.opened_et} ET` : "\u2014")), t.closed_at && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "closed"), /* @__PURE__ */ React.createElement("td", null, t.closed_et ? `${t.closed_et} ET` : "\u2014")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "cost"), /* @__PURE__ */ React.createElement("td", null, money6(t.cost))), t.proceeds ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "proceeds"), /* @__PURE__ */ React.createElement("td", null, money6(t.proceeds))) : null, t.settlement != null && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "settlement"), /* @__PURE__ */ React.createElement("td", null, money6(t.settlement), " @ SPX ", fmtLvl(t.settle_price))), t.status === "open" ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "status")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "open"), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\xB7 ", money6(t.cost_basis), " in, no realized P&L yet"))) : /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "realized")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", { className: t.realized >= 0 ? "vg-up" : "vg-down" }, money6(t.realized)))))), /* @__PURE__ */ React.createElement(FillLadder, { fills: t.fills, scale: t.scale })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The arc"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, margin: "2px 0 10px", fontVariantNumeric: "tabular-nums" } }, "in ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_entry)), nearest3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", corr.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(nearest3.level)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { margin: "0 6px" } }, "\u2192"), "out ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_exit)), exitNearest && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", exitCorr.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(exitNearest.level)), t.spot_at_entry != null && t.spot_at_exit != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \xB7 ", t.spot_at_exit - t.spot_at_entry >= 0 ? "+" : "", (t.spot_at_exit - t.spot_at_entry).toFixed(1), "pt ", t.ticker || "SPX", String(t.status).startsWith("expired") ? " (settlement)" : "")), /* @__PURE__ */ React.createElement(CorrTable, { title: `Entry \xB7 ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_entry)}`, corr, openSpace: "entry was in open space" }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
+    )), t.status === "open" ? /* @__PURE__ */ React.createElement("span", { className: "vg-trade-pnl vg-note", title: "open position \u2014 no realized P&L yet" }, "open") : /* @__PURE__ */ React.createElement("span", { className: cls("vg-trade-pnl", t.realized >= 0 ? "vg-up" : "vg-down") }, money6(t.realized)), /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", STATUS_TONE[t.status] || "plain") }, STATUS_LABEL[t.status] || t.status), /* @__PURE__ */ React.createElement("span", { className: "vg-trade-caret" }, expanded ? "\u25BE" : "\u25B8")), expanded && /* @__PURE__ */ React.createElement("div", { className: "vg-trade-detail" }, /* @__PURE__ */ React.createElement("div", { className: "vg-trade-grid" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The order"), /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "strategy"), /* @__PURE__ */ React.createElement("td", null, t.strategy)), t.legs.map((l, i) => /* @__PURE__ */ React.createElement("tr", { key: i }, /* @__PURE__ */ React.createElement("td", null, l.side), /* @__PURE__ */ React.createElement("td", null, l.qty, " \xD7 ", (l.symbol || "").replace(/^\S+\s\S+\s/, ""), " @ ", l.price))), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "opened"), /* @__PURE__ */ React.createElement("td", null, t.opened_et ? `${t.opened_et} ET` : "\u2014")), t.closed_at && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "closed"), /* @__PURE__ */ React.createElement("td", null, t.closed_et ? `${t.closed_et} ET` : "\u2014")), /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "cost"), /* @__PURE__ */ React.createElement("td", null, money6(t.cost))), t.proceeds ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "proceeds"), /* @__PURE__ */ React.createElement("td", null, money6(t.proceeds))) : null, t.settlement != null && /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, "settlement"), /* @__PURE__ */ React.createElement("td", null, money6(t.settlement), " @ SPX ", fmtLvl(t.settle_price))), t.status === "open" ? /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "status")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "open"), " ", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, "\xB7 ", money6(t.cost_basis), " in, no realized P&L yet"))) : /* @__PURE__ */ React.createElement("tr", null, /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", null, "realized")), /* @__PURE__ */ React.createElement("td", null, /* @__PURE__ */ React.createElement("b", { className: t.realized >= 0 ? "vg-up" : "vg-down" }, money6(t.realized)))))), /* @__PURE__ */ React.createElement(FillLadder, { fills: t.fills, scale: t.scale })), /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "The arc"), /* @__PURE__ */ React.createElement("div", { style: { fontSize: 14, margin: "2px 0 10px", fontVariantNumeric: "tabular-nums" } }, "in ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_entry)), nearest3 && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", corr2.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(nearest3.level)), /* @__PURE__ */ React.createElement("span", { className: "vg-note", style: { margin: "0 6px" } }, "\u2192"), "out ", /* @__PURE__ */ React.createElement("b", null, fmtLvl(t.spot_at_exit)), exitNearest && /* @__PURE__ */ React.createElement("span", { className: cls("vg-badge", exitCorr.at_level ? "good" : "plain"), style: { marginLeft: 4 } }, fmtLvl(exitNearest.level)), t.spot_at_entry != null && t.spot_at_exit != null && /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " \xB7 ", t.spot_at_exit - t.spot_at_entry >= 0 ? "+" : "", (t.spot_at_exit - t.spot_at_entry).toFixed(1), "pt ", t.ticker || "SPX", String(t.status).startsWith("expired") ? " (settlement)" : "")), /* @__PURE__ */ React.createElement(CorrTable, { title: `Entry \xB7 ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_entry)}`, corr: corr2, openSpace: "entry was in open space" }), /* @__PURE__ */ React.createElement("div", { style: { marginTop: 8 } }, /* @__PURE__ */ React.createElement(
       CorrTable,
       {
         title: `Exit \xB7 ${t.ticker || "SPX"} ${fmtLvl(t.spot_at_exit)}${String(t.status).startsWith("expired") ? " (settled)" : ""}`,
@@ -6978,7 +6980,7 @@ ${ref}`;
     if (!res || !res.available || !res.dna) return { status: "error", note: res && res.note || "no DNA" };
     if (!force && res.stored && (res.stored.analysis || "").trim()) return { status: "skipped" };
     const prompt = buildAnalystPrompt(res.dna, operator || {}, res.playbook_session);
-    const { text, error } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, { onToken: onChunk });
+    const { text, error, corr: corr2 } = await collectTurn(prompt, `trade-${day}-${tradeIndex}`, { onToken: onChunk });
     if (error && !text) return { status: "error", note: error };
     if (text.trim() && res.trade_key) {
       saveTradeAnalysis({
@@ -6987,7 +6989,8 @@ ${ref}`;
         underlying,
         label: res.dna.label,
         dna: res.dna,
-        analysis: text
+        analysis: text,
+        correlation_id: corr2
       });
       return { status: "saved" };
     }
@@ -7024,7 +7027,8 @@ ${ref}`;
           underlying,
           label: res.dna.label,
           dna: res.dna,
-          analysis: text
+          analysis: text,
+          correlation_id: corr
         });
       }
       setState({ text, dna: res.dna, saved: !!text.trim() });
@@ -7160,9 +7164,9 @@ ${operatorBlock.join("\n")}` : `The operator left no note on their thinking \u20
       `Every claim must use the numbers above. If you can't produce valid JSON, write the review as plain prose instead.`
     ].filter((l) => l !== ``).join("\n");
   }
-  function CorrTable({ title, corr, openSpace }) {
-    const nearest3 = corr && corr.nearest;
-    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12 } }, title), corr && corr.nearby && corr.nearby.length ? /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, corr.nearby.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i, className: c.level === nearest3.level ? "vg-hl" : "" }, /* @__PURE__ */ React.createElement("td", null, fmtLvl(c.level)), /* @__PURE__ */ React.createElement("td", null, c.role, " ", (c.kinds || []).length ? `\xB7 ${c.kinds.join(" + ")}` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " [", c.source, "]")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, c.distance > 0 ? "+" : "", c.distance, "pt"))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 13, margin: "2px 0" } }, "No forecast level within range \u2014 ", openSpace, "."));
+  function CorrTable({ title, corr: corr2, openSpace }) {
+    const nearest3 = corr2 && corr2.nearest;
+    return /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker", style: { fontSize: 12 } }, title), corr2 && corr2.nearby && corr2.nearby.length ? /* @__PURE__ */ React.createElement("table", { className: "vg-mini" }, /* @__PURE__ */ React.createElement("tbody", null, corr2.nearby.map((c, i) => /* @__PURE__ */ React.createElement("tr", { key: i, className: c.level === nearest3.level ? "vg-hl" : "" }, /* @__PURE__ */ React.createElement("td", null, fmtLvl(c.level)), /* @__PURE__ */ React.createElement("td", null, c.role, " ", (c.kinds || []).length ? `\xB7 ${c.kinds.join(" + ")}` : "", /* @__PURE__ */ React.createElement("span", { className: "vg-note" }, " [", c.source, "]")), /* @__PURE__ */ React.createElement("td", { style: { textAlign: "right" } }, c.distance > 0 ? "+" : "", c.distance, "pt"))))) : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { fontSize: 13, margin: "2px 0" } }, "No forecast level within range \u2014 ", openSpace, "."));
   }
   function FillLadder({ fills, scale }) {
     const [open, setOpen] = useState17(false);

@@ -1093,7 +1093,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             "prior_id": (prior or {}).get("id"),
             "n_forecasts": scores["overall"].get("n", 0),
             "scores": scores,
-            "patterns": body.get("patterns"),   # grader prose (optional)
+            "patterns": body.get("patterns"),
+            "correlation_id": body.get("correlation_id"),   # grader prose (optional)
             "narrative": body.get("narrative"),  # grader prose (optional)
         }
         cid = store.save_spx_calibration(rec)
@@ -2235,7 +2236,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         rid = store.save_day_review(day=day,
                                     underlying=str(body.get("underlying") or "SPX"),
                                     narrative=narrative,
-                                    metrics=body.get("metrics"))
+                                    metrics=body.get("metrics"),
+                                    correlation_id=body.get("correlation_id"))
         return envelope(snap, available=True, id=rid)
 
     @app.get("/api/journal/day-review")
@@ -2407,7 +2409,8 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         rid = store.save_trade_analysis(
             day=day, trade_key=tk, underlying=str(body.get("underlying") or "SPX"),
             label=body.get("label"), dna=dna,
-            analysis=(str(body["analysis"]) if body.get("analysis") else None))
+            analysis=(str(body["analysis"]) if body.get("analysis") else None),
+            correlation_id=body.get("correlation_id"))
         return envelope(snap, available=True, id=rid)
 
     @app.get("/api/journal/analysis/bundle")
@@ -2453,6 +2456,7 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             "trades": body.get("trades"), "net_pnl": body.get("net_pnl"),
             "scores": body.get("scores"), "swot": body.get("swot"),
             "patterns": body.get("patterns"),
+            "correlation_id": body.get("correlation_id"),
             "recommendations": body.get("recommendations"),
             "narrative": (str(body["narrative"]) if body.get("narrative") else None),
         })
