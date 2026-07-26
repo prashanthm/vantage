@@ -143,3 +143,16 @@ def test_forecast_persists_correlation_id(tmp_path):
     assert fid
     rows = s.list_spx_forecasts_by_run("live:SPX:2026-07-25")
     assert rows and rows[0]["correlation_id"] == "mira-abc-123"
+
+
+def test_baseline_forecast_rules():
+    """E10: the deterministic baseline plot — RSI-stretch direction, symmetric
+    falsifiable stop, ICT-pool target. Pure, no store."""
+    from vantage_server.baseline_forecast import forecast
+    p = forecast({"price": 100.0, "technicals": {"vwap": 102.0, "rsi": 22, "atr": 2.0},
+                  "levels": [{"price": 106.0}, {"price": 94.0}],
+                  "ict": {"unswept_liquidity": {"bsl": [104.0], "ssl": [96.0]}}})
+    assert p["bias"] == "up" and p["target"] == 104.0
+    # stop is symmetric with the target (falsifiable), not a wick-magnet
+    assert abs((100.0 - p["invalidation"]) - 4.0) < 0.01
+    assert forecast({"technicals": {}}) is None  # no price → no forecast

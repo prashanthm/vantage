@@ -1544,8 +1544,17 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
             tg_closed = _tg.tick(store)
         except Exception:  # noqa: BLE001
             tg_closed = []
+        # deterministic baseline forecast (mira-inputs E10) — a live control arm
+        # that scores next to Mira's forecast; store-only, env-gated (default on).
+        baseline_fc = None
+        if os.environ.get("VANTAGE_BASELINE_FORECAST", "1") == "1":
+            from . import baseline_forecast as _bf
+            try:
+                baseline_fc = _bf.tick(store)
+            except Exception:  # noqa: BLE001 — control arm never breaks the pass
+                baseline_fc = None
         return envelope(snap, available=True, events=events, alerts_fired=fired,
-                        telegram_closed=tg_closed,
+                        telegram_closed=tg_closed, baseline_forecast=baseline_fc,
                         telegram=signal_bot.telegram_configured(store))
 
     @app.get("/api/exits")
