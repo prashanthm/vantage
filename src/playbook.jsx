@@ -7,7 +7,7 @@
 // Context, not a signal (ADR-008) — no orders placed.
 import { cls, SymbolSwitcher } from "./util.jsx";
 import { GlossaryCard } from "./glossary.jsx";
-import { useLive, getPlaybook, getPlaybookPine, recomputePlaybook, getTicket, executeTicket, getOdteRead, getChart } from "./live.js";
+import { useLive, getPlaybook, getPlaybookPine, getCoachPine, recomputePlaybook, getTicket, executeTicket, getOdteRead, getChart } from "./live.js";
 
 const { useMemo, useState, useEffect } = React;
 
@@ -58,9 +58,14 @@ export function PlanHalf({ refreshNonce }) {
   const p = pb.data;
 
   const exportPine = async () => {
-    setPine({ loading: true });
+    setPine({ loading: true, title: "Playbook Pine" });
     const res = await getPlaybookPine(undefined, sym);
-    setPine(res && res.available ? { script: res.script } : { error: true });
+    setPine(res && res.available ? { script: res.script, title: "Playbook Pine" } : { error: true, title: "Playbook Pine" });
+  };
+  const exportCoachPine = async () => {
+    setPine({ loading: true, title: "Coach Pine" });
+    const res = await getCoachPine(undefined, sym);
+    setPine(res && res.available ? { script: res.script, title: "Coach Pine" } : { error: true, title: "Coach Pine" });
   };
   const recompute = async () => {
     if (busy) return;
@@ -129,6 +134,8 @@ export function PlanHalf({ refreshNonce }) {
           </div>
           <div className="vg-row" style={{ gap: 6, marginTop: 8 }}>
             <button className="vg-btn-sm" onClick={exportPine}>Export to Pine</button>
+            <button className="vg-btn-sm" onClick={exportCoachPine}
+              title="Export the live discipline coach as a TradingView Pine indicator">Export Coach Pine</button>
             <button className="vg-btn-sm vg-btn-primary" disabled={busy} onClick={recompute}
               title="Rebuild levels + GEX from the latest data and re-narrate the read at the current price">
               {busy ? "Refreshing…" : "⟳ Refresh plan"}</button>
@@ -142,7 +149,7 @@ export function PlanHalf({ refreshNonce }) {
         </div>
       </div>
 
-      {pine && <PineModal pine={pine} session={p && p.session} onClose={() => setPine(null)} />}
+      {pine && <PineModal pine={pine} session={p && p.session} title={pine.title || "TradingView Pine"} onClose={() => setPine(null)} />}
       {ticket && <TicketModal sym={sym} spot={spot} seed={ticket} onClose={() => setTicket(null)} />}
 
       {cat.today && (

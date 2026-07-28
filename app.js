@@ -1594,9 +1594,14 @@ ${ref}`;
     );
     const p = pb.data;
     const exportPine = async () => {
-      setPine({ loading: true });
+      setPine({ loading: true, title: "Playbook Pine" });
       const res = await getPlaybookPine(void 0, sym);
-      setPine(res && res.available ? { script: res.script } : { error: true });
+      setPine(res && res.available ? { script: res.script, title: "Playbook Pine" } : { error: true, title: "Playbook Pine" });
+    };
+    const exportCoachPine = async () => {
+      setPine({ loading: true, title: "Coach Pine" });
+      const res = await getCoachPine(void 0, sym);
+      setPine(res && res.available ? { script: res.script, title: "Coach Pine" } : { error: true, title: "Coach Pine" });
     };
     const recompute = async () => {
       if (busy) return;
@@ -1629,13 +1634,21 @@ ${ref}`;
     return /* @__PURE__ */ React.createElement("div", { className: "vg-playbook", style: { marginTop: 14 } }, /* @__PURE__ */ React.createElement("div", { className: "vg-pb-head" }, /* @__PURE__ */ React.createElement("div", null, /* @__PURE__ */ React.createElement("h2", { style: { margin: 0, fontSize: 19 } }, "0DTE ", sym, " Playbook"), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 10, marginTop: 6, marginBottom: 4, alignItems: "center" } }, /* @__PURE__ */ React.createElement(SymbolSwitcher, { value: sym, onChange: setSym })), /* @__PURE__ */ React.createElement("div", { className: "vg-note" }, p ? `for ${p.session || "the next session"}` : "loading\u2026", reg.gamma ? ` \xB7 gamma ${reg.gamma}` : "", reg.vix != null ? ` \xB7 VIX ${fmtP(reg.vix)}${reg.vix_band ? ` (${reg.vix_band})` : ""}` : "", drift != null && drift > 15 && /* @__PURE__ */ React.createElement("span", { className: "vg-badge warn", style: { marginLeft: 8, fontSize: "var(--vg-text-xs)" } }, "plan written at ", fmtP(spot), " \u2014 ", drift.toFixed(0), "pt away \xB7 hit \u27F3 Refresh")), /* @__PURE__ */ React.createElement("div", { className: "vg-row", style: { gap: 6, marginTop: 8 } }, /* @__PURE__ */ React.createElement("button", { className: "vg-btn-sm", onClick: exportPine }, "Export to Pine"), /* @__PURE__ */ React.createElement(
       "button",
       {
+        className: "vg-btn-sm",
+        onClick: exportCoachPine,
+        title: "Export the live discipline coach as a TradingView Pine indicator"
+      },
+      "Export Coach Pine"
+    ), /* @__PURE__ */ React.createElement(
+      "button",
+      {
         className: "vg-btn-sm vg-btn-primary",
         disabled: busy,
         onClick: recompute,
         title: "Rebuild levels + GEX from the latest data and re-narrate the read at the current price"
       },
       busy ? "Refreshing\u2026" : "\u27F3 Refresh plan"
-    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, spot != null && /* @__PURE__ */ React.createElement(SummaryTile, { label: "Spot", value: fmtP(spot) }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Flip", value: fmtP(keyLevels.flip), tone: "warn" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Put wall", value: fmtP(keyLevels.put), tone: "good" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Call wall", value: fmtP(keyLevels.call), tone: "bad" }))), pine && /* @__PURE__ */ React.createElement(PineModal, { pine, session: p && p.session, onClose: () => setPine(null) }), ticket && /* @__PURE__ */ React.createElement(TicketModal, { sym, spot, seed: ticket, onClose: () => setTicket(null) }), cat.today && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F Catalyst today: ", /* @__PURE__ */ React.createElement("b", null, cat.today), " \u2014 expect bigger moves; size down."), (reg.validated_edges || []).map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-catalyst" }, "\u26A1 ", e)), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's read"), p && p.narrative ? (() => {
+    ))), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-levels" }, spot != null && /* @__PURE__ */ React.createElement(SummaryTile, { label: "Spot", value: fmtP(spot) }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Flip", value: fmtP(keyLevels.flip), tone: "warn" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Put wall", value: fmtP(keyLevels.put), tone: "good" }), /* @__PURE__ */ React.createElement(SummaryTile, { label: "Call wall", value: fmtP(keyLevels.call), tone: "bad" }))), pine && /* @__PURE__ */ React.createElement(PineModal, { pine, session: p && p.session, title: pine.title || "TradingView Pine", onClose: () => setPine(null) }), ticket && /* @__PURE__ */ React.createElement(TicketModal, { sym, spot, seed: ticket, onClose: () => setTicket(null) }), cat.today && /* @__PURE__ */ React.createElement("div", { className: "vg-pb-catalyst" }, "\u26A0\uFE0F Catalyst today: ", /* @__PURE__ */ React.createElement("b", null, cat.today), " \u2014 expect bigger moves; size down."), (reg.validated_edges || []).map((e, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-catalyst" }, "\u26A1 ", e)), /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Today's read"), p && p.narrative ? (() => {
       const parsed = parseRead(p.narrative);
       return parsed ? /* @__PURE__ */ React.createElement(ReadCards, { parsed }) : /* @__PURE__ */ React.createElement("div", { className: "vg-pb-narrative", style: { whiteSpace: "pre-wrap" } }, p.narrative);
     })() : /* @__PURE__ */ React.createElement("p", { className: "vg-note", style: { margin: "6px 0 0" } }, pb.loading ? "Generating the read\u2026" : "No narrative available."), p && p.structureNote && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 8, fontSize: 13 } }, /* @__PURE__ */ React.createElement("b", null, "Structure:"), " ", p.structureNote), p && p.volumeNote && /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { marginTop: 2, fontSize: 13 } }, /* @__PURE__ */ React.createElement("b", null, "Volume:"), " ", p.volumeNote)), /* @__PURE__ */ React.createElement(VolReadCard, null), p && (reg.breadth_pct_above_50ma != null || reg.vix != null || reg.intermarket) && /* @__PURE__ */ React.createElement(MarketContextCard, { reg, sectors: p && p.sectors || [] }), p && p.durable && p.durable.length > 0 && /* @__PURE__ */ React.createElement("div", { className: "vg-card" }, /* @__PURE__ */ React.createElement("div", { className: "vg-kicker" }, "Durable levels \u2605 (memory)"), /* @__PURE__ */ React.createElement("div", { className: "vg-note", style: { fontSize: 12, margin: "2px 0 8px" } }, 'Levels the tape kept respecting across many sessions \u2014 the "traces back weeks" levels.'), /* @__PURE__ */ React.createElement("div", { className: "vg-pb-ladder" }, p.durable.map((z, i) => /* @__PURE__ */ React.createElement("div", { key: i, className: "vg-pb-lvl" }, /* @__PURE__ */ React.createElement(
