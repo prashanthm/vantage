@@ -63,7 +63,16 @@ DEFAULT_PARAMS = {
     "max_per_side": None,          # cap test tickets per side (prod takes 2)
     "target_r_multiple": None,     # override target to entry +/- R*risk
     "target_r_fallback": None,     # R-target ONLY for tickets with no next-zone target
-    "entry_mode": "touch",         # "touch" | "reclaim" (close back through level)
+    "entry_mode": "reclaim",       # "touch" | "reclaim" (close back through level).
+                                   # reclaim is the DEFAULT — it matches what prod
+                                   # actually trades (paper.py entry_trigger=
+                                   # "reclaim-3x5m"). The old "touch" default made
+                                   # the backtest measure a first-touch strategy prod
+                                   # never runs; on the frozen tape touch was
+                                   # net-negative (short WR 10%) while reclaim is
+                                   # ~breakeven+ (short WR 41-56%), validated OOS on
+                                   # both time-halves AND a 730d multi-regime window
+                                   # (goal: kelly-risk-of-ruin). confirm_closes below.
     "stop_atr_mult": None,         # stop = entry -/+ mult*ATR(14,15m) when set
     "time_stop_bars": None,        # exit at close N bars after fill
     "skip_open_bars": 0,           # tickets not actionable in the first N bars
