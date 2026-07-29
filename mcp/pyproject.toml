@@ -8,7 +8,11 @@ version = "1.0.0"
 description = "Vantage MCP tool surface — the AI-facing read-only tools over the vantage-server engine"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.9",
+    # Pin below 2.0: mcp 2.0.0 removed `mcp.server.fastmcp` (the FastMCP entry
+    # point this server is built on) — an unbounded `>=1.9` silently pulled 2.0.0
+    # on rebuild and crash-looped the container. Bump the ceiling deliberately
+    # after porting to the 2.x API.
+    "mcp>=1.9,<2",
     # vantage-server (the deterministic engine) is installed editable from
     # ../server by `make setup` — a path dependency kept out of metadata so the
     # package stays relocatable if this project is ever extracted to its own repo.

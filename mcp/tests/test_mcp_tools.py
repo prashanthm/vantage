@@ -91,7 +91,10 @@ def test_flat_input_schemas(mcp):
         assert not tool.inputSchema.get("required")
 
 
-@pytest.mark.parametrize("name", sorted(EXPECTED_TOOLS))
+# spx_playbook now RAISES on a missing/stale intraday row (by design — it must
+# never silently serve yesterday's plan), so it can't be in the blanket
+# provenance sweep on an empty fixture. It gets its own tests below.
+@pytest.mark.parametrize("name", sorted(EXPECTED_TOOLS - {"vantage.spx_playbook"}))
 def test_every_tool_result_has_provenance(mcp, name, data_dir):
     async def interact(client):
         return await client.call_tool(name, {})
@@ -103,6 +106,73 @@ def test_every_tool_result_has_provenance(mcp, name, data_dir):
     assert prov["source_id"] == f"{data_dir}#{dataset}"
     assert payload["source"] == "fixture"
     assert payload["as_of"] == "2026-07-05T09:30:00-04:00"
+
+
+def test_spx_playbook_raises_when_no_intraday_row(mcp):
+    """Empty fixture → the tool surfaces a hard error, NOT a quiet no_playbook."""
+    async def interact(client):
+        return await client.call_tool("vantage.spx_playbook", {})
+
+    result = run_with_client(mcp, interact)
+    assert result.isError
+    assert "no intraday playbook" in result.content[0].text
+
+
+def _sqlite_dir(tmp_path, data_dir):
+    """A SQLite-backed data dir seeded from the JSON fixture — needed because
+    upsert_spx_playbook requires SQLite, and create_mcp() picks SQLite once a
+    vantage.db exists in the dir. Mirrors test_spx_playbook.seeded_dir."""
+    import json
+    from vantage_server.store import Store, _SqliteBackend
+    store = Store.__new__(Store)
+    store.data_dir = tmp_path
+    store._db_path = tmp_path / "vantage.db"
+    store._backend = _SqliteBackend(tmp_path, tmp_path / "vantage.db")
+    accounts = json.loads((data_dir / "accounts.json").read_text())
+    lots = json.loads((data_dir / "lots.json").read_text())
+    quotes = json.loads((data_dir / "quotes.json").read_text())
+    store.upsert_accounts(accounts)
+    store.upsert_lots([a["id"] for a in accounts], lots, mode="replace",
+                      now="2026-07-05T00:00:00+00:00")
+    store.set_quotes(quotes["quotes"], as_of=quotes["as_of"])
+    for name in ("quotes.json", "accounts.json", "lots.json"):
+        (tmp_path / name).write_text((data_dir / name).read_text(), encoding="utf-8")
+    return tmp_path, store
+
+
+def test_spx_playbook_raises_when_intraday_stale(tmp_path, data_dir):
+    """Latest intraday row is for an old date → the no-date (latest) read is
+    stale vs today's ET session → surfaced. (An explicit date with no matching
+    row is 'unavailable' instead — covered by the empty-state test.)"""
+    d, store = _sqlite_dir(tmp_path, data_dir)
+    scaffold = {"symbol": "SPX", "session": "2026-07-07",
+                "level_ladder": [], "setups": []}
+    # 2020 date → guaranteed older than today's ET session, whatever day tests run
+    store.upsert_spx_playbook("2020-01-02", scaffold, symbol="SPX:intraday")
+
+    async def interact(client):
+        return await client.call_tool("vantage.spx_playbook", {})  # latest
+
+    result = run_with_client(create_mcp(d), interact)
+    assert result.isError
+    assert "stale" in result.content[0].text
+
+
+def test_spx_playbook_serves_fresh_intraday_row(tmp_path, data_dir):
+    """A row whose date matches the requested session → served with provenance."""
+    d, store = _sqlite_dir(tmp_path, data_dir)
+    scaffold = {"symbol": "SPX", "session": "2026-07-08",
+                "level_ladder": [{"price": 7414.1, "kind": "volume PoC (magnet)",
+                                  "source": "chart"}], "setups": []}
+    store.upsert_spx_playbook("2026-07-07", scaffold, symbol="SPX:intraday")
+
+    async def interact(client):
+        return await client.call_tool("vantage.spx_playbook", {"date": "2026-07-07"})
+
+    payload = tool_payload(run_with_client(create_mcp(d), interact))
+    assert payload["available"] is True
+    assert payload["playbook"]["date"] == "2026-07-07"
+    assert payload["provenance"]["source_type"] == "vantage"
 
 
 def test_positions_round_trip(mcp):

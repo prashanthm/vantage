@@ -43,12 +43,22 @@ done
 # map automatically. Script fires every 5 min, so gate on the minute bucket.
 MIN=$(TZ=America/New_York date +%M)
 if [ $((10#$MIN % 15)) -lt 5 ]; then
-  OUT=$(curl -s --max-time 90 -X POST "$API/api/spx/playbook/recompute" \
-    -H 'Content-Type: application/json' -d '{"symbol":"SPX"}' || true)
-  OK=$(printf '%s' "$OUT" | python3 -c 'import json,sys
-try: print(json.load(sys.stdin).get("available"))
-except Exception: print("err")' 2>/dev/null || echo "err")
-  echo "[$STAMP] gex/levels recompute SPX -> $OK" >> "$LOG"
+  TODAY_ET=$(TZ=America/New_York date +%F)
+  CODE=$(curl -s -o /tmp/recompute.out -w '%{http_code}' --max-time 90 \
+    -X POST "$API/api/spx/playbook/recompute" \
+    -H 'Content-Type: application/json' -d '{"symbol":"SPX"}')
+  # Success requires BOTH a 2xx AND a row dated today — available=true alone lied
+  # (it fired all day while writing yesterday's date). Verify the date field.
+  DATE=$(python3 -c 'import json,sys
+try: print(json.load(open("/tmp/recompute.out")).get("date"))
+except Exception: print("")' 2>/dev/null)
+  if [ "$CODE" = "200" ] && [ "$DATE" = "$TODAY_ET" ]; then
+    echo "[$STAMP] gex/levels recompute SPX -> OK ($DATE)" >> "$LOG"
+  else
+    # loud, non-swallowed: surfaced to the log the nightly digest reads for
+    # "playbook freshness", and a non-zero marker line for any tail-f watcher.
+    echo "[$STAMP] ERROR gex/levels recompute SPX -> http=$CODE date=$DATE want=$TODAY_ET body=$(head -c 300 /tmp/recompute.out)" >> "$LOG"
+  fi
 fi
 
 # sync broker-account trade history so today's fills (equity + option) reach the

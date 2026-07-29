@@ -710,7 +710,12 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
                             note=f"no intraday bars stored for {sym} yet")
         try:
             built = _snap.build_snapshot(store, day, sym)
-        except Exception:  # never 500 — a symbol without a playbook is normal
+        except Exception:  # never 500 the chart — but a real build FAILURE must
+            # not masquerade as "no data": log it loud so a snapshot bug is
+            # distinguishable from a genuinely absent symbol (silent before).
+            import logging
+            logging.getLogger("vantage").exception(
+                "spx_snapshot build_snapshot failed for %s %s", sym, day)
             built = None
         if not built:
             return envelope(snap, available=False, symbol=sym,
@@ -1744,18 +1749,33 @@ def create_app(data_dir: str | os.PathLike[str] | None = None) -> FastAPI:
         Returns the new ``{scaffold, session, date}``. Body: ``{as_of?:
         'YYYY-MM-DD', symbol?: 'SPX'}``."""
         import datetime as _dt
+        from zoneinfo import ZoneInfo as _Zi
         from . import spx_playbook as _pb
         as_of = (body or {}).get("as_of")
         sym = ((body or {}).get("symbol") or "SPX").upper()
-        # None → build_playbook's ET-clock default (session labeling must not
-        # come from the container date — a pre-close run serves TODAY's session)
-        today = _dt.date.fromisoformat(as_of) if as_of else None
+        # An intraday recompute builds the map FOR the day it runs. build_playbook's
+        # default (_default_asof) rolls a pre-close run back to YESTERDAY — correct
+        # for the nightly after-close job, WRONG here: it filed every mid-day map
+        # under yesterday's date, so the intraday key was perpetually one session
+        # stale. Pin `today` to the current ET date so `generated_for` == today.
+        today = (_dt.date.fromisoformat(as_of) if as_of
+                 else _dt.datetime.now(_Zi("America/New_York")).date())
         scaffold = _pb.build_playbook(today, store=store, underlying=sym)
         # intraday recomputes live under their OWN key — the overnight plan is
         # the plan of record ("forecast held ✓" grades against it) and must
         # never be overwritten by a mid-day refresh.
         store.upsert_spx_playbook(scaffold["generated_for"], scaffold,
                                   symbol=f"{sym}:intraday")
+        # Assert the write landed under today — a wrong-dated row is the bug this
+        # endpoint has silently produced; fail loud instead of returning a lying
+        # available=True. (This date class has now bitten twice: 07-14, 07-28.)
+        want = today.isoformat()
+        if str(scaffold.get("generated_for")) != want:
+            raise HTTPException(
+                status_code=500,
+                detail=f"{sym} intraday recompute wrote wrong date: "
+                       f"generated_for={scaffold.get('generated_for')!r}, "
+                       f"expected {want!r}")
         snap = state.snapshot()
         return envelope(snap, available=True, date=scaffold["generated_for"],
                         symbol=sym, session=scaffold["session"], scaffold=scaffold)

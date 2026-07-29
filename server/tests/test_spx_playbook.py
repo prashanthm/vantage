@@ -545,9 +545,12 @@ def test_recompute_route_regenerates_and_stores(seeded_dir, sentinel_dir, monkey
     body = r.json()
     assert body["available"] is True
     assert body["date"] == "2026-07-07"
-    # it persisted — a subsequent GET serves it
-    got = store.load_spx_playbook("2026-07-07")
+    # it persisted under the INTRADAY key (recompute never touches the overnight
+    # plan of record) — a subsequent read of SPX:intraday serves it
+    got = store.load_spx_playbook("2026-07-07", symbol="SPX:intraday")
     assert got is not None and got["scaffold"]["symbol"] == "SPX"
+    # the overnight `SPX` key is left untouched by an intraday recompute
+    assert store.load_spx_playbook("2026-07-07", symbol="SPX") is None
 
 
 # ------------------------------------------------- as-of / session labeling

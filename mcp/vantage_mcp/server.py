@@ -37,6 +37,25 @@ MCP_PATH = os.environ.get("MCP_PATH", "/mcp")
 _READ_ONLY = ToolAnnotations(readOnlyHint=True)
 
 
+class PlaybookUnavailable(RuntimeError):
+    """No intraday playbook row exists — the ~15m recompute has not landed one.
+    Surfaced to the caller (Mira) as a hard tool error, never a quiet empty."""
+
+
+class PlaybookStale(RuntimeError):
+    """The freshest intraday playbook row is for the wrong (older) session —
+    the recompute wrote a wrong-dated row. Surfaced, never silently served."""
+
+
+def _current_session_et() -> str:
+    """Today's ET trading date (the day an intraday map must be labelled for).
+    Matches the UI's freshness key (api.py `/api/spx/snapshot`): the intraday
+    row's ``date`` must equal this."""
+    import datetime as _dt
+    from zoneinfo import ZoneInfo
+    return _dt.datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+
+
 def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
     store = Store(data_dir)
     dataset = store.load_dataset()
@@ -618,13 +637,35 @@ def create_mcp(data_dir: str | os.PathLike[str] | None = None) -> FastMCP:
                     "[{price,kind,source}], setups:[{trigger,bias,structure,levels}], "
                     "catalysts, opex, edges, caveats}, narrative}. Every setup is "
                     "CONDITIONAL on a real level. Context, not a signal (ADR-008); "
-                    "the GEX read is 0DTE-blind. no_playbook=true when none generated.",
+                    "the GEX read is 0DTE-blind. Serves the LIVE intraday map "
+                    "(`SPX:intraday`, rebuilt every ~15m at live spot) — NOT the "
+                    "overnight plan; raises PlaybookStale if the freshest stored "
+                    "session isn't the current one (never silently serves "
+                    "yesterday's levels).",
     )
     def spx_playbook(date: str | None = None, symbol: str = "SPX") -> dict:
         snap = snapshot()
-        row = store.load_spx_playbook(date, symbol=(symbol or "SPX").upper())
-        return envelope("spx_playbook", snap, available=row is not None,
-                        playbook=row, no_playbook=row is None)
+        sym = (symbol or "SPX").upper()
+        # Intraday-ONLY read. No fallback to the overnight `SPX` key — a fallback
+        # would silently serve yesterday's plan on exactly the days the intraday
+        # write is broken (the stale-label bug), which is what we must surface.
+        row = store.load_spx_playbook(date, symbol=f"{sym}:intraday")
+        if row is None:
+            raise PlaybookUnavailable(
+                f"no intraday playbook stored for {sym}"
+                + (f" on {date}" if date else "")
+                + " — the ~15m recompute has not landed a row")
+        # Freshness gate keyed on the row's `date` (the day the map is FOR) —
+        # same key the UI uses (api.py /api/spx/snapshot). Must equal the caller's
+        # explicit date, or today's ET session when date is omitted.
+        served = str(row.get("date") or "")
+        want = date or _current_session_et()
+        if served != want:
+            raise PlaybookStale(
+                f"{sym} intraday playbook is stale: served date {served!r}, "
+                f"expected {want!r} — recompute wrote a wrong-dated row")
+        return envelope("spx_playbook", snap, available=True,
+                        playbook=row, no_playbook=False)
 
     @mcp.tool(
         name="vantage.analysis",
