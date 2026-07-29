@@ -17,6 +17,14 @@ import datetime as _dt
 
 CONTRACTS = 4          # ×4 so the 50/25/25 ladder is whole (2/1/1)
 DEBIT_FRAC = 0.5       # modeled debit ≈ half the spread width (no live chain)
+#: Marketable cushion above mid for the entry limit. A debit spread is a NET BUY,
+#: so a limit AT mid only fills if the market comes to you — it mostly didn't
+#: (day limits expired unfilled: breakout_hold filled 17%, all-time 42%). Pay a
+#: little toward the natural/ask: limit = mid × (1 + frac), capped at +$0.10/spread
+#: so a wide spread doesn't overpay. ponytail: flat cushion; switch to a live
+#: bid/ask-derived cross if fills still lag.
+ENTRY_CUSHION_FRAC = 0.05   # +5% over mid
+ENTRY_CUSHION_CAP = 0.10    # but never more than $0.10 (per 1-lot spread)
 TARGET_DTE = 35        # aim ~35 days out for a swing spread; roll to the 3rd Friday
 #: max debit risk per CONTRACT (debit × 100). A GATE, not a sizer — the exit
 #: ladder needs ×4 contracts, so a spread that costs more than this per
@@ -271,12 +279,15 @@ def alpaca_order(spread: dict, today: _dt.date | None = None) -> dict | None:
     short_sym = occ_symbol(und, exp, right, spread["short_strike"])
     n = int(spread.get("contracts") or CONTRACTS)
     debit = float(spread.get("est_debit") or 0)
+    # Cross toward the ask: a limit AT mid rarely fills a multi-leg debit spread.
+    # Pay mid + min(5%, $0.10) so real day-limits get hit instead of expiring.
+    limit = debit + min(debit * ENTRY_CUSHION_FRAC, ENTRY_CUSHION_CAP) if debit else 0
     return {
         "symbol": und,                     # underlying (informational; legs carry the contracts)
         "side": "buy",                     # net debit paid → buy the spread
         "qty": n,
         "type": "limit",
-        "limit_price": round(debit, 2) or None,
+        "limit_price": round(limit, 2) or None,
         "time_in_force": "day",
         "est_usd": round(debit * n * 100, 2),   # debit × contracts × 100
         "expiration": exp.isoformat(),
@@ -334,6 +345,12 @@ def _demo() -> None:
     assert o["legs"][0]["position_intent"] == "buy_to_open"   # long leg
     assert o["legs"][1]["position_intent"] == "sell_to_open"  # short leg
     assert o["legs"][0]["symbol"].startswith("AMAT") and "C" in o["legs"][0]["symbol"]
+    # entry limit crosses toward the ask: mid + min(5%, $0.10). AMAT debit=25.0 →
+    # 5% would be $1.25, capped at +$0.10 → limit 25.10 (not 25.0).
+    assert o["limit_price"] == 25.10, o["limit_price"]
+    # a cheap spread stays on the 5% branch: debit 0.40 → +$0.02 → 0.42
+    cheap = dict(s, est_debit=0.40)
+    assert alpaca_order(cheap, today=_dt.date(2026, 1, 1))["limit_price"] == 0.42
     assert alpaca_order({"structure": "not_a_spread"}) is None
 
     print("scanner_spread self-check OK")

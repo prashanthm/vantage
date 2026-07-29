@@ -11,8 +11,23 @@
     <key>TZ</key><string>America/New_York</string>
     <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
   </dict>
-  <!-- hourly; the script self-gates to RTH (Mon-Fri 09:30-16:00 ET) -->
-  <key>StartInterval</key><integer>3600</integer>
+  <!-- Fixed calendar ticks (TZ=America/New_York) — NOT StartInterval. An hourly
+       interval drifts by load time and structurally missed rsi2_mr's 15:30-16:00
+       window every day (it fires 15:30 only via its own gate, and no interval
+       tick landed there). Pinned minutes guarantee a tick inside RTH each hour,
+       AND a dedicated 15:45 tick so the daily-close rsi2_mr scan always runs.
+       The script still self-gates to RTH, so these are no-ops off-hours. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Hour</key><integer>9</integer><key>Minute</key><integer>45</integer></dict>
+    <dict><key>Hour</key><integer>10</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>12</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>13</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>14</integer><key>Minute</key><integer>30</integer></dict>
+    <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>0</integer></dict>
+    <dict><key>Hour</key><integer>15</integer><key>Minute</key><integer>45</integer></dict>
+  </array>
   <key>StandardOutPath</key><string>/Users/pmuniraju/personal/vantage/logs/scanner-cron.log</string>
   <key>StandardErrorPath</key><string>/Users/pmuniraju/personal/vantage/logs/scanner-cron.log</string>
 </dict>
