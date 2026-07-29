@@ -251,7 +251,8 @@ def test_rsi2_detector_and_shares_arm(tmp_path, monkeypatch):
     assert n == 1
     row = store.load_paper_trades(status="open", book="scanner-shares")[0]
     assert row["setup"] == "rsi2_mr" and row["spy_target"] is None
-    assert row["shares"] == round(5000 / 155.0)
+    # rsi2_mr sizes at its per-strategy $1,200 notional (holds the cluster), not $5k
+    assert row["shares"] == round(scanner.shares_notional("rsi2_mr") / 155.0)
     # dedup: same (symbol, strategy) doesn't double-arm while open
     assert scanner.arm_scanner_shares(store, {"scanner": "rsi2_mr",
                                               "hits": [dict(s)]}) == 0
@@ -283,13 +284,14 @@ def test_per_strategy_allocation_caps_arms(tmp_path, monkeypatch):
     family spends only ITS slice (strongest-first) and cannot starve the
     others' allocations."""
     store = _sqlite_store(tmp_path)
-    monkeypatch.setattr(scanner, "SCANNER_BUDGET_USD", 30_000.0)   # 3 × $10k slices
+    # 3 × $3.6k slices; rsi2's $1,200 notional → exactly 3 arms fit, capping 5 hits
+    monkeypatch.setattr(scanner, "SCANNER_BUDGET_USD", 10_800.0)
     hits = [{"tier": "A+", "present": True, "symbol": f"S{i}", "ce": 100.0,
              "as_of": "2026-07-24", "rsi2": float(i)} for i in range(5)]
     n = scanner.arm_scanner_shares(store, {"scanner": "rsi2_mr", "hits": hits})
-    assert n == 2                                    # 2 × $5k fills rsi2's $10k slice
+    assert n == 3                                    # 3 × $1.2k fills rsi2's $3.6k slice
     got = {r["symbol"] for r in store.load_paper_trades(status="open", book="scanner-shares")}
-    assert got == {"S0", "S1"}                       # deepest RSI(2) first
+    assert got == {"S0", "S1", "S2"}                 # deepest RSI(2) first
     # breakout_hold's OWN slice is untouched — its arm still goes through
     monkeypatch.setattr(scanner, "_alpaca_paper_creds", lambda: False)
     monkeypatch.setattr(scanner_spread, "snap_to_chain",

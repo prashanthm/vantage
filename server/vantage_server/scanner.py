@@ -447,6 +447,20 @@ SHARES_EXIT_SPECS = {"rsi2_mr": {"exit_ma": 5, "max_sessions": 5}}
 
 #: notional per shares paper position (sizing is fixed-dollar, not fixed-shares)
 SHARES_NOTIONAL_USD = 5000.0
+#: Per-strategy share notional. rsi2_mr is a MANY-small-positions mean-reversion
+#: strategy — it fires 20-30 A+ hits on a cluster day, but a $5k notional in its
+#: ~$33k slice caps it at 7 positions, silently dropping ~22 (the 07-24 "28
+#: skipped — budget exhausted"). Diversifying across the cluster IS the edge, so
+#: size it small enough to hold them: $33k / ~28 ≈ $1,200. ict_htf/breakout_hold
+#: run few concentrated positions → keep the $5k default.
+#: ponytail: flat per-strategy notional; make it slice/target-count if a family's
+#: hit-count drifts.
+STRATEGY_SHARES_NOTIONAL = {"rsi2_mr": 1200.0}
+
+
+def shares_notional(strategy: str) -> float:
+    """Per-position $ notional for a shares-book strategy (default $5k)."""
+    return STRATEGY_SHARES_NOTIONAL.get(strategy, SHARES_NOTIONAL_USD)
 
 #: the Alpaca PAPER account is $100k (user-set) — split ACROSS strategies by
 #: weight, so one family's cluster day can never starve the others. Equal
@@ -492,6 +506,7 @@ def arm_scanner_shares(store, scan_result: dict) -> int:
                  for r in store.load_paper_trades(status="open", book="scanner-shares")}
     now = _dt.datetime.now(_dt.timezone.utc).isoformat()
     budget = strategy_budget(strategy) - _strategy_open_exposure(store, strategy)
+    notional = shares_notional(strategy)
     logged = skipped_budget = 0
     # strongest signal first on cluster days (deepest RSI(2) dip), so the
     # budget goes to the best setups, not alphabetical luck
@@ -503,11 +518,11 @@ def arm_scanner_shares(store, scan_result: dict) -> int:
         sym, px = hit.get("symbol"), hit.get("ce")
         if not sym or not px or (sym, strategy) in open_keys:
             continue
-        if budget < SHARES_NOTIONAL_USD:
+        if budget < notional:
             skipped_budget += 1
             continue
-        budget -= SHARES_NOTIONAL_USD
-        shares = max(1, round(SHARES_NOTIONAL_USD / float(px)))
+        budget -= notional
+        shares = max(1, round(notional / float(px)))
         # mirror the position at the broker: real Alpaca-paper equity fill
         from .scanner_exec import submit_paper_equity
         bf = submit_paper_equity(sym, "buy", shares, f"scanner-{strategy}") or {}
@@ -520,7 +535,7 @@ def arm_scanner_shares(store, scan_result: dict) -> int:
             "source": "scanner-auto", "setup": strategy,
             "book": "scanner-shares", "underlying": sym,
             "status": "open", "fill_status": "filled", "filled_at": now,
-            "opened_price_src": f"scanner A+ ({strategy}) · ${SHARES_NOTIONAL_USD:.0f} notional sim",
+            "opened_price_src": f"scanner A+ ({strategy}) · ${notional:.0f} notional sim",
         })
         open_keys.add((sym, strategy))
         logged += 1
